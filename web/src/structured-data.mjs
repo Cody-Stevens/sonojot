@@ -44,6 +44,7 @@ export function homeStructuredData(version) {
         description:
           "Free, open-source dictation and meeting transcription for Windows and macOS. Speech recognition runs on your own computer.",
         url: home,
+        sameAs: [site.repoUrl],
         image: new URL("/brand/app-icon-512.png", site.origin).href,
         screenshot: new URL("/shots/app-dictation-demo-fog.webp", site.origin).href,
         operatingSystem: "Windows, macOS",
