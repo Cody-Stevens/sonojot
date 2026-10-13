@@ -1,6 +1,6 @@
 # SonoJot Privacy Notice
 
-Version: 1 · Effective October 12, 2026
+Version: 1 · Effective October 13, 2026
 
 ## Summary
 
@@ -18,7 +18,7 @@ SonoJot is a free, open-source dictation and meeting-transcription app for Windo
 
 ## 1. Who we are and what this covers
 
-Cody Stevens Studio LLC, a Texas limited liability company, makes SonoJot. This notice covers the SonoJot desktop app and the two web resources the app uses on sonojot.com: the OpenRouter sign-in relay page and the model-recommendations file. It also covers visits to the sonojot.com website, which has no analytics, cookies, or tracking.
+Cody Stevens Studio LLC, a Texas limited liability company, makes SonoJot. This notice covers the SonoJot desktop app and the two web resources the app uses on sonojot.com: the OpenRouter sign-in relay page and the model-recommendations file. It also covers visits to the sonojot.com website, which sets no cookies, has no advertising, and counts visits with Cloudflare Web Analytics as described in section 4.
 
 ## 2. What SonoJot stores on your computer
 
@@ -73,6 +73,7 @@ If your content includes other people's voices or words, make sure you have thei
 - **No content.** The Studio does not receive your recordings, dictations, transcripts, notes, vocabulary, settings, diagnostics, crash dumps, or OpenRouter key.
 - **No accounts, analytics, or telemetry.** SonoJot has no sign-in with the Studio and contains no analytics, advertising, or crash-reporting service.
 - **Request data held by Cloudflare.** Cloudflare hosts `releases.sonojot.com` and `sonojot.com` and processes request information such as IP address, time, requested file, and user agent to deliver files and protect its network. The Studio sees only the aggregate traffic statistics Cloudflare provides for these hosts, such as request counts by country and file. The Studio does not keep request logs and does not use this information to identify individual users. Cloudflare's own privacy policy governs the request data it processes.
+- **Website visit counts.** The sonojot.com website, but not the SonoJot app, uses Cloudflare Web Analytics. When a page loads, a small script reports the page address, the referring site, load times, and your browser, operating system, device type, and country. It sets no cookies, stores nothing on your device, and does not use your IP address to identify you or follow you across sites. The Studio sees only aggregate counts, such as page views by page and country.
 - **Hugging Face statistics.** For models the Studio publishes on Hugging Face, such as the SonoJot punctuation models, Hugging Face may show the Studio aggregate download counts.
 - **Messages you send us.** If you email us, we receive your email address and whatever you include, and we use them to reply. If you open an issue on GitHub, it is public, and GitHub's privacy policy applies to it.
 
@@ -99,6 +100,7 @@ SonoJot verifies the checksum of every model and tool it downloads against a pin
 | Diagnostics log | Your computer | Size-limited; older entries are replaced |
 | Update packages | Memory | Discarded if SonoJot quits without installing |
 | Cloudflare request data | Cloudflare | Under Cloudflare's policies; the Studio sees aggregate statistics only |
+| Website visit counts | Cloudflare | Under Cloudflare's policies; the Studio sees aggregate counts only |
 | Content sent to OpenRouter | OpenRouter and model providers | Under their policies and your OpenRouter settings |
 | Support email | Studio mailbox | As long as needed to help you, and no more than two years after the conversation ends |
 
@@ -132,6 +134,6 @@ Each version of this notice has a date. If we make a material change, we will po
 
 - Email: support@sonojot.com
 - Public issues (not for personal information): https://github.com/Cody-Stevens/sonojot/issues
-- Legal notices: Cody Stevens Studio LLC, c/o its registered agent, 5900 Balcones Drive STE 100, Austin, Texas 78731
+- Legal notices: Cody Stevens Studio LLC, 5900 Balcones Drive #30714, Austin, Texas 78731
 
 Cody Stevens Studio LLC, a Texas limited liability company.

@@ -1,7 +1,7 @@
 # SonoJot Terms of Use
 
 
-**Terms version 1** · Effective October 12, 2026
+**Terms version 1** · Effective October 13, 2026
 
 SonoJot is free, open-source dictation and meeting-transcription software for Windows and macOS. Cody Stevens Studio LLC, a Texas limited liability company (the "Studio", "we", "us"), makes it. These terms are short. Please read sections 4 to 6 in particular.
 
@@ -67,7 +67,7 @@ SonoJot checks the Studio's update service automatically, shortly after it start
 
 ## 11. Your data
 
-SonoJot keeps your recordings, transcripts, and text on your computer. The Studio does not operate accounts and does not collect telemetry, analytics, or your content. The [Privacy Notice](https://sonojot.com/privacy) explains the network connections SonoJot makes. If the Studio ever offers a way to contribute data to improve SonoJot's models, it will be opt-in and announced separately.
+SonoJot keeps your recordings, transcripts, and text on your computer. The app has no accounts and collects no telemetry, analytics, or content. The [Privacy Notice](https://sonojot.com/privacy) explains the network connections SonoJot makes. If the Studio ever offers a way to contribute data to improve SonoJot's models, it will be opt-in and announced separately.
 
 ## 12. No warranty
 
@@ -115,6 +115,6 @@ Contact:
 
 - Email: **support@sonojot.com**
 - Report a bug or ask a question: open an issue at **https://github.com/Cody-Stevens/sonojot/issues**. Issues are public. Do not post recordings, transcripts, personal information, or your OpenRouter key.
-- Legal notices: Cody Stevens Studio LLC, c/o its registered agent, 5900 Balcones Drive STE 100, Austin, Texas 78731. Please email first; we answer email faster.
+- Legal notices: Cody Stevens Studio LLC, 5900 Balcones Drive #30714, Austin, Texas 78731. Please email first; we answer email faster.
 
 Cody Stevens Studio LLC, a Texas limited liability company.

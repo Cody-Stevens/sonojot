@@ -27,8 +27,9 @@ const style = width ? `width:${width}` : undefined;
   class:list={["sono-mark", lockup && "sono-mark--lockup", extra]}
   data-ink={ink}
   style={style}
-  role="img"
-  aria-label={label}
+  role={label ? "img" : undefined}
+  aria-label={label || undefined}
+  aria-hidden={label ? undefined : "true"}
 >
   <img class="pine" src={pine} alt="" draggable="false" width={lockup ? 2400 : 1024} height={lockup ? 650 : 1024} />
   <img class="white" src={white} alt="" draggable="false" width={lockup ? 2400 : 1024} height={lockup ? 650 : 1024} />

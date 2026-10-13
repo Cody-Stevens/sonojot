@@ -2,7 +2,7 @@
 const repo = "Cody-Stevens/sonojot";
 export const site = {
   name: "SonoJot",
-  titleLine: "Local Dictation App",
+  titleLine: "Free Local Dictation App for Windows and Mac",
   origin: "https://sonojot.com",
   repo,
   repoUrl: `https://github.com/${repo}`,

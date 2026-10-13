@@ -7,9 +7,13 @@ import Meetings from "../components/Meetings.astro";
 import Local from "../components/Local.astro";
 import Install from "../components/Install.astro";
 import Footer from "../components/Footer.astro";
+import { homeStructuredData, jsonLd, latestVersion } from "../structured-data.mjs";
+
+const structuredData = jsonLd(homeStructuredData(await latestVersion()));
 ---
 
-<Base description="SonoJot is a desktop dictation and meeting recorder. Press a key, speak, and the finished text lands where you were already typing. Speech recognition runs on your own machine.">
+<Base description="Free, open-source dictation and meeting transcription for Windows and Mac. Press a key, speak, and text appears at your cursor. Speech to text runs offline.">
+  <script slot="head" type="application/ld+json" is:inline set:html={structuredData} />
   <Nav />
   <main id="main">
     <Hero />

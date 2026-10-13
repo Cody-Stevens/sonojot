@@ -1,6 +1,6 @@
 [package]
 name = "sonojot"
-version = "0.26.0"
+version = "0.27.0"
 description = "Private local dictation and meetings"
 authors = ["Cody Stevens Studio"]
 license = "Apache-2.0"

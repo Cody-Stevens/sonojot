@@ -8,7 +8,12 @@ export default defineConfig({
   site: site.origin,
   output: "static",
   trailingSlash: "never",
-  integrations: [sitemap()],
+  // Only real pages: never the developer labs or the not-found page.
+  integrations: [
+    sitemap({
+      filter: (page) => !/\/(dev|404)(\/|$)/.test(new URL(page).pathname),
+    }),
+  ],
   build: {
     inlineStylesheets: "always",
   },

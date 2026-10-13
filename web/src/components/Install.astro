@@ -7,7 +7,7 @@ import { site, platforms } from "../site.config.mjs";
 <Section
   id="install"
   title="Install."
-  lede="Download SonoJot for Windows or macOS on Apple Silicon."
+  lede="Download the SonoJot dictation app for Windows or macOS on Apple Silicon."
 >
   <div class="rack">
     {
@@ -29,7 +29,7 @@ import { site, platforms } from "../site.config.mjs";
             </header>
 
             {released ? (
-              <a class="action action--ink slab-action" href={href} download>
+              <a class="action action--ink slab-action" href={href} download aria-label={`Download SonoJot for ${platform.name}`}>
                 <Icon name="download" size={17} stroke={1.6} />
                 Download
               </a>

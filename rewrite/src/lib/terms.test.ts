@@ -52,7 +52,7 @@ test("bundled terms and native capture gate share the UI terms version", () => {
   );
   assert.match(terms, new RegExp(`^Version: ${TERMS_VERSION}$`, "m"));
   assert.doesNotMatch(terms, /DRAFT|placeholder|Notes for counsel/);
-  assert.match(terms, /Effective October 12, 2026/);
+  assert.match(terms, /Effective October 13, 2026/);
   assert.match(
     native,
     new RegExp(`pub\\(crate\\) const TERMS_VERSION: u32 = ${TERMS_VERSION};`),
