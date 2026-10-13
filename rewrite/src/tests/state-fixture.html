@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>Command ordering fixture</title>
+  <body>
+    <script type="module">
+      import { AppState } from "../lib/app.svelte.ts";
+      window.fixture = new AppState();
+      window.fixture.ready = true;
+    </script>
+  </body>
+</html>

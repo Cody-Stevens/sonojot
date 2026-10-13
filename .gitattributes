@@ -1,0 +1,15 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+web/public/install.sh text eol=lf
+
+# Frozen evaluation inputs are hashed byte-for-byte; keep LF on every platform.
+rewrite/evaluation/fixtures/** text eol=lf
+rewrite/evaluation/prompts/** text eol=lf
+
+# License evidence and generated notices preserve upstream bytes, including
+# mixed line endings. Git must not change the bytes identified by their hashes.
+rewrite/licenses/** -text
+rewrite/THIRD_PARTY_NOTICES.md -text
+rewrite/scripts/generate_notices.py text eol=lf
+rewrite/scripts/test_generate_notices.py text eol=lf
+rewrite/scripts/build_ffmpeg_lgpl_macos.sh text eol=lf

@@ -1,0 +1,264 @@
+# Environment variables
+.env
+.env.*
+*.env
+
+# Build results
+# Staged, signed SonoJot release artifacts
+/rewrite/release/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio cache/options
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Build outputs
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.tlog
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# NuGet Packages
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Visual Studio profiler
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# ReSharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# TeamCity
+_TeamCity*
+
+# DotCover
+*.dotCover
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# Installshield
+[Ee]xpress/
+DocProject/buildhelp/
+DocProject/Help/*.HxT
+DocProject/Help/*.HxC
+DocProject/Help/*.hhc
+DocProject/Help/*.hhk
+DocProject/Help/*.hhp
+DocProject/Help/Html2
+DocProject/Help/html
+
+# Publish Web Output
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+
+# Microsoft Azure Web App publish settings
+PublishScripts/
+
+# Windows image file caches
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+
+# Windows Installer files
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Windows shortcuts
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# User-specific files
+*.rsuser
+
+# Backup & report files
+_UpgradeReport_Files/
+Backup*/
+UpgradeLog*.XML
+UpgradeLog*.htm
+ServiceFabricBackup/
+*.rptproj.bak
+
+# SQL Server files
+*.mdf
+*.ldf
+*.ndf
+
+# Database local data
+*.sdf
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+orleans.codegen.cs
+
+# Azure Stream Analytics local run output
+ASALocalRun/
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUnit
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+# Click-Once directory
+publish/
+
+# Others
+*.Cache
+ClientBin/
+~$*
+*~
+*.swp
+*.bak
+*.orig
+Generated_Code/
+_Pvt_Extensions/
+ModelManifest.xml
+*.GhostDoc.xml
+.paket/paket.exe
+paket-files/
+
+# Python (if using Python tools)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+
+# Node (if using any Node.js tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local configuration files that might contain secrets
+appsettings.local.json
+appsettings.*.local.json
+secrets.json
+config.local.json
+# Large model files (too big for GitHub's 100MB limit)
+models/
+*.bin
+*.ggml
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.nemo
+
+# NeMo/Hugging Face cache (Nemotron models download here)
+.cache/
+~/.cache/huggingface/
+~/.cache/torch/
+~/.nemo/
+# License signing keys (never commit)
+keys/
+
+# Runtime diagnostic logs (machine-local telemetry)
+diagnostics/*.jsonl
+
+# Rust CLI sources are not C# build output.
+!rewrite/src-tauri/src/bin/
+!rewrite/src-tauri/src/bin/*.rs
+
+# Public-source privacy boundary
+/config.json
+/test-license-key.txt
+/diagnostics/
+/docs/diagnostics/
+/docs/footer-trend/
+*-private.pem
+*.p8
+*.p12
+*.key
+node_modules/
+web/dist*/
+rewrite/dist/
+**/.venv*/
+**/test_logs/
+**/scratch/
+**/runs/
+**/.astro/
+**/.wrangler/
+# Public Rust CLI source is not build output.
+!rewrite/src-tauri/src/bin/
+!rewrite/src-tauri/src/bin/*.rs

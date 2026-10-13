@@ -1,0 +1,23 @@
+Qwen3-ASR-1.7B — sherpa-onnx fp16 export
+========================================
+
+This work is a derivative of:
+
+    Qwen3-ASR-1.7B
+    Copyright (c) Alibaba Group / Qwen Team
+    https://huggingface.co/Qwen/Qwen3-ASR-1.7B
+    Licensed under the Apache License, Version 2.0.
+
+Modifications made to the original work:
+
+  - Exported the PyTorch checkpoint to ONNX (conv_frontend, encoder, decoder graphs) using the
+    pipeline at https://github.com/Wasser1462/Qwen3-ASR-onnx.
+  - Converted the encoder and decoder graphs from fp32 to fp16 using
+    onnxruntime.transformers.optimizer (model_type="qwen3") to fuse RMSNorm/attention ops,
+    followed by OnnxModel.convert_float_to_float16(keep_io_types=True).
+  - Packaged the resulting files for sherpa-onnx (OfflineRecognizer.from_qwen3_asr).
+  - The tokenizer directory is copied unchanged from the base checkpoint.
+
+No fine-tuning or weight modification was performed other than the fp32->fp16 cast.
+
+The Apache-2.0 license text is provided in the accompanying LICENSE file.

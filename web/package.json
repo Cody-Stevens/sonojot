@@ -1,0 +1,23 @@
+{
+  "name": "sonojot-site",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Landing page for SonoJot",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "deploy": "astro build && wrangler deploy",
+    "deploy:preview": "astro build && wrangler versions upload"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.0",
+    "astro": "^5.16.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.131.1"
+  },
+  "license": "Apache-2.0"
+}

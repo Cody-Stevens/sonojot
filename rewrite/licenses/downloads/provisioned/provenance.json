@@ -1,0 +1,124 @@
+{
+  "sourceManifest": "models/rewrite/manifest.json",
+  "sourceManifestSha256": "8156240d2c4482d0f04187c674dfc69622e7c4450f1a0dfdcf511c0496dc17fa",
+  "verification": "The retained provisioning manifest matches sourceManifestSha256 in the application model-identities.json. This is a filtered provenance extract, not a byte-identical copy of that manifest.",
+  "archives": [
+    {
+      "url": "https://github.com/moonshine-ai/moonshine/releases/download/v0.1.5/moonshine-voice-windows-x86_64.tar.gz",
+      "bytes": 26109939,
+      "sha256": "97c1987e8e1cd77bb5fe3b12ce5aad5172637107e1dfda112ea9b21bac8f4b65",
+      "expected_sha256": "97c1987e8e1cd77bb5fe3b12ce5aad5172637107e1dfda112ea9b21bac8f4b65",
+      "expected_size": 26109939,
+      "sha256_ok": true,
+      "size_ok": true
+    },
+    {
+      "url": "https://github.com/moonshine-ai/moonshine/releases/download/v0.1.5/cpp-examples.tar.gz",
+      "bytes": 6659,
+      "sha256": "89d77df2cebf94bdd285d3ec78dee0cff970a9134b1c8e2f2114245c706888cd",
+      "expected_sha256": "89d77df2cebf94bdd285d3ec78dee0cff970a9134b1c8e2f2114245c706888cd",
+      "expected_size": 6659,
+      "sha256_ok": true,
+      "size_ok": true
+    },
+    {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10900/llama-b10900-bin-win-cpu-x64.zip",
+      "bytes": 18423427,
+      "sha256": "47f6fe584bc8a6510c00f40ed103ec43db66a52f4eee23126b8379c9028fd107",
+      "expected_sha256": "47f6fe584bc8a6510c00f40ed103ec43db66a52f4eee23126b8379c9028fd107",
+      "expected_size": 18423427,
+      "sha256_ok": true,
+      "size_ok": true
+    },
+    {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10900/llama-b10900-bin-win-cuda-13.3-x64.zip",
+      "bytes": 149706788,
+      "sha256": "cfe8907824377743c46e63de0d1ec07660dec9be69b5824af7bf1101fc536e5a",
+      "expected_sha256": "cfe8907824377743c46e63de0d1ec07660dec9be69b5824af7bf1101fc536e5a",
+      "expected_size": 149706788,
+      "sha256_ok": true,
+      "size_ok": true
+    },
+    {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10900/cudart-llama-bin-win-cuda-13.3-x64.zip",
+      "bytes": 390970417,
+      "sha256": "1462a050eb4c684921ba51dcc4cc488a036674c3e73e9945ee705b854808d03e",
+      "expected_sha256": "1462a050eb4c684921ba51dcc4cc488a036674c3e73e9945ee705b854808d03e",
+      "expected_size": 390970417,
+      "sha256_ok": true,
+      "size_ok": true
+    }
+  ],
+  "licenseFiles": [
+    {
+      "path": "llama.cpp/LICENSE",
+      "bytes": 1078,
+      "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+      "evidenceFile": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d.txt"
+    },
+    {
+      "path": "llama.cpp/models/LICENSE-LFM2.5-1.2B-Instruct-GGUF",
+      "bytes": 10596,
+      "sha256": "5188f2b355da20647257a3156db5834c794e5fb5e6d8dc4d4cdbb3180e75b85b",
+      "evidenceFile": "5188f2b355da20647257a3156db5834c794e5fb5e6d8dc4d4cdbb3180e75b85b.txt"
+    },
+    {
+      "path": "llama.cpp/runtime/win-x64-cpu/LICENSE-LLVM-OpenMP",
+      "bytes": 19741,
+      "sha256": "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4",
+      "evidenceFile": "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4.txt"
+    },
+    {
+      "path": "llama.cpp/runtime/win-x64-cuda-13.3/LICENSE-LLVM-OpenMP",
+      "bytes": 19741,
+      "sha256": "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4",
+      "evidenceFile": "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4.txt"
+    },
+    {
+      "path": "moonshine/LICENSE",
+      "bytes": 14180,
+      "sha256": "fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f",
+      "evidenceFile": "fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f.txt"
+    }
+  ],
+  "binaryMetadata": [
+    {
+      "path": "moonshine/runtime/win-x64/lib/onnxruntime.dll",
+      "sha256": "dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea",
+      "productVersion": "1.23.20251021.3.a83fc4d"
+    },
+    {
+      "path": "llama.cpp/runtime/win-x64-cpu/libomp.dll",
+      "sha256": "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c",
+      "productVersion": "5.0",
+      "fileVersion": "20140926",
+      "limitation": "PE metadata is not sufficient to identify the LLVM source revision."
+    }
+  ],
+  "onnxRuntimeSourceRevision": "a83fc4d58cb48eb68890dd689f94f28288cf2278",
+  "upstreamTexts": [
+    {
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/a83fc4d58cb48eb68890dd689f94f28288cf2278/LICENSE",
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+      "file": "onnxruntime-moonshine-LICENSE.txt"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/a83fc4d58cb48eb68890dd689f94f28288cf2278/ThirdPartyNotices.txt",
+      "sha256": "e9e90971a8e75a9a8ac0c6412e29c1202d079998389915aa485f46c816c3b4cc",
+      "file": "onnxruntime-moonshine-ThirdPartyNotices.txt.txt"
+    }
+  ],
+  "installedFfmpegObservation": {
+    "limitation": "Observed installed tree whose PROVENANCE records the application-pinned archive SHA256; the complete archive was not rehashed in this observation.",
+    "files": [
+      {
+        "file": "ffmpeg-windows-LICENSE.txt",
+        "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+      },
+      {
+        "file": "ffmpeg-windows-PROVENANCE.txt",
+        "sha256": "00b3112303870668177402a716245bcbce689130484763d97da9acbd574bca9d"
+      }
+    ]
+  }
+}

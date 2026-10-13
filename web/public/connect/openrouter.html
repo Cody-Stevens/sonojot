@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SonoJot — OpenRouter sign-in</title>
+    <meta property="og:title" content="SonoJot" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+    />
+    <!--
+      OpenRouter OAuth relay. The app sends the browser here with only the
+      loopback port and a single-use state; this page validates them and makes
+      one top-level navigation to http://localhost:<port>/openrouter/<state>
+      ?code=<code>. The PKCE verifier never leaves the app and is never part
+      of this URL. Contract: web/connect-openrouter.md.
+    -->
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #34432e;
+        --soft: #5c6353;
+        --paper: #f7f4ea;
+        --card: #fdfbf4;
+        --edge: #d0c6b3;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+        font-size: 18px;
+        line-height: 1.5;
+      }
+      main {
+        width: min(26rem, calc(100vw - 2rem));
+        background: var(--card);
+        border: 1px solid var(--edge);
+        border-radius: 12px;
+        box-shadow: 0 1px 0 var(--edge), 1px 4px 8px -4px #554b3355;
+        padding: 2rem;
+        text-align: center;
+      }
+      img {
+        width: 3rem;
+        height: 3rem;
+      }
+      h1 {
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin: 0.5rem 0 0.75rem;
+      }
+      p {
+        margin: 0 0 1.25rem;
+        color: var(--soft);
+      }
+      a.button {
+        display: inline-block;
+        padding: 0.6rem 1.2rem;
+        border: 1px solid var(--edge);
+        border-radius: 10px;
+        background: var(--ink);
+        color: var(--card);
+        text-decoration: none;
+      }
+      #detail {
+        font-size: 0.85rem;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/brand/sonojot-symbol-compact-pine.svg" alt="SonoJot" />
+      <h1>SonoJot</h1>
+      <p id="message">Completing sign-in…</p>
+      <p id="detail" hidden></p>
+      <p id="again" hidden>
+        <a class="button" id="continue" href="/">Continue to SonoJot</a>
+      </p>
+    </main>
+    <script>
+      (function () {
+        "use strict";
+        var message = document.getElementById("message");
+        var again = document.getElementById("again");
+        // OpenRouter may add "?code=" to a callback that already has a query,
+        // so any later "?" separates parameters just as "&" does.
+        var params = new URLSearchParams(
+          location.search.slice(1).replace(/\?/g, "&"),
+        );
+        var received = location.search + (location.hash || "");
+        // Strip the authorization response from the address bar and this
+        // history entry before anything else runs.
+        history.replaceState(null, "", location.pathname);
+        function single(name) {
+          var values = params.getAll(name);
+          return values.length === 1 ? values[0] : null;
+        }
+        function fail(text) {
+          message.textContent = text;
+        }
+        // Any error parameter — present once or duplicated — means the
+        // authorization failed; never relay a code alongside it.
+        if (params.has("error")) {
+          fail(
+            "OpenRouter did not complete sign-in. Return to SonoJot and connect again.",
+          );
+          return;
+        }
+        var port = single("port");
+        var state = single("state");
+        var code = single("code");
+        // Since 0.24.1 the state is the listener port as 4 hex digits plus 64
+        // random hex characters, because OpenRouter has dropped the separate
+        // port parameter. Older apps send a 64-hex state and `port`.
+        var stateOk = state !== null && /^(?:[0-9a-f]{4})?[0-9a-f]{64}$/.test(state);
+        var statePort =
+          stateOk && state.length === 68 ? parseInt(state.slice(0, 4), 16) : 0;
+        var portNumber =
+          port !== null && /^[0-9]+$/.test(port)
+            ? +port
+            : params.getAll("port").length === 0
+              ? statePort
+              : 0;
+        if (statePort && portNumber !== statePort) portNumber = 0;
+        var invalid = [];
+        if (!(portNumber >= 1024 && portNumber <= 65535)) invalid.push("port");
+        if (!stateOk) invalid.push("state");
+        if (code === null || !/^[\x21-\x7e]{1,4096}$/.test(code))
+          invalid.push("code");
+        if (invalid.length) {
+          fail(
+            "This sign-in link is invalid. Return to SonoJot and connect again.",
+          );
+          // The address's shape: separators, names and a numeric port stay;
+          // every other value becomes its length, so the code is never shown.
+          var shape = received.replace(
+            /([?&#]|^)([^=&?#]*)(=?)([^&?#]*)/g,
+            function (_match, separator, name, equals, value) {
+              var label = /^[a-z_]{1,32}$/i.test(name) ? name : name && "[name]";
+              var shown = !equals
+                ? ""
+                : name === "port" && /^[0-9]{1,6}$/.test(value)
+                  ? value
+                  : "[" + value.length + "]";
+              return separator + label + equals + shown;
+            },
+          );
+          var detail = document.getElementById("detail");
+          detail.textContent =
+            "Missing or invalid: " +
+            invalid.join(", ") +
+            ". Received: " +
+            (shape || "nothing") +
+            ".";
+          detail.hidden = false;
+          return;
+        }
+        var target =
+          "http://localhost:" +
+          portNumber +
+          "/openrouter/" +
+          state +
+          "?code=" +
+          encodeURIComponent(code);
+        var link = document.getElementById("continue");
+        link.href = target;
+        link.addEventListener("click", function (event) {
+          event.preventDefault();
+          location.replace(target);
+        });
+        again.hidden = false;
+        // Top-level navigation only; no fetch, so no CORS surface on loopback.
+        // The listener answers with its own completion page. If it is already
+        // gone, the button above lets the user retry the handoff.
+        location.replace(target);
+      })();
+    </script>
+  </body>
+</html>

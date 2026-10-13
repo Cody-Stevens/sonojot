@@ -1,0 +1,467 @@
+/* SonoJot typography material lab — layout and control chrome only.
+   Type treatments come from shared/typography-material.css; this file never
+   draws glyph effects of its own. */
+
+/* The app shell pins body overflow; a lab page has to scroll. */
+body:has(.type-lab) {
+  overflow-y: auto;
+}
+
+.type-lab {
+  --lab-ink: #28352c;
+  --lab-soft: #5b6052;
+  --lab-desk: #e7e0cd;
+  --lab-card: #f9f7ef;
+  --lab-line: #93876959;
+  --lab-well: #bcbba755;
+  min-height: 100dvh;
+  padding: 22px 26px 44px;
+  background: var(--lab-desk);
+  color: var(--lab-ink);
+  font-family: Stationery, "Iowan Old Style", Georgia, serif;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.type-lab *,
+.type-lab *::before,
+.type-lab *::after {
+  box-sizing: border-box;
+}
+
+.type-lab-head h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.type-lab-head p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--lab-soft);
+  max-width: 72ch;
+}
+
+/* ---- Controls ------------------------------------------------------------ */
+.type-lab-controls {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 22px;
+  padding: 14px 18px 12px;
+  background: var(--lab-card);
+  border: 1px solid var(--lab-line);
+  border-radius: 14px;
+}
+
+.type-lab-control {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 170px;
+  min-width: 150px;
+  max-width: 240px;
+}
+
+.type-lab-control label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.type-lab-control label code {
+  display: block;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--lab-soft);
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.type-lab-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Host field styles (padding, borders) would deform range inputs. */
+.type-lab input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--lab-ink);
+}
+
+.type-lab-control output {
+  min-width: 5ch;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--lab-soft);
+}
+
+.type-lab-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  padding-bottom: 2px;
+  white-space: nowrap;
+}
+
+.type-lab-toggle input {
+  width: auto;
+  accent-color: var(--lab-ink);
+}
+
+.type-lab-tools {
+  display: flex;
+  gap: 8px;
+}
+
+.type-lab-tool {
+  font: inherit;
+  font-size: 13.5px;
+  padding: 7px 13px;
+  border: 1px solid var(--lab-line);
+  border-radius: 9px;
+  background: var(--lab-desk);
+  color: var(--lab-ink);
+  cursor: pointer;
+}
+
+.type-lab-tool:hover {
+  background: var(--lab-well);
+}
+
+.type-lab-status {
+  flex-basis: 100%;
+  margin: 0;
+  min-height: 1em;
+  font-size: 12.5px;
+  color: var(--lab-soft);
+}
+
+/* ---- Panels -------------------------------------------------------------- */
+.type-lab-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(430px, 100%), 1fr));
+  gap: 22px;
+  align-items: start;
+}
+
+.type-lab-panel {
+  min-width: 0;
+  color: var(--ink);
+  padding: 26px 30px 30px;
+  border-radius: 18px;
+  box-shadow:
+    inset calc(1px * var(--material-light-x, 1))
+      calc(1.4px * var(--material-light-y, 1)) 1px var(--light),
+    inset calc(-1px * var(--material-light-x, 1))
+      calc(-0.6px * var(--material-light-y, 1)) 0.7px var(--contact);
+}
+
+/* In the app host the panel carries .studio; strip its app-shell geometry. */
+.type-lab-panel.studio {
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+  padding: 26px 30px 30px;
+}
+
+/* The app's slate recipe is a descendant rule (.studio .stock); the panel is
+   one element, so restate the same soft-light compensation here. */
+@media (prefers-contrast: no-preference) {
+  .type-lab-panel.studio[data-theme="slate"][data-material="on"] {
+    background-color: #141a18;
+    background-image: var(--paper-image);
+    background-size: var(--paper-tile-size);
+    background-position: top left;
+    background-repeat: repeat;
+    background-blend-mode: soft-light;
+  }
+}
+
+.type-lab-panel-head {
+  margin-bottom: 6px;
+}
+
+.type-lab-panel-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.type-lab-panel-note {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--soft-ink, #5b6052);
+}
+
+/* ---- Specimens ----------------------------------------------------------- */
+.type-lab-wordmark {
+  margin: 14px 0 4px;
+  font-size: clamp(44px, 6vw, 68px);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.type-lab-treatments {
+  margin: 16px 0 4px;
+  border-top: 1px solid var(--line, #9387693a);
+}
+
+.type-lab-treatment {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 14px;
+  align-items: baseline;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line, #9387693a);
+}
+
+.type-lab-tag {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--soft-ink, #5b6052);
+}
+
+.type-lab-line {
+  margin: 0;
+  font-size: 42px;
+  line-height: 1.2;
+  font-weight: 650;
+}
+
+.type-lab-target {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+}
+.type-lab-target select {
+  width: auto;
+  min-width: 150px;
+  padding: 5px 10px;
+  color: var(--lab-ink);
+  background: var(--lab-card);
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+}
+.type-lab-copy {
+  width: 100%;
+  min-height: 18em;
+}
+
+.type-lab-sub {
+  margin: 5px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--soft-ink, #5b6052);
+}
+
+.type-lab-block {
+  margin-top: 18px;
+}
+
+.type-lab-block > .type-lab-tag {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.type-lab-h1 {
+  margin: 0 0 8px;
+  font-size: 40px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.type-lab-h2 {
+  margin: 12px 0 4px;
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.15;
+}
+
+.type-lab-h3 {
+  margin: 10px 0 0;
+  font-size: 21px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.type-lab-body {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.55;
+  max-width: 58ch;
+}
+
+.type-lab-meta-line {
+  margin: 8px 0 0;
+}
+
+.type-lab-meta-line small {
+  font-size: 13px;
+  color: var(--soft-ink, #5b6052);
+}
+
+.type-lab-label {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 5px;
+}
+
+.type-lab-input {
+  font: inherit;
+  width: 100%;
+  max-width: 300px;
+  padding: 9px 12px;
+  border: 1px solid var(--line, #817d6759);
+  border-radius: 9px;
+  background: var(--well, #bcbba755);
+  color: var(--ink, #28352c);
+  font-size: 15px;
+}
+
+.type-lab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+}
+
+.type-lab-btn {
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.3;
+  padding: 8px 14px;
+  border: 1px solid var(--line, #8c887256);
+  border-radius: 10px;
+  background: var(--card, #fffdf7);
+  color: var(--ink, #28352c);
+  cursor: pointer;
+}
+
+.type-lab-btn.is-ink {
+  background: var(--dye, #34432e);
+  color: var(--dye-ink, #f6efdc);
+  border-color: transparent;
+  font-weight: 550;
+}
+
+.type-lab-btn.is-quiet {
+  background: var(--well, #bcbba755);
+  border-color: transparent;
+}
+
+.type-lab-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.type-lab-btn.is-mini {
+  font-size: 12.5px;
+  padding: 3px 9px;
+  border-radius: 7px;
+}
+
+.type-lab-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 230px;
+}
+
+.type-lab-nav-item {
+  font: inherit;
+  font-size: 16px;
+  text-align: left;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink, #28352c);
+  cursor: pointer;
+}
+
+.type-lab-nav-item:hover:not([aria-current]) {
+  background: var(--well, #bcbba755);
+}
+
+.type-lab-nav-item[aria-current="page"] {
+  background: var(--dye, #34432e);
+  color: var(--dye-ink, #f6efdc);
+  font-weight: 550;
+}
+
+.type-lab-dl {
+  margin: 0;
+}
+
+.type-lab-dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  max-width: 340px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line, #9387693a);
+}
+
+.type-lab-dl > div:last-child {
+  border-bottom: 0;
+}
+
+.type-lab-dl dt {
+  font-size: 14px;
+  color: var(--soft-ink, #5b6052);
+}
+
+.type-lab-dl dd {
+  margin: 0;
+  font-size: 14px;
+  text-align: right;
+}
+
+.type-lab-code {
+  margin: 0;
+  padding: 12px 15px;
+  border-radius: 9px;
+  background: var(--well, #bcbba755);
+  overflow-x: auto;
+}
+
+.type-lab-code code {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+@media (max-width: 520px) {
+  .type-lab {
+    padding: 14px 14px 32px;
+  }
+  .type-lab-panel {
+    padding: 20px;
+  }
+  .type-lab-treatment {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+}

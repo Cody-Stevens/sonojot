@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "components": [
+    {
+      "id": "native:webview2-loader@1.0.3650.58",
+      "kind": "native",
+      "name": "Microsoft WebView2 SDK static loader",
+      "version": "1.0.3650.58",
+      "parent": "rust:webview2-com-sys@0.38.2",
+      "license": "BSD-3-Clause",
+      "sources": ["https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3650.58", "https://docs.rs/crate/webview2-com-sys/0.38.2/source/CHANGELOG.md", "https://docs.rs/crate/webview2-com-sys/0.38.2/source/src/lib.rs"],
+      "distribution": "WebView2LoaderStatic.lib statically linked into the Windows application; Edge WebView2 Runtime is downloaded by Microsoft's bootstrapper if needed",
+      "verification": "The crate's x64/WebView2LoaderStatic.lib is byte-identical to build/native/x64/WebView2LoaderStatic.lib in the pinned NuGet package. SHA-256: 0659b741bde6348d4c4a6ec4ceb9af50e3d0048ed9cd3c8659bccbb61fde55ee. The complete package NOTICE is retained conservatively, including build-tool notices.",
+      "issues": ["The downloaded Microsoft Edge WebView2 Runtime is a separate product governed by its own terms; this SDK loader license does not cover that runtime. The installer currently fetches an unpinned Evergreen bootstrapper from Microsoft."]
+    },
+    {
+      "id": "native:svelte-is-promise",
+      "kind": "embedded-javascript",
+      "name": "is-promise helper adapted into Svelte",
+      "version": "Svelte 5.57.0 adaptation; upstream license snapshot ec9bd8a3f576324a1343069a2d6c2fa35a623939",
+      "parent": "npm:svelte@5.57.0",
+      "license": "MIT",
+      "sources": ["https://unpkg.com/svelte@5.57.0/src/internal/shared/utils.js", "https://github.com/then/is-promise"],
+      "distribution": "Svelte runtime's is_promise helper explicitly credits this upstream code",
+      "issues": []
+    },
+    {
+      "id": "installer:tauri-template@2.11.4",
+      "kind": "installer",
+      "name": "Tauri NSIS installer template and helper includes",
+      "version": "tauri-cli 2.11.4",
+      "license": "MIT OR Apache-2.0",
+      "sources": ["src-tauri/windows/README.md", "https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi"],
+      "distribution": "Modified upstream template compiled into the Windows installer",
+      "attribution": "SonoJot's installer identity and shortcut changes are described in src-tauri/windows/README.md.",
+      "issues": []
+    },
+    {
+      "id": "installer:nsis@3.11",
+      "kind": "installer",
+      "name": "NSIS installer stub, plug-ins, Modern UI and compression modules",
+      "version": "3.11",
+      "license": "Zlib AND LicenseRef-NSIS-LZMA-CPL-1.0-with-linking-exception",
+      "sources": ["https://nsis.sourceforge.io/License", "https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle/windows/nsis/mod.rs", "src-tauri/windows/installer.nsi"],
+      "distribution": "Windows installer/uninstaller; Tauri's default LZMA compressor. Root COPYING also retains terms for the alternative bzip2 compressor without asserting that bzip2 is used by this installer.",
+      "verification": "License and plug-in texts extracted from the exact NSIS 3.11 archive selected by Tauri CLI 2.11.4; archive SHA-1 matches EF7FF767E5CBD9EDD22ADD3A32C9B8F4500BB10D.",
+      "issues": ["Review the NSIS LZMA module's CPL-1.0 source-availability requirement and explicit linking exception. Keep the exact unmodified module source available with release materials, or select zlib compression and re-inventory the resulting installer. Confirm actual release tooling matches the pinned Tauri archive."]
+    },
+    {
+      "id": "installer:nsis-tauri-utils@0.5.3",
+      "kind": "installer",
+      "name": "nsis-tauri-utils and nsis-plugin-api",
+      "version": "0.5.3",
+      "license": "MIT OR Apache-2.0",
+      "sources": ["https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3", "https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle/windows/nsis/mod.rs"],
+      "distribution": "Rust NSIS helper DLL embedded by the Windows installer. Tauri pins the DLL SHA-1 to 75197FEE3C6A814FE035788D1C34EAD39349B860.",
+      "issues": ["Upstream tag declares normal dependencies on semver 1.0 and windows-sys 0.61.2, plus its own nsis-plugin-api; no Cargo.lock is published at that tag. Their license texts are present in the application inventory, but exact versions embedded in the prebuilt helper DLL require a vendor build manifest. nsis-fn is a proc macro and is not shipped."]
+    },
+    {
+      "id": "native:release-toolchain",
+      "kind": "toolchain-runtime",
+      "name": "Rust and platform compiler runtime code",
+      "version": "selected by the release toolchain",
+      "license": "LicenseRef-Release-Toolchain-Review",
+      "requiresNotice": false,
+      "sources": ["src-tauri/build.rs", "https://github.com/rust-lang/rust/blob/master/COPYRIGHT", "https://github.com/llvm/llvm-project/blob/main/compiler-rt/LICENSE.TXT", "https://www.apple.com/legal/sla/docs/xcode.pdf"],
+      "distribution": "Rust standard/compiler runtime code may be linked; build.rs explicitly links Apple's libclang_rt.osx.a on macOS. Windows links the system CRT according to the release toolchain defaults.",
+      "issues": ["Pin the release Rust, MSVC and Xcode toolchains and archive their exact runtime notices. No built Windows installer or macOS binary was inspected in this source-only task, and the exact macOS compiler runtime revision is not available in this Windows checkout. OS-provided frameworks and system CRTs are not redistributed as separate app resources."]
+    },
+    {
+      "id": "native:bzip2@1.0.8",
+      "kind": "native",
+      "name": "libbzip2",
+      "version": "1.0.8",
+      "parent": "rust:bzip2-sys@0.1.13+1.0.8",
+      "license": "bzip2-1.0.6",
+      "sources": ["https://docs.rs/crate/bzip2-sys/0.1.13+1.0.8/source/build.rs"],
+      "distribution": "Vendored C library compiled on Windows; macOS may use pkg-config's system library or the vendored fallback",
+      "evidence": [{"cratePath": "bzip2-1.0.8/LICENSE", "source": "https://docs.rs/crate/bzip2-sys/0.1.13+1.0.8/source/bzip2-1.0.8/LICENSE"}],
+      "issues": []
+    },
+    {
+      "id": "native:whisper-cpp@1.8.3",
+      "kind": "native",
+      "name": "whisper.cpp and ggml CPU/Metal backends",
+      "version": "1.8.3 (vendored in whisper-rs-sys 0.15.0)",
+      "parent": "rust:whisper-rs-sys@0.15.0",
+      "license": "MIT",
+      "sources": ["https://docs.rs/crate/whisper-rs-sys/0.15.0/source/whisper.cpp/CMakeLists.txt", "https://github.com/ggml-org/whisper.cpp"],
+      "distribution": "Statically linked on both macOS targets; CPU and Metal enabled. Disabled CUDA, SYCL, Vulkan and other backend source files are not claimed as shipping libraries.",
+      "evidence": [{"cratePath": "whisper.cpp/LICENSE", "source": "https://docs.rs/crate/whisper-rs-sys/0.15.0/source/whisper.cpp/LICENSE"}],
+      "issues": []
+    },
+    {
+      "id": "native:ring-vendored@0.17.14",
+      "kind": "native",
+      "name": "ring vendored BoringSSL and fiat-crypto code",
+      "version": "as packaged in ring 0.17.14",
+      "parent": "rust:ring@0.17.14",
+      "license": "Apache-2.0 AND ISC",
+      "sources": ["https://docs.rs/crate/ring/0.17.14/source/LICENSE", "https://docs.rs/crate/ring/0.17.14/source/third_party/fiat/LICENSE"],
+      "distribution": "C and assembly crypto routines and generated fiat-crypto arithmetic; per-file source notices retained with the parent crate",
+      "evidence": [{"cratePath": "LICENSE-BoringSSL", "source": "https://docs.rs/crate/ring/0.17.14/source/LICENSE-BoringSSL"}, {"cratePath": "LICENSE-other-bits", "source": "https://docs.rs/crate/ring/0.17.14/source/LICENSE-other-bits"}, {"cratePath": "third_party/fiat/LICENSE", "source": "https://docs.rs/crate/ring/0.17.14/source/third_party/fiat/LICENSE"}],
+      "issues": []
+    },
+    {
+      "id": "native:rnnoise-port@0.5.2",
+      "kind": "native-derived",
+      "name": "RNNoise code and embedded neural-network weights in nnnoiseless",
+      "version": "nnnoiseless 0.5.2",
+      "parent": "rust:nnnoiseless@0.5.2",
+      "license": "BSD-3-Clause",
+      "sources": ["https://docs.rs/crate/nnnoiseless/0.5.2/source/COPYING"],
+      "distribution": "Rust port and embedded default weights used for recognition gating",
+      "evidence": [{"cratePath": "COPYING", "source": "https://docs.rs/crate/nnnoiseless/0.5.2/source/COPYING"}],
+      "issues": []
+    }
+  ],
+  "overrides": {
+    "rust:genpdf@0.2.0": {"sourceNotices": ["src/**/*.rs"], "issues": ["Upstream uses REUSE-style SPDX copyright headers. The pinned upstream MIT terms contain placeholders; source copyright headers are retained separately without rewriting."]},
+    "rust:selectors@0.36.1": {"sourceNotices": ["*.rs"], "issues": ["The source headers declare MPL-2.0 and link the standard terms; the crate does not include a standalone full license file. Exact standard terms and source attribution are supplied separately."]},
+    "rust:whisper-rs-sys@0.15.0": {"sourceNotices": ["src/*.rs"], "issues": ["The wrapper declares Unlicense but ships no standalone wrapper license file. Standard Unlicense terms are provided separately; whisper.cpp and ggml retain their MIT terms."]},
+    "rust:encoding-index-japanese@1.20141219.5": {"sourceNotices": ["*.rs"]},
+    "rust:encoding-index-korean@1.20141219.5": {"sourceNotices": ["*.rs"]},
+    "rust:encoding-index-simpchinese@1.20141219.5": {"sourceNotices": ["*.rs"]},
+    "rust:encoding-index-singlebyte@1.20141219.5": {"sourceNotices": ["*.rs"]},
+    "rust:encoding-index-tradchinese@1.20141219.5": {"sourceNotices": ["*.rs"]},
+    "rust:encoding_index_tests@0.1.4": {"sourceNotices": ["*.rs"]}
+  }
+}

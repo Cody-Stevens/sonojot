@@ -1,0 +1,34 @@
+[
+  {
+    "file": "decoded-aiff.wav",
+    "channels": 1,
+    "sampleWidth": 2,
+    "rate": 16000,
+    "frames": 76765,
+    "peak": 24662
+  },
+  {
+    "file": "decoded-caf.wav",
+    "channels": 1,
+    "sampleWidth": 2,
+    "rate": 16000,
+    "frames": 76765,
+    "peak": 24662
+  },
+  {
+    "file": "decoded-m4a.wav",
+    "channels": 1,
+    "sampleWidth": 2,
+    "rate": 16000,
+    "frames": 76765,
+    "peak": 24166
+  },
+  {
+    "file": "decoded-wav.wav",
+    "channels": 1,
+    "sampleWidth": 2,
+    "rate": 16000,
+    "frames": 76765,
+    "peak": 24662
+  }
+]

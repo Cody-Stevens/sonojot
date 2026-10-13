@@ -1,0 +1,330 @@
+{
+  "components": [
+    {
+      "catalogIds": [
+        "granite-speech-4.1-2b-nar-q8"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://raw.githubusercontent.com/ibm-granite/granite-speech/2fa56f2ce5d2ef83b0f2280650320aa8d97c2c6d/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "lfm2.5-1.2b"
+      ],
+      "kind": "model",
+      "license": "LFM Open License v1.0",
+      "licenseUrl": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/6767265158422fb8a19c62ceb45f16f05363615b/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "lfm2.5-2.6b"
+      ],
+      "kind": "model",
+      "license": "LFM Open License v1.0",
+      "licenseUrl": "https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/blob/84022ce711b28455e8c4fc364ce68c00cf995875/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "moonshine-medium"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "moonshine-small"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "nemotron-3-diarization"
+      ],
+      "kind": "model",
+      "license": "OpenMDW-1.1",
+      "licenseUrl": "https://huggingface.co/joosthel/Nemotron-3-Diarization-ONNX/blob/4a911fc3ca821b76a99fffd5ce5135bd1efca540/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "parakeet-tdt-0.6b-v2"
+      ],
+      "kind": "model",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/blob/1ab9323565ddb038682214b292f588070a538ce2/README.md"
+    },
+    {
+      "catalogIds": [
+        "parakeet-tdt-0.6b-v2-fp16-cuda"
+      ],
+      "kind": "model",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16/blob/a6cc4e24ed264a93a17575dad416dacc4238497a/README.md"
+    },
+    {
+      "catalogIds": [
+        "qwen3-4b-instruct-2507"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/blob/ae44f08e1392f39c0e474af10c3ff8355c8b6688/README.md"
+    },
+    {
+      "catalogIds": [
+        "qwen3-asr-0.6b-q8-cpu"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/blob/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/README.md"
+    },
+    {
+      "catalogIds": [
+        "qwen3-asr-1.7b"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/thieunv/sherpa-onnx-qwen3-asr-1.7B-int8/blob/69eb686fd94a4a865bb5340a3d6ac0d7f1fec0d5/README.md"
+    },
+    {
+      "catalogIds": [
+        "qwen3-asr-1.7b-fp16-cuda"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/luigi000/qwen3-asr-1.7b-onnx-fp16/blob/90c70bc1dfce2456bc0bcdc286ffc2eaff2d7e8b/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "qwen3-asr-1.7b-q4-cpu"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/mradermacher/Qwen3-ASR-1.7B-GGUF/blob/cc946c78d3804752f7ba1bc42720c0f7aaf3d1ad/README.md"
+    },
+    {
+      "catalogIds": [
+        "qwen3-asr-1.7b-q4-metal"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/mradermacher/Qwen3-ASR-1.7B-GGUF/blob/cc946c78d3804752f7ba1bc42720c0f7aaf3d1ad/README.md"
+    },
+    {
+      "catalogIds": [
+        "qwen3-asr-1.7b-q8-cuda"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/blob/36a678687ba7d07a74ca70ccb0e36902e005fb80/README.md"
+    },
+    {
+      "catalogIds": [
+        "qwen3-asr-1.7b-q8-metal"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/blob/36a678687ba7d07a74ca70ccb0e36902e005fb80/README.md"
+    },
+    {
+      "catalogIds": [],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://raw.githubusercontent.com/snakers4/silero-vad/1e261b036686cd0017d500ee96acd1c4ba572a9d/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "sonojot-punct-v1"
+      ],
+      "kind": "model",
+      "license": "CC-BY-SA-4.0",
+      "licenseUrl": "https://huggingface.co/SonoJot/sonojot-punct-v1/blob/6634a9884cf7bd68663c0eefb4840f4de882e280/README.md"
+    },
+    {
+      "catalogIds": [
+        "sonojot-punct-v2"
+      ],
+      "kind": "model",
+      "license": "CC-BY-SA-4.0",
+      "licenseUrl": "https://huggingface.co/SonoJot/sonojot-punct-v2/blob/94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625/README.md"
+    },
+    {
+      "catalogIds": [
+        "speakoflow-mini-q4_k_m"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/SpeakoFlow/speakoflow-mini/blob/835431771f72820251fe6c6b4b07f12b000e2647/README.md"
+    },
+    {
+      "catalogIds": [
+        "ternary-bonsai-2-27b"
+      ],
+      "kind": "model",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf/blob/6ed5e12bf84b7a63069882c91dd9e9218647d17b/LICENSE"
+    },
+    {
+      "catalogIds": [
+        "whisper-base"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/blob/bb53ee204431c90d314c1cc08d28d23e5b7927cc/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-base-en-metal"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-base.en"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base.en/blob/59eea950fc76df2453efb57e6c0fd334548e8ffe/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-large-v1"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v1/blob/5ec7cc1eddcc63ec78aaae738f7023e8c6e048a1/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-large-v2"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v2/blob/1dce177ee978f227f39538443ae7c3bc611e9be4/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-large-v3"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v3/blob/2a6507094dd6020d939d78e3f1834a1d06267fca/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-large-v3-turbo"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/blob/2ca6ff69fc878651b770880507669577ac41c2ff/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-large-v3-turbo-fp32-cuda"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/blob/2ca6ff69fc878651b770880507669577ac41c2ff/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-medium"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-medium/blob/8c31d28503847560985df21f90e14f0c736e075e/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-medium.en"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-medium.en/blob/251ab4521f354490e8f2c206fbd0b7f3f6b0a7ec/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-small"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/blob/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-small-en-metal"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-small-fp32-cuda"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/blob/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-small-metal"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-small.en"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small.en/blob/d9533f69affd85061aee349af7fea5cb2996dbbe/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-tiny"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/blob/65176e2deb88badc814a94058666cadccc29b61c/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-tiny-en-metal"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-tiny-fp32-cuda"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/blob/65176e2deb88badc814a94058666cadccc29b61c/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-tiny.en"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/blob/d026532c022fa99fd789d6b32446a1df7b6bfc43/README.md"
+    },
+    {
+      "catalogIds": [
+        "whisper-turbo-metal"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/README.md"
+    }
+  ]
+}

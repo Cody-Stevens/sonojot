@@ -1,0 +1,41 @@
+---
+import Section from "./Section.astro";
+import Facts from "./Facts.astro";
+import Shot from "./Shot.astro";
+
+const facts = [
+  "Recognition and cleanup run offline.",
+  "No account. Nothing is uploaded.",
+  "An outside model is used only if you connect one yourself.",
+];
+---
+
+<Section
+  id="local"
+  title="Local and private."
+  lede="Everything is processed on your own computer."
+>
+  <div class="local-grid">
+    <Facts items={facts} />
+
+    <Shot
+      name="dictation-demo"
+      alt="The Dictation page showing the text cleanup choice and the local cleanup model."
+    />
+  </div>
+</Section>
+
+<style>
+  .local-grid {
+    display: grid;
+    gap: clamp(1.5rem, 3vw, 2.5rem);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr);
+    align-items: center;
+  }
+
+  @media (max-width: 54rem) {
+    .local-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

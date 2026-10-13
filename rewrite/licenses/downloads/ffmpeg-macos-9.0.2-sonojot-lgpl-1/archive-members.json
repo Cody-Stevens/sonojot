@@ -1,0 +1,62 @@
+[
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/bin/ffmpeg",
+    "bytes": 3543856,
+    "sha256": "94bb0777c55b4b6f3613f166d8f9b9fd2745ed0cbe5e9e2d6e930550588d1838"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/notices/signature-details.txt",
+    "bytes": 924,
+    "sha256": "938b3495abc761f653e181b13f6b4fd610a5af34a3d06d30ccf7559151c7f729"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/notices/configure-command.txt",
+    "bytes": 1778,
+    "sha256": "50ee0701d4f59bcaf1330dafd82eb4bcedf0043f36ac4dc10f67b4c9e14e929d"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/notices/toolchain.txt",
+    "bytes": 880,
+    "sha256": "e2a0a8b17ce582484079caf4cf1d29f95334ebb109f3a9b882a86e9fb13bee22"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/notices/signature-verify.txt",
+    "bytes": 151,
+    "sha256": "9af3e10bc53e6a8ada33a4163d3710a1adffb9960dbf4be4bb38fb53c7bfae03"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/notices/ffmpeg-buildconf.txt",
+    "bytes": 3864,
+    "sha256": "01419126dc7ca2f379537fe227b7b7e2018d6e175a5a3487d7f8ff044d263f61"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/notices/dynamic-libraries.txt",
+    "bytes": 523,
+    "sha256": "dfd716a65a8824ad5b600c1c1b5f48ed25d9199b97bd0ace4b6dc8700988f30b"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/notices/FFmpeg-LICENSE.md",
+    "bytes": 4346,
+    "sha256": "2e1d16c72fd74e12063776371da757322f8b77589386532f4fd8634bde7de1af"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/notices/decode-verification.json",
+    "bytes": 560,
+    "sha256": "0174b0486f13ebd0c26792acd08ac9133a1153174c65f60a01d943b2542ad783"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/SOURCE.txt",
+    "bytes": 2744,
+    "sha256": "4dc92ccf528e7f6a15f3cbd0deac815d411b640a4344a600ea9675fc00dd12db"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/NOTICE.txt",
+    "bytes": 414,
+    "sha256": "104b063a13dc8bcde17bc49420cf8ce897fced03dcd9adaf5a70865db07d4bd3"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/LICENSE.txt",
+    "bytes": 26517,
+    "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30"
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "sonojot-site",
+  "compatibility_date": "2026-09-11",
+
+  // Static only. There is no Worker script, so `main` is deliberately absent
+  // and every request is served straight from the built asset manifest.
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+
+  // Wrangler provisions the DNS records and certificates for these on deploy.
+  // The canonical URL is the apex; www serves the same build.
+  "routes": [
+    { "pattern": "sonojot.com", "custom_domain": true },
+    { "pattern": "www.sonojot.com", "custom_domain": true }
+  ],
+
+  "workers_dev": false,
+  "observability": { "enabled": true }
+}

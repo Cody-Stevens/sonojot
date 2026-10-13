@@ -1,0 +1,29 @@
+SonoJot Punctuation v1
+Model revision: 6634a9884cf7bd68663c0eefb4840f4de882e280
+Publisher and fine-tuning: SonoJot
+Source/model card: https://huggingface.co/SonoJot/sonojot-punct-v1/blob/6634a9884cf7bd68663c0eefb4840f4de882e280/README.md
+
+Weights: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+License and disclaimer of warranties: https://creativecommons.org/licenses/by-sa/4.0/legalcode.en
+The full terms accompany this notice in LICENSE-CC-BY-SA-4.0.txt.
+
+Training labels derive from Earnings-21 transcripts and alignment text, copyright Rev.com,
+licensed under CC BY-SA 4.0. Source: https://github.com/revdotcom/speech-datasets/tree/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21
+That captured dataset revision documents the terms; the exact training revision is unrecorded.
+
+Base model: Horizon-Labs/punctuation-restoration-small (Apache-2.0),
+https://huggingface.co/Horizon-Labs/punctuation-restoration-small
+Underlying base: jhu-clsp/mmBERT-small (MIT),
+https://huggingface.co/jhu-clsp/mmBERT-small
+Preserve their applicable copyright, LICENSE and NOTICE material. The captured mmBERT
+card declares MIT but lacks a standalone copyright/license notice; that evidence remains unresolved.
+
+Changes by SonoJot: fine-tuning for punctuation restoration from speech-recognizer output,
+using Earnings-21-derived labels and synthetic examples; ONNX export and int8 quantization
+for local inference. See the pinned card for the training and export description.
+
+When sharing this model or a modified version, retain attribution, source links, this license
+link and applicable disclaimers, and identify changes. Modified models must remain CC BY-SA
+4.0 (or an adapter's license allowed by its ShareAlike provision). Do not impose additional
+restrictions that prevent recipients exercising these rights. This notice does not claim
+that ordinary inference outputs or the entire application are licensed CC BY-SA.

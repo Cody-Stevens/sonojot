@@ -1,0 +1,202 @@
+---
+import BrandMark from "./BrandMark.astro";
+import Icon from "./Icon.astro";
+import { site } from "../site.config.mjs";
+
+const links = [
+  { href: "/#dictation", label: "Dictation" },
+  { href: "/#meetings", label: "Meetings" },
+  { href: "/#install", label: "Install" },
+];
+---
+
+<header class="nav-holder">
+  <nav class="stock strip" aria-label="Main">
+    <a class="strip-brand" href="/" aria-label={`${site.name} home`}>
+      <BrandMark variant="lockup" width="8.6rem" />
+    </a>
+
+    <ul class="strip-links">
+      {
+        links.map((link) => (
+          <li>
+            <a href={link.href}>{link.label}</a>
+          </li>
+        ))
+      }
+    </ul>
+
+    <div class="strip-end">
+      <a class="strip-icon" href={site.repoUrl} rel="noreferrer noopener" aria-label="Source on GitHub">
+        <Icon name="github" size={19} stroke={1.5} />
+      </a>
+      <button class="strip-icon stock-switch" type="button" data-theme-toggle aria-label="Use the charcoal stock">
+        <span class="swatch-sun"><Icon name="sun" size={18} stroke={1.5} /></span>
+        <span class="swatch-moon"><Icon name="moon" size={18} stroke={1.5} /></span>
+      </button>
+      <a class="action action--ink strip-cta" href="/#install">Download</a>
+    </div>
+  </nav>
+</header>
+
+<script>
+  const root = document.documentElement;
+  const button = document.querySelector<HTMLButtonElement>("[data-theme-toggle]");
+
+  function label(theme: string) {
+    return theme === "basalt" ? "Use the cream stock" : "Use the charcoal stock";
+  }
+
+  if (button) {
+    button.setAttribute("aria-label", label(root.dataset.theme ?? "fog"));
+    button.addEventListener("click", () => {
+      const next = root.dataset.theme === "basalt" ? "fog" : "basalt";
+      root.dataset.theme = next;
+      button.setAttribute("aria-label", label(next));
+      try {
+        localStorage.setItem("sonojot-theme", next);
+      } catch (e) {
+        /* the choice simply does not persist */
+      }
+    });
+  }
+
+  // The strip only casts a contact shadow once it is lifted off the page.
+  const holder = document.querySelector<HTMLElement>(".nav-holder");
+  const mark = () => holder?.toggleAttribute("data-lifted", window.scrollY > 18);
+  mark();
+  window.addEventListener("scroll", mark, { passive: true });
+</script>
+
+<style>
+  .nav-holder {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding: 0.85rem 0 0;
+    width: min(100% - 2.5rem, var(--column));
+    margin-inline: auto;
+  }
+
+  .strip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0.5rem 0.55rem 0.5rem 1.1rem;
+    border-radius: 19px 17px 18px 20px;
+    box-shadow:
+      inset 1px 1.2px calc(1px + var(--surface-highlight-blur))
+        var(--surface-highlight-spread) var(--surface-highlight-color),
+      0 1px 0 var(--edge);
+    transition: box-shadow 260ms var(--ease-settle);
+  }
+
+  .nav-holder[data-lifted] .strip {
+    box-shadow:
+      inset 1px 1.2px calc(1px + var(--surface-highlight-blur))
+        var(--surface-highlight-spread) var(--surface-highlight-color),
+      0 2px 0 var(--edge),
+      0 6px 5px -4px var(--contact),
+      2px 14px 22px -12px #3e321f59;
+  }
+
+  .strip-brand {
+    display: flex;
+    align-items: center;
+    flex: none;
+  }
+
+  .strip-links {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0 auto 0 0.4rem;
+    padding: 0;
+    list-style: none;
+  }
+
+  .strip-links a {
+    display: block;
+    padding: 0.45rem 0.7rem 0.5rem;
+    border-radius: 11px 9px 10px 12px;
+    font-size: 0.92rem;
+    text-decoration: none;
+    color: var(--soft-ink);
+    transition:
+      background-color var(--motion-control) var(--ease-settle),
+      color var(--motion-control) var(--ease-settle);
+  }
+
+  .strip-links a:hover {
+    background-color: var(--well);
+    color: var(--ink);
+  }
+
+  .strip-end {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: none;
+  }
+
+  .strip-icon {
+    display: grid;
+    place-items: center;
+    width: 2.15rem;
+    height: 2.15rem;
+    padding: 0;
+    border: 0;
+    border-radius: 10px 9px 10px 9px;
+    color: var(--soft-ink);
+    background: transparent;
+    transition:
+      background-color var(--motion-control) var(--ease-settle),
+      color var(--motion-control) var(--ease-settle);
+  }
+
+  .strip-icon:hover {
+    background-color: var(--well);
+    color: var(--ink);
+  }
+
+  .stock-switch {
+    display: grid;
+  }
+
+  .stock-switch > span {
+    grid-area: 1 / 1;
+  }
+
+  .swatch-moon {
+    display: none;
+  }
+
+  :global([data-theme="basalt"]) .swatch-moon {
+    display: block;
+  }
+
+  :global([data-theme="basalt"]) .swatch-sun {
+    display: none;
+  }
+
+  .strip-cta {
+    padding: 0.55em 1.05em 0.6em;
+    font-size: 0.92rem;
+    border-radius: 12px 10px 11px 13px;
+  }
+
+  @media (max-width: 46rem) {
+    .strip-links,
+    .strip-cta {
+      display: none;
+    }
+
+    .strip {
+      padding-right: 0.7rem;
+    }
+
+    .strip-end {
+      margin-left: auto;
+    }
+  }
+</style>

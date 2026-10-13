@@ -1,0 +1,55 @@
+{
+  "tag_name": "v1.13.8",
+  "target_commitish": "master",
+  "published_at": "2026-09-10T14:00:23Z",
+  "html_url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.8",
+  "captured": "2026-10-12",
+  "windowsCudaAssets": [
+    {
+      "name": "sherpa-onnx-v1.13.8-cuda-12.x-cudnn-9.x-onnxruntime1.28.2-win-x64-cuda.tar.bz2",
+      "size": 595017373,
+      "digest": "sha256:066c5b54dbafaa1388001a9c9837ac1374dbba6d6678f193ca06aa0d8e94d8c3",
+      "browser_download_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-cuda-12.x-cudnn-9.x-onnxruntime1.28.2-win-x64-cuda.tar.bz2"
+    },
+    {
+      "name": "sherpa-onnx-v1.13.8-cuda-13.x-cudnn-9.x-onnxruntime1.28.2-win-x64-cuda.tar.bz2",
+      "size": 478110488,
+      "digest": "sha256:1702e4a1ee68a07422469a7ec1d304a54b43a345ad888daf8e0b0257004a3273",
+      "browser_download_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-cuda-13.x-cudnn-9.x-onnxruntime1.28.2-win-x64-cuda.tar.bz2"
+    }
+  ],
+  "windowsNoTtsAssetNames": [
+    "sherpa-onnx-v1.13.8-win-x64-shared-MD-Debug-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MD-Debug-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MD-MinSizeRel-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MD-MinSizeRel-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MD-Release-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MD-Release-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MD-RelWithDebInfo-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MD-RelWithDebInfo-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-Debug-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-Debug-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-MinSizeRel-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-MinSizeRel-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-RelWithDebInfo-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-shared-MT-RelWithDebInfo-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MD-Debug-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MD-Debug-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MD-MinSizeRel-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MD-MinSizeRel-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MD-Release-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MD-Release-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MD-RelWithDebInfo-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MD-RelWithDebInfo-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MT-Debug-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MT-Debug-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MT-MinSizeRel-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MT-MinSizeRel-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MT-Release-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MT-Release-no-tts.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MT-RelWithDebInfo-no-tts-lib.tar.bz2",
+    "sherpa-onnx-v1.13.8-win-x64-static-MT-RelWithDebInfo-no-tts.tar.bz2"
+  ]
+}

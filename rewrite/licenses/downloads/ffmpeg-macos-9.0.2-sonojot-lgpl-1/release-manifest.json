@@ -1,0 +1,52 @@
+[
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64.zip",
+    "bytes": 1834974,
+    "sha256": "e39430828cf2fb439c92477e85ea2b933f6c3fb3c4b759072f97aa60cbe0bf60"
+  },
+  {
+    "file": "ffmpeg-9.0.2.tar.xz",
+    "bytes": 12040788,
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+  },
+  {
+    "file": "ffmpeg-9.0.2-sonojot-lgpl-macos-arm64-corresponding-source.tar.xz",
+    "bytes": 12122068,
+    "sha256": "88a4533b424e145166ed672ff63859d18437487da1f8a2c59560cf2ded095a51"
+  },
+  {
+    "file": "build_ffmpeg_lgpl_macos.sh",
+    "bytes": 8327,
+    "sha256": "d489558f1d99d43481b33ca6aa54ec471a0d78818570be17e0c0d744197391f8"
+  },
+  {
+    "file": "configure-command.txt",
+    "bytes": 1778,
+    "sha256": "50ee0701d4f59bcaf1330dafd82eb4bcedf0043f36ac4dc10f67b4c9e14e929d"
+  },
+  {
+    "file": "ffmpeg-buildconf.txt",
+    "bytes": 3864,
+    "sha256": "01419126dc7ca2f379537fe227b7b7e2018d6e175a5a3487d7f8ff044d263f61"
+  },
+  {
+    "file": "build-info.txt",
+    "bytes": 880,
+    "sha256": "e2a0a8b17ce582484079caf4cf1d29f95334ebb109f3a9b882a86e9fb13bee22"
+  },
+  {
+    "file": "LICENSE.txt",
+    "bytes": 26517,
+    "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30"
+  },
+  {
+    "file": "NOTICE.txt",
+    "bytes": 414,
+    "sha256": "104b063a13dc8bcde17bc49420cf8ce897fced03dcd9adaf5a70865db07d4bd3"
+  },
+  {
+    "file": "README.txt",
+    "bytes": 2744,
+    "sha256": "4dc92ccf528e7f6a15f3cbd0deac815d411b640a4344a600ea9675fc00dd12db"
+  }
+]

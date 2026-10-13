@@ -1,0 +1,84 @@
+---
+// Both inks ship; the stock decides which one is visible. The supplied artwork
+// is never redrawn, recoloured or distorted.
+interface Props {
+  variant?: "symbol" | "lockup";
+  /** `auto` follows the stock. `invert` is for marks sitting on dyed stock. */
+  ink?: "auto" | "invert";
+  width?: string;
+  class?: string;
+  label?: string;
+}
+
+const {
+  variant = "symbol",
+  ink = "auto",
+  width,
+  class: extra = "",
+  label = "SonoJot",
+} = Astro.props;
+const lockup = variant === "lockup";
+const pine = lockup ? "/brand/sonojot-horizontal-pine.svg" : "/brand/sonojot-symbol-compact-pine.svg";
+const white = lockup ? "/brand/sonojot-horizontal-white.svg" : "/brand/sonojot-symbol-compact-white.svg";
+const style = width ? `width:${width}` : undefined;
+---
+
+<span
+  class:list={["sono-mark", lockup && "sono-mark--lockup", extra]}
+  data-ink={ink}
+  style={style}
+  role="img"
+  aria-label={label}
+>
+  <img class="pine" src={pine} alt="" draggable="false" width={lockup ? 2400 : 1024} height={lockup ? 650 : 1024} />
+  <img class="white" src={white} alt="" draggable="false" width={lockup ? 2400 : 1024} height={lockup ? 650 : 1024} />
+</span>
+
+<style>
+  .sono-mark {
+    display: inline-grid;
+    width: 2.5rem;
+    aspect-ratio: 1;
+    flex: none;
+  }
+
+  .sono-mark--lockup {
+    width: 13rem;
+    aspect-ratio: 2400 / 650;
+  }
+
+  .sono-mark img {
+    grid-area: 1 / 1;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .sono-mark .white {
+    visibility: hidden;
+  }
+
+  .sono-mark[data-ink="invert"] .pine {
+    visibility: hidden;
+  }
+
+  .sono-mark[data-ink="invert"] .white {
+    visibility: visible;
+  }
+
+  :global([data-theme="basalt"]) .sono-mark[data-ink="auto"] .pine {
+    visibility: hidden;
+  }
+
+  :global([data-theme="basalt"]) .sono-mark[data-ink="auto"] .white {
+    visibility: visible;
+  }
+
+  :global([data-theme="basalt"]) .sono-mark[data-ink="invert"] .pine {
+    visibility: visible;
+  }
+
+  :global([data-theme="basalt"]) .sono-mark[data-ink="invert"] .white {
+    visibility: hidden;
+  }
+</style>

@@ -1,0 +1,46 @@
+# Every matching rule is applied, so a Cache-Control here would be appended to
+# the specific ones below and win as the first max-age. Security headers only.
+# The site never needs to leak a referrer; no-referrer everywhere also keeps
+# the OAuth relay below from needing an overriding duplicate policy.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
+# Fingerprinted build output and the subset font never change under their name.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/material/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/shots/*
+  Cache-Control: public, max-age=604800
+
+/brand/*
+  Cache-Control: public, max-age=604800
+
+# The install commands are piped straight into a shell, so keep them fresh.
+/install.sh
+  Content-Type: text/x-shellscript; charset=utf-8
+  Cache-Control: public, max-age=300
+
+/install.ps1
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=300
+
+# Curated model list the app polls on demand; short-lived so edits reach
+# installs quickly.
+/recommendations.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+
+# OpenRouter OAuth relay. It sees a single-use code, so nothing may be stored,
+# indexed or framed. Referrer-Policy comes from the /* rule alone (already
+# no-referrer site-wide), so this block never emits a competing policy.
+/connect/*
+  Cache-Control: no-store
+  X-Robots-Tag: noindex, nofollow
+  Content-Security-Policy: default-src 'none'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'

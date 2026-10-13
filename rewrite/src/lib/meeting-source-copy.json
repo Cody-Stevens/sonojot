@@ -1,0 +1,10 @@
+{
+  "reminder": "Recording laws vary. Tell everyone in the meeting you're recording and get their consent where the law requires it.",
+  "microphone": "Only your microphone will be recorded. On a Zoom, Teams or Meet call, the other people won't be in the recording.",
+  "system": "Only sound from this computer will be recorded. Your own voice won't be in the recording.",
+  "title": "Before you record",
+  "gotIt": "Got it",
+  "gotItRecordBoth": "Got it, record both sides",
+  "gotItStartAnyway": "Got it, start anyway",
+  "cancel": "Cancel"
+}

@@ -1,0 +1,25 @@
+Executable=/private/tmp/sonojot-ffmpeg-20261012-r6b/ffmpeg-9.0.2-sonojot-lgpl-macos-arm64/bin/ffmpeg
+Identifier=ffmpeg-555549445c4a5e185b20330e9978b49cd1a0b77f
+Format=Mach-O thin (arm64)
+CodeDirectory v=20400 size=7112 flags=0x2(adhoc) hashes=216+2 location=embedded
+VersionPlatform=1
+VersionMin=786432
+VersionSDK=1769472
+Hash type=sha256 size=32
+CandidateCDHash sha256=096624937e0c0346912be9eaf75aa35fef473273
+CandidateCDHashFull sha256=096624937e0c0346912be9eaf75aa35fef47327326900803f5df35de38b9869d
+Hash choices=sha256
+CMSDigest=096624937e0c0346912be9eaf75aa35fef47327326900803f5df35de38b9869d
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=3129344
+Executable Segment flags=0x1
+Page size=16384
+CDHash=096624937e0c0346912be9eaf75aa35fef473273
+Signature=adhoc
+Info.plist=not bound
+TeamIdentifier=not set
+Sealed Resources=none
+Internal requirements count=0 size=12
+Total signatures=1
+Chosen signature=1

@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "id": "nvidia-granite-cuda12",
+      "version": "f6a404f438e95247d376a36dd0648cfbb06d47a499e54141018ecf45cb0b8d1b",
+      "models": [
+        "granite-speech-4.1-2b-nar-q8"
+      ],
+      "platform": "windows",
+      "title": "NVIDIA components for Granite",
+      "summary": "Granite on Windows downloads CUDA runtime 12.8.90 and cuBLAS 12.8.4.1 from NVIDIA's packages on PyPI. Read the included package agreements in Credits and the versioned NVIDIA terms below.",
+      "checkbox": "I agree to NVIDIA's license terms for these components",
+      "components": [
+        {
+          "name": "NVIDIA CUDA 12 runtime Windows",
+          "version": "12.8.90"
+        },
+        {
+          "name": "NVIDIA cuBLAS Windows CUDA 12",
+          "version": "12.8.4.1"
+        }
+      ],
+      "links": [
+        {
+          "label": "NVIDIA CUDA Toolkit EULA",
+          "url": "https://docs.nvidia.com/cuda/archive/12.8.1/eula/index.html"
+        },
+        {
+          "label": "CUDA 12.8.1 redistributable components",
+          "url": "https://docs.nvidia.com/cuda/archive/12.8.1/eula/index.html#attachment-a"
+        }
+      ]
+    },
+    {
+      "id": "nvidia-sherpa-cuda13",
+      "version": "b269aed0b30e010202797c113e3b93592044f8c70a9a44837d3d02ef73768207",
+      "models": [
+        "qwen3-asr-1.7b-fp16-cuda",
+        "whisper-tiny-fp32-cuda"
+      ],
+      "platform": "windows",
+      "title": "NVIDIA CUDA and cuDNN",
+      "summary": "These speech models use NVIDIA cuBLAS 13.7.0.27 and cuDNN 9.26.0.51. The captured package agreements differ from the versioned web documentation; both are retained in Credits. New sherpa CUDA runtime downloads are paused pending an ASR-only build.",
+      "checkbox": "I agree to NVIDIA's license terms for these components",
+      "components": [
+        {
+          "name": "NVIDIA cuBLAS Windows CUDA 13",
+          "version": "13.7.0.27"
+        },
+        {
+          "name": "NVIDIA cuDNN Windows CUDA 13",
+          "version": "9.26.0.51"
+        }
+      ],
+      "links": [
+        {
+          "label": "NVIDIA CUDA Toolkit EULA",
+          "url": "https://docs.nvidia.com/cuda/archive/13.3.0/eula/index.html"
+        },
+        {
+          "label": "NVIDIA cuDNN Software License Agreement",
+          "url": "https://docs.nvidia.com/deeplearning/cudnn/backend/v9.26.0/reference/eula.html"
+        },
+        {
+          "label": "CUDA 13.3 redistributable components",
+          "url": "https://docs.nvidia.com/cuda/archive/13.3.0/eula/index.html#attachment-a"
+        },
+        {
+          "label": "cuDNN 9.26 redistribution and notices",
+          "url": "https://docs.nvidia.com/deeplearning/cudnn/backend/v9.26.0/reference/acknowledgements.html"
+        }
+      ]
+    },
+    {
+      "id": "nvidia-prism-cuda13",
+      "version": "3c542b1f55d19ba0e5d346584379c7cfdcf7480221acf375137ed1e9262dc6f3",
+      "models": [
+        "ternary-bonsai-2-27b"
+      ],
+      "platform": "windows",
+      "title": "NVIDIA components for Bonsai",
+      "summary": "Bonsai's llama.cpp runtime downloads CUDA 13.3 libraries directly from the pinned PrismML release. NVIDIA's separate terms apply to those libraries.",
+      "checkbox": "I agree to NVIDIA's license terms for these components",
+      "components": [
+        {
+          "name": "NVIDIA CUDA 13.3 libraries in PrismML runtime bundle",
+          "version": "CUDA 13.3; library patch versions not recorded"
+        }
+      ],
+      "links": [
+        {
+          "label": "NVIDIA CUDA Toolkit EULA",
+          "url": "https://docs.nvidia.com/cuda/archive/13.3.0/eula/index.html"
+        },
+        {
+          "label": "CUDA 13.3 redistributable components",
+          "url": "https://docs.nvidia.com/cuda/archive/13.3.0/eula/index.html#attachment-a"
+        }
+      ]
+    },
+    {
+      "id": "nvidia-llama-cuda13",
+      "version": "a7e75c6291ad151f89f5e6852138389698ce5c78699cecddbf46a2b6f746a9e6",
+      "models": [
+        "qwen3-asr-1.7b-q8-cuda",
+        "nvidia-cuda13-provisioned"
+      ],
+      "platform": "windows",
+      "title": "NVIDIA components for llama.cpp",
+      "summary": "The Windows llama.cpp CUDA runtime uses NVIDIA CUDA 13.3 libraries from the pinned upstream release. Its files are never downloaded from SonoJot infrastructure.",
+      "checkbox": "I agree to NVIDIA's license terms for these components",
+      "components": [
+        {
+          "name": "NVIDIA CUDA libraries in provisioned Windows llama.cpp bundle",
+          "version": "CUDA 13.3; patch versions unrecorded"
+        }
+      ],
+      "links": [
+        {
+          "label": "NVIDIA CUDA Toolkit EULA",
+          "url": "https://docs.nvidia.com/cuda/archive/13.3.0/eula/index.html"
+        },
+        {
+          "label": "CUDA 13.3 redistributable components",
+          "url": "https://docs.nvidia.com/cuda/archive/13.3.0/eula/index.html#attachment-a"
+        }
+      ]
+    },
+    {
+      "id": "lfm2.5-1.2b",
+      "version": "ccfcf90bd12ff7e520eef8b407d567897436aa6ac82299f040beee295365f14d",
+      "models": [
+        "lfm2.5-1.2b"
+      ],
+      "platform": "all",
+      "title": "LFM2.5-1.2B Instruct",
+      "summary": "Optional model under the LFM Open License v1.0. Commercial eligibility depends on your legal entity's annual revenue, including related entities, with a US$10 million threshold. The license uses different wording at exactly US$10 million; confirm eligibility with LiquidAI at or above that amount. A separate commercial license may be needed. Qwen3 is available under Apache-2.0.",
+      "checkbox": "I have read the LFM license and confirm that I am eligible to use this model",
+      "components": [
+        {
+          "name": "LFM2.5-1.2B Instruct",
+          "version": "6767265158422fb8a19c62ceb45f16f05363615b"
+        }
+      ],
+      "links": [
+        {
+          "label": "LFM Open License v1.0",
+          "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/6767265158422fb8a19c62ceb45f16f05363615b/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "lfm2.5-2.6b",
+      "version": "d472e83bbf2dd5aa8b070f12398ad450bfd75a2bc0f3cf94bcb6be05250b19ab",
+      "models": [
+        "lfm2.5-2.6b"
+      ],
+      "platform": "all",
+      "title": "LFM2.5-2.6B",
+      "summary": "Optional model under the LFM Open License v1.0. Commercial eligibility depends on your legal entity's annual revenue, including related entities, with a US$10 million threshold. The license uses different wording at exactly US$10 million; confirm eligibility with LiquidAI at or above that amount. A separate commercial license may be needed. Qwen3 is available under Apache-2.0.",
+      "checkbox": "I have read the LFM license and confirm that I am eligible to use this model",
+      "components": [
+        {
+          "name": "LFM2.5-2.6B",
+          "version": "84022ce711b28455e8c4fc364ce68c00cf995875"
+        }
+      ],
+      "links": [
+        {
+          "label": "LFM Open License v1.0",
+          "url": "https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/blob/84022ce711b28455e8c4fc364ce68c00cf995875/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "ffmpeg-windows",
+      "version": "e3dc23888cd9c9b43b0833215bf0e4595c3873fee131372e08de3df87345716d",
+      "models": [
+        "ffmpeg"
+      ],
+      "platform": "windows",
+      "title": "Audio and video import",
+      "summary": "Audio and video import uses FFmpeg (LGPL). Download it now? You can skip this and install later in Models → Performance and storage, or use your own FFmpeg.",
+      "checkbox": "I acknowledge FFmpeg's license and source information",
+      "components": [
+        {
+          "name": "FFmpeg windows",
+          "version": "n9.0.2-17-g2a571b6068 / autobuild-2026-09-30-13-08"
+        }
+      ],
+      "links": [
+        {
+          "label": "LGPL-3.0-or-later",
+          "url": "https://ffmpeg.org/legal.html"
+        },
+        {
+          "label": "Source for this FFmpeg revision",
+          "url": "https://github.com/FFmpeg/FFmpeg/tree/2a571b606854520cf89804d8030c8b328e621689"
+        },
+        {
+          "label": "Build scripts and source information",
+          "url": "https://github.com/BtbN/FFmpeg-Builds/blob/6c9aec5fc9a72ec3abedd1fa84db141fa18cf52b/README.md"
+        }
+      ]
+    },
+    {
+      "id": "ffmpeg-macos",
+      "version": "b0afc2429005ba7db294faa952a69a052c51ea4403b245f6e0857bcd43a66dff",
+      "models": [
+        "ffmpeg"
+      ],
+      "platform": "macos",
+      "title": "Audio and video import",
+      "summary": "Audio and video import uses FFmpeg (LGPL). Download it now? You can skip this and install later in Models → Performance and storage, or use your own FFmpeg.",
+      "checkbox": "I acknowledge FFmpeg's license and source information",
+      "components": [
+        {
+          "name": "FFmpeg macOS ARM64 (Cody Stevens Studio LLC)",
+          "version": "9.0.2-sonojot-lgpl-1"
+        }
+      ],
+      "links": [
+        {
+          "label": "LGPL-2.1-or-later",
+          "url": "https://releases.sonojot.com/ffmpeg/9.0.2-sonojot-lgpl-1/LICENSE.txt"
+        },
+        {
+          "label": "FFmpeg license and corresponding source information",
+          "url": "https://ffmpeg.org/legal.html"
+        },
+        {
+          "label": "Exact source, build recipe and replacement instructions",
+          "url": "https://releases.sonojot.com/ffmpeg/9.0.2-sonojot-lgpl-1/README.txt"
+        }
+      ]
+    }
+  ]
+}

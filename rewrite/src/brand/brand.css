@@ -1,0 +1,13 @@
+/* Brand assets enter Vite's module graph here; no runtime asset lookup. */
+@font-face {
+  font-family: Stationery;
+  src: url("./fonts/SourceSerif4Variable-Roman.ttf.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+.studio {
+  --paper-tile-size: 620px 620px;
+  --paper-image: url("./material/paper-stock-seamless.png");
+}

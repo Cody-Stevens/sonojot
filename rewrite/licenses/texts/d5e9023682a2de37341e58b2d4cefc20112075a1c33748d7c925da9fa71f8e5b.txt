@@ -1,0 +1,3 @@
+// SPDX-FileCopyrightText: 2020 Alexander Dean-Kennedy <dstar@slackless.com>
+// SPDX-FileCopyrightText: 2021 Robin Krahl <robin.krahl@ireas.org>
+// SPDX-License-Identifier: Apache-2.0 or MIT

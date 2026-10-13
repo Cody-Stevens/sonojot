@@ -1,0 +1,47 @@
+---
+// Developer-only comparison surface. In production builds getStaticPaths
+// returns an empty list, so no /dev/* page is ever emitted.
+import "../../styles/paper.css";
+import "../../../../shared/typography-material.css";
+import "../../../../shared/typography-lab.css";
+
+export function getStaticPaths() {
+  return import.meta.env.DEV ? [{ params: { lab: "typography" } }] : [];
+}
+---
+
+<!doctype html>
+<html lang="en" data-theme="fog">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Typography material lab · SonoJot</title>
+    <link
+      rel="preload"
+      href="/fonts/SourceSerif4Var-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+  </head>
+  <body>
+    <div class="desk-plane" aria-hidden="true"></div>
+    <main id="typography-lab"></main>
+    <script>
+      import { mountTypographyLab } from "../../../../shared/typography-lab";
+      import { mountTypographyMaterial } from "../../../../shared/typography-material";
+
+      const target = document.getElementById("typography-lab");
+      if (target) {
+        mountTypographyLab(target, {
+          darkTheme: "basalt",
+          darkTitle: "Basalt",
+          lightNote: "Cream stock, green ink — the site's light theme.",
+          darkNote: "Charcoal stock, warm ivory ink — the site's dark theme.",
+        });
+        mountTypographyMaterial(target);
+      }
+    </script>
+  </body>
+</html>

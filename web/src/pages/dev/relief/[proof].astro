@@ -1,0 +1,12 @@
+---
+import '../../../../../shared/typography-relief/lab.css';
+// This proof must not be published with the product site.
+export function getStaticPaths() {
+  return import.meta.env.DEV ? [{ params: { proof: 'lab' } }] : [];
+}
+---
+<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex"/><title>SonoJot · typography relief proof</title></head><body><div id="relief-proof" class="relief-proof"></div><script>
+import { mountReliefLab } from '../../../../../shared/typography-relief/lab';
+const root = document.getElementById('relief-proof');
+if (root) mountReliefLab(root, 'website browser proof');
+</script></body></html>

@@ -1,0 +1,86 @@
+[package]
+name = "sonojot"
+version = "0.26.0"
+description = "Private local dictation and meetings"
+authors = ["Cody Stevens Studio"]
+license = "Apache-2.0"
+edition = "2021"
+default-run = "sonojot"
+
+[lib]
+name = "sonojot_core"
+crate-type = ["rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+fidelity-eval = []
+
+[[bin]]
+name = "fidelity_eval"
+path = "src/bin/fidelity_eval.rs"
+required-features = ["fidelity-eval"]
+
+[[bin]]
+name = "punctuation_probe"
+path = "src/bin/punctuation_probe.rs"
+required-features = ["fidelity-eval"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Qwen gates use RNNoise; the decoder and saved recording retain original audio.
+nnnoiseless = { version = "=0.5.2", default-features = false }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "=2.10.1"
+tauri-plugin-process = "=2.3.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+# Local tokenizer JSON only: no hub/HTTP, progress UI, or C++ trainer.
+tokenizers = { version = "=0.22.2", default-features = false, features = ["fancy-regex"] }
+uuid = { version = "1", features = ["v4"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+cpal = "0.15"
+hound = "3.5"
+libloading = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tokio = { version = "1", features = ["time", "sync", "rt", "rt-multi-thread"] }
+genpdf = { version = "0.2", default-features = false, features = ["images"] }
+base64 = "0.22"
+image = { version = "0.23", default-features = false, features = ["png"] }
+pulldown-cmark = "0.13"
+rusttype = "0.8"
+sha2 = "0.10.9"
+bzip2 = "0.4.4"
+tar = "0.4"
+flate2 = "1"
+
+# Speaker labels load ONNX Runtime dynamically on Windows x64 and Apple Silicon.
+[target.'cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["load-dynamic", "api-17"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Threading", "Win32_System_Performance", "Win32_System_JobObjects", "Win32_Security", "Win32_Security_Cryptography", "Win32_Graphics_Gdi"] }
+winreg = "0.55"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_Media_KernelStreaming", "Win32_Media_Multimedia", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+panic = "abort"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+coreaudio-rs = "0.11.3"
+whisper-rs = { version = "0.16.0", features = ["metal"] }
+security-framework = "3"

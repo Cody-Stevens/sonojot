@@ -1,0 +1,143 @@
+---
+import BrandMark from "./BrandMark.astro";
+import Icon from "./Icon.astro";
+import PaperWaveform from "./PaperWaveform.astro";
+import { site } from "../site.config.mjs";
+
+const year = new Date().getFullYear();
+---
+
+<footer class="site-foot">
+  <div class="column stock foot-sheet" style="--grain-x:-420px;--grain-y:-260px">
+    <div class="foot-heading">
+      <BrandMark variant="lockup" width="9.5rem" />
+      <nav class="foot-links" data-text-surface="flat" aria-label="Footer">
+        <a href={site.repoUrl} rel="noreferrer noopener"><span>Source</span><Icon name="external" size={13} stroke={1.6} /></a>
+        <a href="/terms"><span>Terms</span></a>
+        <a href="/privacy"><span>Privacy</span></a>
+        <a href="/trademarks"><span>Trademarks</span></a>
+        <a href={site.repoUrl + "/blob/main/LICENSE"} rel="noreferrer noopener"><span>License (Apache-2.0)</span><Icon name="external" size={13} stroke={1.6} /></a>
+        <a href={site.repoUrl + "/blob/main/rewrite/THIRD_PARTY_NOTICES.md"} rel="noreferrer noopener"><span>Third-party notices</span><Icon name="external" size={13} stroke={1.6} /></a>
+        <a href={site.issuesUrl} rel="noreferrer noopener"><span>Report a problem</span><Icon name="external" size={13} stroke={1.6} /></a>
+      </nav>
+    </div>
+
+    <PaperWaveform id="footer-paper-wave" />
+
+    <p class="small quiet foot-note" data-text-surface="flat">
+      © {year}
+      <a class="studio" href="https://codystevens.studio" rel="noreferrer noopener">
+        <span>Cody Stevens Studio</span>
+        <Icon name="external" size={13} stroke={1.6} />
+      </a>
+    </p>
+  </div>
+</footer>
+
+<style>
+  .site-foot {
+    padding-block: var(--space-4) var(--space-5);
+  }
+
+  .foot-sheet {
+    --foot-inset: clamp(28px, 2.6vw, 40px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: 28px 18px;
+    border-radius: 22px 20px 21px 23px;
+    box-shadow:
+      inset 1px 1.2px calc(1px + var(--surface-highlight-blur))
+        var(--surface-highlight-spread) var(--surface-highlight-color),
+      0 2px 0 var(--edge),
+      0 6px 5px -4px var(--contact);
+  }
+
+  .foot-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 28px;
+    padding-inline: var(--foot-inset);
+    padding-bottom: 36px;
+  }
+
+  .foot-heading :global(.sono-mark) {
+    max-width: 100%;
+  }
+
+  .foot-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px clamp(18px, 2.2vw, 32px);
+    margin-left: auto;
+    font-size: 0.92rem;
+  }
+
+  .foot-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    min-height: 44px;
+    max-width: 100%;
+    color: var(--soft-ink);
+    text-decoration: none;
+    transition: color var(--motion-control) var(--ease-settle);
+  }
+
+  .foot-links a:hover {
+    color: var(--ink);
+  }
+
+  .foot-note {
+    padding: 4px var(--foot-inset) 0;
+  }
+
+  /* The credit carries its own underline and mark, so it reads as a link
+     before the pointer ever reaches it. */
+  .studio {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    min-height: 44px;
+    max-width: 100%;
+    color: var(--soft-ink);
+    text-decoration: none;
+    vertical-align: -0.12em;
+    transition: color var(--motion-control) var(--ease-settle);
+  }
+
+  .studio span,
+  .foot-links span {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  .studio :global(svg),
+  .foot-links :global(svg) {
+    opacity: 0.8;
+  }
+
+  .studio:hover {
+    color: var(--ink);
+  }
+
+  @media (max-width: 600px) {
+    .foot-sheet {
+      --foot-inset: 22px;
+      padding-top: 24px;
+      padding-bottom: 14px;
+    }
+
+    .foot-heading {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      padding-bottom: 24px;
+    }
+
+    .foot-links {
+      margin-left: 0;
+    }
+  }
+</style>

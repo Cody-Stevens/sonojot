@@ -1,0 +1,272 @@
+---
+import Section from "./Section.astro";
+import Icon from "./Icon.astro";
+import { site, platforms } from "../site.config.mjs";
+---
+
+<Section
+  id="install"
+  title="Install."
+  lede="Download SonoJot for Windows or macOS on Apple Silicon."
+>
+  <div class="rack">
+    {
+      platforms.map((platform, index) => {
+        const released = platform.status === "released";
+        const href = released ? site.asset(platform.asset) : site.latestRelease;
+
+        return (
+          <article
+            class="stock stock--card card slab"
+            style={`--grain-x:${-140 * (index + 1)}px;--grain-y:${-95 * (index + 2)}px`}
+          >
+            <header class="slab-head">
+              <div class="slab-title">
+                <h3 data-text-surface="emboss">{platform.name}</h3>
+                <span class="ticket stage" data-text-surface="flat">{platform.stage}</span>
+              </div>
+              <p class="small quiet" data-text-surface="flat">{platform.detail}</p>
+            </header>
+
+            {released ? (
+              <a class="action action--ink slab-action" href={href} download>
+                <Icon name="download" size={17} stroke={1.6} />
+                Download
+              </a>
+            ) : (
+              <span class="action action--stock slab-action" aria-disabled="true">
+                Not published yet
+              </span>
+            )}
+
+            {[platform.command].map((command) => (
+              <div class="command">
+                <span class="ticket command-label" data-text-surface="flat">{command.label}</span>
+                <pre><code>{command.lines.join("\n")}</code></pre>
+                <button
+                  class="copy"
+                  type="button"
+                  data-copy={command.lines.join("\n")}
+                  aria-label={`Copy the ${platform.name} ${command.label} command`}
+                >
+                  <span class="copy-idle">
+                    <Icon name="copy" size={15} stroke={1.6} />
+                  </span>
+                  <span class="copy-done">
+                    <Icon name="check" size={15} stroke={1.8} />
+                  </span>
+                </button>
+              </div>
+            ))}
+          </article>
+        );
+      })
+    }
+  </div>
+
+  <div class="rack-foot" data-text-surface="flat">
+    <p class="small quiet">
+      Windows may show a SmartScreen prompt because the installer is not Authenticode-signed yet; choose More info → Run anyway.
+    </p>
+    <p class="small quiet disclaimer">
+      <span class="disclaimer-label">Disclaimer:</span>
+      I made SonoJot for myself and use it daily. It is free and open source under the Apache License 2.0: fork it, change it, keep it. It comes with no warranty. Reported problems
+      may or may not be addressed, and the app will change as I see fit, without
+      notice.
+    </p>
+  </div>
+</Section>
+
+<script>
+  // Copying stamps the button for a moment, then the ink fades.
+  document.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const text = button.dataset.copy ?? "";
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (e) {
+        const field = document.createElement("textarea");
+        field.value = text;
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand("copy");
+        field.remove();
+      }
+      button.classList.add("is-copied");
+      setTimeout(() => button.classList.remove("is-copied"), 1400);
+    });
+  });
+</script>
+
+<style>
+  /* The last section hands off to the footer's own top spacing. */
+  :global(#install.band) {
+    padding-bottom: var(--space-2);
+  }
+
+  .rack {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .slab {
+    display: grid;
+    gap: var(--space-2);
+    padding: clamp(1.15rem, 2vw, 1.6rem);
+    transition:
+      transform 260ms var(--ease-settle),
+      box-shadow 260ms var(--ease-settle);
+  }
+
+  .slab:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      inset 1px 1.4px calc(1px + var(--surface-highlight-blur))
+        var(--surface-highlight-spread) var(--surface-highlight-color),
+      inset -1px -0.6px 0.7px #7b6a4826,
+      0 4px 0 var(--edge),
+      0 9px 8px -5px var(--contact),
+      5px 16px 22px -10px #3e321f59;
+  }
+
+  .slab-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+
+  .slab-head h3 {
+    font-size: 1.5rem;
+  }
+
+  .stage {
+    color: var(--soft-ink);
+    letter-spacing: 0.05em;
+    text-transform: lowercase;
+  }
+
+  .slab-head p {
+    margin-top: 0.25rem;
+  }
+
+  .slab-action {
+    width: 100%;
+  }
+
+  .command {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label copy"
+      "code code";
+    gap: 0.15rem 0.4rem;
+    align-items: center;
+    padding: 0.55rem 0.75rem 0.75rem;
+    background-color: var(--well);
+    border-radius: 14px 12px 13px 15px;
+    box-shadow:
+      inset 0 1.5px 2px var(--contact),
+      inset 0 -1px var(--surface-highlight-blur)
+        var(--surface-highlight-spread) var(--surface-highlight-color),
+      0 1px var(--surface-highlight-blur) var(--surface-highlight-spread)
+        var(--surface-highlight-color);
+  }
+
+  .command-label {
+    grid-area: label;
+    justify-self: start;
+    box-shadow: none;
+    background: transparent;
+    padding-inline: 0;
+    color: var(--soft-ink);
+    letter-spacing: 0.05em;
+    text-transform: lowercase;
+  }
+
+  .command pre {
+    grid-area: code;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .command code {
+    font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.74rem;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .copy {
+    grid-area: copy;
+    display: grid;
+    place-items: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    padding: 0;
+    border: 0;
+    border-radius: 8px 7px 8px 7px;
+    background: transparent;
+    color: var(--soft-ink);
+    transition:
+      background-color var(--motion-control) var(--ease-settle),
+      color var(--motion-control) var(--ease-settle);
+  }
+
+  .copy:hover {
+    background-color: var(--card);
+    color: var(--ink);
+  }
+
+  .copy > span {
+    grid-area: 1 / 1;
+  }
+
+  .copy-done {
+    opacity: 0;
+    transform: scale(0.8) rotate(-8deg);
+    transition: none;
+  }
+
+  .copy.is-copied {
+    color: var(--dye);
+  }
+
+  .copy.is-copied .copy-idle {
+    opacity: 0;
+  }
+
+  .copy.is-copied .copy-done {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 120ms var(--ease-settle),
+      transform 220ms var(--ease-settle);
+  }
+
+  .rack-foot {
+    display: grid;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    max-width: 70ch;
+  }
+
+  .disclaimer-label {
+    display: block;
+  }
+
+  .rack-foot a {
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  @media (max-width: 58rem) {
+    .rack {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

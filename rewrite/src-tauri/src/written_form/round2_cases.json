@@ -1,0 +1,392 @@
+[
+  [
+    "six to ten thousand",
+    "CARDINAL",
+    "6,000 to 10,000"
+  ],
+  [
+    "six to ten thousand.",
+    "CARDINAL",
+    "6,000 to 10,000."
+  ],
+  [
+    "two to three million",
+    "CARDINAL",
+    "2 to 3 million"
+  ],
+  [
+    "two to three billion",
+    "CARDINAL",
+    "2 to 3 billion"
+  ],
+  [
+    "two to three trillion",
+    "CARDINAL",
+    "2 to 3 trillion"
+  ],
+  [
+    "six point five to ten thousand",
+    "CARDINAL",
+    "6,500 to 10,000"
+  ],
+  [
+    "6.5 to 10 thousand",
+    "DECIMAL",
+    "6,500 to 10,000"
+  ],
+  [
+    "six to 10 thousand",
+    "CARDINAL",
+    "6,000 to 10,000"
+  ],
+  [
+    "2 to three million",
+    "CARDINAL",
+    "2 to 3 million"
+  ],
+  [
+    "one thousand to two thousand",
+    "CARDINAL",
+    "1,000 to 2,000"
+  ],
+  [
+    "one million to two billion",
+    "CARDINAL",
+    "1 million to 2 billion"
+  ],
+  [
+    "ten to fifteen percent",
+    "PERCENT",
+    "10 to 15%"
+  ],
+  [
+    "two to three percent",
+    "PERCENT",
+    "2 to 3%"
+  ],
+  [
+    "six to ten thousand percent",
+    "PERCENT",
+    "6,000 to 10,000%"
+  ],
+  [
+    "two to three million percent",
+    "PERCENT",
+    "2 to 3 million%"
+  ],
+  [
+    "ten percent to fifteen percent",
+    "PERCENT",
+    "10% to 15%"
+  ],
+  [
+    "six to ten thousand dollars",
+    "MONEY",
+    "$6,000 to $10,000"
+  ],
+  [
+    "two to three million dollars",
+    "MONEY",
+    "$2 to $3 million"
+  ],
+  [
+    "two to three billion euros",
+    "MONEY",
+    "\u20ac2 to \u20ac3 billion"
+  ],
+  [
+    "two to five dollars",
+    "MONEY",
+    "$2 to $5"
+  ],
+  [
+    "two dollars to five dollars",
+    "MONEY",
+    "$2 to $5"
+  ],
+  [
+    "V four",
+    "VERSION",
+    "V4"
+  ],
+  [
+    "v two",
+    "VERSION",
+    "v2"
+  ],
+  [
+    "V two point three",
+    "VERSION",
+    "V2.3"
+  ],
+  [
+    "60 000",
+    "CARDINAL",
+    "60,000"
+  ],
+  [
+    "60 000.",
+    "CARDINAL",
+    "60,000."
+  ],
+  [
+    "1 200 000",
+    "CARDINAL",
+    "1,200,000"
+  ],
+  [
+    "60 000 dollars",
+    "MONEY",
+    "$60,000"
+  ],
+  [
+    "60 000 percent",
+    "PERCENT",
+    "60,000%"
+  ],
+  [
+    "one million, 200 and thirty thousand",
+    "CARDINAL",
+    "1,230,000"
+  ],
+  [
+    "one million, 200 and thirty thousand dollars",
+    "MONEY",
+    "$1,230,000"
+  ],
+  [
+    "one million, 230 thousand",
+    "CARDINAL",
+    "1,230,000"
+  ],
+  [
+    "200 and thirty",
+    "CARDINAL",
+    "230"
+  ],
+  [
+    "a billion dollars",
+    "MONEY",
+    "$1 billion"
+  ],
+  [
+    "six to ten thousand thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "six to ten thousand and five",
+    "CARDINAL",
+    null
+  ],
+  [
+    "1500 to two thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one thousand to two",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one to two to three million",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one or two million",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one to several thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "minus six to ten thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "a thousand to two thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "two to three",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one to two thousand thousand dollars",
+    "MONEY",
+    null
+  ],
+  [
+    "one thousand to two dollars",
+    "MONEY",
+    null
+  ],
+  [
+    "two euros to five dollars",
+    "MONEY",
+    null
+  ],
+  [
+    "ten to fifteen percentage",
+    "PERCENT",
+    null
+  ],
+  [
+    "ten to fifteen percent percent",
+    "PERCENT",
+    null
+  ],
+  [
+    "GA four",
+    "VERSION",
+    null
+  ],
+  [
+    "ga four",
+    "VERSION",
+    null
+  ],
+  [
+    "G A four",
+    "VERSION",
+    null
+  ],
+  [
+    "madeup four",
+    "VERSION",
+    null
+  ],
+  [
+    "V two point point three",
+    "VERSION",
+    null
+  ],
+  [
+    "60 00",
+    "CARDINAL",
+    null
+  ],
+  [
+    "60 0000",
+    "CARDINAL",
+    null
+  ],
+  [
+    "6000 000",
+    "CARDINAL",
+    null
+  ],
+  [
+    "60 000 00",
+    "CARDINAL",
+    null
+  ],
+  [
+    "060 000",
+    "CARDINAL",
+    null
+  ],
+  [
+    "1 2",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one million, 201 and thirty thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one million, 200 and hundred thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one million, 200 and thirty thousand thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one million, 200 and thirty",
+    "CARDINAL",
+    "1,000,230"
+  ],
+  [
+    "200 and 100",
+    "CARDINAL",
+    null
+  ],
+  [
+    "200 and zero",
+    "CARDINAL",
+    null
+  ],
+  [
+    "a billion",
+    "CARDINAL",
+    null
+  ],
+  [
+    "a million",
+    "CARDINAL",
+    null
+  ],
+  [
+    "six hundred to ten thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "ten to six thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "600 to ten thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "six to ten hundred",
+    "CARDINAL",
+    null
+  ],
+  [
+    "V two point zero three",
+    "VERSION",
+    "V2.03"
+  ],
+  [
+    "V 2 point 03",
+    "VERSION",
+    "V2.03"
+  ],
+  [
+    "v 2.30",
+    "VERSION",
+    "v2.30"
+  ],
+  [
+    "two hundred to three hundred thousand",
+    "CARDINAL",
+    null
+  ],
+  [
+    "two dollars to three million dollars",
+    "MONEY",
+    null
+  ],
+  [
+    "two euros to three billion euros",
+    "MONEY",
+    null
+  ]
+]

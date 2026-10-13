@@ -1,0 +1,37 @@
+---
+interface Props {
+  id: string;
+  title: string;
+  lede?: string;
+}
+
+const { id, title, lede } = Astro.props;
+---
+
+<section id={id} class="band">
+  <div class="column">
+    <header class="section-head">
+      <h2 class="section-title text-grain" data-text-surface="emboss" data-reveal="ink" style="--delay:80ms">{title}</h2>
+      {lede && <p class="lede" data-text-surface="flat" data-reveal="rise" style="--delay:200ms">{lede}</p>}
+    </header>
+
+    <div class="section-body" data-reveal="lay" style="--delay:120ms">
+      <slot />
+    </div>
+  </div>
+</section>
+
+<style>
+  .section-head {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-2);
+    margin-bottom: clamp(1.6rem, 3vw, 2.4rem);
+    max-width: 60rem;
+  }
+
+  /* A one-sentence lede takes the whole measure; the head's width bounds it. */
+  .section-head .lede {
+    max-width: none;
+  }
+</style>

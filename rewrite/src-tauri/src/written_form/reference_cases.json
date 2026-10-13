@@ -1,0 +1,672 @@
+[
+  [
+    "two",
+    "CARDINAL",
+    "two"
+  ],
+  [
+    "three",
+    "CARDINAL",
+    "three"
+  ],
+  [
+    "one",
+    "CARDINAL",
+    "one"
+  ],
+  [
+    "ten million",
+    "CARDINAL",
+    "10 million"
+  ],
+  [
+    "fifty-eight thousand",
+    "CARDINAL",
+    "58,000"
+  ],
+  [
+    "two hundred",
+    "CARDINAL",
+    "200"
+  ],
+  [
+    "four thousand",
+    "CARDINAL",
+    "4,000"
+  ],
+  [
+    "four point two billion",
+    "DECIMAL",
+    "4.2 billion"
+  ],
+  [
+    "six point one",
+    "DECIMAL",
+    "6.1"
+  ],
+  [
+    "point five",
+    "DECIMAL",
+    "0.5"
+  ],
+  [
+    "five percent",
+    "PERCENT",
+    "5%"
+  ],
+  [
+    "two dollars",
+    "MONEY",
+    "$2"
+  ],
+  [
+    "three to six",
+    "CARDINAL",
+    "three to six"
+  ],
+  [
+    "ten to twenty",
+    "CARDINAL",
+    "10 to 20"
+  ],
+  [
+    "a hundred bucks",
+    "MONEY",
+    "a hundred bucks"
+  ],
+  [
+    "a couple",
+    "CARDINAL",
+    "a couple"
+  ],
+  [
+    "several thousand",
+    "CARDINAL",
+    "several thousand"
+  ],
+  [
+    "hundreds of",
+    "CARDINAL",
+    "hundreds of"
+  ],
+  [
+    "a million times",
+    "CARDINAL",
+    "a million times"
+  ],
+  [
+    "one or two",
+    "CARDINAL",
+    "one or two"
+  ],
+  [
+    "Ten percent",
+    "PERCENT",
+    "10%"
+  ],
+  [
+    "four thousand dollars",
+    "MONEY",
+    "$4,000"
+  ],
+  [
+    "ten dollars",
+    "MONEY",
+    "$10"
+  ],
+  [
+    "a thousand dollars",
+    "MONEY",
+    "$1,000"
+  ],
+  [
+    "two dollars and fifty cents",
+    "MONEY",
+    "$2.50"
+  ],
+  [
+    "four point two million dollars",
+    "MONEY",
+    "$4.2 million"
+  ],
+  [
+    "ten thousand dollar",
+    "MONEY",
+    "$10,000"
+  ],
+  [
+    "fifty cents",
+    "MONEY",
+    "50 cents"
+  ],
+  [
+    "twenty euros",
+    "MONEY",
+    "€20"
+  ],
+  [
+    "twenty pounds",
+    "MONEY",
+    "20 pounds"
+  ],
+  [
+    "ten bucks",
+    "MONEY",
+    "10 bucks"
+  ],
+  [
+    "several thousand dollar bill",
+    "MONEY",
+    "several thousand dollar bill"
+  ],
+  [
+    "a few bucks",
+    "MONEY",
+    "a few bucks"
+  ],
+  [
+    "ten percent",
+    "PERCENT",
+    "10%"
+  ],
+  [
+    "a hundred percent",
+    "PERCENT",
+    "100%"
+  ],
+  [
+    "point five percent",
+    "PERCENT",
+    "0.5%"
+  ],
+  [
+    "seven percent",
+    "PERCENT",
+    "7%"
+  ],
+  [
+    "ten percentage",
+    "PERCENT",
+    "ten percentage"
+  ],
+  [
+    "ten K",
+    "MAGNITUDE",
+    "10K"
+  ],
+  [
+    "four K",
+    "MAGNITUDE",
+    "4K"
+  ],
+  [
+    "five M",
+    "MAGNITUDE",
+    "5M"
+  ],
+  [
+    "ten X",
+    "MAGNITUDE",
+    "10x"
+  ],
+  [
+    "twenty twenty five",
+    "YEAR",
+    "2025"
+  ],
+  [
+    "nineteen ninety nine",
+    "YEAR",
+    "1999"
+  ],
+  [
+    "two thousand five",
+    "YEAR",
+    "2005"
+  ],
+  [
+    "the nineties",
+    "YEAR",
+    "the nineties"
+  ],
+  [
+    "April thirtieth, twenty twenty seven",
+    "DATE",
+    "April 30, 2027"
+  ],
+  [
+    "April thirtieth",
+    "DATE",
+    "April 30"
+  ],
+  [
+    "the thirtieth of April",
+    "DATE",
+    "the 30th of April"
+  ],
+  [
+    "first",
+    "ORDINAL",
+    "first"
+  ],
+  [
+    "third",
+    "ORDINAL",
+    "third"
+  ],
+  [
+    "fifth",
+    "ORDINAL",
+    "fifth"
+  ],
+  [
+    "twenty first",
+    "ORDINAL",
+    "21st"
+  ],
+  [
+    "three thirty pm",
+    "TIME",
+    "3:30 PM"
+  ],
+  [
+    "nine am",
+    "TIME",
+    "9 AM"
+  ],
+  [
+    "nine thirty",
+    "TIME",
+    "nine thirty"
+  ],
+  [
+    "at nine thirty",
+    "TIME",
+    "at 9:30"
+  ],
+  [
+    "three o'clock",
+    "TIME",
+    "three o'clock"
+  ],
+  [
+    "version two point three point one",
+    "VERSION",
+    "version 2.3.1"
+  ],
+  [
+    "v two",
+    "VERSION",
+    "v2"
+  ],
+  [
+    ".NET ten",
+    "VERSION",
+    ".NET 10"
+  ],
+  [
+    "Python three twelve",
+    "VERSION",
+    "Python 3.12"
+  ],
+  [
+    "three twelve",
+    "VERSION",
+    "three twelve"
+  ],
+  [
+    "five milliseconds",
+    "MEASURE",
+    "5 milliseconds"
+  ],
+  [
+    "sixteen gigs",
+    "MEASURE",
+    "16 gigs"
+  ],
+  [
+    "two hundred fifty six gigabytes",
+    "MEASURE",
+    "256 gigabytes"
+  ],
+  [
+    "sixteen GB",
+    "MEASURE",
+    "16 GB"
+  ],
+  [
+    "five seconds",
+    "MEASURE",
+    "five seconds"
+  ],
+  [
+    "thirty seconds",
+    "MEASURE",
+    "30 seconds"
+  ],
+  [
+    "A and B",
+    "AMP",
+    "A and B"
+  ],
+  [
+    "research and development",
+    "AMP",
+    "research and development"
+  ],
+  [
+    "ten plus two",
+    "CARDINAL",
+    "ten plus two"
+  ],
+  [
+    "ten minus two",
+    "CARDINAL",
+    "ten minus two"
+  ],
+  [
+    "minus ten",
+    "CARDINAL",
+    "minus ten"
+  ],
+  [
+    "ten times two",
+    "CARDINAL",
+    "ten times two"
+  ],
+  [
+    "ten equals ten",
+    "CARDINAL",
+    "ten equals ten"
+  ],
+  [
+    "spelled S O U L",
+    "AMP",
+    "spelled S O U L"
+  ],
+  [
+    "GPT six point one Soul",
+    "MODEL",
+    "GPT-6.1 Sol"
+  ],
+  [
+    "Croak four point six",
+    "MODEL",
+    "Grok 4.6"
+  ],
+  [
+    "Devon CLI",
+    "MODEL",
+    "Devin CLI"
+  ],
+  [
+    "soul",
+    "MODEL",
+    "soul"
+  ],
+  [
+    "a half",
+    "CARDINAL",
+    "a half"
+  ],
+  [
+    "three quarters",
+    "CARDINAL",
+    "three quarters"
+  ],
+  [
+    "end to end",
+    "CARDINAL",
+    "end to end"
+  ],
+  [
+    "one hundred and twenty three",
+    "CARDINAL",
+    "123"
+  ],
+  [
+    "one million two hundred thousand",
+    "CARDINAL",
+    "1,200,000"
+  ],
+  [
+    "one thousand and five",
+    "CARDINAL",
+    "1,005"
+  ],
+  [
+    "one million",
+    "CARDINAL",
+    "1 million"
+  ],
+  [
+    "a million dollars",
+    "MONEY",
+    "$1 million"
+  ],
+  [
+    "minus point five",
+    "DECIMAL",
+    "-0.5"
+  ],
+  [
+    "zero point zero five",
+    "DECIMAL",
+    "0.05"
+  ],
+  [
+    "point oh five",
+    "DECIMAL",
+    "0.05"
+  ],
+  [
+    "six point twelve",
+    "DECIMAL",
+    "6.12"
+  ],
+  [
+    "two dollars fifty cents",
+    "MONEY",
+    "$2.50"
+  ],
+  [
+    "two dollars and five cents",
+    "MONEY",
+    "$2.05"
+  ],
+  [
+    "nine oh five am",
+    "TIME",
+    "9:05 AM"
+  ],
+  [
+    "nine thirty p m",
+    "TIME",
+    "9:30 PM"
+  ],
+  [
+    "nine thirty a.m.",
+    "TIME",
+    "9:30 AM."
+  ],
+  [
+    "nineteen oh five",
+    "YEAR",
+    "1905"
+  ],
+  [
+    "nineteen hundred",
+    "YEAR",
+    "1900"
+  ],
+  [
+    "twenty twenty",
+    "YEAR",
+    "2020"
+  ],
+  [
+    "April thirtieth, twenty twenty seven.",
+    "DATE",
+    "April 30, 2027."
+  ],
+  [
+    "February twenty ninth, twenty twenty four",
+    "DATE",
+    "February 29, 2024"
+  ],
+  [
+    "twenty second",
+    "ORDINAL",
+    "22nd"
+  ],
+  [
+    "one hundred eleventh",
+    "ORDINAL",
+    "111th"
+  ],
+  [
+    "(ten percent)",
+    "PERCENT",
+    "(10%)"
+  ],
+  [
+    "three to ten",
+    "CARDINAL",
+    "3 to 10"
+  ],
+  [
+    "point five to point six",
+    "CARDINAL",
+    "0.5 to 0.6"
+  ],
+  [
+    "ten million to twenty million",
+    "CARDINAL",
+    "10 million to 20 million"
+  ],
+  [
+    "four thousand",
+    "MONEY",
+    null
+  ],
+  [
+    "a hundred",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one two",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one hundred hundred",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one hundred and",
+    "CARDINAL",
+    null
+  ],
+  [
+    "one million million",
+    "CARDINAL",
+    null
+  ],
+  [
+    "ten point",
+    "DECIMAL",
+    null
+  ],
+  [
+    "point",
+    "DECIMAL",
+    null
+  ],
+  [
+    "twenty thirteen",
+    "CARDINAL",
+    null
+  ],
+  [
+    "twenty one",
+    "YEAR",
+    null
+  ],
+  [
+    "at twenty one",
+    "TIME",
+    null
+  ],
+  [
+    "one or two percent",
+    "PERCENT",
+    null
+  ],
+  [
+    "two dollars and one hundred cents",
+    "MONEY",
+    null
+  ],
+  [
+    "February thirtieth",
+    "DATE",
+    null
+  ],
+  [
+    "February twenty ninth twenty twenty five",
+    "DATE",
+    null
+  ],
+  [
+    "thirteen am",
+    "TIME",
+    null
+  ],
+  [
+    "nine sixty pm",
+    "TIME",
+    null
+  ],
+  [
+    "at three o'clock",
+    "TIME",
+    null
+  ],
+  [
+    "version two point point one",
+    "VERSION",
+    null
+  ],
+  [
+    "madeup three twelve",
+    "VERSION",
+    null
+  ],
+  [
+    "p and b and j",
+    "AMP",
+    null
+  ],
+  [
+    "PB and J",
+    "AMP",
+    null
+  ],
+  [
+    "several milliseconds",
+    "MEASURE",
+    null
+  ],
+  [
+    "two widgets",
+    "MEASURE",
+    null
+  ],
+  [
+    "twenty",
+    "UNKNOWN",
+    null
+  ]
+]

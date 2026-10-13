@@ -1,0 +1,60 @@
+---
+// A screenshot of the app lying on the desk: no mount, no caption. The picture
+// follows the stock the reader picked, so the page and the app never disagree.
+interface Props {
+  name: string;
+  alt: string;
+}
+
+const { name, alt } = Astro.props;
+---
+
+<figure class="shot">
+  <img
+    src={`/shots/app-${name}-fog.webp`}
+    width="1220"
+    height="860"
+    alt={alt}
+    loading="lazy"
+    decoding="async"
+    data-shot={name}
+  />
+</figure>
+
+<script>
+  // One observer for every screenshot on the page.
+  const shots = document.querySelectorAll<HTMLImageElement>("[data-shot]");
+
+  if (shots.length) {
+    const sync = () => {
+      const theme = document.documentElement.dataset.theme === "basalt" ? "basalt" : "fog";
+      shots.forEach((img) => {
+        const next = `/shots/app-${img.dataset.shot}-${theme}.webp`;
+        if (img.getAttribute("src") !== next) img.setAttribute("src", next);
+      });
+    };
+
+    sync();
+    new MutationObserver(sync).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+  }
+</script>
+
+<style>
+  .shot {
+    margin: 0;
+  }
+
+  .shot img {
+    display: block;
+    width: 100%;
+    border-radius: 14px 12px 13px 15px;
+    box-shadow:
+      inset 0 0 0 1px #0000001a,
+      0 2px 0 var(--edge),
+      0 10px 12px -8px var(--contact),
+      6px 22px 34px -16px #29231566;
+  }
+</style>

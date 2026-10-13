@@ -1,0 +1,44 @@
+---
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { site } from "../site.config.mjs";
+---
+
+<Base title="Not found" description="That page does not exist on sonojot.com.">
+  <Nav />
+  <main id="main" class="band">
+    <div class="column lost">
+      <span class="ticket" data-text-surface="flat" data-reveal="rise">404</span>
+      <h1 class="section-title text-grain" data-text-surface="emboss" data-reveal="ink">Nothing is written here.</h1>
+      <p class="lede" data-text-surface="flat" data-reveal="rise" style="--delay:180ms">
+        That page does not exist.
+      </p>
+      <div class="lost-actions" data-reveal="rise" style="--delay:260ms">
+        <a class="action action--ink" href="/">Back to the front</a>
+        <a class="action action--stock" href={site.repoUrl}>Source on GitHub</a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  .lost {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-2);
+    padding-block: clamp(3rem, 10vw, 8rem);
+  }
+
+  .lost .ticket {
+    color: var(--soft-ink);
+  }
+
+  .lost-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+</style>

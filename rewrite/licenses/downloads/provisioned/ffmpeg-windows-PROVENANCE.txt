@@ -1,0 +1,7 @@
+SonoJot media support (optional)
+Package: ffmpeg-n9.0.1-29-gad500d59cb-win64-lgpl-shared-9.0
+Downloaded: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-11-13-20/ffmpeg-n9.0.1-29-gad500d59cb-win64-lgpl-shared-9.0.zip
+SHA-256: 40eec25b2f55dcad7e4d4e640919b920d29818b56fdaf9353ce1fd8adefc9d6b
+Build scripts: https://github.com/BtbN/FFmpeg-Builds
+License: LGPL. See LICENSE.txt and doc/ in this folder; https://ffmpeg.org/legal.html
+Installed: 2026-09-11T17:32:10.4279231Z

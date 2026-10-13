@@ -1,0 +1,22 @@
+---
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import Hero from "../components/Hero.astro";
+import CleanupDemo from "../components/CleanupDemo.astro";
+import Meetings from "../components/Meetings.astro";
+import Local from "../components/Local.astro";
+import Install from "../components/Install.astro";
+import Footer from "../components/Footer.astro";
+---
+
+<Base description="SonoJot is a desktop dictation and meeting recorder. Press a key, speak, and the finished text lands where you were already typing. Speech recognition runs on your own machine.">
+  <Nav />
+  <main id="main">
+    <Hero />
+    <CleanupDemo />
+    <Meetings />
+    <Local />
+    <Install />
+  </main>
+  <Footer />
+</Base>

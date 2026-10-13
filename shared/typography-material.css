@@ -1,0 +1,253 @@
+﻿/* Shared material language. Font, measure, weight and content hierarchy stay
+   with the host. These are the only production text-depth declarations. */
+:root,
+[data-theme="fog"] {
+  --material-light-angle: 45deg;
+  --material-light-x: calc(cos(var(--material-light-angle)) / cos(45deg));
+  --material-light-y: calc(sin(var(--material-light-angle)) / sin(45deg));
+  --type-depth-scale: 1;
+  --type-imprint-depth: 2;
+  --type-emboss-height: 2.5;
+  --type-highlight-scale: 1;
+  --type-shadow-scale: 1;
+  --type-imprint-highlight: 0.32;
+  --type-imprint-shadow: 0.48;
+  --type-emboss-highlight: 0.42;
+  --type-emboss-shadow: 0.55;
+  --type-light-elevation: 32;
+  --type-ambient: 0.32;
+  --type-edge-softness: 0.65px;
+  --type-ink-texture-strength: 0.85;
+  --type-paper-interaction: 0.09;
+  --type-ink-density: 1;
+}
+[data-theme="slate"],
+[data-theme="basalt"] {
+  --type-imprint-highlight: 0.08;
+  --type-imprint-shadow: 0.58;
+  --type-emboss-highlight: 0.14;
+  --type-emboss-shadow: 0.7;
+  --type-ink-texture-strength: 0.45;
+  --type-paper-interaction: 0.065;
+  --type-ambient: 0.42;
+}
+.type-lighting-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.type-material {
+  --type-treatment: imprint;
+}
+/* Semantics are independent of optical size: a small important label remains
+   raised in intent, but its height fades out to preserve native crispness. */
+:where(.type-material)
+  :is(
+    h1,
+    h2,
+    h3,
+    h4,
+    strong,
+    b,
+    [aria-current="page"],
+    [aria-selected="true"],
+    .nav-item.selected,
+    .segments button[aria-pressed="true"]
+  ),
+[data-text-surface="emboss"],
+[data-text-surface="emboss-strong"] {
+  --type-treatment: emboss;
+}
+[data-text-surface="imprint"],
+[data-text-surface="imprint-strong"] {
+  --type-treatment: imprint;
+}
+:where(.type-material) :is(small, figcaption, .quiet, .muted, .help, .metadata),
+[data-text-surface="flat"] {
+  --type-treatment: flat;
+}
+
+:where(
+  .type-material,
+  .type-material
+    :is(
+      h1,
+      h2,
+      h3,
+      h4,
+      h5,
+      h6,
+      p,
+      span,
+      a,
+      button,
+      label,
+      input,
+      textarea,
+      select,
+      small,
+      strong,
+      em,
+      li,
+      dt,
+      dd,
+      td,
+      th,
+      pre,
+      code,
+      summary,
+      figcaption
+    )
+) {
+  --type-small-edge: clamp(0px, calc((1em - 14px) * 0.035), 0.18px);
+  --type-x: calc(
+    cos(var(--material-light-angle)) * var(--type-small-edge) *
+      var(--type-depth-scale)
+  );
+  --type-y: calc(
+    sin(var(--material-light-angle)) * var(--type-small-edge) *
+      var(--type-depth-scale)
+  );
+  text-shadow:
+    calc(-1 * var(--type-x)) calc(-1 * var(--type-y)) 0 rgb(15 24 15 / 0.2),
+    var(--type-x) var(--type-y) 0 rgb(255 246 222 / 0.15);
+}
+:where(.type-material)
+  :is(
+    h1,
+    h2,
+    h3,
+    h4,
+    strong,
+    b,
+    [aria-current="page"],
+    [aria-selected="true"],
+    .nav-item.selected
+  ),
+[data-text-surface="emboss"],
+[data-text-surface="emboss-strong"] {
+  text-shadow:
+    calc(-1 * var(--type-x)) calc(-1 * var(--type-y)) 0 rgb(255 246 222 / 0.2),
+    var(--type-x) var(--type-y) 0 rgb(15 24 15 / 0.3);
+}
+[data-text-surface="flat"],
+[data-text-surface="flat"] *,
+:where(.type-material) :is(small, .quiet, .muted, .help, .metadata) {
+  text-shadow: none;
+}
+
+/* Native editable text and mounted controls transmit the existing substrate.
+   Their paper background and focus ring are never replaced by a text mask. */
+@supports (background-clip: text) and (color: color-mix(in srgb, black, white)) {
+  :where(.type-material)
+    :is(p, li, dt, dd, label, button, a, small, span, input, textarea, select) {
+    -webkit-text-fill-color: color-mix(
+      in srgb,
+      currentColor
+        calc(
+          100% *
+            clamp(
+              0.91,
+              calc(var(--type-ink-density) - var(--type-paper-interaction)),
+              1
+            )
+        ),
+      transparent
+    );
+  }
+  [data-grain-ready] {
+    --type-face-ink: color-mix(
+      in srgb,
+      currentColor calc(100% * var(--type-ink-density)),
+      black
+    );
+    /* Keep at least 84% native pigment, even at maximum diagnostic texture.
+       Painting that pigment as text preserves ink outside a tight line box
+       (descenders, accents and italic overhangs). Only the fibers are clipped. */
+    --type-face-coverage: calc(
+      100% *
+        (
+          1 -
+            clamp(
+              0,
+              0.16 * var(--type-ink-texture-strength) *
+                var(--type-grain-scale, 1),
+              0.16
+            )
+        )
+    );
+    background-color: transparent;
+    background-image: var(--type-stock-image);
+    background-size: var(--type-stock-size);
+    background-position: var(--type-stock-x) var(--type-stock-y);
+    background-repeat: repeat;
+    background-origin: border-box;
+    /* Blend modes plus a text clip can composite unrelated glyphs against the
+       paper in WebKit. The photograph uses ordinary source-over compositing. */
+    background-blend-mode: normal;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: color-mix(
+      in srgb,
+      var(--type-face-ink) var(--type-face-coverage),
+      transparent
+    );
+    text-shadow: none;
+    filter: var(--type-relief-filter, none);
+  }
+  [data-grain-ready] :is(span, em, strong, b, a, code) {
+    -webkit-text-fill-color: inherit;
+    text-shadow: none;
+  }
+}
+/* Flat PRINTING retains fibers. Only OFF restores the original digital face. */
+:is([data-type-material="off"], [data-material="off"]),
+:is([data-type-material="off"], [data-material="off"]) * {
+  text-shadow: none !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+:is([data-type-material="off"], [data-material="off"]) [data-grain-ready],
+[data-grain-ready][data-type-material="off"] {
+  background-image: none !important;
+  background-color: transparent !important;
+  filter: none !important;
+}
+.type-material ::selection {
+  -webkit-text-fill-color: currentColor;
+  text-shadow: none;
+}
+@media (forced-colors: active), (prefers-contrast: more), print {
+  .type-material,
+  .type-material * {
+    text-shadow: none !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
+  .type-material [data-grain-ready] {
+    background-image: none !important;
+    background-color: transparent !important;
+    filter: none !important;
+  }
+}
+@media (forced-colors: active) {
+  .type-material,
+  .type-material * {
+    -webkit-text-fill-color: CanvasText !important;
+  }
+  .type-material :is(button, input, select, textarea),
+  .type-material button * {
+    -webkit-text-fill-color: ButtonText !important;
+  }
+  .type-material a,
+  .type-material a * {
+    -webkit-text-fill-color: LinkText !important;
+  }
+  .type-material :disabled,
+  .type-material :disabled * {
+    -webkit-text-fill-color: GrayText !important;
+  }
+  .type-material ::selection {
+    -webkit-text-fill-color: HighlightText !important;
+  }
+}

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+*.log
+.models-cache/
+.live-asr/
+# Downloaded assets, generated transcripts, traces and test output stay local.
+# Keep authored fixtures, model requirements and reusable prompt .txt files.
+evaluation/.cache/
+evaluation/runs/
+evaluation/__pycache__/
+evaluation/.venv*/
+evaluation/scratch/
+evaluation/test_logs/
+# Generated machine-readable benchmark dumps; keep the curated Markdown reports.
+evaluation/BENCHMARK*-SUMMARY-2026-*.json
+evaluation/CLEANUP-TARGETED-SUMMARY-2026-*.json

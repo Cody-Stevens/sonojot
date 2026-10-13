@@ -1,0 +1,29 @@
+{
+  "reviewDate": "2026-10-12",
+  "errors": [],
+  "components": 61,
+  "modelComponents": 40,
+  "runtimeComponents": 21,
+  "catalogIds": 39,
+  "sourceCatalogIds": 39,
+  "evidenceFiles": 162,
+  "uniqueNoticeTexts": 93,
+  "integrationEvidence": "Nine retained provisioning/source documents added. The generator verifies all saved evidence hashes and source-byte recovery; local archive receipts are historical observations, not new full-archive checksum tests.",
+  "windowsTranscribeCRLFCheck": {
+    "LICENSE": {
+      "bytes": 1104,
+      "sha256": "acef7d1711847656cdeb0007784dbe19bd7fd069767b0b38bd62714c6a8f3159"
+    },
+    "ggml/LICENSE": {
+      "bytes": 1099,
+      "sha256": "bcd8ec749126d45cb06737d0690295d73df4b6e7e194205bcf91190368f27285"
+    },
+    "src/third_party/miniz/LICENSE": {
+      "bytes": 1184,
+      "sha256": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3"
+    }
+  },
+  "literalDownloadCoverage": "All production-source literal artifact URLs mapped; the only unmatched URL is the files.pythonhosted.org host allowlist prefix, not an artifact.",
+  "scope": "Read-only schema/path/hash/source-catalog checks; no application build, test matrix, runtime launch or model execution.",
+  "processCleanup": "devpulse prune --mine --cwd . reported Nothing to prune; no processes were started."
+}

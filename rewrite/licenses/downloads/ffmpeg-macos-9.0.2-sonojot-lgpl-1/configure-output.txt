@@ -1,0 +1,116 @@
+install prefix            /sonojot-ffmpeg
+source path               /tmp/sonojot-ffmpeg-20261012-r6b/ffmpeg-9.0.2
+C compiler                clang
+C library                 
+ARCH                      aarch64 (generic)
+version string suffix     sonojot-lgpl
+big-endian                no
+runtime cpu detection     yes
+NEON enabled              yes
+DOTPROD enabled           yes
+I8MM enabled              yes
+PMULL enabled             yes
+EOR3 enabled              yes
+SVE enabled               yes
+SVE2 enabled              yes
+SME enabled               yes
+SME-I16I64 enabled        yes
+SME2 enabled              yes
+debug symbols             no
+strip symbols             yes
+optimize for size         no
+optimizations             yes
+static                    yes
+shared                    no
+network support           no
+threading support         pthreads
+safe bitstream reader     yes
+texi2html enabled         no
+perl enabled              yes
+pod2man enabled           yes
+makeinfo enabled          no
+makeinfo supports HTML    no
+experimental features     yes
+xmllint enabled           yes
+
+External libraries:
+
+External libraries providing hardware acceleration:
+
+Libraries:
+avcodec                 avformat                swresample
+avfilter                avutil
+
+Programs:
+ffmpeg
+
+Enabled decoders:
+aac                     eac3                    pcm_s16le_planar
+aac_fixed               flac                    pcm_s24be
+aac_latm                gsm                     pcm_s24daud
+ac3                     gsm_ms                  pcm_s24le
+ac3_fixed               mlp                     pcm_s24le_planar
+adpcm_adx               mp1                     pcm_s32be
+adpcm_ct                mp1float                pcm_s32le
+adpcm_g722              mp2                     pcm_s32le_planar
+adpcm_g726              mp2float                pcm_s64be
+adpcm_g726le            mp3                     pcm_s64le
+adpcm_ima_dk3           mp3adu                  pcm_s8
+adpcm_ima_dk4           mp3adufloat             pcm_s8_planar
+adpcm_ima_qt            mp3float                pcm_sga
+adpcm_ima_smjpeg        mp3on4                  pcm_u16be
+adpcm_ima_wav           mp3on4float             pcm_u16le
+adpcm_ima_ws            opus                    pcm_u24be
+adpcm_ms                pcm_alaw                pcm_u24le
+adpcm_psx               pcm_bluray              pcm_u32be
+adpcm_sbpro_2           pcm_dvd                 pcm_u32le
+adpcm_sbpro_3           pcm_f16le               pcm_u8
+adpcm_sbpro_4           pcm_f24le               pcm_vidc
+adpcm_swf               pcm_f32be               truehd
+adpcm_thp               pcm_f32le               vorbis
+adpcm_thp_le            pcm_f64be               wmalossless
+adpcm_xa                pcm_f64le               wmapro
+adpcm_yamaha            pcm_lxf                 wmav1
+alac                    pcm_mulaw               wmav2
+amrnb                   pcm_s16be               wmavoice
+amrwb                   pcm_s16be_planar
+dca                     pcm_s16le
+
+Enabled encoders:
+pcm_s16le
+
+Enabled hwaccels:
+
+Enabled parsers:
+aac                     dca                     mpegaudio
+aac_latm                flac                    opus
+ac3                     mlp                     vorbis
+
+Enabled demuxers:
+aac                     avi                     mp3
+aiff                    caf                     mpegps
+amr                     flac                    mpegts
+asf                     matroska                ogg
+asf_o                   mov                     wav
+
+Enabled muxers:
+wav
+
+Enabled protocols:
+file                    pipe
+
+Enabled filters:
+aformat                 crop                    rotate
+anull                   format                  transpose
+aresample               hflip                   trim
+atrim                   null                    vflip
+
+Enabled bsfs:
+
+Enabled indevs:
+
+Enabled outdevs:
+
+License: LGPL version 2.1 or later
+
+WARNING: false not found, library detection may fail.

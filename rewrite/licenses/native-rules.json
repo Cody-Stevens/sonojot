@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "crates": {
+    "rust:windows_x86_64_msvc@0.52.6": {
+      "include": ["lib/*.lib"],
+      "reason": "Generated Windows import library under the windows-rs package license; resolves calls to OS DLLs rather than bundling those DLLs."
+    },
+    "rust:windows_x86_64_msvc@0.53.1": {
+      "include": ["lib/*.lib"],
+      "reason": "Generated Windows import library under the windows-rs package license; resolves calls to OS DLLs rather than bundling those DLLs."
+    },
+    "rust:bzip2-sys@0.1.13+1.0.8": {
+      "include": ["bzip2-1.0.8/blocksort.c", "bzip2-1.0.8/huffman.c", "bzip2-1.0.8/crctable.c", "bzip2-1.0.8/randtable.c", "bzip2-1.0.8/compress.c", "bzip2-1.0.8/decompress.c", "bzip2-1.0.8/bzlib.c", "bzip2-1.0.8/bzlib.h", "bzip2-1.0.8/bzlib_private.h"],
+      "reason": "Exactly the C files selected in build.rs and library headers. CLI bzip2.c and bzip2recover.c are not built. macOS may substitute a system library through pkg-config."
+    },
+    "rust:ring@0.17.14": {
+      "include": ["crypto/**/*", "include/**/*", "third_party/fiat/**/*", "pregenerated/**/*", "src/**/*.rs"],
+      "reason": "Vendored crypto and fiat arithmetic, assembly generation outputs, and Rust wrappers. Collect attribution comments conservatively for the packaged crypto subtree; architecture-specific unused files may add notices."
+    },
+    "rust:whisper-rs-sys@0.15.0": {
+      "include": ["whisper.cpp/src/whisper.cpp", "whisper.cpp/src/whisper-*.h", "whisper.cpp/include/whisper.h", "whisper.cpp/ggml/src/*.c", "whisper.cpp/ggml/src/*.cpp", "whisper.cpp/ggml/src/*.h", "whisper.cpp/ggml/src/ggml-cpu/*.c", "whisper.cpp/ggml/src/ggml-cpu/*.cpp", "whisper.cpp/ggml/src/ggml-cpu/*.h", "whisper.cpp/ggml/src/ggml-cpu/arch/**/*", "whisper.cpp/ggml/src/ggml-metal/**/*", "whisper.cpp/ggml/src/ggml-blas/**/*", "whisper.cpp/ggml/include/ggml*.h"],
+      "forbiddenFeatures": ["cuda", "hipblas", "intel-sycl", "vulkan", "coreml", "openblas"],
+      "reason": "whisper.cpp 1.8.3 with ggml CPU, Accelerate BLAS and embedded Metal shaders on macOS. CMake defaults disable KleidiAI and llamafile. Non-CPU/Metal/BLAS backends are not compiled. Source headers are retained conservatively, including declarations for disabled backends. Re-review any feature or build.rs/CMake change."
+    },
+    "rust:esaxx-rs@0.1.10": {
+      "include": [],
+      "forbiddenFeatures": ["cpp"],
+      "reason": "The C++ feature is disabled by tokenizers default-features=false; build.rs does not compile esaxx.cpp. The pure Rust port remains in the runtime closure under the crate's license."
+    },
+    "rust:objc2-exception-helper@0.1.1": {
+      "include": ["src/try_catch.m"],
+      "reason": "Objective-C exception bridge compiled for Apple targets; covered by the objc2 project declaration."
+    },
+    "rust:webview2-com-sys@0.38.2": {
+      "include": ["x64/WebView2LoaderStatic.lib"],
+      "reason": "src/lib.rs links the x64 Microsoft WebView2 loader statically. Other architectures and DLL alternatives are in the crate archive but are not part of the requested Windows x64 bundle. Microsoft SDK terms are separate from the MIT Rust wrappers."
+    },
+    "rust:walkdir@2.5.0": {
+      "include": [],
+      "reason": "compare/nftw.c is a benchmarking comparison program, not a Cargo runtime build input."
+    }
+  }
+}

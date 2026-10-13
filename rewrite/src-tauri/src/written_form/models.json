@@ -1,0 +1,3547 @@
+{
+ "version": 1,
+ "generated": "2026-10-08",
+ "conventions": {
+  "spoken_strings": "lowercase recognizer words, marks stripped; '{n}' is any spoken number",
+  "pattern_tokens": "{version} {major} {minor} {tier} {variant} {size} {active}; [..] optional",
+  "version_join": "separator between family word and version ('' = attached, e.g. Qwen3, LFM2)",
+  "tier.join": "separator before the tier word when it differs from a space",
+  "ambiguous": "family/product word is also a common word or name; require a version/tier/model cue",
+  "version_words": "Spoken versions render as digits: 'six point one' -> 6.1, 'four point oh' -> 4.0, 'four point two zero' -> 4.20 (keep trailing zeros as spoken). Two bare single digits after a versioned family word ('grok four seven') may be read as major.minor only for decimal-versioned families (GPT, Claude lines, Grok, GLM, Gemini); open question in NOTES.md.",
+  "sizes": "'{n} b' -> {n}B, 'a {n} b' -> A{n}B, 'e {n} b' -> E{n}B; lowercase b only for gpt-oss",
+  "marks_inside_span": "a recognizer mark between family word and version/tier ('GLM. 5.3') is dropped inside the span",
+  "extra_fields": "api_id, known, notes, legacy, tier_alone_anchor are informative; the renderer may ignore them"
+ },
+ "families": [
+  {
+   "id": "gpt",
+   "vendor": "OpenAI",
+   "canonical": "GPT",
+   "spoken": [
+    "gpt",
+    "g p t"
+   ],
+   "misheard": [
+    "gbt",
+    "g b t",
+    "gpd",
+    "chat gpt"
+   ],
+   "ambiguous": false,
+   "version_join": "-",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Sol",
+     "spoken": [
+      "sol"
+     ],
+     "misheard": [
+      "soul",
+      "sole",
+      "sold",
+      "saul",
+      "seoul",
+      "sul",
+      "sal",
+      "soll"
+     ],
+     "note": "workhorse tier; GPT-5.6 Sol, GPT-6 Sol, GPT-6.1 Sol"
+    },
+    {
+     "canonical": "Astra",
+     "spoken": [
+      "astra"
+     ],
+     "misheard": [
+      "astro",
+      "astrid",
+      "astra's",
+      "extra"
+     ],
+     "note": "frontier tier; GPT-6 Astra. 'extra' only when directly after the version, never in 'extra high'"
+    },
+    {
+     "canonical": "Luna",
+     "spoken": [
+      "luna"
+     ],
+     "misheard": [
+      "lunar",
+      "loona",
+      "lune",
+      "looner"
+     ],
+     "note": "fast/cheap tier; GPT-5.6 Luna, GPT-6 Luna"
+    },
+    {
+     "canonical": "Terra",
+     "spoken": [
+      "terra"
+     ],
+     "misheard": [
+      "tera",
+      "tara",
+      "terror",
+      "terah"
+     ],
+     "note": "balanced tier, GPT-5.6 Terra only so far"
+    },
+    {
+     "canonical": "Pro",
+     "spoken": [
+      "pro"
+     ],
+     "misheard": [
+      "pro's",
+      "bro"
+     ]
+    },
+    {
+     "canonical": "Mini",
+     "spoken": [
+      "mini"
+     ],
+     "misheard": [
+      "many",
+      "minnie"
+     ],
+     "note": "vendor case varies (GPT-5.4 mini on models list); see NOTES"
+    },
+    {
+     "canonical": "nano",
+     "spoken": [
+      "nano"
+     ],
+     "misheard": [
+      "nano's"
+     ]
+    },
+    {
+     "canonical": "Codex",
+     "spoken": [
+      "codex"
+     ],
+     "misheard": [
+      "code x",
+      "codecs",
+      "codec"
+     ],
+     "join": "-",
+     "note": "GPT-5.3-Codex style; all Codex-branded models are deprecated"
+    },
+    {
+     "canonical": "Cyber",
+     "spoken": [
+      "cyber"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "GPT-{version} {tier}",
+   "examples": [
+    {
+     "spoken": "gpt six point one sol",
+     "written": "GPT-6.1 Sol"
+    },
+    {
+     "spoken": "gpt six point one soul",
+     "written": "GPT-6.1 Sol"
+    },
+    {
+     "spoken": "gpt six point one sold",
+     "written": "GPT-6.1 Sol"
+    },
+    {
+     "spoken": "gpt six point one sole",
+     "written": "GPT-6.1 Sol"
+    },
+    {
+     "spoken": "gpt six point one seoul",
+     "written": "GPT-6.1 Sol"
+    },
+    {
+     "spoken": "gpt five point six soul",
+     "written": "GPT-5.6 Sol"
+    },
+    {
+     "spoken": "gpt 5.6 soul",
+     "written": "GPT-5.6 Sol"
+    },
+    {
+     "spoken": "gpt six soul",
+     "written": "GPT-6 Sol"
+    },
+    {
+     "spoken": "gpt six astra",
+     "written": "GPT-6 Astra"
+    },
+    {
+     "spoken": "gpt six luna",
+     "written": "GPT-6 Luna"
+    },
+    {
+     "spoken": "gpt five point six terra",
+     "written": "GPT-5.6 Terra"
+    },
+    {
+     "spoken": "gpt six point one",
+     "written": "GPT-6.1"
+    },
+    {
+     "spoken": "gpt five point three codex",
+     "written": "GPT-5.3-Codex"
+    },
+    {
+     "spoken": "gpt five point five pro",
+     "written": "GPT-5.5 Pro"
+    }
+   ],
+   "source_urls": [
+    "https://developers.openai.com/api/docs/models",
+    "https://developers.openai.com/api/docs/models/all",
+    "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+    "https://developers.openai.com/api/docs/models/gpt-6-astra",
+    "https://developers.openai.com/api/docs/models/gpt-6-luna",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+    "https://learn.chatgpt.com/docs/models"
+   ],
+   "api_id": "gpt-{version}-{tier_lower}",
+   "known": [
+    "GPT-6.1 Sol",
+    "GPT-6 Astra",
+    "GPT-6 Sol",
+    "GPT-6 Luna",
+    "GPT-5.6 Sol",
+    "GPT-5.6 Terra",
+    "GPT-5.6 Luna",
+    "GPT-5.5",
+    "GPT-5.5 Pro",
+    "GPT-5.4 Pro",
+    "GPT-5.4 mini",
+    "GPT-5.3-Codex"
+   ],
+   "tier_alone_anchor": false,
+   "notes": "Tier words alone ('Sol', 'Luna', 'Astra') are not anchors; 'Astra' after an effort cue ('Astra on high') may be rendered as a bare tier name with no version. Codex client display_name is 'GPT-6.1-Sol' (hyphen); API docs, Devin and models.dev use 'GPT-6.1 Sol'. Open question in NOTES.md."
+  },
+  {
+   "id": "gpt-oss",
+   "vendor": "OpenAI",
+   "canonical": "gpt-oss",
+   "spoken": [
+    "gpt oss",
+    "g p t o s s"
+   ],
+   "misheard": [
+    "gpt os",
+    "gpt awes",
+    "gpt boss"
+   ],
+   "ambiguous": false,
+   "version_join": "-",
+   "version_format": "{size}b",
+   "tiers": [
+    {
+     "canonical": "safeguard",
+     "spoken": [
+      "safeguard",
+      "safe guard"
+     ],
+     "misheard": [],
+     "join": "-"
+    }
+   ],
+   "pattern": "gpt-oss-{size}b",
+   "examples": [
+    {
+     "spoken": "gpt oss one twenty b",
+     "written": "gpt-oss-120b"
+    },
+    {
+     "spoken": "gpt oss twenty b",
+     "written": "gpt-oss-20b"
+    },
+    {
+     "spoken": "gpt os one hundred twenty b",
+     "written": "gpt-oss-120b"
+    }
+   ],
+   "source_urls": [
+    "https://developers.openai.com/api/docs/models/all"
+   ],
+   "notes": "Vendor writes the open-weight models all lowercase. Some hosts write 'GPT OSS 120B'."
+  },
+  {
+   "id": "o-series",
+   "vendor": "OpenAI",
+   "canonical": "o",
+   "spoken": [
+    "o",
+    "oh"
+   ],
+   "misheard": [
+    "oh",
+    "0"
+   ],
+   "ambiguous": true,
+   "version_join": "",
+   "version_format": "{major}",
+   "tiers": [
+    {
+     "canonical": "mini",
+     "spoken": [
+      "mini"
+     ],
+     "misheard": [
+      "many",
+      "minnie"
+     ],
+     "join": "-"
+    },
+    {
+     "canonical": "pro",
+     "spoken": [
+      "pro"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "deep-research",
+     "spoken": [
+      "deep research"
+     ],
+     "misheard": [],
+     "join": "-"
+    }
+   ],
+   "pattern": "o{major}[-{tier}]",
+   "examples": [
+    {
+     "spoken": "o three",
+     "written": "o3"
+    },
+    {
+     "spoken": "oh four mini",
+     "written": "o4-mini"
+    },
+    {
+     "spoken": "o three pro",
+     "written": "o3-pro"
+    },
+    {
+     "spoken": "oh three mini",
+     "written": "o3-mini"
+    }
+   ],
+   "source_urls": [
+    "https://developers.openai.com/api/docs/models/o3",
+    "https://developers.openai.com/api/docs/models/all"
+   ],
+   "legacy": true,
+   "notes": "Legacy (o4-mini, o3-mini, o1 deprecated; o3 'succeeded by GPT-5'). 'oh three' collides with ordinary speech and counting; render only with a model cue (model, reasoning, OpenAI, mini, pro)."
+  },
+  {
+   "id": "whisper",
+   "vendor": "OpenAI",
+   "canonical": "Whisper",
+   "spoken": [
+    "whisper"
+   ],
+   "misheard": [
+    "wisper",
+    "whisperer"
+   ],
+   "ambiguous": true,
+   "version_join": "-",
+   "version_format": "v{major}",
+   "tiers": [
+    {
+     "canonical": "large",
+     "spoken": [
+      "large"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "turbo",
+     "spoken": [
+      "turbo"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "medium",
+     "spoken": [
+      "medium"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "small",
+     "spoken": [
+      "small"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "1",
+     "spoken": [
+      "one"
+     ],
+     "misheard": [],
+     "join": "-",
+     "note": "API id whisper-1"
+    }
+   ],
+   "pattern": "Whisper {size}-v{major}[-turbo]",
+   "examples": [
+    {
+     "spoken": "whisper large v three",
+     "written": "Whisper large-v3"
+    },
+    {
+     "spoken": "whisper large v three turbo",
+     "written": "Whisper large-v3-turbo"
+    },
+    {
+     "spoken": "whisper one",
+     "written": "whisper-1"
+    },
+    {
+     "spoken": "wisper large v two",
+     "written": "Whisper large-v2"
+    }
+   ],
+   "source_urls": [
+    "https://developers.openai.com/api/docs/models/whisper-1",
+    "https://github.com/openai/whisper",
+    "https://huggingface.co/openai/whisper-large-v3"
+   ],
+   "notes": "Bare 'whisper' is an ordinary verb/noun; only capitalize with a speech/model cue ('Whisper model', 'Whisper large', 'compared to Qwen'). Checkpoint names (large-v3) are the openai/whisper repo spelling; UNVERIFIED as an official display form."
+  },
+  {
+   "id": "sora",
+   "vendor": "OpenAI",
+   "canonical": "Sora",
+   "spoken": [
+    "sora"
+   ],
+   "misheard": [
+    "sorah",
+    "sarah",
+    "zora",
+    "soar"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}",
+   "tiers": [
+    {
+     "canonical": "Pro",
+     "spoken": [
+      "pro"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Sora {version}[ {tier}]",
+   "examples": [
+    {
+     "spoken": "sora two",
+     "written": "Sora 2"
+    },
+    {
+     "spoken": "sora two pro",
+     "written": "Sora 2 Pro"
+    },
+    {
+     "spoken": "sarah two",
+     "written": "Sora 2"
+    }
+   ],
+   "source_urls": [
+    "https://en.wikipedia.org/wiki/Sora_(text-to-video_model)"
+   ],
+   "notes": "Sora apps reportedly closed April 2026 and the API ended 2026-09-24 (secondary sources only; UNVERIFIED). 'Sarah' is a name: repair only when followed by a version and a video/model cue."
+  },
+  {
+   "id": "claude",
+   "vendor": "Anthropic",
+   "canonical": "Claude",
+   "spoken": [
+    "claude"
+   ],
+   "misheard": [
+    "cloud",
+    "clawed",
+    "claud",
+    "clod",
+    "clyde"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Opus",
+     "spoken": [
+      "opus"
+     ],
+     "misheard": [
+      "opus's",
+      "opis",
+      "oppus",
+      "octopus"
+     ]
+    },
+    {
+     "canonical": "Sonnet",
+     "spoken": [
+      "sonnet"
+     ],
+     "misheard": [
+      "sonic",
+      "sonet",
+      "sunnet"
+     ]
+    },
+    {
+     "canonical": "Haiku",
+     "spoken": [
+      "haiku"
+     ],
+     "misheard": [
+      "high coo",
+      "hi coo",
+      "haikou",
+      "hiker"
+     ]
+    },
+    {
+     "canonical": "Fable",
+     "spoken": [
+      "fable"
+     ],
+     "misheard": [
+      "fabel",
+      "fabled",
+      "favel",
+      "table"
+     ],
+     "note": "line above Opus; Claude Fable 5, 5.1"
+    },
+    {
+     "canonical": "Mythos",
+     "spoken": [
+      "mythos"
+     ],
+     "misheard": [
+      "myth os",
+      "mithos",
+      "mythras"
+     ],
+     "note": "restricted twin of Fable 5.1"
+    }
+   ],
+   "pattern": "Claude {tier} {version}",
+   "examples": [
+    {
+     "spoken": "claude opus five point five",
+     "written": "Claude Opus 5.5"
+    },
+    {
+     "spoken": "opus five point five",
+     "written": "Opus 5.5"
+    },
+    {
+     "spoken": "opus 5.5",
+     "written": "Opus 5.5"
+    },
+    {
+     "spoken": "fable five point one",
+     "written": "Fable 5.1"
+    },
+    {
+     "spoken": "claude fable 5.1",
+     "written": "Claude Fable 5.1"
+    },
+    {
+     "spoken": "cloud sonnet five point five",
+     "written": "Claude Sonnet 5.5"
+    },
+    {
+     "spoken": "claude haiku five point five",
+     "written": "Claude Haiku 5.5"
+    },
+    {
+     "spoken": "clawed opus five",
+     "written": "Claude Opus 5"
+    },
+    {
+     "spoken": "claude three point five sonnet",
+     "written": "Claude 3.5 Sonnet"
+    }
+   ],
+   "source_urls": [
+    "https://platform.claude.com/docs/en/about-claude/models/overview",
+    "https://platform.claude.com/docs/en/models/fable-5-1/overview",
+    "https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions",
+    "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "https://www.anthropic.com/claude-opus-5-5"
+   ],
+   "api_id": "claude-{tier_lower}-{major}[-{minor}]",
+   "known": [
+    "Claude Fable 5.1",
+    "Claude Opus 5.5",
+    "Claude Sonnet 5.5",
+    "Claude Haiku 5.5",
+    "Claude Mythos 5.1",
+    "Claude Fable 5",
+    "Claude Opus 5",
+    "Claude Sonnet 5",
+    "Claude Opus 4.8",
+    "Claude Opus 4.7",
+    "Claude Opus 4.6",
+    "Claude Sonnet 4.6",
+    "Claude Haiku 4.5"
+   ],
+   "tier_alone_anchor": true,
+   "notes": "Tier words are anchors on their own when followed by a version ('Opus 5.5', 'Fable 5.1'); Anthropic uses that short form in running text. Keep 'Claude' only if it was spoken. Keep the spoken order for legacy 'Claude 3.5 Sonnet'. 'cloud' -> 'Claude' only inside an anchored span (cloud + tier/version, or 'cloud code', 'cloud md'); bare 'cloud' never changes."
+  },
+  {
+   "id": "gemini",
+   "vendor": "Google",
+   "canonical": "Gemini",
+   "spoken": [
+    "gemini"
+   ],
+   "misheard": [
+    "gemini's",
+    "jemini",
+    "gemany",
+    "jim and i",
+    "gemma nine"
+   ],
+   "ambiguous": false,
+   "version_join": " ",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Flash",
+     "spoken": [
+      "flash"
+     ],
+     "misheard": [
+      "flesh",
+      "flush"
+     ]
+    },
+    {
+     "canonical": "Flash-Lite",
+     "spoken": [
+      "flash lite",
+      "flash light"
+     ],
+     "misheard": [
+      "flashlight",
+      "flesh light"
+     ]
+    },
+    {
+     "canonical": "Pro",
+     "spoken": [
+      "pro"
+     ],
+     "misheard": [
+      "bro"
+     ]
+    },
+    {
+     "canonical": "Live",
+     "spoken": [
+      "live"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Nano",
+     "spoken": [
+      "nano"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Ultra",
+     "spoken": [
+      "ultra"
+     ],
+     "misheard": [],
+     "note": "legacy model tier; now mostly the 'Google AI Ultra' plan"
+    },
+    {
+     "canonical": "Deep Think",
+     "spoken": [
+      "deep think"
+     ],
+     "misheard": [
+      "deep thing"
+     ]
+    },
+    {
+     "canonical": "Transcribe",
+     "spoken": [
+      "transcribe"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Gemini {version} {tier}",
+   "examples": [
+    {
+     "spoken": "gemini two flash",
+     "written": "Gemini 2 Flash"
+    },
+    {
+     "spoken": "gemini three point eight flash",
+     "written": "Gemini 3.8 Flash"
+    },
+    {
+     "spoken": "gemini three point one pro",
+     "written": "Gemini 3.1 Pro"
+    },
+    {
+     "spoken": "gemini three point five flash light",
+     "written": "Gemini 3.5 Flash-Lite"
+    },
+    {
+     "spoken": "gemini two point five flesh",
+     "written": "Gemini 2.5 Flash"
+    }
+   ],
+   "source_urls": [
+    "https://ai.google.dev/gemini-api/docs/models",
+    "https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-3-deep-think/"
+   ],
+   "api_id": "gemini-{version}-{tier_lower}",
+   "known": [
+    "Gemini 3.8 Flash",
+    "Gemini 3.7 Flash",
+    "Gemini 3.6 Flash",
+    "Gemini 3.5 Flash",
+    "Gemini 3.5 Flash-Lite",
+    "Gemini 3.1 Flash-Lite",
+    "Gemini 3.1 Pro",
+    "Gemini 3 Flash",
+    "Gemini 2.5 Pro",
+    "Gemini 2.5 Flash"
+   ],
+   "notes": "Gemini also names the zodiac sign and Gemini the chat app; the family word with a version is safe. 'Flash' and 'Pro' alone never trigger. Gemini CLI was replaced for consumers by Antigravity CLI (2026-06-18)."
+  },
+  {
+   "id": "gemma",
+   "vendor": "Google",
+   "canonical": "Gemma",
+   "spoken": [
+    "gemma"
+   ],
+   "misheard": [
+    "jemma",
+    "jema",
+    "gemma's",
+    "emma",
+    "gamma"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}[n]",
+   "tiers": [
+    {
+     "canonical": "{n}B",
+     "spoken": [
+      "{n} b"
+     ],
+     "misheard": [],
+     "note": "size, e.g. 27B, 4B, 270M"
+    },
+    {
+     "canonical": "E{n}B",
+     "spoken": [
+      "e {n} b"
+     ],
+     "misheard": [],
+     "note": "effective size, Gemma 3n / Gemma 4: E2B, E4B"
+    },
+    {
+     "canonical": "A{n}B",
+     "spoken": [
+      "a {n} b"
+     ],
+     "misheard": [],
+     "note": "active params in MoE: Gemma 4 26B A4B"
+    },
+    {
+     "canonical": "IT",
+     "spoken": [
+      "i t",
+      "it"
+     ],
+     "misheard": [],
+     "note": "instruction tuned; keep only if spelled as letters"
+    }
+   ],
+   "pattern": "Gemma {version} {size}",
+   "examples": [
+    {
+     "spoken": "gemma three twenty seven b",
+     "written": "Gemma 3 27B"
+    },
+    {
+     "spoken": "jemma four thirty one b",
+     "written": "Gemma 4 31B"
+    },
+    {
+     "spoken": "gemma four twenty six b a four b",
+     "written": "Gemma 4 26B A4B"
+    },
+    {
+     "spoken": "gemma three n e four b",
+     "written": "Gemma 3n E4B"
+    }
+   ],
+   "source_urls": [
+    "https://ai.google.dev/gemma/docs/core",
+    "https://ai.google.dev/gemma/docs/core/model_card_3"
+   ],
+   "notes": "'Jemma'/'Emma' are names and 'gamma' is a word: repair only with a version or size. Sub-brands are one word: EmbeddingGemma, PaliGemma, ShieldGemma, DiffusionGemma. Hugging Face ids are lowercase (gemma-3-27b-it)."
+  },
+  {
+   "id": "grok",
+   "vendor": "xAI",
+   "canonical": "Grok",
+   "spoken": [
+    "grok"
+   ],
+   "misheard": [
+    "croak",
+    "grock",
+    "grog",
+    "groq",
+    "crock",
+    "growk",
+    "groc",
+    "grok's"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Fast",
+     "spoken": [
+      "fast"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Heavy",
+     "spoken": [
+      "heavy"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Build",
+     "spoken": [
+      "build"
+     ],
+     "misheard": [],
+     "note": "Grok Build 0.1 (coding agent model and product)"
+    },
+    {
+     "canonical": "Code Fast",
+     "spoken": [
+      "code fast"
+     ],
+     "misheard": [],
+     "note": "Grok Code Fast 1, retired 2026-05-15"
+    },
+    {
+     "canonical": "Multi-agent",
+     "spoken": [
+      "multi agent",
+      "multi-agent"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Imagine",
+     "spoken": [
+      "imagine"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Grok {version}[ {tier}]",
+   "examples": [
+    {
+     "spoken": "grok four point seven",
+     "written": "Grok 4.7"
+    },
+    {
+     "spoken": "croak four point six",
+     "written": "Grok 4.6"
+    },
+    {
+     "spoken": "grok four seven",
+     "written": "Grok 4.7"
+    },
+    {
+     "spoken": "grok four point two zero",
+     "written": "Grok 4.20"
+    },
+    {
+     "spoken": "grok four point one fast",
+     "written": "Grok 4.1 Fast"
+    },
+    {
+     "spoken": "grok build zero point one",
+     "written": "Grok Build 0.1"
+    }
+   ],
+   "source_urls": [
+    "https://docs.x.ai/docs/models",
+    "https://docs.x.ai/docs/models/grok-4.7",
+    "https://docs.x.ai/docs/models/grok-4.20-0309-reasoning",
+    "https://docs.x.ai/developers/release-notes",
+    "https://groq.com/"
+   ],
+   "api_id": "grok-{version}",
+   "known": [
+    "Grok 4.7",
+    "Grok 4.6",
+    "Grok 4.5",
+    "Grok 4.3",
+    "Grok 4.20",
+    "Grok Build 0.1"
+   ],
+   "notes": "'Grok four seven' (no 'point') means 4.7 only when the family word is present; the user says it that way. Never normalize 4.20 to 4.2. Collision: Groq is a separate inference company (GroqCloud); 'groq' -> 'Grok' only with a version or an xAI cue, and 'Groq' stays when the context is inference/LPU/hosting. 'croak' is an ordinary word: repair only with a version. xAI now brands itself 'SpaceXAI' in docs."
+  },
+  {
+   "id": "llama",
+   "vendor": "Meta",
+   "canonical": "Llama",
+   "spoken": [
+    "llama"
+   ],
+   "misheard": [
+    "lama",
+    "lamma",
+    "yama",
+    "llamas"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Scout",
+     "spoken": [
+      "scout"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Maverick",
+     "spoken": [
+      "maverick"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "{n}B",
+     "spoken": [
+      "{n} b"
+     ],
+     "misheard": [],
+     "note": "size: Llama 3.3 70B"
+    },
+    {
+     "canonical": "Instruct",
+     "spoken": [
+      "instruct"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Llama {version} [{tier}] [{size}]",
+   "examples": [
+    {
+     "spoken": "llama four scout",
+     "written": "Llama 4 Scout"
+    },
+    {
+     "spoken": "llama three point three seventy b",
+     "written": "Llama 3.3 70B"
+    },
+    {
+     "spoken": "lama four maverick",
+     "written": "Llama 4 Maverick"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/meta-llama",
+    "https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+    "https://dev.meta.ai/models/"
+   ],
+   "notes": "'LLaMA' was the 2023 spelling; 'Llama' since Llama 2. Repo ids are hyphenated (Llama-4-Scout-17B-16E-Instruct). No Llama newer than Llama 4 found; Meta's current models are the Muse family. 'llama.cpp' is a separate product. Bare 'llama' is the animal: needs a version."
+  },
+  {
+   "id": "muse",
+   "vendor": "Meta",
+   "canonical": "Muse",
+   "spoken": [
+    "muse"
+   ],
+   "misheard": [
+    "mews",
+    "moose",
+    "news",
+    "muse's"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}.{minor}",
+   "tiers": [
+    {
+     "canonical": "Spark",
+     "spoken": [
+      "spark"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Glimmer",
+     "spoken": [
+      "glimmer"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Image",
+     "spoken": [
+      "image"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Voice Transcribe",
+     "spoken": [
+      "voice transcribe"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Muse {tier} {version}",
+   "examples": [
+    {
+     "spoken": "muse spark one point three",
+     "written": "Muse Spark 1.3"
+    },
+    {
+     "spoken": "moose spark one point two",
+     "written": "Muse Spark 1.2"
+    },
+    {
+     "spoken": "muse glimmer",
+     "written": "Muse Glimmer"
+    }
+   ],
+   "source_urls": [
+    "https://dev.meta.ai/models/"
+   ],
+   "notes": "Render only 'Muse' + tier word; bare 'muse' is a common word."
+  },
+  {
+   "id": "mistral",
+   "vendor": "Mistral AI",
+   "canonical": "Mistral",
+   "spoken": [
+    "mistral"
+   ],
+   "misheard": [
+    "mistrel",
+    "mist roll",
+    "mistral's",
+    "mystral",
+    "minstrel"
+   ],
+   "ambiguous": false,
+   "version_join": " ",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Large",
+     "spoken": [
+      "large"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Medium",
+     "spoken": [
+      "medium"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Small",
+     "spoken": [
+      "small"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Mistral {tier} {version}",
+   "examples": [
+    {
+     "spoken": "mistral large four",
+     "written": "Mistral Large 4"
+    },
+    {
+     "spoken": "mistral medium three point five",
+     "written": "Mistral Medium 3.5"
+    },
+    {
+     "spoken": "mistrel small four",
+     "written": "Mistral Small 4"
+    }
+   ],
+   "source_urls": [
+    "https://docs.mistral.ai/getting-started/models/models_overview/",
+    "https://mistral.ai/news/mistral-large-4/",
+    "https://huggingface.co/mistralai"
+   ],
+   "known": [
+    "Mistral Large 4",
+    "Mistral Large 3",
+    "Mistral Medium 3.5",
+    "Mistral Small 4",
+    "Ministral 3 14B"
+   ],
+   "notes": "Tier comes BEFORE the version (Mistral Large 4). 'Mistral' is also the wind and the company name; the tier word is the anchor. 'medium'/'small' after a model are also effort-like words: only render as a tier directly after 'Mistral'. Repo ids add size and YYMM: Mistral-Small-4-119B-2603."
+  },
+  {
+   "id": "ministral",
+   "vendor": "Mistral AI",
+   "canonical": "Ministral",
+   "spoken": [
+    "ministral"
+   ],
+   "misheard": [
+    "minstrel",
+    "mini stral",
+    "ministerial"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}",
+   "tiers": [
+    {
+     "canonical": "{n}B",
+     "spoken": [
+      "{n} b"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Ministral {version} {size}",
+   "examples": [
+    {
+     "spoken": "ministral three fourteen b",
+     "written": "Ministral 3 14B"
+    },
+    {
+     "spoken": "minstrel three eight b",
+     "written": "Ministral 3 8B"
+    },
+    {
+     "spoken": "ministral three three b",
+     "written": "Ministral 3 3B"
+    }
+   ],
+   "source_urls": [
+    "https://docs.mistral.ai/getting-started/models/models_overview/"
+   ]
+  },
+  {
+   "id": "codestral",
+   "vendor": "Mistral AI",
+   "canonical": "Codestral",
+   "spoken": [
+    "codestral",
+    "code stral"
+   ],
+   "misheard": [
+    "code astral",
+    "codestrel",
+    "code straw",
+    "co destral"
+   ],
+   "ambiguous": false,
+   "version_join": " ",
+   "version_format": "{yy}.{mm}",
+   "tiers": [
+    {
+     "canonical": "Embed",
+     "spoken": [
+      "embed"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Codestral[ {version}]",
+   "examples": [
+    {
+     "spoken": "codestral",
+     "written": "Codestral"
+    },
+    {
+     "spoken": "code astral twenty five point zero eight",
+     "written": "Codestral 25.08"
+    },
+    {
+     "spoken": "codestral embed",
+     "written": "Codestral Embed"
+    }
+   ],
+   "source_urls": [
+    "https://docs.mistral.ai/getting-started/models/models_overview/"
+   ],
+   "notes": "Version is a YY.MM date (25.08), usually omitted in speech."
+  },
+  {
+   "id": "devstral",
+   "vendor": "Mistral AI",
+   "canonical": "Devstral",
+   "spoken": [
+    "devstral",
+    "dev stral"
+   ],
+   "misheard": [
+    "dev astral",
+    "devstrel",
+    "dev straw",
+    "dextral"
+   ],
+   "ambiguous": false,
+   "version_join": " ",
+   "version_format": "{major}",
+   "tiers": [
+    {
+     "canonical": "Small",
+     "spoken": [
+      "small"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Medium",
+     "spoken": [
+      "medium"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Devstral [{tier} ]{version}",
+   "examples": [
+    {
+     "spoken": "devstral two",
+     "written": "Devstral 2"
+    },
+    {
+     "spoken": "devstral small two",
+     "written": "Devstral Small 2"
+    },
+    {
+     "spoken": "dev astral two",
+     "written": "Devstral 2"
+    }
+   ],
+   "source_urls": [
+    "https://docs.mistral.ai/getting-started/models/models_overview/",
+    "https://huggingface.co/mistralai/Mistral-Medium-3.5-128B"
+   ],
+   "legacy": true,
+   "notes": "Deprecated (retirement 2026-07-31); replaced by Mistral Medium 3.5 in Vibe. Docs write 'Devstral Small 2'; one announcement summary says 'Devstral 2 Small' (UNVERIFIED). Keep spoken order."
+  },
+  {
+   "id": "magistral",
+   "vendor": "Mistral AI",
+   "canonical": "Magistral",
+   "spoken": [
+    "magistral"
+   ],
+   "misheard": [
+    "magisterial",
+    "magestral",
+    "magistrate",
+    "majestral"
+   ],
+   "ambiguous": false,
+   "version_join": " ",
+   "version_format": "{major}.{minor}",
+   "tiers": [
+    {
+     "canonical": "Medium",
+     "spoken": [
+      "medium"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Small",
+     "spoken": [
+      "small"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Magistral {tier} {version}",
+   "examples": [
+    {
+     "spoken": "magistral medium one point two",
+     "written": "Magistral Medium 1.2"
+    },
+    {
+     "spoken": "magisterial small one point two",
+     "written": "Magistral Small 1.2"
+    },
+    {
+     "spoken": "magistral medium",
+     "written": "Magistral Medium"
+    }
+   ],
+   "source_urls": [
+    "https://docs.mistral.ai/getting-started/models/models_overview/"
+   ],
+   "legacy": true,
+   "notes": "Deprecated alongside Devstral 2. 'magisterial'/'magistrate' are real words: need tier or version."
+  },
+  {
+   "id": "voxtral",
+   "vendor": "Mistral AI",
+   "canonical": "Voxtral",
+   "spoken": [
+    "voxtral",
+    "vox tral"
+   ],
+   "misheard": [
+    "vox astral",
+    "voxtrel",
+    "vocks trail"
+   ],
+   "ambiguous": false,
+   "version_join": " ",
+   "version_format": "{major}",
+   "tiers": [
+    {
+     "canonical": "Small",
+     "spoken": [
+      "small"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Mini",
+     "spoken": [
+      "mini"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Mini Transcribe",
+     "spoken": [
+      "mini transcribe"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "TTS",
+     "spoken": [
+      "t t s"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Voxtral {tier}[ {version}]",
+   "examples": [
+    {
+     "spoken": "voxtral small",
+     "written": "Voxtral Small"
+    },
+    {
+     "spoken": "voxtral mini transcribe two",
+     "written": "Voxtral Mini Transcribe 2"
+    },
+    {
+     "spoken": "vox astral t t s",
+     "written": "Voxtral TTS"
+    }
+   ],
+   "source_urls": [
+    "https://docs.mistral.ai/getting-started/models/models_overview/"
+   ]
+  },
+  {
+   "id": "qwen",
+   "vendor": "Alibaba",
+   "canonical": "Qwen",
+   "spoken": [
+    "qwen",
+    "q wen",
+    "chwen",
+    "kwen"
+   ],
+   "misheard": [
+    "quinn",
+    "queen",
+    "gwen",
+    "kwen",
+    "quin",
+    "quen",
+    "owen",
+    "q when",
+    "cohen",
+    "twin"
+   ],
+   "ambiguous": true,
+   "version_join": "",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "{n}B",
+     "spoken": [
+      "{n} b"
+     ],
+     "misheard": [],
+     "join": "-",
+     "note": "size: Qwen3.5-4B, Qwen3-ASR-1.7B, Qwen3.8-27B"
+    },
+    {
+     "canonical": "A{n}B",
+     "spoken": [
+      "a {n} b"
+     ],
+     "misheard": [],
+     "join": "-",
+     "note": "active params: Qwen3-30B-A3B, Qwen3.6-35B-A3B"
+    },
+    {
+     "canonical": "Coder",
+     "spoken": [
+      "coder"
+     ],
+     "misheard": [
+      "coda",
+      "coater"
+     ],
+     "join": "-"
+    },
+    {
+     "canonical": "ASR",
+     "spoken": [
+      "a s r",
+      "asr"
+     ],
+     "misheard": [
+      "a c r",
+      "acr"
+     ],
+     "join": "-",
+     "note": "SonoJot's own recognizer is Qwen3-ASR-1.7B"
+    },
+    {
+     "canonical": "VL",
+     "spoken": [
+      "v l"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Omni",
+     "spoken": [
+      "omni"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Next",
+     "spoken": [
+      "next"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Max",
+     "spoken": [
+      "max"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Plus",
+     "spoken": [
+      "plus"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Flash",
+     "spoken": [
+      "flash"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Instruct",
+     "spoken": [
+      "instruct"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Thinking",
+     "spoken": [
+      "thinking"
+     ],
+     "misheard": [],
+     "join": "-"
+    }
+   ],
+   "pattern": "Qwen{version}[-{variant}][-{size}][-A{active}][-{suffix}]",
+   "examples": [
+    {
+     "spoken": "qwen three point five four b",
+     "written": "Qwen3.5-4B"
+    },
+    {
+     "spoken": "quinn three asr",
+     "written": "Qwen3-ASR"
+    },
+    {
+     "spoken": "quinn three acr",
+     "written": "Qwen3-ASR"
+    },
+    {
+     "spoken": "qwen three asr one point seven b",
+     "written": "Qwen3-ASR-1.7B"
+    },
+    {
+     "spoken": "qwen three thirty b a three b",
+     "written": "Qwen3-30B-A3B"
+    },
+    {
+     "spoken": "kwen three coder",
+     "written": "Qwen3-Coder"
+    },
+    {
+     "spoken": "qwen three point eight max",
+     "written": "Qwen3.8-Max"
+    },
+    {
+     "spoken": "qwen three point six thirty five b a three b",
+     "written": "Qwen3.6-35B-A3B"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/Qwen",
+    "https://huggingface.co/Qwen/Qwen3-ASR-1.7B",
+    "https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
+    "https://huggingface.co/Qwen/Qwen3.8-27B",
+    "https://huggingface.co/Qwen/Qwen3-Coder-Next"
+   ],
+   "known": [
+    "Qwen3.8-27B",
+    "Qwen3.8-Max",
+    "Qwen3.8-Flash",
+    "Qwen3.6-35B-A3B",
+    "Qwen3.6-27B",
+    "Qwen3.5-4B",
+    "Qwen3.5-397B-A17B",
+    "Qwen3-ASR-1.7B",
+    "Qwen3-ASR-0.6B",
+    "Qwen3-Coder-Next",
+    "Qwen3-30B-A3B"
+   ],
+   "notes": "Version attaches with NO separator (Qwen3, Qwen3.5); everything after is hyphenated. Alibaba Cloud listings and aggregators also write 'Qwen3.5 Plus' / 'Qwen3.8 Max' with spaces; model cards hyphenate. 'Quinn'/'Gwen'/'Owen' are names and 'queen'/'twin' are words: repair only with a version, size or 'model'/'ASR' cue. 'Quinn makes a ton of sense' (no version) stays unless the user approves a looser rule. In the user's data 'ACR' after Qwen is a mishearing of ASR."
+  },
+  {
+   "id": "glm",
+   "vendor": "Zhipu AI (Z.ai)",
+   "canonical": "GLM",
+   "spoken": [
+    "glm",
+    "g l m"
+   ],
+   "misheard": [
+    "g l n",
+    "glim",
+    "g o m",
+    "gl m",
+    "g l m's"
+   ],
+   "ambiguous": false,
+   "version_join": "-",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Flash",
+     "spoken": [
+      "flash"
+     ],
+     "misheard": [
+      "flesh"
+     ],
+     "join": "-"
+    },
+    {
+     "canonical": "FlashX",
+     "spoken": [
+      "flash x"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Air",
+     "spoken": [
+      "air"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "AirX",
+     "spoken": [
+      "air x"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Turbo",
+     "spoken": [
+      "turbo"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "V",
+     "spoken": [
+      "v"
+     ],
+     "misheard": [],
+     "join": "",
+     "note": "vision: GLM-4.6V, GLM-5V-Turbo"
+    }
+   ],
+   "pattern": "GLM-{version}[-{tier}]",
+   "examples": [
+    {
+     "spoken": "glm five point three flash",
+     "written": "GLM-5.3-Flash"
+    },
+    {
+     "spoken": "glm 5.3 flash",
+     "written": "GLM-5.3-Flash"
+    },
+    {
+     "spoken": "g l m five point three",
+     "written": "GLM-5.3"
+    },
+    {
+     "spoken": "glm four point five air",
+     "written": "GLM-4.5-Air"
+    },
+    {
+     "spoken": "glim five point two",
+     "written": "GLM-5.2"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/zai-org",
+    "https://huggingface.co/zai-org/GLM-5.3-Flash",
+    "https://huggingface.co/zai-org/GLM-5.3",
+    "https://docs.z.ai/guides/overview/overview"
+   ],
+   "known": [
+    "GLM-5.3",
+    "GLM-5.3-Flash",
+    "GLM-5.3-FlashX",
+    "GLM-5.2",
+    "GLM-5.1",
+    "GLM-5",
+    "GLM-4.7",
+    "GLM-4.7-Flash",
+    "GLM-4.6",
+    "GLM-4.6V",
+    "GLM-4.5",
+    "GLM-4.5-Air"
+   ],
+   "notes": "Recognizer may insert a sentence mark between GLM and the version ('GLM. 5.3 flash'); a span may cross that mark and the mark is dropped. Mistral's docs write 'Z.ai GLM 5.3' with a space; Z.ai hyphenates."
+  },
+  {
+   "id": "kimi",
+   "vendor": "Moonshot AI",
+   "canonical": "Kimi",
+   "spoken": [
+    "kimi"
+   ],
+   "misheard": [
+    "kimmy",
+    "kimmie",
+    "kemi",
+    "kimi's",
+    "key me"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "K{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Thinking",
+     "spoken": [
+      "thinking"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Code",
+     "spoken": [
+      "code"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Instruct",
+     "spoken": [
+      "instruct"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Kimi K{version}[ {tier}]",
+   "examples": [
+    {
+     "spoken": "kimi k three",
+     "written": "Kimi K3"
+    },
+    {
+     "spoken": "kimmy k two",
+     "written": "Kimi K2"
+    },
+    {
+     "spoken": "kimi kay two point six",
+     "written": "Kimi K2.6"
+    },
+    {
+     "spoken": "kimi k two thinking",
+     "written": "Kimi K2 Thinking"
+    },
+    {
+     "spoken": "kimi k two point seven code",
+     "written": "Kimi K2.7 Code"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/moonshotai",
+    "https://huggingface.co/moonshotai/Kimi-K3",
+    "https://huggingface.co/moonshotai/Kimi-K2.7-Code"
+   ],
+   "known": [
+    "Kimi K3",
+    "Kimi K2.7 Code",
+    "Kimi K2.6",
+    "Kimi K2.5",
+    "Kimi K2 Thinking",
+    "Kimi K2"
+   ],
+   "notes": "The 'K' attaches to the number with no separator (K2.6). Repo ids hyphenate (Kimi-K3); Moonshot's cards mix both. 'Kimmy' is a name: repair only with 'K' + number. Agent product: Kimi Code CLI."
+  },
+  {
+   "id": "deepseek",
+   "vendor": "DeepSeek",
+   "canonical": "DeepSeek",
+   "spoken": [
+    "deepseek",
+    "deep seek"
+   ],
+   "misheard": [
+    "deep sea",
+    "deep sick",
+    "deepsea",
+    "deep seat",
+    "deep seek's"
+   ],
+   "ambiguous": false,
+   "version_join": "-",
+   "version_format": "V{major}[.{minor}] | R{major}",
+   "tiers": [
+    {
+     "canonical": "Pro",
+     "spoken": [
+      "pro"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Flash",
+     "spoken": [
+      "flash"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Max",
+     "spoken": [
+      "max"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Base",
+     "spoken": [
+      "base"
+     ],
+     "misheard": [],
+     "join": "-"
+    }
+   ],
+   "pattern": "DeepSeek-V{version}[-{tier}]",
+   "examples": [
+    {
+     "spoken": "deepseek v four pro",
+     "written": "DeepSeek-V4-Pro"
+    },
+    {
+     "spoken": "deep seek v four point one flash",
+     "written": "DeepSeek-V4.1-Flash"
+    },
+    {
+     "spoken": "deep sea v three point two",
+     "written": "DeepSeek-V3.2"
+    },
+    {
+     "spoken": "deepseek r one",
+     "written": "DeepSeek-R1"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/deepseek-ai",
+    "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro",
+    "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash",
+    "https://api-docs.deepseek.com/news/news260424"
+   ],
+   "known": [
+    "DeepSeek-V4-Pro",
+    "DeepSeek-V4-Flash",
+    "DeepSeek-V4.1-Flash",
+    "DeepSeek-V3.2",
+    "DeepSeek-R1"
+   ],
+   "notes": "Model cards hyphenate; DeepSeek's own news page title and most aggregators write 'DeepSeek V4 Pro'. 'V' and 'R' attach to the number with no separator. 'deep sea' needs a V/R version to repair."
+  },
+  {
+   "id": "minimax",
+   "vendor": "MiniMax",
+   "canonical": "MiniMax",
+   "spoken": [
+    "minimax",
+    "mini max"
+   ],
+   "misheard": [
+    "many max",
+    "mini macs",
+    "minimax's",
+    "mini mac"
+   ],
+   "ambiguous": true,
+   "version_join": "-",
+   "version_format": "M{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Flash",
+     "spoken": [
+      "flash"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "highspeed",
+     "spoken": [
+      "high speed"
+     ],
+     "misheard": [],
+     "join": "-"
+    }
+   ],
+   "pattern": "MiniMax-M{version}",
+   "examples": [
+    {
+     "spoken": "minimax m three",
+     "written": "MiniMax-M3"
+    },
+    {
+     "spoken": "mini max m two point seven",
+     "written": "MiniMax-M2.7"
+    },
+    {
+     "spoken": "minimax m two point five",
+     "written": "MiniMax-M2.5"
+    },
+    {
+     "spoken": "many max m three",
+     "written": "MiniMax-M3"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/MiniMaxAI",
+    "https://huggingface.co/MiniMaxAI/MiniMax-M3",
+    "https://huggingface.co/MiniMaxAI/MiniMax-M2.7",
+    "https://www.minimax.io/news"
+   ],
+   "known": [
+    "MiniMax-M3",
+    "MiniMax-M2.7",
+    "MiniMax-M2.5",
+    "MiniMax-M2.1",
+    "MiniMax-M2"
+   ],
+   "notes": "Model cards: 'MiniMax-M3'; company site menu: 'MiniMax M3'. Default to the hyphen. 'minimax' is also a game-theory algorithm: require the M + number."
+  },
+  {
+   "id": "swe",
+   "vendor": "Cognition",
+   "canonical": "SWE",
+   "spoken": [
+    "swe",
+    "s w e",
+    "s-w-e"
+   ],
+   "misheard": [
+    "swee",
+    "sway",
+    "suede",
+    "s we",
+    "sweet",
+    "swe's"
+   ],
+   "ambiguous": false,
+   "version_join": "-",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Fast",
+     "spoken": [
+      "fast"
+     ],
+     "misheard": [],
+     "note": "SWE-1.6 Fast"
+    },
+    {
+     "canonical": "Lightning",
+     "spoken": [
+      "lightning"
+     ],
+     "misheard": [
+      "lighting"
+     ],
+     "note": "SWE-1.7 Lightning (Devin model catalog)"
+    }
+   ],
+   "pattern": "SWE-{version}[ {tier}]",
+   "examples": [
+    {
+     "spoken": "swe two",
+     "written": "SWE-2"
+    },
+    {
+     "spoken": "s w e two",
+     "written": "SWE-2"
+    },
+    {
+     "spoken": "s-w-e two",
+     "written": "SWE-2"
+    },
+    {
+     "spoken": "swe one point five",
+     "written": "SWE-1.5"
+    },
+    {
+     "spoken": "swee one point seven lightning",
+     "written": "SWE-1.7 Lightning"
+    },
+    {
+     "spoken": "swe one point six fast",
+     "written": "SWE-1.6 Fast"
+    }
+   ],
+   "source_urls": [
+    "https://cognition.com/blog/swe-2",
+    "https://cognition.com/blog/swe-1-7",
+    "https://cognition.com/blog/swe-1-5",
+    "https://docs.devin.ai/cli/models.md"
+   ],
+   "api_id": "swe-{major}[-{minor}][-{effort}]",
+   "known": [
+    "SWE-2",
+    "SWE-1.7",
+    "SWE-1.7 Lightning",
+    "SWE-1.6",
+    "SWE-1.6 Fast",
+    "SWE-1.5"
+   ],
+   "notes": "All caps, hyphen, dotted version. Effort follows with a space: Cognition's blog writes 'SWE-2 high' (lowercase), Devin's model picker writes 'SWE-2 High'. 'swe' is not an English word, so 'swe' + number is a safe anchor; 'sway'/'sweet' need the number and a Devin/model cue."
+  },
+  {
+   "id": "composer",
+   "vendor": "Cursor",
+   "canonical": "Composer",
+   "spoken": [
+    "composer"
+   ],
+   "misheard": [
+    "composure",
+    "composter",
+    "composer's"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Fast",
+     "spoken": [
+      "fast"
+     ],
+     "misheard": [],
+     "note": "displayed 'Composer 2.5 (Fast)' in Cursor"
+    }
+   ],
+   "pattern": "Composer {version}",
+   "examples": [
+    {
+     "spoken": "composer two point five",
+     "written": "Composer 2.5"
+    },
+    {
+     "spoken": "composer two",
+     "written": "Composer 2"
+    },
+    {
+     "spoken": "composure two point five",
+     "written": "Composer 2.5"
+    }
+   ],
+   "source_urls": [
+    "https://cursor.com/docs/models",
+    "https://cursor.com/blog/composer-2-5"
+   ],
+   "notes": "Bare 'composer' is a common word; render only with a version or a Cursor cue."
+  },
+  {
+   "id": "nemotron",
+   "vendor": "NVIDIA",
+   "canonical": "Nemotron",
+   "spoken": [
+    "nemotron",
+    "nemo tron"
+   ],
+   "misheard": [
+    "nematron",
+    "neymar tron",
+    "nemotron's",
+    "nemo tran"
+   ],
+   "ambiguous": false,
+   "version_join": " ",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Nano",
+     "spoken": [
+      "nano"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Super",
+     "spoken": [
+      "super"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Ultra",
+     "spoken": [
+      "ultra"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Lightning",
+     "spoken": [
+      "lightning"
+     ],
+     "misheard": [
+      "lighting"
+     ]
+    },
+    {
+     "canonical": "Nano Omni",
+     "spoken": [
+      "nano omni"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "{n}B",
+     "spoken": [
+      "{n} b"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "A{n}B",
+     "spoken": [
+      "a {n} b"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Nemotron {version} {tier}[ {size}][ A{active}]",
+   "examples": [
+    {
+     "spoken": "nemotron three ultra",
+     "written": "Nemotron 3 Ultra"
+    },
+    {
+     "spoken": "nematron three nano",
+     "written": "Nemotron 3 Nano"
+    },
+    {
+     "spoken": "nemotron three point five lightning",
+     "written": "Nemotron 3.5 Lightning"
+    },
+    {
+     "spoken": "nemotron three super one twenty b a twelve b",
+     "written": "Nemotron 3 Super 120B A12B"
+    }
+   ],
+   "source_urls": [
+    "https://research.nvidia.com/labs/nemotron/Nemotron-3",
+    "https://developer.nvidia.com/nemotron",
+    "https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-9B-v2"
+   ],
+   "notes": "Marketing form uses spaces, version before tier ('Nemotron 3 Nano'; NVIDIA writes 'Nemotron 2 Nano'). Hugging Face ids hyphenate with an NVIDIA- prefix (NVIDIA-Nemotron-3-Nano-30B-A3B-BF16). Llama-Nemotron is not on the current Nemotron page (UNVERIFIED as current). Speech line: Nemotron Speech."
+  },
+  {
+   "id": "parakeet",
+   "vendor": "NVIDIA",
+   "canonical": "Parakeet",
+   "spoken": [
+    "parakeet"
+   ],
+   "misheard": [
+    "para keet",
+    "parakeets",
+    "parakit"
+   ],
+   "ambiguous": true,
+   "version_join": "-",
+   "version_format": "v{major}",
+   "tiers": [
+    {
+     "canonical": "TDT",
+     "spoken": [
+      "t d t"
+     ],
+     "misheard": [],
+     "note": "Parakeet TDT"
+    },
+    {
+     "canonical": "CTC",
+     "spoken": [
+      "c t c"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "RNNT",
+     "spoken": [
+      "r n n t"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Parakeet-TDT-{size}B-v{major}",
+   "examples": [
+    {
+     "spoken": "parakeet t d t",
+     "written": "Parakeet TDT"
+    },
+    {
+     "spoken": "parakeet t d t zero point six b v three",
+     "written": "Parakeet-TDT-0.6B-v3"
+    },
+    {
+     "spoken": "parakit t d t",
+     "written": "Parakeet TDT"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3"
+   ],
+   "notes": "NVIDIA is inconsistent: card heading is the repo id 'parakeet-tdt-0.6b-v3', prose says 'Parakeet TDT', the paper title says 'Parakeet-TDT-0.6B-v3'. 'Parakeet v3' is user shorthand, not a vendor name. The bird: needs a speech/model cue. Sibling brands: Canary (Canary-1B-v2), Nemotron Speech."
+  },
+  {
+   "id": "phi",
+   "vendor": "Microsoft",
+   "canonical": "Phi",
+   "spoken": [
+    "phi"
+   ],
+   "misheard": [
+    "fee",
+    "fi",
+    "fy",
+    "phy",
+    "fie"
+   ],
+   "ambiguous": true,
+   "version_join": "-",
+   "version_format": "{major}",
+   "tiers": [
+    {
+     "canonical": "mini",
+     "spoken": [
+      "mini"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "multimodal",
+     "spoken": [
+      "multimodal",
+      "multi modal"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "reasoning",
+     "spoken": [
+      "reasoning"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "reasoning-plus",
+     "spoken": [
+      "reasoning plus"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "mini-reasoning",
+     "spoken": [
+      "mini reasoning"
+     ],
+     "misheard": [],
+     "join": "-"
+    }
+   ],
+   "pattern": "Phi-{version}[-{tier}]",
+   "examples": [
+    {
+     "spoken": "phi four",
+     "written": "Phi-4"
+    },
+    {
+     "spoken": "fee four mini",
+     "written": "Phi-4-mini"
+    },
+    {
+     "spoken": "phi four reasoning plus",
+     "written": "Phi-4-reasoning-plus"
+    }
+   ],
+   "source_urls": [
+    "https://azure.microsoft.com/en-us/products/phi",
+    "https://huggingface.co/api/models?author=microsoft&search=phi"
+   ],
+   "known": [
+    "Phi-4",
+    "Phi-4-mini",
+    "Phi-4-multimodal",
+    "Phi-4-reasoning",
+    "Phi-4-reasoning-plus",
+    "Phi-4-mini-reasoning",
+    "Phi-4-reasoning-vision-15B"
+   ],
+   "notes": "Highly ambiguous: 'fee', 'fi' are common words. Render only with Phi/fee + number + a model cue (Microsoft, model, mini, reasoning). No Phi-5 found (UNVERIFIED/nonexistent)."
+  },
+  {
+   "id": "granite",
+   "vendor": "IBM",
+   "canonical": "Granite",
+   "spoken": [
+    "granite"
+   ],
+   "misheard": [
+    "granted",
+    "granite's",
+    "granit"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}.{minor}",
+   "tiers": [
+    {
+     "canonical": "{n}B",
+     "spoken": [
+      "{n} b"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Micro",
+     "spoken": [
+      "micro"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "H-Micro",
+     "spoken": [
+      "h micro"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "H-Tiny",
+     "spoken": [
+      "h tiny"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "H-Small",
+     "spoken": [
+      "h small"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Speech",
+     "spoken": [
+      "speech"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Vision",
+     "spoken": [
+      "vision"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Guardian",
+     "spoken": [
+      "guardian"
+     ],
+     "misheard": []
+    }
+   ],
+   "pattern": "Granite {version}[ {tier}]",
+   "examples": [
+    {
+     "spoken": "granite four point two",
+     "written": "Granite 4.2"
+    },
+    {
+     "spoken": "granite four point two eight b",
+     "written": "Granite-4.2-8B"
+    },
+    {
+     "spoken": "granite four point oh h small",
+     "written": "Granite-4.0-H-Small"
+    },
+    {
+     "spoken": "granit speech five point oh",
+     "written": "Granite Speech 5.0"
+    }
+   ],
+   "source_urls": [
+    "https://www.ibm.com/granite",
+    "https://huggingface.co/ibm-granite",
+    "https://huggingface.co/ibm-granite/granite-4.0-h-small",
+    "https://huggingface.co/ibm-granite/granite-4.2-8b"
+   ],
+   "notes": "Marketing 'Granite 4.2'; with a size or H-variant IBM's card headings hyphenate the whole name (Granite-4.2-8B, Granite-4.0-H-Small). Version keeps '.0'. 'Granite Speech 5.0' is from coverage of repo granite-speech-5.0-470m-turboctc (partly UNVERIFIED). The rock: needs a version."
+  },
+  {
+   "id": "lfm",
+   "vendor": "Liquid AI",
+   "canonical": "LFM",
+   "spoken": [
+    "lfm",
+    "l f m"
+   ],
+   "misheard": [
+    "l s m",
+    "elf m",
+    "l f n"
+   ],
+   "ambiguous": false,
+   "version_join": "",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "{n}B",
+     "spoken": [
+      "{n} b"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "A{n}B",
+     "spoken": [
+      "a {n} b"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "VL",
+     "spoken": [
+      "v l"
+     ],
+     "misheard": [],
+     "join": "-"
+    },
+    {
+     "canonical": "Instruct",
+     "spoken": [
+      "instruct"
+     ],
+     "misheard": [],
+     "join": "-"
+    }
+   ],
+   "pattern": "LFM{version}[-{variant}][-{size}][-A{active}]",
+   "examples": [
+    {
+     "spoken": "l f m two point five",
+     "written": "LFM2.5"
+    },
+    {
+     "spoken": "lfm two one point two b",
+     "written": "LFM2-1.2B"
+    },
+    {
+     "spoken": "l f m two point five eight b a one b",
+     "written": "LFM2.5-8B-A1B"
+    },
+    {
+     "spoken": "elf m two",
+     "written": "LFM2"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/LiquidAI"
+   ],
+   "notes": "Same shape as Qwen: version with no separator, then hyphenated size/variant."
+  },
+  {
+   "id": "mercury",
+   "vendor": "Inception",
+   "canonical": "Mercury",
+   "spoken": [
+    "mercury"
+   ],
+   "misheard": [
+    "mercury's",
+    "merkury",
+    "mercer e"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}[.{minor}]",
+   "tiers": [
+    {
+     "canonical": "Edit",
+     "spoken": [
+      "edit"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Decide",
+     "spoken": [
+      "decide"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Voice",
+     "spoken": [
+      "voice"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Router",
+     "spoken": [
+      "router"
+     ],
+     "misheard": []
+    },
+    {
+     "canonical": "Coder",
+     "spoken": [
+      "coder"
+     ],
+     "misheard": [],
+     "note": "legacy"
+    }
+   ],
+   "pattern": "Mercury [{tier} ]{version}",
+   "examples": [
+    {
+     "spoken": "mercury two",
+     "written": "Mercury 2"
+    },
+    {
+     "spoken": "mercury two point five",
+     "written": "Mercury 2.5"
+    },
+    {
+     "spoken": "mercury edit two",
+     "written": "Mercury Edit 2"
+    },
+    {
+     "spoken": "merkury two",
+     "written": "Mercury 2"
+    }
+   ],
+   "source_urls": [
+    "https://www.inceptionlabs.ai/",
+    "https://docs.inceptionlabs.ai/get-started/models"
+   ],
+   "known": [
+    "Mercury 2.5",
+    "Mercury 2",
+    "Mercury Edit 2",
+    "Mercury Decide",
+    "Mercury Voice",
+    "Mercury Router"
+   ],
+   "notes": "Planet, element, Freddie Mercury: bare 'Mercury' is never rewritten (it is already capitalized). Only the version digits are rendered, and only with a model cue (Inception, diffusion, model, refine)."
+  },
+  {
+   "id": "jev",
+   "vendor": "TypeSafe",
+   "canonical": "Jev",
+   "spoken": [
+    "jev"
+   ],
+   "misheard": [
+    "jeff",
+    "jav",
+    "jev's",
+    "chev",
+    "jeb"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "",
+   "tiers": [],
+   "pattern": "Jev",
+   "examples": [
+    {
+     "spoken": "jev",
+     "written": "Jev"
+    },
+    {
+     "spoken": "jeff model",
+     "written": "Jev model"
+    },
+    {
+     "spoken": "typesafe jev",
+     "written": "TypeSafe Jev"
+    }
+   ],
+   "source_urls": [
+    "https://typesafe.ai",
+    "https://typesafe.ai/blog"
+   ],
+   "notes": "TypeSafe's first and only public 'System One' model (launch 2026-09-15 per third-party coverage). No version numbers seen. 'Jeff' is a name: repair only with a TypeSafe/System One/model cue."
+  },
+  {
+   "id": "clef",
+   "vendor": "Cloudflare",
+   "canonical": "Clef",
+   "spoken": [
+    "clef"
+   ],
+   "misheard": [
+    "cleff",
+    "clef's",
+    "cleft",
+    "clap"
+   ],
+   "ambiguous": true,
+   "version_join": "-",
+   "version_format": "",
+   "tiers": [
+    {
+     "canonical": "flash",
+     "spoken": [
+      "flash"
+     ],
+     "misheard": [],
+     "join": "-"
+    }
+   ],
+   "pattern": "Clef[-flash]",
+   "examples": [
+    {
+     "spoken": "clef",
+     "written": "Clef"
+    },
+    {
+     "spoken": "clef flash",
+     "written": "Clef-flash"
+    },
+    {
+     "spoken": "cleft flash",
+     "written": "Clef-flash"
+    }
+   ],
+   "source_urls": [
+    "https://huggingface.co/cloudflare"
+   ],
+   "notes": "Cloudflare's model (repos cloudflare/clef, cloudflare/clef-flash), API-compatible with Jev; NOT a TypeSafe model. Launch 2026-10-01 (Cloudflare blog not retrieved; partly UNVERIFIED). 'clef' is a music word."
+  },
+  {
+   "id": "julia",
+   "vendor": "Supersonic Labs",
+   "canonical": "Julia",
+   "spoken": [
+    "julia"
+   ],
+   "misheard": [
+    "julie a",
+    "giulia",
+    "julia's"
+   ],
+   "ambiguous": true,
+   "version_join": " ",
+   "version_format": "{major}",
+   "tiers": [],
+   "pattern": "Julia {version}",
+   "examples": [
+    {
+     "spoken": "julia one",
+     "written": "Julia 1"
+    },
+    {
+     "spoken": "giulia one",
+     "written": "Julia 1"
+    },
+    {
+     "spoken": "julia one model",
+     "written": "Julia 1 model"
+    }
+   ],
+   "source_urls": [
+    "https://everydev.ai/tools/julia-1",
+    "https://huggingface.co/SupersonicLabs/Julia-1"
+   ],
+   "notes": "144M-parameter model from Supersonic Labs benchmarked against Jev; NOT a TypeSafe model. Repo 'Julia-1'. Collides with the Julia programming language and a common name: needs a version + model cue. Details from secondary coverage (partly UNVERIFIED)."
+  }
+ ],
+ "products": [
+  {
+   "canonical": "Codex",
+   "spoken": [
+    "codex"
+   ],
+   "misheard": [
+    "code x",
+    "codecs",
+    "codec"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://learn.chatgpt.com/docs/models"
+   ]
+  },
+  {
+   "canonical": "Codex CLI",
+   "spoken": [
+    "codex cli",
+    "codex c l i"
+   ],
+   "misheard": [
+    "codecs cli",
+    "code x cli"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://learn.chatgpt.com/docs/models"
+   ]
+  },
+  {
+   "canonical": "Codex Cloud",
+   "spoken": [
+    "codex cloud"
+   ],
+   "misheard": [],
+   "ambiguous": false,
+   "source_urls": [
+    "https://learn.chatgpt.com/docs/models"
+   ]
+  },
+  {
+   "canonical": "ChatGPT",
+   "spoken": [
+    "chat gpt",
+    "chatgpt"
+   ],
+   "misheard": [
+    "chat gbt",
+    "chad gpt"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://developers.openai.com/api/docs/models"
+   ]
+  },
+  {
+   "canonical": "Claude Code",
+   "spoken": [
+    "claude code"
+   ],
+   "misheard": [
+    "cloud code",
+    "clawed code",
+    "claude coat",
+    "cloud coat"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://code.claude.com/docs/en/memory"
+   ],
+   "note": "'cloud code' -> Claude Code only with an agent/CLI/coding cue; Google also has 'Cloud Code'."
+  },
+  {
+   "canonical": "CLAUDE.md",
+   "spoken": [
+    "claude md",
+    "claude dot md",
+    "claude m d",
+    "claude dot m d"
+   ],
+   "misheard": [
+    "cloud md",
+    "cloud dot md",
+    "cloud m d",
+    "clawed md",
+    "claude.md"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://code.claude.com/docs/en/memory"
+   ],
+   "note": "All caps CLAUDE plus lowercase .md. Siblings: CLAUDE.local.md, AGENTS.md."
+  },
+  {
+   "canonical": "AGENTS.md",
+   "spoken": [
+    "agents md",
+    "agents dot md",
+    "agent md"
+   ],
+   "misheard": [
+    "agents m d",
+    "agent's md"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://code.claude.com/docs/en/memory"
+   ]
+  },
+  {
+   "canonical": "Claude Agent SDK",
+   "spoken": [
+    "claude agent sdk",
+    "claude agent s d k"
+   ],
+   "misheard": [
+    "cloud agent sdk"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://code.claude.com/docs/en/agent-sdk/overview"
+   ]
+  },
+  {
+   "canonical": "Gemini CLI",
+   "spoken": [
+    "gemini cli",
+    "gemini c l i"
+   ],
+   "misheard": [],
+   "ambiguous": false,
+   "source_urls": [
+    "https://github.com/google-gemini/gemini-cli"
+   ],
+   "note": "Consumer access ended 2026-06-18, replaced by Antigravity CLI."
+  },
+  {
+   "canonical": "Antigravity",
+   "spoken": [
+    "antigravity",
+    "anti gravity"
+   ],
+   "misheard": [
+    "anti-gravity"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/"
+   ]
+  },
+  {
+   "canonical": "Antigravity CLI",
+   "spoken": [
+    "antigravity cli",
+    "anti gravity cli"
+   ],
+   "misheard": [],
+   "ambiguous": false,
+   "source_urls": [
+    "https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/"
+   ]
+  },
+  {
+   "canonical": "Jules",
+   "spoken": [
+    "jules"
+   ],
+   "misheard": [
+    "jewels"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://jules.google"
+   ]
+  },
+  {
+   "canonical": "Devin",
+   "spoken": [
+    "devin"
+   ],
+   "misheard": [
+    "devon",
+    "kevin",
+    "devan",
+    "deven"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://devin.ai/desktop",
+    "https://docs.devin.ai/cli.md"
+   ],
+   "note": "Also a common first name. 'Devon' -> 'Devin' only with a product cue: CLI, Desktop, account, SWE, models, installed, 'from Devin'."
+  },
+  {
+   "canonical": "Devin CLI",
+   "spoken": [
+    "devin cli",
+    "devin c l i"
+   ],
+   "misheard": [
+    "devon cli",
+    "devon c l i"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://docs.devin.ai/cli.md"
+   ]
+  },
+  {
+   "canonical": "Devin Desktop",
+   "spoken": [
+    "devin desktop"
+   ],
+   "misheard": [
+    "devon desktop"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://devin.ai/desktop"
+   ],
+   "note": "New name for Windsurf (windsurf.com redirects to devin.ai/desktop)."
+  },
+  {
+   "canonical": "Windsurf",
+   "spoken": [
+    "windsurf",
+    "wind surf"
+   ],
+   "misheard": [
+    "wind serf"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://devin.ai/desktop"
+   ],
+   "note": "Renamed Devin Desktop; 'windsurf' is also a sport."
+  },
+  {
+   "canonical": "Fusion",
+   "spoken": [
+    "fusion"
+   ],
+   "misheard": [],
+   "ambiguous": true,
+   "source_urls": [
+    "https://cognition.com/blog"
+   ],
+   "note": "Devin Desktop/CLI multi-model mode; common word, never rewrite."
+  },
+  {
+   "canonical": "Cursor",
+   "spoken": [
+    "cursor"
+   ],
+   "misheard": [
+    "curser"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://cursor.com/docs/models"
+   ],
+   "note": "Mouse cursor: capitalize only with a product cue (Cursor CLI, in Cursor, via Cursor)."
+  },
+  {
+   "canonical": "Cursor CLI",
+   "spoken": [
+    "cursor cli",
+    "cursor c l i"
+   ],
+   "misheard": [
+    "curser cli"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://cursor.com/docs/cli/overview"
+   ],
+   "note": "Command is now 'agent'; 'cursor-agent' is legacy."
+  },
+  {
+   "canonical": "OpenCode",
+   "spoken": [
+    "opencode",
+    "open code"
+   ],
+   "misheard": [
+    "open coat"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://opencode.ai"
+   ],
+   "note": "'open code' is also a phrase; needs a tool cue."
+  },
+  {
+   "canonical": "OpenCode Zen",
+   "spoken": [
+    "opencode zen",
+    "open code zen"
+   ],
+   "misheard": [],
+   "ambiguous": false,
+   "source_urls": [
+    "https://opencode.ai/zen"
+   ]
+  },
+  {
+   "canonical": "OpenCode Go",
+   "spoken": [
+    "opencode go",
+    "open code go"
+   ],
+   "misheard": [],
+   "ambiguous": true,
+   "source_urls": [
+    "https://opencode.ai/go"
+   ]
+  },
+  {
+   "canonical": "GitHub Copilot",
+   "spoken": [
+    "github copilot",
+    "git hub copilot"
+   ],
+   "misheard": [
+    "get hub copilot",
+    "github co-pilot"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://github.com/features/copilot/cli"
+   ]
+  },
+  {
+   "canonical": "Copilot CLI",
+   "spoken": [
+    "copilot cli",
+    "co-pilot cli"
+   ],
+   "misheard": [],
+   "ambiguous": false,
+   "source_urls": [
+    "https://github.com/features/copilot/cli"
+   ]
+  },
+  {
+   "canonical": "Amp",
+   "spoken": [
+    "amp"
+   ],
+   "misheard": [
+    "amps"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://ampcode.com/news"
+   ],
+   "note": "Not 'Amp Code'. Common word."
+  },
+  {
+   "canonical": "Cline",
+   "spoken": [
+    "cline"
+   ],
+   "misheard": [
+    "klein",
+    "clyne",
+    "kline"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://cline.bot"
+   ]
+  },
+  {
+   "canonical": "Roo Code",
+   "spoken": [
+    "roo code"
+   ],
+   "misheard": [
+    "rue code",
+    "roo coat"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://roomote.dev"
+   ],
+   "note": "roocode.com now redirects to Roomote."
+  },
+  {
+   "canonical": "Kilo Code",
+   "spoken": [
+    "kilo code"
+   ],
+   "misheard": [
+    "kilo coat"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://kilo.ai"
+   ]
+  },
+  {
+   "canonical": "Aider",
+   "spoken": [
+    "aider"
+   ],
+   "misheard": [
+    "aide er",
+    "aida"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://aider.chat"
+   ]
+  },
+  {
+   "canonical": "Droid",
+   "spoken": [
+    "droid"
+   ],
+   "misheard": [],
+   "ambiguous": true,
+   "source_urls": [
+    "https://factory.com"
+   ],
+   "note": "Factory's agent; 'Factory Droid' is not the vendor's phrase."
+  },
+  {
+   "canonical": "Zed",
+   "spoken": [
+    "zed"
+   ],
+   "misheard": [
+    "zedd"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://zed.dev"
+   ]
+  },
+  {
+   "canonical": "Kiro",
+   "spoken": [
+    "kiro"
+   ],
+   "misheard": [
+    "kero",
+    "kira"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://kiro.dev"
+   ]
+  },
+  {
+   "canonical": "Warp",
+   "spoken": [
+    "warp"
+   ],
+   "misheard": [],
+   "ambiguous": true,
+   "source_urls": [
+    "https://warp.dev"
+   ]
+  },
+  {
+   "canonical": "Replit Agent",
+   "spoken": [
+    "replit agent"
+   ],
+   "misheard": [
+    "rep lit agent",
+    "replet agent"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://replit.com/ai"
+   ]
+  },
+  {
+   "canonical": "v0",
+   "spoken": [
+    "v zero",
+    "v0"
+   ],
+   "misheard": [
+    "vee zero"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://v0.app"
+   ],
+   "note": "Always lowercase v."
+  },
+  {
+   "canonical": "Bolt",
+   "spoken": [
+    "bolt"
+   ],
+   "misheard": [],
+   "ambiguous": true,
+   "source_urls": [
+    "https://bolt.new"
+   ]
+  },
+  {
+   "canonical": "Lovable",
+   "spoken": [
+    "lovable"
+   ],
+   "misheard": [],
+   "ambiguous": true,
+   "source_urls": [],
+   "note": "Spelling from third-party reviews only (site returned 403)."
+  },
+  {
+   "canonical": "OpenRouter",
+   "spoken": [
+    "openrouter",
+    "open router"
+   ],
+   "misheard": [],
+   "ambiguous": false,
+   "source_urls": [
+    "https://openrouter.ai"
+   ]
+  },
+  {
+   "canonical": "Ollama",
+   "spoken": [
+    "ollama",
+    "o llama"
+   ],
+   "misheard": [
+    "oh llama",
+    "olama"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://ollama.com"
+   ]
+  },
+  {
+   "canonical": "llama.cpp",
+   "spoken": [
+    "llama cpp",
+    "llama dot cpp",
+    "llama c p p",
+    "llama dot c p p"
+   ],
+   "misheard": [
+    "lama cpp",
+    "llama c plus plus"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://github.com/ggml-org/llama.cpp"
+   ],
+   "note": "Lowercase; related: llama-server, GGUF, ggml."
+  },
+  {
+   "canonical": "llama-server",
+   "spoken": [
+    "llama server"
+   ],
+   "misheard": [
+    "lama server"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://github.com/ggml-org/llama.cpp"
+   ]
+  },
+  {
+   "canonical": "GGUF",
+   "spoken": [
+    "g g u f",
+    "gguf"
+   ],
+   "misheard": [
+    "g guf"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://github.com/ggml-org/llama.cpp"
+   ]
+  },
+  {
+   "canonical": "LM Studio",
+   "spoken": [
+    "lm studio",
+    "l m studio"
+   ],
+   "misheard": [
+    "elm studio"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://lmstudio.ai"
+   ]
+  },
+  {
+   "canonical": "vLLM",
+   "spoken": [
+    "v l l m",
+    "vllm"
+   ],
+   "misheard": [
+    "v llm"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://docs.vllm.ai"
+   ]
+  },
+  {
+   "canonical": "Hugging Face",
+   "spoken": [
+    "hugging face",
+    "huggingface"
+   ],
+   "misheard": [
+    "hugging faces"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://huggingface.co/about"
+   ]
+  },
+  {
+   "canonical": "MCP",
+   "spoken": [
+    "m c p",
+    "mcp"
+   ],
+   "misheard": [],
+   "ambiguous": false,
+   "source_urls": [
+    "https://modelcontextprotocol.io"
+   ]
+  },
+  {
+   "canonical": "Groq",
+   "spoken": [
+    "groq"
+   ],
+   "misheard": [
+    "grok",
+    "grock"
+   ],
+   "ambiguous": true,
+   "source_urls": [
+    "https://groq.com/"
+   ],
+   "note": "Inference company (LPU). Same sound as Grok: keep as spoken unless context is clearly hosting/inference."
+  },
+  {
+   "canonical": "Mistral Vibe",
+   "spoken": [
+    "mistral vibe"
+   ],
+   "misheard": [],
+   "ambiguous": false,
+   "source_urls": [
+    "https://docs.mistral.ai/getting-started/models/models_overview/"
+   ],
+   "note": "Mistral's coding agent; CLI command 'vibe'."
+  },
+  {
+   "canonical": "Kimi Code CLI",
+   "spoken": [
+    "kimi code cli",
+    "kimi code"
+   ],
+   "misheard": [
+    "kimmy code"
+   ],
+   "ambiguous": false,
+   "source_urls": [
+    "https://huggingface.co/moonshotai/Kimi-K3"
+   ]
+  },
+  {
+   "canonical": "TypeSafe",
+   "spoken": [
+    "typesafe",
+    "type safe"
+   ],
+   "misheard": [],
+   "ambiguous": true,
+   "source_urls": [
+    "https://typesafe.ai"
+   ],
+   "note": "'type safe' is an ordinary programming phrase; only with a Jev/System One/company cue."
+  }
+ ],
+ "effort_words": [
+  {
+   "canonical": "low",
+   "spoken": [
+    "low"
+   ],
+   "written": "low",
+   "alternatives": [
+    "Low",
+    "Light"
+   ],
+   "rewrite": false,
+   "optional": true,
+   "confidence": "high",
+   "note": "Keep as spoken. Codex desktop UI says 'Light'."
+  },
+  {
+   "canonical": "medium",
+   "spoken": [
+    "medium"
+   ],
+   "written": "medium",
+   "alternatives": [
+    "Medium"
+   ],
+   "rewrite": false,
+   "optional": true,
+   "confidence": "high",
+   "note": "Keep as spoken; lowercase after 'on'."
+  },
+  {
+   "canonical": "high",
+   "spoken": [
+    "high"
+   ],
+   "written": "high",
+   "alternatives": [
+    "High"
+   ],
+   "rewrite": false,
+   "optional": true,
+   "confidence": "high",
+   "note": "Keep as spoken."
+  },
+  {
+   "canonical": "xhigh",
+   "spoken": [
+    "x high",
+    "ex high",
+    "x-high",
+    "xhigh"
+   ],
+   "written": "xhigh",
+   "alternatives": [
+    "XHigh",
+    "X-High",
+    "Extra High"
+   ],
+   "rewrite": true,
+   "optional": true,
+   "confidence": "low",
+   "note": "API/config value is 'xhigh' (OpenAI, Anthropic, Codex). Rewrite only the spoken letter form 'x high'."
+  },
+  {
+   "canonical": "extra high",
+   "spoken": [
+    "extra high"
+   ],
+   "written": "extra high",
+   "alternatives": [
+    "xhigh",
+    "Extra High"
+   ],
+   "rewrite": false,
+   "optional": true,
+   "confidence": "low",
+   "note": "Codex UI label is 'Extra High'. The user says 'extra high'; keep it unless the user prefers 'xhigh' (open question)."
+  },
+  {
+   "canonical": "max",
+   "spoken": [
+    "max",
+    "maximum"
+   ],
+   "written": "max",
+   "alternatives": [
+    "Max"
+   ],
+   "rewrite": false,
+   "optional": true,
+   "confidence": "high",
+   "note": "'maximum' stays as spoken."
+  },
+  {
+   "canonical": "ultra",
+   "spoken": [
+    "ultra"
+   ],
+   "written": "ultra",
+   "alternatives": [
+    "Ultra"
+   ],
+   "rewrite": false,
+   "optional": true,
+   "confidence": "high",
+   "note": "Codex-only effort level (parallel subagents). Not a model tier: 'GPT six Astra on Ultra' -> 'GPT-6 Astra on Ultra'."
+  },
+  {
+   "canonical": "minimal",
+   "spoken": [
+    "minimal"
+   ],
+   "written": "minimal",
+   "alternatives": [],
+   "rewrite": false,
+   "optional": true,
+   "confidence": "high",
+   "note": "OpenAI API value; Gemini Flash level."
+  },
+  {
+   "canonical": "none",
+   "spoken": [
+    "none",
+    "no thinking"
+   ],
+   "written": "none",
+   "alternatives": [
+    "No Thinking"
+   ],
+   "rewrite": false,
+   "optional": true,
+   "confidence": "high",
+   "note": "OpenAI API value; Devin shows 'No Thinking'."
+  }
+ ],
+ "effort_meta": {
+  "cue_words": [
+   "on",
+   "at",
+   "with",
+   "using"
+  ],
+  "note": "Effort words follow a model span, usually after 'on' ('GPT-6 Astra on high'). They are a separate optional rewrite, never part of the MODEL span, except the Cognition/Devin catalog form 'SWE-2 high' where no 'on' is spoken. Default: keep the spoken words; only 'x high' -> 'xhigh' rewrites.",
+  "sources": [
+   "https://developers.openai.com/api/docs/guides/reasoning",
+   "https://learn.chatgpt.com/docs/config-file/config-reference",
+   "https://platform.claude.com/docs/en/build-with-claude/effort",
+   "https://code.claude.com/docs/en/model-config",
+   "https://cognition.com/blog/swe-2"
+  ]
+ }
+}

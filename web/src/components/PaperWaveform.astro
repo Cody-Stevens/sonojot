@@ -1,0 +1,181 @@
+---
+interface Props {
+  /** Unique within the page; keeps every SVG paint/filter reference local. */
+  id: string;
+}
+const { id } = Astro.props;
+
+// Authored crease stations: x, top, foot. Neighbors use the same station,
+// so the object is one continuous accordion, including its zigzag lower edge.
+type Station = readonly [x: number, top: number, foot: number];
+const desktop: Station[] = [
+  [-20, 132, 168], [48, 137, 158], [111, 117, 173],
+  [176, 130, 157], [230, 140, 172], [284, 105, 156],
+  [351, 125, 176], [410, 129, 160], [469, 112, 177],
+  [523, 77, 158], [586, 82, 180], [660, 38, 159],
+  [725, 59, 181], [798, 28, 160], [864, 70, 180],
+  [930, 60, 160], [986, 119, 175], [1040, 101, 158],
+  [1099, 129, 172], [1156, 122, 158], [1220, 125, 168],
+];
+const mobile: Station[] = [
+  [-20, 128, 168], [83, 132, 157], [177, 102, 175],
+  [280, 125, 157], [381, 82, 179], [479, 95, 157],
+  [584, 52, 182], [695, 24, 157], [802, 67, 180],
+  [900, 57, 157], [999, 120, 175], [1103, 107, 158],
+  [1220, 128, 169],
+];
+const bands = [
+  { name: "desktop", stations: desktop, accents: [3, 8, 14] },
+  { name: "mobile", stations: mobile, accents: [3, 8] },
+].map(({ name, stations, accents }) => {
+  const top = stations.map(([x, y]) => [x, y]);
+  const bottom = stations.map(([x, , y]) => [x, y]);
+  const silhouette = [...top, ...bottom.toReversed()];
+  const faces = stations.slice(1).map((right, index) => {
+    const left = stations[index];
+    // Depth alternates with each foot. The planes facing upper-left receive
+    // the same diffuse light; pigment never determines their orientation.
+    const orientation = right[2] > left[2] ? "lit" : "shade";
+    const pigment = accents.includes(index) ? "accent" : "paper";
+    return {
+      points: `${left[0]},${left[1]} ${right[0]},${right[1]} ${right[0]},${right[2]} ${left[0]},${left[2]}`,
+      material: `${pigment}-${orientation}`,
+    };
+  });
+  // Project the top edge down and right onto the sheet. All faces cast one
+  // joined shadow, with penumbra separate from the tight foot contact.
+  const projection = stations.map(([x, top, foot]) => {
+    const height = foot - top;
+    return [x + height * 0.2, foot + height * 0.15 + 3];
+  });
+  return {
+    name, stations, faces, prefix: `${id}-${name}`,
+    top: top.map(point => point.join(",")).join(" "),
+    bottom: bottom.map(point => point.join(",")).join(" "),
+    shadow: [...bottom, ...projection.toReversed()].map(point => point.join(",")).join(" "),
+    clip: `polygon(${silhouette.map(([x, y]) => `${x / 12}% ${y / 2.1}%`).join(",")})`,
+  };
+});
+const materials = ["paper-lit", "paper-shade", "accent-lit", "accent-shade"];
+---
+
+<div class="paper-wave" aria-hidden="true">
+  {bands.map(band => (
+    <div class:list={["wave-band", `wave-band--${band.name}`]}>
+      <svg viewBox="0 0 1200 210" preserveAspectRatio="none" focusable="false" aria-hidden="true">
+        <defs>
+          {materials.map(material => (
+            <linearGradient id={`${band.prefix}-${material}`} x1="0" y1="0" x2="1" y2="0.18">
+              <stop offset="0" stop-color={`var(--wave-${material}-start)`} />
+              <stop offset="1" stop-color={`var(--wave-${material}-end)`} />
+            </linearGradient>
+          ))}
+          <filter id={`${band.prefix}-cast`} x="-15%" y="-100%" width="135%" height="350%" color-interpolation-filters="sRGB">
+            <feGaussianBlur stdDeviation="6 4" />
+          </filter>
+          <filter id={`${band.prefix}-contact`} x="-10%" y="-100%" width="125%" height="350%" color-interpolation-filters="sRGB">
+            <feGaussianBlur stdDeviation="1.5 1.2" />
+          </filter>
+        </defs>
+        <polygon points={band.shadow} fill="var(--wave-shadow)" opacity="0.3" filter={`url(#${band.prefix}-cast)`} />
+        <polyline points={band.bottom} transform="translate(1 1.5)" fill="none" stroke="var(--wave-shadow)" stroke-width="2.6" opacity="0.45" filter={`url(#${band.prefix}-contact)`} />
+        {band.faces.map(face => (
+          <polygon class="wave-face" points={face.points} fill={`url(#${band.prefix}-${face.material})`} />
+        ))}
+      </svg>
+      {/* The silhouette resizes; the existing CSS-pixel stock tile never does. */}
+      <div class="wave-grain" style={{ clipPath: band.clip }}></div>
+      <svg class="wave-edges" viewBox="0 0 1200 210" preserveAspectRatio="none" focusable="false" aria-hidden="true">
+        {band.stations.slice(1, -1).map(([x, top, foot], index) => (
+          <g>
+            {/* Broad, faint occlusion falls into a narrow compressed crease. */}
+            {(index + 1) % 2 !== 0 && <path d={`M${x} ${top + 2}V${foot - 1}`} class="valley-falloff" vector-effect="non-scaling-stroke" />}
+            <path d={`M${x + 0.6} ${top + 1}V${foot}`} class:list={["crease", (index + 1) % 2 === 0 ? "ridge" : "valley"]} vector-effect="non-scaling-stroke" />
+            {(index + 1) % 2 === 0 && <path d={`M${x - 0.5} ${top + 0.5}V${foot - 0.5}`} class="ridge-light" vector-effect="non-scaling-stroke" />}
+          </g>
+        ))}
+        <polyline points={band.top} class="cut-edge" vector-effect="non-scaling-stroke" />
+        <polyline points={band.bottom} class="foot-edge" vector-effect="non-scaling-stroke" />
+      </svg>
+    </div>
+  ))}
+</div>
+
+<style>
+  .paper-wave {
+    --wave-paper-lit-start: #f6f1e3;
+    --wave-paper-lit-end: #e5deca;
+    --wave-paper-shade-start: #c1b69e;
+    --wave-paper-shade-end: #d5cbb4;
+    --wave-accent-lit-start: #a1aa90;
+    --wave-accent-lit-end: #838f74;
+    --wave-accent-shade-start: #505d46;
+    --wave-accent-shade-end: #68765a;
+    --wave-shadow: #403923;
+    --wave-crease: #5a4c32;
+    --wave-ridge: #fbf5df;
+    --wave-edge: #fff9e9;
+    --wave-edge-opacity: 0.75;
+    --wave-grain-blend: multiply;
+    --wave-grain-opacity: 0.6;
+    position: relative;
+    height: 180px;
+    isolation: isolate;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  :global([data-theme="basalt"]) .paper-wave {
+    --wave-paper-lit-start: #3c423e;
+    --wave-paper-lit-end: #303832;
+    --wave-paper-shade-start: #161d19;
+    --wave-paper-shade-end: #242c26;
+    --wave-accent-lit-start: #747e66;
+    --wave-accent-lit-end: #59664f;
+    --wave-accent-shade-start: #384332;
+    --wave-accent-shade-end: #4e5b43;
+    --wave-shadow: #040805;
+    --wave-crease: #080e09;
+    --wave-ridge: #a9b19b;
+    --wave-edge: #c2c6b1;
+    --wave-edge-opacity: 0.18;
+    --wave-grain-blend: soft-light;
+    --wave-grain-opacity: 0.5;
+  }
+
+  .wave-band,
+  .wave-band svg,
+  .wave-grain {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .wave-band--mobile { display: none; }
+
+  .wave-grain {
+    background-image: var(--paper-image);
+    background-size: var(--paper-tile);
+    background-position: -137px -281px;
+    background-repeat: repeat;
+    mix-blend-mode: var(--wave-grain-blend);
+    opacity: var(--wave-grain-opacity);
+  }
+
+  .wave-edges { fill: none; }
+  .crease { stroke: var(--wave-crease); stroke-width: 1.8; }
+  .valley { opacity: 0.19; }
+  .valley-falloff { stroke: var(--wave-crease); stroke-width: 4; opacity: 0.065; }
+  .ridge { opacity: 0.25; stroke-width: 1.1; }
+  .ridge-light { stroke: var(--wave-ridge); stroke-width: 0.7; opacity: 0.28; }
+  .cut-edge { stroke: var(--wave-edge); stroke-width: 1.1; opacity: var(--wave-edge-opacity); }
+  .foot-edge { stroke: var(--wave-crease); stroke-width: 0.7; opacity: 0.25; }
+
+  @media (max-width: 600px) {
+    .paper-wave { height: 120px; }
+    .wave-band--desktop { display: none; }
+    .wave-band--mobile { display: block; }
+  }
+</style>

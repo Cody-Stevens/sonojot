@@ -1,0 +1,41 @@
+---
+import Section from "./Section.astro";
+import Facts from "./Facts.astro";
+import Shot from "./Shot.astro";
+
+const facts = [
+  "Notes are assembled from sentences that were actually said.",
+  "Import a recording you already have and transcribe it.",
+  "Export to HTML, PDF, Markdown or plain text.",
+];
+---
+
+<Section
+  id="meetings"
+  title="Meeting transcription."
+  lede="Your microphone and your computer’s audio, captured together and transcribed."
+>
+  <div class="meeting-grid">
+    <Shot
+      name="meetings-demo"
+      alt="The Meetings page listing transcribed recordings with their dates and durations."
+    />
+
+    <Facts items={facts} />
+  </div>
+</Section>
+
+<style>
+  .meeting-grid {
+    display: grid;
+    gap: clamp(1.5rem, 3vw, 2.5rem);
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  @media (max-width: 54rem) {
+    .meeting-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

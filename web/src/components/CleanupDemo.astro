@@ -1,0 +1,295 @@
+---
+import Section from "./Section.astro";
+
+// One spoken sentence in its three forms: as heard, formatted, cleaned. `null`
+// means the word is not in that version at all. The forms match what the
+// application actually does; Format only keeps every recognised word, including
+// the ones it got wrong. A fourth flag marks a genuine correction, so the quiet
+// rule under a word never appears for mere capitalisation.
+const tokens: Array<[string, string | null, string | null, boolean?]> = [
+  ["so", "So,", "So"],
+  ["um", "um,", null],
+  ["i", "I", "I"],
+  ["think", "think", "think"],
+  ["we", "we", "we"],
+  ["should", "should", "should"],
+  ["ship", "ship", "ship"],
+  ["the", "the", "the"],
+  ["beta", "beta", "beta"],
+  ["on", "on", "on"],
+  ["friday", "Friday.", "Friday."],
+  ["uh", "Uh,", null],
+  ["let's", "let's", "Let's"],
+  ["keep", "keep", "keep"],
+  ["teh", "teh", "the", true],
+  ["old", "old", "old"],
+  ["installer", "installer", "installer"],
+  ["around", "around", "around"],
+  ["until", "until", "until"],
+  ["we're", "we're", "we're"],
+  ["sure", "sure.", "sure."],
+];
+
+const modes = [
+  {
+    id: "heard",
+    name: "As heard",
+    caption: "Keep the raw original",
+    detail: "Exactly what the recogniser returned. Nothing is added or removed.",
+  },
+  {
+    id: "format",
+    name: "Format only",
+    caption: "Keep every word",
+    detail: "Adjust capitalisation and punctuation. Preserve every recognised word.",
+  },
+  {
+    id: "clean",
+    name: "Clean",
+    caption: "Correct and format",
+    detail:
+      "Remove ‘um’ and ‘uh’, correct supported spellings and vocabulary, and format without rewriting.",
+  },
+];
+---
+
+<Section
+  id="dictation"
+  title="How dictation works"
+  lede="You control how much cleanup is applied to your dictation."
+>
+  <div class="stock stock--card card demo" data-cleanup data-mode="clean" style="--grain-x:-140px;--grain-y:-80px">
+    <div class="impression segmented" role="tablist" aria-label="Text cleanup">
+      {
+        modes.map((mode) => (
+          <button
+            class="segment"
+            type="button"
+            role="tab"
+            id={`seg-${mode.id}`}
+            aria-controls="cleanup-output"
+            aria-selected={mode.id === "clean" ? "true" : "false"}
+            data-mode-button={mode.id}
+          >
+            <strong>{mode.name}</strong>
+            <span data-text-surface="flat">{mode.caption}</span>
+          </button>
+        ))
+      }
+    </div>
+
+    <p class="mode-detail" data-text-surface="flat" data-detail>{modes[2].detail}</p>
+
+    <div class="impression output" id="cleanup-output" role="tabpanel" aria-live="polite">
+      <p class="transcript" data-transcript>
+        {
+          tokens.map(([heard, format, clean, mended], i) => (
+            <span
+              class:list={["tok", clean === null && "is-dropped"]}
+              data-heard={heard}
+              data-format={format ?? ""}
+              data-clean={clean ?? ""}
+              data-mended={mended ? "" : undefined}
+              data-index={i}
+            ><span class="tok-text">{clean ?? ""}</span></span>
+          ))
+        }
+      </p>
+    </div>
+
+    <p class="small quiet footnote" data-text-surface="flat">
+      Whichever you pick, the raw recognition is saved unchanged alongside it.
+    </p>
+  </div>
+</Section>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-cleanup]");
+  if (root) {
+    const detail = root.querySelector<HTMLElement>("[data-detail]")!;
+    const tokens = Array.from(root.querySelectorAll<HTMLElement>(".tok"));
+    const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-mode-button]"));
+    const details: Record<string, string> = {
+      heard: "Exactly what the recogniser returned. Nothing is added or removed.",
+      format: "Adjust capitalisation and punctuation. Preserve every recognised word.",
+      clean:
+        "Remove ‘um’ and ‘uh’, correct supported spellings and vocabulary, and format without rewriting.",
+    };
+
+    let first = true;
+
+    function apply(mode: "heard" | "format" | "clean") {
+      root!.dataset.mode = mode;
+      detail.textContent = details[mode];
+
+      buttons.forEach((button) => {
+        const selected = button.dataset.modeButton === mode;
+        button.setAttribute("aria-selected", selected ? "true" : "false");
+      });
+
+      tokens.forEach((token) => {
+        const next = token.dataset[mode] ?? "";
+        const text = token.querySelector<HTMLElement>(".tok-text")!;
+        const previous = text.textContent ?? "";
+
+        token.classList.remove("is-swapping", "is-mended");
+        token.classList.toggle("is-dropped", next === "");
+
+        if (next === "") return;
+
+        const mended = mode === "clean" && token.dataset.mended !== undefined;
+        if (next !== previous) {
+          // Restart the ink swap even if the class was already present.
+          void token.offsetWidth;
+          text.textContent = next;
+          if (!first) token.classList.add("is-swapping");
+        }
+        if (mended) token.classList.add("is-mended");
+      });
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => apply(button.dataset.modeButton as never));
+    });
+
+    // Arrow keys move between the three pieces of stock, as in a tab list.
+    root.querySelector(".segmented")?.addEventListener("keydown", (event) => {
+      const key = (event as KeyboardEvent).key;
+      if (key !== "ArrowRight" && key !== "ArrowLeft") return;
+      const current = buttons.findIndex((b) => b.getAttribute("aria-selected") === "true");
+      const next = buttons[(current + (key === "ArrowRight" ? 1 : buttons.length - 1)) % buttons.length];
+      next.focus();
+      next.click();
+      event.preventDefault();
+    });
+
+    apply("clean");
+    first = false;
+  }
+</script>
+
+<style>
+  .demo {
+    padding: clamp(1.2rem, 2.4vw, 1.9rem);
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .segmented {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+    padding: 0.35rem;
+  }
+
+  .segment {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.7rem 0.6rem 0.8rem;
+    border: 0;
+    border-radius: 14px 12px 13px 15px;
+    background: transparent;
+    text-align: center;
+    color: var(--soft-ink);
+    transition:
+      background-color var(--motion-control) var(--ease-settle),
+      color var(--motion-control) var(--ease-settle),
+      box-shadow var(--motion-control) var(--ease-settle),
+      transform var(--motion-control) var(--ease-settle);
+  }
+
+  .segment strong {
+    font-size: clamp(1rem, 1.4vw, 1.18rem);
+    font-weight: 600;
+  }
+
+  .segment span {
+    font-size: 0.76rem;
+    line-height: 1.3;
+  }
+
+  .segment:hover[aria-selected="false"] {
+    background-color: var(--well);
+    color: var(--ink);
+  }
+
+  .segment[aria-selected="true"] {
+    background-color: var(--dye);
+    background-image: var(--dye-layers);
+    background-size: var(--dye-size);
+    background-blend-mode: var(--dye-blend);
+    color: var(--dye-ink);
+    box-shadow:
+      inset 1px 1px 1px #f7f4dc80,
+      0 2px 1px #26302180,
+      2px 5px 5px -3px #1b211bcc;
+  }
+
+  .mode-detail {
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: var(--soft-ink);
+    min-height: 2.9em;
+  }
+
+  .output {
+    padding: clamp(1rem, 2vw, 1.5rem) clamp(1.1rem, 2.2vw, 1.7rem);
+  }
+
+  .transcript {
+    font-size: clamp(1.05rem, 1.7vw, 1.42rem);
+    line-height: 1.62;
+    letter-spacing: -0.006em;
+  }
+
+  .tok {
+    display: inline-block;
+    max-width: 14ch;
+    white-space: nowrap;
+    margin-right: 0.25em;
+    transition:
+      max-width 280ms var(--ease-settle),
+      margin-right 280ms var(--ease-settle),
+      opacity 200ms var(--ease-settle),
+      filter 200ms var(--ease-settle);
+  }
+
+  /* A removed filler is struck through, then the paper closes over the gap. */
+  .tok.is-dropped {
+    max-width: 0;
+    margin-right: 0;
+    opacity: 0;
+    overflow: hidden;
+    filter: blur(0.4px);
+  }
+
+  .tok.is-swapping .tok-text {
+    animation: swap 320ms var(--ease-settle);
+  }
+
+  @keyframes swap {
+    0% {
+      opacity: 0.15;
+      transform: translateY(2px);
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* A word the vocabulary fixed keeps a quiet correction rule under it. */
+  .tok.is-mended .tok-text {
+    box-shadow: inset 0 -2px 0 -1px color-mix(in srgb, var(--dye) 62%, transparent);
+  }
+
+  @media (max-width: 38rem) {
+    .segmented {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .segment span {
+      font-size: 0.72rem;
+    }
+  }
+</style>

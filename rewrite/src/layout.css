@@ -1,0 +1,795 @@
+/* Geometry only. Palette, light, stock and shared tokens live in styles.css. */
+html,
+body,
+#app {
+  height: 100%;
+  min-height: 0;
+}
+
+.studio:not(.overlay),
+.sheet,
+.sheet-body,
+.page-frame,
+.page-content {
+  min-height: 0;
+  min-width: 0;
+}
+
+.studio:not(.overlay) {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.sheet-head {
+  min-height: 5.5rem;
+  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
+}
+
+.header-end {
+  gap: var(--space-3);
+}
+
+.sheet-body {
+  grid-template-columns: 12rem minmax(0, 1fr);
+}
+
+.paper-nav {
+  padding: var(--space-3) var(--space-2);
+  gap: var(--space-2);
+  scroll-padding-block: var(--space-2);
+}
+
+.paper-nav nav {
+  flex: 1 0 auto;
+  gap: var(--space-3);
+}
+
+.nav-primary,
+.nav-settings {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  gap: var(--space-1);
+}
+
+.nav-settings {
+  margin-top: auto;
+}
+
+.nav-group-label {
+  padding-inline: var(--space-2);
+  font-size: 0.78rem;
+  color: var(--soft-ink);
+}
+
+.nav-item,
+.nav-item.selected {
+  min-height: 3rem;
+  padding: var(--space-1) var(--space-2);
+  gap: var(--space-1);
+}
+
+/* A fixed frame keeps the scroll rectangle clear of both rounded corners.
+   Page content is the only scrolling owner for whole-page content. */
+.page-frame {
+  --pocket-inset: var(--space-3);
+  --pocket-start: var(--space-3);
+  --pocket-end: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--space-3) var(--space-2) var(--space-2);
+  border-radius: 24px 0 0 0;
+  box-shadow:
+    inset calc(1px * var(--material-light-x, 1))
+      calc(1px * var(--material-light-y, 1))
+      calc(1px + var(--surface-highlight-blur)) var(--surface-highlight-spread)
+      var(--surface-highlight-color),
+    -1px 0 1px var(--contact),
+    -5px 2px 8px -3px var(--contact);
+}
+
+/* No trailing padding in the flow: the only space below content is the
+   scrollport's own bottom padding, which paperScroll clips when the page
+   otherwise fits so a short page can never scroll into blank margin. */
+.page-flow {
+  display: flow-root;
+  min-width: 0;
+}
+.page-frame::before,
+.page-frame::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  left: var(--pocket-inset);
+  right: calc(var(--pocket-inset) + 12px);
+  height: 5px;
+  border-radius: 50% / 1px;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 12px,
+    black calc(100% - 12px),
+    transparent
+  );
+  transition: opacity var(--motion-control) linear;
+}
+.page-frame::before {
+  top: var(--pocket-start);
+  opacity: var(--pocket-top, 0);
+  background: linear-gradient(to bottom, var(--contact), transparent 90%);
+  border-top: 1px solid var(--surface-highlight-color);
+}
+.page-frame::after {
+  bottom: var(--pocket-end);
+  opacity: var(--pocket-bottom, 0);
+  background: linear-gradient(to top, var(--contact), transparent 90%);
+  border-bottom: 1px solid var(--surface-highlight-color);
+}
+.dictation-guide > p {
+  font-size: 1rem;
+  max-width: none;
+  line-height: 1.65;
+}
+.dictation-guide kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  white-space: nowrap;
+  font-size: 0.88em;
+}
+.folio {
+  display: flex;
+  align-items: center;
+}
+
+.page-frame > .page-content {
+  flex: 1 1 0;
+  overflow: auto;
+  /* Trailing space below content. paperScroll shrinks it only while the real
+     content plus clearance fits, so a short page cannot scroll into blank
+     margin; on genuinely overflowing pages it stays at full clearance. */
+  --pocket-pad: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--pocket-pad);
+  scroll-padding: var(--space-3);
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.page-content > :first-child {
+  margin-top: 0;
+}
+
+.page-heading {
+  margin-bottom: var(--space-4);
+}
+
+.page-heading h1 {
+  margin-bottom: var(--space-1);
+}
+
+.paper-card {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+}
+
+.paper-card > h2 {
+  margin-bottom: var(--space-3);
+}
+
+.paper-card h3 {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.paper-card > :last-child {
+  margin-bottom: 0;
+}
+
+.paper-row {
+  padding: var(--space-2) 0;
+  gap: var(--space-2);
+}
+
+.paper-card > h2 + .paper-row {
+  padding-top: 0;
+}
+
+.paper-row:last-child {
+  padding-bottom: 0;
+}
+
+.row-copy small {
+  margin-top: var(--space-1);
+}
+
+.row-control {
+  min-width: 0;
+}
+
+.paper-well {
+  padding: var(--space-2);
+}
+
+.segments {
+  gap: var(--space-1);
+  padding: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+/* Selection is a separate piece inset in its well. Divider lines would touch
+   the selected piece, so the well's existing segmentation needs no rule. */
+.segments button,
+.segments button:first-child,
+.segments button:last-child,
+.segments button[aria-pressed="true"] {
+  padding: var(--space-2) var(--space-1);
+  border: 0;
+  border-radius: 12px;
+}
+
+.segments small {
+  margin-top: var(--space-1);
+}
+
+.actions,
+.actions.compact,
+.entry-actions,
+.input-action {
+  gap: var(--space-1);
+}
+
+.button {
+  padding: var(--space-1) var(--space-2);
+}
+
+.button.small,
+.actions.compact .button {
+  padding: var(--space-1);
+}
+
+.actions.compact .button.quiet {
+  padding-inline: var(--space-1);
+}
+
+.spaced,
+.shortcut-editor,
+.microphone-well {
+  margin-top: var(--space-3);
+}
+
+.body-copy,
+.mode-help,
+.two-fields,
+.theme-options,
+.microphone-well {
+  margin-bottom: var(--space-2);
+}
+
+.paper-card > .field-help {
+  margin-top: var(--space-2);
+}
+
+.field-label,
+.well-label {
+  margin-bottom: var(--space-1);
+}
+
+label > input,
+label > select {
+  margin-top: var(--space-1);
+}
+
+input,
+select,
+textarea {
+  padding: var(--space-1);
+}
+
+select {
+  padding-right: var(--space-3);
+}
+
+.recording-bar,
+.section-toolbar,
+.save-bar,
+.export-row,
+.delete-row,
+.recording-reminder,
+.heading-with-action {
+  gap: var(--space-2);
+}
+
+.recording-bar {
+  margin-bottom: var(--space-2);
+}
+
+.section-toolbar {
+  margin-block: var(--space-2);
+}
+
+.section-toolbar:first-child,
+.microphone-well .section-toolbar {
+  margin-top: 0;
+}
+
+.section-toolbar > .field-help {
+  line-height: 1.5;
+}
+
+.recording-reminder,
+.delete-row {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.save-bar {
+  margin-top: var(--space-3);
+}
+
+.text-tabs {
+  gap: var(--space-2);
+}
+
+.text-tabs button {
+  padding-block: var(--space-1);
+}
+
+.two-fields,
+.theme-options,
+.history-comparison {
+  gap: var(--space-2);
+}
+
+.vocabulary-entry,
+.keyboard-list > div,
+.details-list > div,
+.model-row {
+  padding-block: var(--space-2);
+  gap: var(--space-2);
+}
+
+.vocabulary-entry:last-child,
+.keyboard-list > div:last-child,
+.details-list > div:last-child {
+  border-bottom: 0;
+}
+
+.details-list + .body-copy {
+  margin-top: var(--space-3);
+}
+
+.theme-choice {
+  padding: var(--space-1) var(--space-1) var(--space-2);
+}
+
+.theme-choice strong,
+.theme-choice small {
+  margin-inline: var(--space-1);
+}
+
+.material-sample {
+  padding: var(--space-3);
+}
+
+.material-sample h3 {
+  margin-top: 0;
+}
+
+.material-sample p {
+  margin-bottom: var(--space-2);
+}
+
+.back-button {
+  gap: var(--space-1);
+  padding: var(--space-1);
+  margin-bottom: var(--space-2);
+  border-radius: 8px;
+}
+
+/* List dividers sit in the gap, outside the hover/keyboard target. */
+.meeting-item {
+  position: relative;
+  border: 0;
+  border-radius: 12px;
+  margin-block: var(--space-2);
+  padding: var(--space-2);
+  gap: var(--space-2);
+}
+
+.meeting-item::before {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  inset-inline: 0;
+  top: calc(-1 * var(--space-1));
+  border-top: 1px solid var(--line);
+}
+
+.history-list {
+  list-style: none;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  margin: 0;
+}
+
+.history-list > li {
+  border-top: 1px solid var(--line);
+  padding-block: var(--space-1);
+}
+
+.history-list > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.history-list > li:last-child {
+  padding-bottom: 0;
+}
+
+.history-item {
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 0;
+  border-radius: 12px;
+}
+
+.history-item:hover,
+.history-item:focus-visible {
+  background: var(--well);
+}
+
+.history-item:focus-visible > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.history-comparison .section-toolbar {
+  margin: 0 0 var(--space-2);
+}
+
+.history-comparison h3 {
+  margin: 0;
+}
+
+.history-comparison .transcript {
+  max-height: none;
+  overflow: visible;
+}
+
+.license summary {
+  padding: var(--space-1);
+  border-radius: 8px;
+}
+
+.license pre {
+  margin-top: var(--space-2);
+}
+
+.preview-notice {
+  gap: var(--space-1);
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.alert,
+.notice,
+.inline-error {
+  gap: var(--space-2);
+  padding: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.icon-button {
+  padding: var(--space-1);
+}
+
+.page-frame > .paper-footer {
+  flex: none;
+  min-width: 0;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1) var(--space-2) 0;
+  gap: var(--space-2);
+}
+
+.confirmation {
+  padding: var(--space-3);
+}
+
+.confirmation h2 {
+  margin-bottom: var(--space-2);
+}
+
+.confirmation .actions {
+  margin-top: var(--space-3);
+}
+
+/* Motion answers an action. Paper and light stay still. */
+.switch,
+.switch > span {
+  transition:
+    transform var(--motion-control) var(--ease-settle),
+    background-color var(--motion-control) linear;
+}
+
+.button,
+.window-button,
+.icon-button,
+.back-button,
+.nav-item,
+.history-item,
+.meeting-item,
+.theme-choice,
+.segments button,
+.text-tabs button {
+  transition:
+    background-color var(--motion-control) linear,
+    color var(--motion-control) linear,
+    box-shadow var(--motion-control) var(--ease-settle),
+    filter var(--motion-control) linear,
+    transform var(--motion-control) var(--ease-settle);
+}
+
+.icon-button:hover:not(:disabled),
+.back-button:hover:not(:disabled),
+.license summary:hover {
+  background-color: var(--well);
+}
+
+.window-button:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.back-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.window-button[data-help],
+.icon-button[data-help] {
+  position: relative;
+}
+
+.window-button[data-help]::after,
+.icon-button[data-help]::after {
+  content: attr(data-help);
+  display: none;
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  width: max-content;
+  max-width: 16rem;
+  padding: var(--space-1);
+  border-radius: 7px;
+  background: var(--ink);
+  color: var(--card);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.3;
+  pointer-events: none;
+}
+
+.window-button[data-help]:hover::after,
+.window-button[data-help]:focus-visible::after,
+.icon-button[data-help]:hover::after,
+.icon-button[data-help]:focus-visible::after {
+  display: block;
+}
+
+.status-dot.recording,
+.nav-recording {
+  animation: recording-pulse 1600ms ease-in-out infinite;
+}
+
+@keyframes recording-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.confirmation {
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity var(--motion-popover) ease-out,
+    transform var(--motion-popover) var(--ease-settle);
+}
+
+.confirmation.is-open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.confirmation::backdrop {
+  opacity: 0;
+  transition: opacity var(--motion-popover) ease-out;
+}
+
+.confirmation.is-open::backdrop {
+  opacity: 1;
+}
+
+/* Recessed paper channel and a contoured dyed-stock thumb. */
+.studio * {
+  scrollbar-color: var(--soft-ink) transparent;
+  scrollbar-width: thin;
+}
+
+@supports selector(::-webkit-scrollbar) {
+  .studio * {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+  .studio ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  .studio ::-webkit-scrollbar-track {
+    margin-block: var(--space-1);
+    margin-inline: var(--space-1);
+    background: linear-gradient(90deg, #19231416, transparent 70%), var(--well);
+    box-shadow:
+      inset calc(1px * var(--material-light-x, 1))
+        calc(1px * var(--material-light-y, 1)) 2px var(--contact),
+      1px 0 var(--surface-highlight-blur) var(--surface-highlight-spread)
+        var(--surface-highlight-color);
+    border-radius: 8px;
+    border: 1px solid transparent;
+  }
+  .studio ::-webkit-scrollbar-thumb {
+    min-height: 36px;
+    min-width: 36px;
+    border: 2px solid var(--scroll-track);
+    border-radius: 9px;
+    background:
+      linear-gradient(90deg, #ffffff26, transparent 48%, #17201435), var(--dye);
+    background-clip: padding-box;
+    box-shadow:
+      inset 1px 0 1px #ffffff45,
+      inset calc(-1px * var(--material-light-x, 1))
+        calc(-1px * var(--material-light-y, 1)) 1px #17201455;
+  }
+  .studio ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ink);
+  }
+  .studio ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .studio[data-material="off"] ::-webkit-scrollbar-track,
+  .studio[data-material="off"] ::-webkit-scrollbar-thumb {
+    background-image: none;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 1040px) {
+  .sheet-body {
+    grid-template-columns: 10.5rem minmax(0, 1fr);
+  }
+  .nav-item,
+  .nav-item.selected {
+    padding-inline: var(--space-1);
+  }
+}
+
+@media (max-width: 800px) {
+  .sheet-body {
+    grid-template-columns: 9rem minmax(0, 1fr);
+  }
+  .paper-nav {
+    padding-inline: var(--space-1);
+  }
+  .page-frame {
+    --pocket-start: var(--space-2);
+    --pocket-end: var(--space-1);
+    --pocket-inset: var(--space-2);
+    padding: var(--space-2) var(--space-1) var(--space-1);
+  }
+  .page-frame > .page-content {
+    padding-inline: var(--space-1);
+  }
+  .paper-card {
+    padding: var(--space-2);
+  }
+  .segments {
+    gap: 0;
+  }
+  .entry-actions {
+    margin-top: var(--space-1);
+  }
+  .row-control {
+    max-width: 48%;
+  }
+  .row-control select {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .sheet-head {
+    min-height: 4.5rem;
+    padding: var(--space-2);
+    gap: var(--space-1);
+  }
+  .sheet-body {
+    grid-template-columns: 1fr;
+  }
+  .paper-nav {
+    padding: var(--space-1);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .paper-nav nav {
+    padding: var(--space-1);
+    gap: var(--space-1);
+    overflow: visible;
+  }
+  .nav-primary,
+  .nav-settings {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 0;
+  }
+  .nav-settings {
+    padding-left: var(--space-2);
+    border-left: 1px solid var(--line);
+  }
+  .nav-group-label {
+    padding-inline: var(--space-1);
+  }
+  .nav-item,
+  .nav-item.selected {
+    min-height: 2.5rem;
+    padding: var(--space-1);
+  }
+  .page-frame > .paper-footer {
+    padding-inline: var(--space-1);
+    gap: var(--space-1);
+  }
+  .page-heading,
+  .paper-card {
+    margin-bottom: 0;
+  }
+  .paper-card {
+    margin-top: var(--space-4);
+  }
+  .two-fields {
+    grid-template-columns: 1fr;
+  }
+  .model-row {
+    flex-wrap: wrap;
+  }
+  .segments button,
+  .segments button:first-child,
+  .segments button:last-child {
+    font-size: 17px;
+    padding-inline: 4px;
+  }
+  .segments small {
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio *,
+  .studio *::before,
+  .studio *::after,
+  .confirmation,
+  .confirmation::backdrop {
+    animation: none !important;
+    transition: none !important;
+  }
+  .button:active:not(:disabled),
+  .window-button:active:not(:disabled),
+  .icon-button:active:not(:disabled),
+  .back-button:active:not(:disabled) {
+    transform: none;
+  }
+}

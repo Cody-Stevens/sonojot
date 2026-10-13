@@ -1,0 +1,6 @@
+FFmpeg 9.0.2, copyright the FFmpeg developers.
+Builder: Cody Stevens Studio LLC. License: LGPL-2.1-or-later.
+See LICENSE.txt, SOURCE.txt and notices/ for license, exact source and build details.
+Unmodified upstream source; static FFmpeg libraries in an independent executable.
+GPL, nonfree, version3 and external codec libraries are disabled.
+The executable is ad-hoc signed, not Developer ID signed or notarized.

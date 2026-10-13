@@ -1,0 +1,26 @@
+---
+import Base from "./Base.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+const { title } = Astro.props;
+---
+<Base title={title} description={title + " for SonoJot, effective October 12, 2026."}>
+  <Nav />
+  <main id="main" class="column stock legal-sheet" data-text-surface="flat">
+    <slot />
+  </main>
+  <Footer />
+</Base>
+<style>
+  .legal-sheet { max-width: 84ch; padding: clamp(24px, 5vw, 64px); margin-top: 36px; border-radius: 20px; overflow-wrap: anywhere; }
+  .legal-sheet :global(h1) { font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.2; margin-bottom: 1em; }
+  .legal-sheet :global(h2) { font-size: 1.4rem; margin: 1.8em 0 .7em; }
+  .legal-sheet :global(h3) { font-size: 1.15rem; margin: 1.4em 0 .6em; }
+  .legal-sheet :global(p), .legal-sheet :global(ul) { margin-bottom: 1em; line-height: 1.65; }
+  .legal-sheet :global(ul) { padding-left: 1.4em; }
+  .legal-sheet :global(li) { margin-bottom: .6em; }
+  .legal-sheet :global(table) { display: block; overflow-x: auto; border-collapse: collapse; margin: 1.4em 0; font-size: .9rem; }
+  .legal-sheet :global(th), .legal-sheet :global(td) { padding: .65em; text-align: left; vertical-align: top; border-bottom: 1px solid var(--soft-ink); min-width: 9em; }
+  .legal-sheet :global(a) { text-decoration: underline; text-underline-offset: 3px; }
+  .legal-sheet :global(code) { font-size: .85em; }
+</style>

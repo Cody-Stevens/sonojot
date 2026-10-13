@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SonoJot",
+  "mainBinaryName": "SonoJot",
+  "version": "0.26.0",
+  "identifier": "studio.codystevens.eavesdropper.next",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src ipc: http://ipc.localhost; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": false,
+    "targets": "all",
+    "icon": [
+      "../src/brand/marks/app/icon.png",
+      "../src/brand/marks/app/sonojot.ico",
+      "../src/brand/marks/app/icon.icns"
+    ],
+    "resources": {
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../src/brand/marks/app/sonojot.ico": "sonojot.ico",
+      "licenses/nnnoiseless-0.5.2.txt": "licenses/nnnoiseless-0.5.2.txt",
+      "licenses/scowl-2020.12.07.txt": "licenses/scowl-2020.12.07.txt"
+    },
+    "shortDescription": "Local dictation and meeting notes",
+    "category": "Productivity",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "template": "windows/installer.nsi",
+        "installerHooks": "windows/brand-hooks.nsh"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "infoPlist": "Info.plist"
+    },
+    "copyright": "Copyright 2026 Cody Stevens Studio LLC"
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://releases.sonojot.com/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIyMjJEQzVEQUE5QTQxNEQKUldSTlFacXFYZHdpc3B0ajNHLzNZRk4xM0pUL2VKakk1VWM5cFlscXEvNFlxU3pQd0M5Q2VyaHgK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

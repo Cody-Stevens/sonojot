@@ -1,0 +1,682 @@
+---
+import BrandMark from "./BrandMark.astro";
+import Icon from "./Icon.astro";
+
+// The line is dictated as heard, then delivered after cleanup. Both strings are
+// the real behaviour of Clean mode: fillers out, wording untouched.
+const heard = "hey sam can you send me the beta installer before thursday";
+const delivered = "Hey Sam, can you send me the beta installer before Thursday?";
+---
+
+<section id="top" class="band hero">
+  <div class="column hero-grid">
+    <div class="hero-copy">
+      <h1 class="display text-grain hero-title" data-text-surface="emboss">
+        <span data-reveal="ink">Free.</span>
+        <span data-reveal="ink" style="--delay:170ms">Local.</span>
+        <span data-reveal="ink" style="--delay:340ms">Powerful.</span>
+      </h1>
+
+      <p class="lede" data-text-surface="flat" data-reveal="rise" style="--delay:220ms">
+        Press a key. Speak. Finished text appears at your cursor.
+      </p>
+
+      <div class="hero-actions" data-reveal="rise" style="--delay:340ms">
+        <a class="action action--ink" href="#install">
+          <Icon name="download" size={18} stroke={1.6} />Download
+        </a>
+        <a class="action action--stock" href="#dictation">How it works</a>
+      </div>
+
+      <p class="small quiet hero-foot" data-text-surface="flat" data-reveal="rise" style="--delay:420ms">
+        Speech recognition runs on your computer. For Windows and macOS on Apple Silicon.
+      </p>
+    </div>
+
+    <figure class="hero-stage" data-reveal="lay" style="--delay:180ms">
+      <div class="display-frame" data-demo data-state="idle">
+        <!-- The screen tab, exactly as it sits at the top of your display. -->
+        <div class="tab" data-tab>
+          <div class="stock tab-sheet">
+            <div class="tab-row">
+              <button class="tab-record" type="button" data-replay aria-label="Play the dictation again">
+                <span class="rec-mic"><Icon name="microphone" size={16} stroke={1.5} /></span>
+                <span class="rec-stop"><Icon name="stop" size={14} stroke={1.5} /></span>
+              </button>
+
+              <span class="tab-status" data-status>Ready</span>
+              <span class="ticket tab-shortcut" data-text-surface="flat">Ctrl&nbsp;+&nbsp;Space</span>
+
+              <span class="meter" data-meter aria-hidden="true">
+                {Array.from({ length: 14 }).map((_, i) => <i style={`--b:${i}`} />)}
+              </span>
+
+              <span class="tab-actions" data-text-surface="flat">
+                <span class="tab-action"><Icon name="copy" size={13} stroke={1.6} />Copy last</span>
+                <span class="tab-action"><Icon name="microphone" size={13} stroke={1.6} />Start meeting</span>
+                <span class="tab-action"><Icon name="app" size={13} stroke={1.6} />Open app</span>
+                <span class="tab-action"><Icon name="hide" size={13} stroke={1.6} />Hide</span>
+              </span>
+            </div>
+
+            <div class="tab-live" data-text-surface="flat" aria-hidden="true"><span data-interim></span></div>
+          </div>
+
+          <span class="tab-lip"><BrandMark ink="invert" width="26px" label="" /></span>
+        </div>
+
+        <!-- Whatever you were already typing in. -->
+        <div class="stock stock--card window">
+          <div class="window-bar">
+            <span class="window-title" data-text-surface="flat">Reply to Sam</span>
+            <span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
+          <div class="window-body">
+            <p class="window-text" data-delivered aria-live="polite"></p>
+            <span class="caret" aria-hidden="true"></span>
+          </div>
+        </div>
+      </div>
+
+      <figcaption class="sr-only">
+        Pressing the shortcut records, and the cleaned sentence is pasted into the
+        window that had focus.
+      </figcaption>
+    </figure>
+  </div>
+
+  <a
+    class="scroll-hint"
+    href="#dictation"
+    aria-label="Scroll to how dictation works"
+    data-reveal="rise"
+    style="--delay:720ms"
+  >
+    <Icon name="chevron-down" size={24} stroke={1.7} />
+  </a>
+</section>
+
+<script is:inline define:vars={{ heard, delivered }}>
+  (function () {
+    const stage = document.querySelector("[data-demo]");
+    if (!stage) return;
+
+    const statusEl = stage.querySelector("[data-status]");
+    const interimEl = stage.querySelector("[data-interim]");
+    const deliveredEl = stage.querySelector("[data-delivered]");
+    const replay = stage.querySelector("[data-replay]");
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const heardWords = heard.split(" ");
+    const deliveredWords = delivered.split(" ");
+    let timers = [];
+    let running = false;
+
+    function clear() {
+      timers.forEach(clearTimeout);
+      timers = [];
+    }
+
+    function at(ms, fn) {
+      timers.push(setTimeout(fn, ms));
+    }
+
+    function paint(words) {
+      deliveredEl.textContent = "";
+      words.forEach((word, i) => {
+        const span = document.createElement("span");
+        span.className = "settle";
+        span.textContent = i === 0 ? word : " " + word;
+        span.style.setProperty("--delay", i * 24 + "ms");
+        deliveredEl.appendChild(span);
+      });
+      deliveredEl.setAttribute("data-full", delivered);
+    }
+
+    function still() {
+      stage.dataset.state = "done";
+      statusEl.textContent = "Ready";
+      interimEl.textContent = "";
+      deliveredEl.textContent = delivered;
+    }
+
+    function run() {
+      if (running) return;
+      running = true;
+      clear();
+      deliveredEl.textContent = "";
+      interimEl.textContent = "";
+      stage.dataset.state = "idle";
+      statusEl.textContent = "Ready";
+
+      at(620, () => (stage.dataset.state = "open"));
+      at(1450, () => {
+        stage.dataset.state = "listening";
+        statusEl.textContent = "Listening";
+      });
+
+      const wordGap = 175;
+      heardWords.forEach((word, i) => {
+        at(1750 + i * wordGap, () => {
+          interimEl.textContent = (interimEl.textContent + " " + word).trim();
+        });
+      });
+
+      const spoken = 1750 + heardWords.length * wordGap;
+      at(spoken + 420, () => {
+        stage.dataset.state = "finishing";
+        statusEl.textContent = "Finishing dictation";
+      });
+      at(spoken + 1180, () => {
+        stage.dataset.state = "delivered";
+        statusEl.textContent = "Text ready";
+        interimEl.textContent = "";
+        paint(deliveredWords);
+      });
+      at(spoken + 3000, () => {
+        stage.dataset.state = "done";
+        statusEl.textContent = "Ready";
+        running = false;
+      });
+    }
+
+    replay?.addEventListener("click", () => {
+      running = false;
+      reduced ? still() : run();
+    });
+
+    if (reduced) {
+      still();
+      return;
+    }
+
+    // Start once the stage is actually on screen.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          observer.disconnect();
+          setTimeout(run, 320);
+        }
+      },
+      { threshold: 0.4 },
+    );
+    observer.observe(stage);
+  })();
+</script>
+
+<script is:inline>
+  (function () {
+    const hint = document.querySelector(".scroll-hint");
+    if (!hint) return;
+    const sync = () => {
+      if (window.scrollY > 80) hint.setAttribute("data-scrolled", "");
+      else hint.removeAttribute("data-scrolled");
+    };
+    window.addEventListener("scroll", sync, { passive: true });
+    sync();
+  })();
+</script>
+
+<style>
+  .hero {
+    padding-top: clamp(2.5rem, 5vw, 4rem);
+  }
+
+  .hero-grid {
+    display: grid;
+    gap: clamp(2.5rem, 5vw, 4rem);
+    align-items: center;
+    grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  }
+
+  /* Each word is wiped on in turn, as if the ink were flowing into the stock. */
+  .hero-title span {
+    display: block;
+  }
+
+  .hero-copy {
+    display: grid;
+    gap: var(--space-3);
+    justify-items: start;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .hero-foot {
+    max-width: 30ch;
+  }
+
+  /* The reveal system owns the anchor's opacity and transform, so the quiet
+     ink, the drift and the scroll fade all live on the icon itself. */
+  .scroll-hint {
+    display: grid;
+    justify-content: center;
+    margin-top: var(--space-4);
+    color: var(--soft-ink);
+    font-size: 2.2rem;
+  }
+
+  .scroll-hint :global(svg) {
+    width: 1em;
+    height: 1em;
+    opacity: 0.85;
+    filter: drop-shadow(0 1px 0 var(--light)) drop-shadow(0 3px 4px var(--contact));
+    animation: drift 2400ms var(--ease-settle) infinite;
+    transition: opacity var(--motion-paper) var(--ease-settle);
+  }
+
+  .scroll-hint[data-scrolled] {
+    pointer-events: none;
+  }
+
+  .scroll-hint[data-scrolled] :global(svg) {
+    opacity: 0;
+  }
+
+  @keyframes drift {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(6px);
+    }
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* ---- The display ------------------------------------------------------ */
+  .hero-stage {
+    margin: 0;
+  }
+
+  .display-frame {
+    position: relative;
+    padding: 4.75rem 1.5rem 1.7rem;
+    border-radius: 20px 22px 21px 23px;
+    background-color: var(--screen);
+    background-image: var(--stock-layers);
+    background-size: var(--stock-size);
+    background-repeat: var(--stock-repeat);
+    background-position: var(--stock-position);
+    background-blend-mode: var(--stock-blend);
+    box-shadow:
+      inset 0 1px var(--surface-highlight-blur)
+        var(--surface-highlight-spread) var(--surface-highlight-color),
+      inset 0 0 0 1px #0000001f,
+      0 2px 0 var(--edge),
+      0 10px 10px -8px var(--contact),
+      6px 26px 44px -18px #29231566;
+    overflow: hidden;
+    container-type: inline-size;
+  }
+
+  /* ---- The screen tab --------------------------------------------------- */
+  .tab {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: min(86%, 30rem);
+    transform: translate(-50%, calc(-1 * var(--tab-height, 2.55rem)));
+    transition: transform var(--motion-paper) var(--ease-settle);
+    z-index: 2;
+    --tab-height: 2.55rem;
+    font-size: 0.72rem;
+  }
+
+  [data-state="open"] .tab,
+  [data-state="listening"] .tab,
+  [data-state="finishing"] .tab,
+  [data-state="delivered"] .tab,
+  [data-state="done"] .tab {
+    transform: translate(-50%, 0);
+  }
+
+  [data-state="listening"] .tab,
+  [data-state="finishing"] .tab {
+    --tab-height: 3.5rem;
+  }
+
+  .tab-sheet {
+    height: var(--tab-height);
+    padding: 0.3rem 0.55rem;
+    border: 1px solid var(--edge);
+    border-top: 0;
+    border-radius: 0 0 9px 9px;
+    box-shadow:
+      inset 0 -2px 0 var(--line),
+      0 3px 5px -3px var(--contact);
+    overflow: hidden;
+    transition: height var(--motion-paper) var(--ease-settle);
+  }
+
+  .tab-lip {
+    position: absolute;
+    top: var(--tab-height);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 3rem;
+    height: 1.45rem;
+    display: grid;
+    place-items: center;
+    padding-bottom: 2px;
+    border: 1px solid var(--dye);
+    border-top: 0;
+    border-radius: 0 0 8px 8px;
+    background-color: var(--dye);
+    background-image: var(--dye-layers);
+    background-size: var(--dye-size);
+    background-blend-mode: var(--dye-blend);
+    color: var(--dye-ink);
+    box-shadow:
+      inset 0 1px 2px var(--contact),
+      inset 0 -1px var(--surface-highlight-blur)
+        var(--surface-highlight-spread) var(--surface-highlight-color);
+    transition: top var(--motion-paper) var(--ease-settle);
+  }
+
+  .tab-lip :global(.sono-mark) {
+    width: 1.5rem;
+    height: 1.35rem;
+  }
+
+  .tab-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 1.95rem;
+  }
+
+  .tab-record {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 1.95rem;
+    height: 1.95rem;
+    padding: 0;
+    border: 1px solid var(--edge);
+    border-radius: 5px;
+    background-color: var(--dye);
+    background-image: var(--dye-layers);
+    background-size: var(--dye-size);
+    background-blend-mode: var(--dye-blend);
+    color: var(--dye-ink);
+    box-shadow:
+      inset 0 1px var(--surface-highlight-blur)
+        var(--surface-highlight-spread) var(--surface-highlight-color),
+      inset 0 -1px 0 var(--contact);
+    transition: filter var(--motion-control) var(--ease-settle);
+  }
+
+  .tab-record:hover {
+    filter: brightness(1.08);
+  }
+
+  .tab-record:active {
+    box-shadow: inset 0 1px 3px var(--contact);
+  }
+
+  .tab-record > span {
+    grid-area: 1 / 1;
+  }
+
+  .rec-stop {
+    display: none;
+  }
+
+  [data-state="listening"] .rec-mic,
+  [data-state="finishing"] .rec-mic {
+    display: none;
+  }
+
+  [data-state="listening"] .rec-stop,
+  [data-state="finishing"] .rec-stop {
+    display: block;
+  }
+
+  .tab-status {
+    font-weight: 620;
+    white-space: nowrap;
+  }
+
+  .tab-shortcut {
+    font-size: 0.62rem;
+    color: var(--soft-ink);
+  }
+
+  /* ---- Meter ------------------------------------------------------------ */
+  .meter {
+    display: none;
+    align-items: flex-end;
+    gap: 1px;
+    width: 4.6rem;
+    height: 0.62rem;
+    margin-left: auto;
+  }
+
+  [data-state="listening"] .meter,
+  [data-state="finishing"] .meter {
+    display: flex;
+  }
+
+  .meter i {
+    flex: 1;
+    height: 22%;
+    border-radius: 1px;
+    background: var(--dye);
+    opacity: 0.42;
+    transform-origin: bottom;
+  }
+
+  [data-state="listening"] .meter i {
+    animation: level 1150ms var(--ease-settle) infinite;
+    animation-delay: calc(var(--b) * -83ms);
+  }
+
+  @keyframes level {
+    0%,
+    100% {
+      height: 22%;
+      opacity: 0.42;
+    }
+    35% {
+      height: 96%;
+      opacity: 1;
+    }
+    62% {
+      height: 48%;
+      opacity: 0.7;
+    }
+  }
+
+  /* ---- Idle actions ----------------------------------------------------- */
+  .tab-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-left: auto;
+    color: var(--soft-ink);
+    font-size: 0.66rem;
+    white-space: nowrap;
+  }
+
+  [data-state="listening"] .tab-actions,
+  [data-state="finishing"] .tab-actions {
+    display: none;
+  }
+
+  .tab-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.22rem;
+  }
+
+  /* ---- Live line -------------------------------------------------------- */
+  .tab-live {
+    height: 1.1rem;
+    margin-top: 0.18rem;
+    font-size: 0.66rem;
+    color: var(--soft-ink);
+    overflow: hidden;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    opacity: 0;
+    transition: opacity var(--motion-control) var(--ease-settle);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%);
+    mask-image: linear-gradient(90deg, transparent, #000 12%);
+  }
+
+  [data-state="listening"] .tab-live,
+  [data-state="finishing"] .tab-live {
+    opacity: 1;
+  }
+
+  /* ---- The window you were typing in ------------------------------------ */
+  .window {
+    border-radius: 14px 12px 13px 15px;
+    overflow: hidden;
+    box-shadow:
+      inset 1px 1.2px calc(1px + var(--surface-highlight-blur))
+        var(--surface-highlight-spread) var(--surface-highlight-color),
+      0 2px 0 var(--edge),
+      0 8px 10px -6px var(--contact),
+      3px 18px 26px -14px #29231580;
+  }
+
+  .window-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.72rem;
+    color: var(--soft-ink);
+  }
+
+  .window-title {
+    font-weight: 600;
+  }
+
+  .window-dots {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .window-dots i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--edge);
+    opacity: 0.75;
+  }
+
+  .window-body {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+    min-height: 6.6rem;
+    padding: 1rem 1.1rem 1.4rem;
+  }
+
+  .window-text {
+    font-size: clamp(0.86rem, 1.5cqi, 1.02rem);
+    line-height: 1.5;
+  }
+
+  .window-text :global(.settle) {
+    animation: ink-settle 300ms var(--ease-settle) both;
+    animation-delay: var(--delay);
+  }
+
+  @keyframes ink-settle {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .caret {
+    display: inline-block;
+    width: 1.5px;
+    height: 1.05em;
+    background: var(--ink);
+    align-self: center;
+    animation: blink 1.05s steps(1) infinite;
+  }
+
+  [data-state="delivered"] .caret,
+  [data-state="done"] .caret {
+    align-self: baseline;
+  }
+
+  @keyframes blink {
+    0%,
+    49% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .caret,
+    .scroll-hint :global(svg) {
+      animation: none;
+    }
+
+    .tab {
+      transform: translate(-50%, 0);
+    }
+  }
+
+  @media (max-width: 62rem) {
+    .hero-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .hero-copy {
+      justify-items: start;
+    }
+  }
+
+  /* The real strip is 600px wide. Below that the secondary actions are simply
+     not shown rather than crushed into an unreadable row. */
+  @container (max-width: 30rem) {
+    .tab-action:nth-child(n + 3) {
+      display: none;
+    }
+  }
+
+  @container (max-width: 26rem) {
+    .tab-actions {
+      display: none;
+    }
+  }
+
+  @container (max-width: 19rem) {
+    .tab-shortcut {
+      display: none;
+    }
+  }
+</style>
