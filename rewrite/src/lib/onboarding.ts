@@ -9,9 +9,12 @@ export const onboardingSteps = [
   { id: "welcome", title: "Welcome to SonoJot", dwell: 3000 },
   { id: "terms", title: "Terms of Use", dwell: 0 },
   { id: "microphone", title: "Your microphone", dwell: 4000 },
-  { id: "dictation", title: "Dictation", dwell: 4000 },
+  { id: "shortcut", title: "Your shortcut", dwell: 4000 },
+  { id: "dictation", title: "Dictation", dwell: 3000 },
   { id: "models", title: "Models", dwell: 4000 },
   { id: "meetings", title: "Meetings", dwell: 4000 },
+  // Optional FFmpeg and speaker-label downloads; Continue skips them.
+  { id: "extras", title: "Meeting extras", dwell: 2000 },
   { id: "where", title: "Where things are", dwell: 4000 },
   { id: "ready", title: "Ready", dwell: 0 },
 ] as const;

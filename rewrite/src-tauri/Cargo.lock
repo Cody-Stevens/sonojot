@@ -4814,10 +4814,12 @@ dependencies = [
 
 [[package]]
 name = "sonojot"
-version = "0.27.1"
+version = "0.28.0"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "bzip2",
+ "core-foundation",
  "coreaudio-rs",
  "cpal",
  "flate2",

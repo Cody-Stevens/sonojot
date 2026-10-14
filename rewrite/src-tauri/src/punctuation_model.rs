@@ -34,6 +34,9 @@ pub(crate) const V2_ID: &str = "sonojot-punct-v2";
 /// None keeps v2 local-only, including direct install requests.
 pub(crate) const V2_RELEASE_COMMIT: Option<&str> = Some("94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625");
 pub(crate) const FILES: [&str; 3] = ["model.int8.onnx", "tokenizer.json", "punct-config.json"];
+/// Planning estimate for the warm CPU helper, which is prewarmed while speech
+/// records. The library shows the same figure; it is not a measured peak.
+pub(crate) const RAM_ESTIMATE_BYTES: u64 = 400_000_000;
 pub(crate) const PINS: &[PinnedFile] = &[
     PinnedFile {
         relative: "model.int8.onnx",

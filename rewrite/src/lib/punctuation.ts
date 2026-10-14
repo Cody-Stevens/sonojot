@@ -19,12 +19,32 @@ export function punctuationModelPage(id: string): string {
     : "https://huggingface.co/SonoJot/sonojot-punct-v2";
 }
 
-/** Only unfinished automatic setup includes this download without a separate action. */
+/** Every unfinished setup includes this download, matching first-run onboarding. */
 export function profileIncludesPunctuation(
   saved: SetupProfile | null,
-  chosen: SetupProfile,
+  _chosen: SetupProfile,
 ): boolean {
-  return saved === null && chosen !== "custom";
+  return saved === null;
+}
+
+/** The verified package dictation uses: v2 when ready, otherwise v1. */
+export function activePunctuation(
+  models: ModelEntry[],
+): ModelEntry | undefined {
+  return [PUNCTUATION_MODEL, "sonojot-punct-v1"]
+    .map((id) => models.find((model) => model.id === id))
+    .find((model) => !!model && installed(model));
+}
+
+/**
+ * Default Cleanup ("local-rules") applies the rules and vocabulary, then the
+ * punctuation model. Name the model when it is ready or can be installed.
+ */
+export function defaultCleanupName(models: ModelEntry[]): string {
+  const model =
+    activePunctuation(models) ??
+    models.find((entry) => entry.id === PUNCTUATION_MODEL && entry.installable);
+  return model ? `${model.name} with your vocabulary` : "Local rules";
 }
 
 export function punctuationRecommendation(

@@ -57,12 +57,20 @@ export const settingsSchema = z.object({
   meetingSpeakerLabels: z.boolean().default(true),
   meetingSource: z.enum(["microphone", "system", "both"]).default("both"),
   meetingSourceMigrated: z.boolean().default(false),
+  systemAudioDefaultApplied: z.boolean().default(false),
   doNotSaveDictations: z.boolean().default(false),
   learnFromCorrections: z.boolean().default(false),
   memoryMode: memoryModeSchema.default("overlap"),
   modelRetention: modelRetentionSchema.default("10m"),
 });
 export type Settings = z.infer<typeof settingsSchema>;
+export const systemAudioStatusSchema = z.enum([
+  "ready",
+  "notDetermined",
+  "denied",
+  "unsupported",
+]);
+export type SystemAudioStatus = z.infer<typeof systemAudioStatusSchema>;
 
 export const notesPresetSchema = z.enum([
   "summary",
@@ -162,6 +170,11 @@ export const snapshotSchema = z.object({
     .nullable()
     .default(null),
   meetingSourceStatus: z.array(z.string()).default([]),
+  /** Why the other side of the current meeting is missing, if it is. */
+  meetingSystemAudio: z
+    .enum(["permission", "lost", "unsupported"])
+    .nullable()
+    .default(null),
   error: z.string().nullable(),
   models: z.array(modelSchema),
   devices: z.array(
@@ -172,6 +185,7 @@ export const snapshotSchema = z.object({
   capabilities: z.object({
     autoPaste: z.boolean(),
     systemAudio: z.boolean(),
+    systemAudioStatus: systemAudioStatusSchema.default("unsupported"),
     globalShortcut: z.boolean(),
     platform: z.string(),
   }),
@@ -253,6 +267,20 @@ export const learnedEntrySchema = z.object({
 });
 export type LearnedEntry = z.infer<typeof learnedEntrySchema>;
 const nothing = z.union([z.undefined(), z.null()]);
+/** Kinds registered in src-tauri/src/permissions.rs `SPECS`. */
+export const permissionKinds = ["accessibility", "system_audio"] as const;
+export type PermissionKind = (typeof permissionKinds)[number];
+/** A macOS permission and its helper copy; other platforms report granted. */
+export const permissionStatusSchema = z.object({
+  kind: z.enum(permissionKinds),
+  required: z.boolean(),
+  granted: z.boolean(),
+  assistantOpen: z.boolean(),
+  title: z.string(),
+  body: z.string(),
+  staleHint: z.string(),
+});
+export type PermissionStatus = z.infer<typeof permissionStatusSchema>;
 
 export const commandSchemas = {
   check_for_updates: snapshotSchema,
@@ -267,6 +295,9 @@ export const commandSchemas = {
   onboarding_microphone: z.object({ level: z.number().finite().min(0).max(1), active: z.boolean() }),
   open_permission_settings: nothing,
   onboarding_paste_permission: z.string().nullable(),
+  permission_status: permissionStatusSchema,
+  permission_assistant: permissionStatusSchema,
+  permission_drag: nothing,
   get_model_library: modelLibrarySchema,
   open_model_license: nothing,
   open_legal_link: nothing,
@@ -274,6 +305,7 @@ export const commandSchemas = {
   acknowledge_download_terms: snapshotSchema,
   open_download_license: nothing,
   start_model_install: modelLibrarySchema,
+  queue_onboarding_download: modelLibrarySchema,
   cancel_model_install: modelLibrarySchema,
   remove_model: modelLibrarySchema,
   delete_dictation: snapshotSchema,
@@ -322,6 +354,7 @@ export const commandSchemas = {
   copy_smart_original: nothing,
   copy_history_pre_model: nothing,
   screen_tab_meeting: meetingDetailSchema,
+  system_audio_status: systemAudioStatusSchema,
   show_page: nothing,
   copy_text: nothing,
   list_meetings: z.array(meetingSummarySchema),
@@ -360,6 +393,9 @@ export interface CommandArguments {
   onboarding_microphone: { action: "start" | "level" | "stop" };
   open_permission_settings: { kind: "microphone" | "accessibility" };
   onboarding_paste_permission: undefined;
+  permission_status: { kind: PermissionKind };
+  permission_assistant: { kind: PermissionKind; action: "open" | "close" };
+  permission_drag: undefined;
   get_model_library: undefined;
   open_model_license: { id: string };
   open_legal_link: { url: string };
@@ -369,6 +405,7 @@ export interface CommandArguments {
   };
   open_download_license: { group: string; index: number };
   start_model_install: { id: string };
+  queue_onboarding_download: { id: string };
   cancel_model_install: { id: string };
   remove_model: { id: string; confirmed: boolean };
   delete_dictation: { id: string; confirmed: boolean };
@@ -423,6 +460,7 @@ export interface CommandArguments {
   copy_smart_original: { resultSessionId: number };
   copy_history_pre_model: { id: string };
   screen_tab_meeting: undefined;
+  system_audio_status: undefined;
   show_page: {
     page:
       | "dictation"
@@ -537,6 +575,7 @@ export const previewSnapshot: Snapshot = {
     cursorIndicator: true,
     meetingSource: "both",
     meetingSourceMigrated: true,
+    systemAudioDefaultApplied: true,
     autoMeetingTitles: true,
     meetingSpeakerLabels: true,
   },
@@ -550,6 +589,7 @@ export const previewSnapshot: Snapshot = {
   audioLevel: 0,
   meetingLevels: null,
   meetingSourceStatus: [],
+  meetingSystemAudio: null,
   error: null,
   models: [],
   devices: [],
@@ -558,6 +598,7 @@ export const previewSnapshot: Snapshot = {
   capabilities: {
     autoPaste: false,
     systemAudio: false,
+    systemAudioStatus: "unsupported",
     globalShortcut: false,
     platform: "Browser preview",
   },

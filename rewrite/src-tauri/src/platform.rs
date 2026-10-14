@@ -1,6 +1,8 @@
 //! Native text delivery and login registration. Capture the paste target before
 //! showing app UI. Delivery may return from this app to that captured target, but
 //! never displaces another foreground application or restores old clipboard data.
+//! Windows sends Ctrl+V with SendInput; macOS posts Command+V to the HID event
+//! tap once Accessibility access is granted. Both leave the text on the clipboard.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -20,6 +22,10 @@ pub struct PasteTarget {
     focused_process_id: u32,
     #[cfg(windows)]
     focused_thread_id: u32,
+    /// The frontmost application. macOS exposes no focused-control identity
+    /// without Accessibility queries, so the application is the target.
+    #[cfg(target_os = "macos")]
+    pid: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,7 +52,7 @@ impl DeliveryOutcome {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(windows), allow(dead_code))] // Focus recovery is Windows-only.
+#[cfg_attr(not(windows), allow(dead_code))] // macOS uses only some states.
 enum FocusState {
     Ready,
     OwnApp,
@@ -63,7 +69,7 @@ impl FocusState {
             Self::TargetInvalid => DeliveryOutcome::copied("target_invalid", "The original text target was closed or replaced. Text is ready to paste."),
             Self::OtherApp => DeliveryOutcome::copied("external_focus_changed", "Focus changed to another application. Text is ready to paste."),
             Self::TargetFocusChanged => DeliveryOutcome::copied("target_control_changed", "The focused control in the original application changed. Text is ready to paste."),
-            Self::OwnApp => DeliveryOutcome::copied("restore_not_completed", "Windows did not return focus from SonoJot to the original text target. Text is ready to paste."),
+            Self::OwnApp => DeliveryOutcome::copied("restore_not_completed", if cfg!(target_os = "macos") { "macOS did not return focus from SonoJot to the original app. Text is ready to paste." } else { "Windows did not return focus from SonoJot to the original text target. Text is ready to paste." }),
             Self::NoForeground | Self::TargetFocusPending => DeliveryOutcome::copied("focus_not_ready", "The original text target did not regain keyboard focus. Text is ready to paste."),
             Self::Ready => DeliveryOutcome::copied("modifiers_held", "A shortcut modifier is still held. Text is ready to paste."),
         }
@@ -73,6 +79,45 @@ impl FocusState {
 pub fn capture_paste_target() -> Option<PasteTarget> {
     native::capture_target()
 }
+
+/// For a click on the macOS menu bar sheet. The click can activate SonoJot
+/// before the command runs, so fall back to the app that was active just
+/// before SonoJot. Elsewhere this is `capture_paste_target`.
+pub fn capture_paste_target_or_previous() -> Option<PasteTarget> {
+    #[cfg(target_os = "macos")]
+    {
+        native::capture_target().or_else(|| {
+            crate::mac_paste::previous_external_pid().map(|pid| PasteTarget { pid })
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        native::capture_target()
+    }
+}
+
+/// Start tracking application activations (macOS); a no-op elsewhere.
+pub fn observe_app_activations() {
+    #[cfg(target_os = "macos")]
+    crate::mac_paste::observe_activations();
+}
+
+/// macOS Accessibility trust, which posting the paste keys requires.
+/// Other platforms need no permission and report true.
+pub fn paste_permission_granted() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::mac_paste::accessibility_trusted()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+#[cfg(target_os = "macos")]
+const MAC_PERMISSION_REASON: &str =
+    "Automatic paste needs Accessibility access. Until then, text is copied; press Command+V to paste.";
 
 /// Returns from our explicitly focused controller only; never activates over
 /// another application and never injects input or touches the clipboard.
@@ -87,7 +132,7 @@ pub fn paste_target_diagnostics(target: Option<&PasteTarget>) -> String {
 }
 
 pub fn auto_paste_available() -> bool {
-    cfg!(windows)
+    cfg!(any(windows, target_os = "macos"))
 }
 
 /// Explains platform/permission limitations without claiming untested support.
@@ -98,12 +143,7 @@ pub fn auto_paste_unavailable_reason() -> Option<String> {
     }
     #[cfg(target_os = "macos")]
     {
-        let permission = if native::accessibility_trusted() {
-            "granted"
-        } else {
-            "not granted"
-        };
-        Some(format!("Text is copied to the macOS pasteboard. Automatic paste is not implemented; Accessibility permission is {permission}."))
+        (!paste_permission_granted()).then(|| MAC_PERMISSION_REASON.to_string())
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -186,6 +226,12 @@ pub async fn deliver_text(
                 auto_paste_unavailable_reason().unwrap_or_default(),
             );
         }
+        if !paste_permission_granted() {
+            return DeliveryOutcome::copied(
+                "permission_missing",
+                auto_paste_unavailable_reason().unwrap_or_default(),
+            );
+        }
         let Some(target) = target.as_ref() else {
             return DeliveryOutcome::copied(
                 "target_missing",
@@ -195,7 +241,15 @@ pub async fn deliver_text(
         // Finishing from the overlay may focus this app. It is safe to hand focus
         // back only while this process owns foreground and the exact target survives.
         // A deliberate switch to any other app always ends delivery without input.
-        let deadline = Instant::now() + Duration::from_millis(450);
+        // macOS activation is asynchronous and the target's window needs a
+        // moment to become key, so it gets a longer deadline and a short settle.
+        let (window, settle) = if cfg!(target_os = "macos") {
+            (Duration::from_millis(1000), Duration::from_millis(60))
+        } else {
+            (Duration::from_millis(450), Duration::ZERO)
+        };
+        let deadline = Instant::now() + window;
+        let mut ready_since: Option<Instant> = None;
         loop {
             let focus = native::focus_state(target);
             match focus {
@@ -213,7 +267,14 @@ pub async fn deliver_text(
                     "The clipboard changed before automatic paste; no keys were sent.",
                 );
             }
-            if focus == FocusState::Ready && !native::modifiers_pressed() {
+            if focus == FocusState::Ready {
+                ready_since.get_or_insert_with(Instant::now);
+            } else {
+                ready_since = None;
+            }
+            let settled = !restore_attempted
+                || ready_since.is_some_and(|since| since.elapsed() >= settle);
+            if focus == FocusState::Ready && settled && !native::modifiers_pressed() {
                 let outcome = native::paste_if_current(target, sequence, text);
                 // These two codes are emitted only before any key was sent. Never
                 // retry a successful or partially accepted input batch.
@@ -880,33 +941,156 @@ mod native {
     }
 }
 
+/// Pure macOS focus classification; compiled everywhere so it is unit-tested on Windows too.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn classify_app_focus(target_pid: i32, target_running: bool, frontmost: Option<i32>, own_pid: i32) -> FocusState {
+    if !target_running {
+        return FocusState::TargetInvalid;
+    }
+    match frontmost {
+        None => FocusState::NoForeground,
+        Some(pid) if pid == own_pid => FocusState::OwnApp,
+        Some(pid) if pid != target_pid => FocusState::OtherApp,
+        Some(_) => FocusState::Ready,
+    }
+}
+
 #[cfg(not(windows))]
 mod native {
     use super::*;
+    #[cfg(not(target_os = "macos"))]
     use std::io::Write;
+    #[cfg(not(target_os = "macos"))]
     use std::process::{Command, Stdio};
 
+    #[cfg(target_os = "macos")]
+    use crate::mac_paste as mac;
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn capture_target() -> Option<PasteTarget> {
+        mac::frontmost_pid()
+            .filter(|pid| !mac::is_own_pid(*pid))
+            .map(|pid| PasteTarget { pid })
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn focus_state(target: &PasteTarget) -> FocusState {
+        classify_app_focus(
+            target.pid,
+            mac::app_running(target.pid),
+            mac::frontmost_pid(),
+            std::process::id() as i32,
+        )
+    }
+    /// Activation moves only from SonoJot back to the captured app, never
+    /// away from a third app the user switched to.
+    #[cfg(target_os = "macos")]
+    pub(super) fn restore_from_own_app(target: &PasteTarget) -> bool {
+        mac::app_running(target.pid)
+            && mac::frontmost_pid().is_some_and(mac::is_own_pid)
+            && mac::activate(target.pid)
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn focus_diagnostics(target: Option<&PasteTarget>) -> String {
+        let frontmost = mac::frontmost_pid();
+        let status = match frontmost {
+            None => "no_foreground",
+            Some(pid) if mac::is_own_pid(pid) => "own_app",
+            Some(_) => "external_target",
+        };
+        let target_info = target
+            .map(|target| format!("target_pid={} target_running={}", target.pid, mac::app_running(target.pid)))
+            .unwrap_or_else(|| "target=none".into());
+        format!(
+            "{target_info} observed_pid={} capture_status={status} accessibility={} modifiers_held={}",
+            frontmost.unwrap_or(0),
+            mac::accessibility_trusted(),
+            mac::modifiers_pressed()
+        )
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn clipboard_matches(sequence: u32) -> bool {
+        mac::pasteboard_change_count() == Some(sequence)
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn modifiers_pressed() -> bool {
+        mac::modifiers_pressed()
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn paste_if_current(target: &PasteTarget, sequence: u32, text: &str) -> DeliveryOutcome {
+        // CGEventPost targets whichever app is frontmost when the events are
+        // processed; there is no atomic check-and-paste. Keep the checks adjacent.
+        let focus = focus_state(target);
+        if focus != FocusState::Ready {
+            return focus.fallback();
+        }
+        if !clipboard_matches(sequence) {
+            return DeliveryOutcome::copied(
+                "clipboard_changed",
+                "The clipboard changed before automatic paste; no keys were sent.",
+            );
+        }
+        if !mac::pasteboard_has_text(text) {
+            return DeliveryOutcome::copied(
+                "clipboard_payload_changed",
+                "The clipboard text changed before automatic paste; no keys were sent.",
+            );
+        }
+        if mac::modifiers_pressed() {
+            return FocusState::Ready.fallback();
+        }
+        if !mac::accessibility_trusted() {
+            return DeliveryOutcome::copied("permission_missing", MAC_PERMISSION_REASON);
+        }
+        if focus_state(target) != FocusState::Ready {
+            return focus_state(target).fallback();
+        }
+        if mac::post_paste() {
+            DeliveryOutcome {
+                paste_sent: true,
+                reason: None,
+                reason_code: "paste_sent",
+                diagnostics: String::new(),
+            }
+        } else {
+            DeliveryOutcome::copied(
+                "input_rejected",
+                "macOS could not create the paste keystrokes. Text remains on the clipboard.",
+            )
+        }
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn set_clipboard(text: &str) -> Result<u32, String> {
+        mac::set_pasteboard(text)
+    }
+
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn capture_target() -> Option<PasteTarget> {
         None
     }
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn focus_state(_: &PasteTarget) -> FocusState {
         FocusState::TargetInvalid
     }
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn restore_from_own_app(_: &PasteTarget) -> bool {
         false
     }
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn focus_diagnostics(_: Option<&PasteTarget>) -> String {
         format!(
             "platform={} automatic_paste=unsupported",
             std::env::consts::OS
         )
     }
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn clipboard_matches(_: u32) -> bool {
         false
     }
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn modifiers_pressed() -> bool {
         false
     }
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn paste_if_current(_: &PasteTarget, _: u32, _: &str) -> DeliveryOutcome {
         DeliveryOutcome::copied(
             "unsupported",
@@ -914,10 +1098,8 @@ mod native {
         )
     }
 
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn set_clipboard(text: &str) -> Result<u32, String> {
-        #[cfg(target_os = "macos")]
-        let candidates: Vec<(&str, Vec<&str>)> = vec![("/usr/bin/pbcopy", vec![])];
-        #[cfg(not(target_os = "macos"))]
         let candidates = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
             vec![("wl-copy", vec!["--type", "text/plain;charset=utf-8"])]
         } else if std::env::var_os("DISPLAY").is_some() {
@@ -968,15 +1150,6 @@ mod native {
             }
         }
         Err("Clipboard support needs wl-copy on Wayland, or xclip/xsel on X11.".into())
-    }
-
-    #[cfg(target_os = "macos")]
-    pub(super) fn accessibility_trusted() -> bool {
-        #[link(name = "ApplicationServices", kind = "framework")]
-        unsafe extern "C" {
-            fn AXIsProcessTrusted() -> bool;
-        }
-        unsafe { AXIsProcessTrusted() }
     }
 
     fn registration_path() -> Result<PathBuf, String> {
@@ -1147,6 +1320,31 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mac_focus_returns_only_from_our_app_to_the_captured_app() {
+        let own = 100;
+        assert_eq!(classify_app_focus(200, true, Some(200), own), FocusState::Ready);
+        assert_eq!(classify_app_focus(200, true, Some(own), own), FocusState::OwnApp);
+        // A deliberate switch to a third app ends delivery without keys.
+        assert_eq!(classify_app_focus(200, true, Some(300), own), FocusState::OtherApp);
+        assert_eq!(classify_app_focus(200, true, None, own), FocusState::NoForeground);
+        // A quit target is never activated, even while SonoJot is frontmost.
+        assert_eq!(classify_app_focus(200, false, Some(own), own), FocusState::TargetInvalid);
+        assert_eq!(classify_app_focus(200, false, Some(200), own), FocusState::TargetInvalid);
+    }
+
+    #[test]
+    fn auto_paste_is_offered_on_windows_and_macos() {
+        assert_eq!(
+            auto_paste_available(),
+            cfg!(windows) || cfg!(target_os = "macos")
+        );
+        if cfg!(windows) {
+            assert!(paste_permission_granted());
+            assert_eq!(auto_paste_unavailable_reason(), None);
+        }
+    }
 
     #[test]
     fn captured_target_can_cross_threads() {

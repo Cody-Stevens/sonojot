@@ -13,6 +13,7 @@
     oncancel,
     onretry,
     idleLabel = "Cancelled",
+    compact = false,
   }: {
     model: ModelEntry | undefined;
     pending: boolean;
@@ -20,6 +21,8 @@
     oncancel: (model: ModelEntry) => Promise<void>;
     onretry: (model: ModelEntry) => Promise<void>;
     idleLabel?: string;
+    /** A tighter row without the byte counts, for the setup tour. */
+    compact?: boolean;
   } = $props();
   const phase = $derived(
     !model
@@ -45,6 +48,7 @@
 {#if model}
   <section
     class="download"
+    class:compact
     aria-label="Model download"
     data-model-id={model.id}
   >
@@ -54,18 +58,20 @@
         data-text-surface="flat"
         role="status"
         >{phase}{#if installing(model) && model.totalBytes > 0}
-          · {Math.min(
+          {" "}· {Math.min(
             100,
             Math.floor((model.downloadedBytes / model.totalBytes) * 100),
           )}%{/if}</span
       >
     </div>
     {#if installing(model)}
-      <button
-        class="button quiet"
-        disabled={pending || ["cancelling", "canceling"].includes(model.state)}
-        onclick={() => model && oncancel(model)}>Cancel</button
-      >
+      <!-- Compact rows leave Cancel to the Models page. -->
+      {#if !compact}<button
+          class="button quiet"
+          disabled={pending ||
+            ["cancelling", "canceling"].includes(model.state)}
+          onclick={() => model && oncancel(model)}>Cancel</button
+        >{/if}
       <progress
         aria-label={`Installation progress for ${model.name}`}
         max={model.totalBytes || 1}
@@ -73,7 +79,7 @@
           ? Math.min(model.downloadedBytes, model.totalBytes)
           : undefined}
       ></progress>
-      <span class="bytes" data-text-surface="flat"
+      <span class="bytes" class:sr-only={compact} data-text-surface="flat"
         >{formatBytes(model.downloadedBytes)} / {model.totalBytes
           ? formatBytes(model.totalBytes)
           : "size unknown"}</span
@@ -146,5 +152,22 @@
   p {
     grid-column: 1 / -1;
     margin: 0;
+  }
+  .compact {
+    gap: 6px 12px;
+    margin-top: 0;
+    padding: 9px 0;
+    line-height: 1.35;
+  }
+  .compact .download-copy {
+    gap: 0 12px;
+  }
+  .compact .button {
+    min-height: 35px;
+    padding: 6px 11px;
+    font-size: 15px;
+  }
+  .compact progress {
+    height: 6px;
   }
 </style>

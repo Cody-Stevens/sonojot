@@ -185,10 +185,12 @@ const modes = [
   .segment {
     display: grid;
     gap: 0.1rem;
-    padding: 0.7rem 0.6rem 0.8rem;
-    border: 0;
+    padding: calc(0.7rem - 0.5px) calc(0.6rem - 0.5px) calc(0.8rem - 0.5px);
+    /* A hairline border keeps WebKit's grain inside the rounded edge; see paper.css. */
+    border: 0.5px solid transparent;
     border-radius: 14px 12px 13px 15px;
     background: transparent;
+    background-origin: border-box;
     text-align: center;
     color: var(--soft-ink);
     transition:
@@ -214,6 +216,7 @@ const modes = [
   }
 
   .segment[aria-selected="true"] {
+    border-color: #f7f4dc40 transparent transparent #f7f4dc40;
     background-color: var(--dye);
     background-image: var(--dye-layers);
     background-size: var(--dye-size);

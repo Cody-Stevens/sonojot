@@ -5,6 +5,8 @@
   import { call } from "../lib/api";
   // The "Version: N" line is a machine marker; the text shows its own version line.
   const html = renderLegalMarkdown(terms.replace(/^Version: \d+\r?\n+/m, ""));
+  // `fill` grows and shrinks with its column instead of using a fixed height.
+  let { fill = false }: { fill?: boolean } = $props();
   function openLink(event: MouseEvent): void {
     const anchor =
       event.target instanceof Element ? event.target.closest("a") : null;
@@ -16,9 +18,11 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions (The region scrolls by keyboard; generated anchors provide native keyboard activation and delegate clicks here.) -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (The region scrolls by keyboard; generated anchors provide native keyboard activation and delegate clicks here.) -->
 <div
   class="paper-well terms-text"
+  class:fill
+  data-bounded-scroll
   role="region"
   aria-label="Full SonoJot Terms of Use"
   tabindex="0"
@@ -40,6 +44,14 @@
     padding: 18px;
     margin: 18px 0;
     user-select: text;
+  }
+  /* The panel takes the space its column has left and never less than a few
+     lines, so the links, checkbox and buttons around it stay in view. */
+  .terms-text.fill {
+    flex: 1 1 0;
+    min-height: 5.5em;
+    max-height: none;
+    margin: 0;
   }
   .terms-text:focus-visible {
     outline: 3px solid var(--focus);

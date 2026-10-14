@@ -539,7 +539,8 @@ impl Runtime {
             version: env!("CARGO_PKG_VERSION").into(),
             capabilities: Capabilities {
                 auto_paste: platform::auto_paste_available(),
-                system_audio: cfg!(windows),
+                system_audio: crate::system_audio::status() == crate::system_audio::SystemAudioStatus::Ready,
+                system_audio_status: crate::system_audio::status(),
                 global_shortcut: false,
                 platform: std::env::consts::OS.into(),
             },

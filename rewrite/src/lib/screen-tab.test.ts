@@ -29,7 +29,7 @@ test("both one-sided meeting sources explain the missing side", () => {
   assert.equal(meetingSourceWarning("both"), null);
   assert.equal(
     meetingSourceWarning("microphone"),
-    "Only your microphone will be recorded. On a Zoom, Teams or Meet call, the other people won't be in the recording.",
+    "Only your microphone will be recorded. Other people on a Zoom, Teams or Meet call won't be in the recording.",
   );
   assert.equal(
     meetingSourceWarning("system"),

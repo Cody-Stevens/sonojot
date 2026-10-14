@@ -5,6 +5,8 @@ import Hero from "../components/Hero.astro";
 import CleanupDemo from "../components/CleanupDemo.astro";
 import Meetings from "../components/Meetings.astro";
 import Local from "../components/Local.astro";
+import Models from "../components/Models.astro";
+import Punctuation from "../components/Punctuation.astro";
 import Install from "../components/Install.astro";
 import Footer from "../components/Footer.astro";
 import { homeStructuredData, jsonLd, latestVersion } from "../structured-data.mjs";
@@ -20,6 +22,8 @@ const structuredData = jsonLd(homeStructuredData(await latestVersion()));
     <CleanupDemo />
     <Meetings />
     <Local />
+    <Models />
+    <Punctuation />
     <Install />
   </main>
   <Footer />

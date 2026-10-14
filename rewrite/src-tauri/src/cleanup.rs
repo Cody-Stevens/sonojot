@@ -7032,7 +7032,19 @@ mod tests {
         // The waiting call never owned this guard and cannot release warmup's lock.
         assert!(shared_server().try_lock().is_err());
         drop(slot);
-        assert!(shared_server().try_lock().is_ok());
+        assert!(shared_server_released());
+    }
+
+    /// Other tests in this binary may briefly hold the process-wide server
+    /// lock; a leaked guard would hold it for good.
+    fn shared_server_released() -> bool {
+        (0..200).any(|_| {
+            let free = shared_server().try_lock().is_ok();
+            if !free {
+                thread::sleep(Duration::from_millis(10));
+            }
+            free
+        })
     }
 
     #[test]
@@ -7656,7 +7668,7 @@ mod tests {
                 "Local generation cancelled."
             );
             assert!(started.elapsed() < Duration::from_secs(1));
-            assert!(shared_server().try_lock().is_ok());
+            assert!(shared_server_released());
             server.join().unwrap();
         }
     }

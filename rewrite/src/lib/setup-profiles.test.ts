@@ -15,6 +15,8 @@ import {
 } from "./model-library";
 import {
   PUNCTUATION_MODEL,
+  activePunctuation,
+  defaultCleanupName,
   profileIncludesPunctuation,
   punctuationRecommendation,
   punctuationModelPage,
@@ -565,7 +567,7 @@ test("unrelated checks do not delay a ready profile", async () => {
   assert.deepEqual(fixture.calls, ["apply:balanced", "complete"]);
 });
 
-test("all first-run automatic profiles include v2 after speech before committing setup", async () => {
+test("every first-run profile includes v2 after speech before committing setup", async () => {
   assert.equal(PUNCTUATION_MODEL, "sonojot-punct-v2");
   for (const profile of ["accurate", "balanced", "light"] as const) {
     assert.equal(profileIncludesPunctuation(null, profile), true);
@@ -582,19 +584,24 @@ test("all first-run automatic profiles include v2 after speech before committing
       "install:text",
     ]);
   }
-  assert.equal(profileIncludesPunctuation(null, "custom"), false);
+  // First-run Custom keeps its own speech choice but still gets punctuation,
+  // matching the onboarding queue.
+  assert.equal(profileIncludesPunctuation(null, "custom"), true);
+  const custom = operationFixture();
+  custom.catalog().models[0].state = "installed";
+  custom.catalog().models[2].state = "available";
+  await applyProfileSelection("custom", selection, custom.operations, null);
+  assert.deepEqual(custom.calls, [
+    `install:${PUNCTUATION_MODEL}`,
+    "wait",
+    "apply:custom",
+    "complete",
+  ]);
 });
 
-test("completed profiles and first-run Custom never automatically download punctuation", async () => {
-  for (const saved of [
-    null,
-    "custom",
-    "accurate",
-    "balanced",
-    "light",
-  ] as const) {
+test("completed profiles never automatically download punctuation", async () => {
+  for (const saved of ["custom", "accurate", "balanced", "light"] as const) {
     for (const chosen of ["custom", "accurate", "balanced", "light"] as const) {
-      if (saved === null && chosen !== "custom") continue;
       assert.equal(profileIncludesPunctuation(saved, chosen), false);
       const fixture = operationFixture();
       fixture.catalog().models[0].state = "installed";
@@ -761,6 +768,31 @@ test("v1 acknowledgment and installation do not suppress the one-time v2 recomme
       assert.equal(punctuationRecommendation(settings, models), undefined);
     }
   }
+});
+
+test("default Cleanup names the punctuation model with vocabulary, v2 before v1", () => {
+  const v1 = (state: string) => ({
+    ...punctuation(state),
+    id: "sonojot-punct-v1",
+    name: "SonoJot Punctuation",
+  });
+  // Installable or installed v2 is what Setup queues and dictation prefers.
+  for (const state of ["available", "installed"]) {
+    assert.equal(
+      defaultCleanupName([punctuation(state)]),
+      "SonoJot Punctuation v2 with your vocabulary",
+    );
+  }
+  assert.equal(activePunctuation([punctuation("available")]), undefined);
+  assert.equal(activePunctuation([v1("installed"), punctuation("installed")])?.id, PUNCTUATION_MODEL);
+  assert.equal(activePunctuation([v1("installed"), punctuation("available")])?.id, "sonojot-punct-v1");
+  assert.equal(
+    defaultCleanupName([v1("installed"), { ...punctuation("available"), installable: false }]),
+    "SonoJot Punctuation with your vocabulary",
+  );
+  // Unsupported targets keep the rule fallback and say so.
+  assert.equal(defaultCleanupName([{ ...punctuation("available"), installable: false }]), "Local rules");
+  assert.equal(defaultCleanupName([]), "Local rules");
 });
 
 test("punctuation library pages identify each package", () => {

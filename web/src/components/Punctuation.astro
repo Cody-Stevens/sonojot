@@ -1,0 +1,134 @@
+---
+// Every figure restates the published v2 model card on Hugging Face.
+import Section from "./Section.astro";
+import Facts from "./Facts.astro";
+import Icon from "./Icon.astro";
+
+const model = "https://huggingface.co/SonoJot/sonojot-punct-v2";
+
+const facts = [
+  "It places periods, commas, question marks and semicolons. It never adds, removes or changes a word.",
+  "It also marks spoken numbers, money and dates, so SonoJot can write “four thousand dollars” as $4,000.",
+  "268 MB. About 0.17 seconds per 300 words on a desktop CPU once loaded.",
+];
+
+const results = [
+  ["Sentence breaks (F1)", "0.747", "0.886"],
+  ["False sentence breaks per 1,000 words", "16.7", "0.9"],
+  ["Commas (F1)", "0.744", "0.884"],
+];
+---
+
+<Section
+  id="punctuation"
+  title="The SonoJot punctuation model."
+  lede="Speech recognizers put a period at many pauses. A small model of our own fixes sentence breaks and commas on your computer."
+>
+  <div class="punct-grid">
+    <Facts items={facts} />
+
+    <div class="stock stock--card card punct-card" style="--grain-x:-380px;--grain-y:-120px">
+      <table class="results">
+        <caption data-text-surface="flat">Recognizer output before and after the model, on 60 real dictations held out from training (24,659 words)</caption>
+        <thead>
+          <tr><td></td><th scope="col">Before</th><th scope="col">After</th></tr>
+        </thead>
+        <tbody>
+          {
+            results.map(([label, before, after]) => (
+              <tr><th scope="row">{label}</th><td>{before}</td><td>{after}</td></tr>
+            ))
+          }
+        </tbody>
+      </table>
+
+      <p class="small quiet" data-text-surface="flat">
+        Fine-tuned from Horizon-Labs punctuation-restoration-small (mmBERT-small) on earnings-call transcripts,
+        synthetic dictation-style text and one consenting user's dictation. English only. Capitals come from
+        SonoJot's rules, not the model. Open weights under CC BY-SA 4.0.
+      </p>
+
+      <a class="out" href={model} rel="noreferrer noopener"><span>SonoJot Punctuation on Hugging Face</span><Icon name="external" size={13} stroke={1.6} /></a>
+    </div>
+  </div>
+</Section>
+
+<style>
+  .punct-grid {
+    display: grid;
+    gap: clamp(1.5rem, 3vw, 2.5rem);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    align-items: center;
+  }
+
+  .punct-card {
+    display: grid;
+    gap: var(--space-2);
+    padding: clamp(1.25rem, 3vw, 2rem);
+  }
+
+  .results {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+
+  caption {
+    caption-side: top;
+    text-align: left;
+    padding-bottom: 0.6rem;
+    font-size: 0.82rem;
+    color: var(--soft-ink);
+  }
+
+  th,
+  td {
+    padding: 0.5em 0.6em 0.5em 0;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: bottom;
+  }
+
+  thead th {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--soft-ink);
+  }
+
+  tbody th {
+    font-weight: 400;
+  }
+
+  td {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  thead th:not(:first-child) {
+    text-align: right;
+  }
+
+  td:last-child {
+    font-weight: 650;
+  }
+
+  .out {
+    justify-self: start;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  /* The outward mark stays with the last word when the link wraps. */
+  .out :global(svg) {
+    display: inline-block;
+    margin-left: 0.35rem;
+    vertical-align: -1px;
+  }
+
+  @media (max-width: 54rem) {
+    .punct-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

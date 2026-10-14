@@ -62,6 +62,10 @@ pub struct Settings {
     /// Reset the old one-sided UI default once; subsequent choices are deliberate.
     #[serde(default)]
     pub meeting_source_migrated: bool,
+    /// Once system audio first works, a Mac's old forced "microphone" becomes
+    /// "both". Later choices are deliberate and stay.
+    #[serde(default)]
+    pub system_audio_default_applied: bool,
     /// Empty follows Speech (or the separately configured online meeting route).
     /// This override never changes dictation or profile selections.
     pub meeting_asr_model: String,
@@ -97,7 +101,8 @@ impl Default for Settings {
             auto_stop_seconds: 0,
             microphone: None,
             asr_model: "moonshine-medium".into(),
-            cleanup_model: "lfm2.5-1.2b".into(),
+            // Rules, vocabulary and the punctuation model; generative cleanup is opt-in.
+            cleanup_model: "local-rules".into(),
             notes_model: "qwen3-4b-instruct-2507".into(),
             text_acceleration: TextAcceleration::Auto,
             start_tab_hidden: false,
@@ -105,6 +110,7 @@ impl Default for Settings {
             // The legacy app always kept both sides; a one-sided meeting loses the other speakers.
             meeting_source: "both".into(),
             meeting_source_migrated: true,
+            system_audio_default_applied: false,
             meeting_asr_model: String::new(),
             auto_meeting_titles: true,
             meeting_speaker_labels: true,
@@ -204,7 +210,10 @@ pub struct Device {
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     pub auto_paste: bool,
+    /// True only when a meeting can record system audio right now.
     pub system_audio: bool,
+    #[serde(default)]
+    pub system_audio_status: crate::system_audio::SystemAudioStatus,
     pub global_shortcut: bool,
     pub platform: String,
 }
@@ -246,6 +255,9 @@ pub struct Snapshot {
     /// Recoverable source notices, separate from fatal capture errors.
     #[serde(default)]
     pub meeting_source_status: Vec<String>,
+    /// "permission", "lost" or "unsupported" while the other side is missing.
+    #[serde(default)]
+    pub meeting_system_audio: Option<String>,
     pub error: Option<String>,
     pub models: Vec<Model>,
     pub devices: Vec<Device>,

@@ -1,5 +1,7 @@
-//! Default-render-device WASAPI loopback capture. All COM objects stay on one
-//! dedicated thread. Silence has a position in the recording's common timeline.
+//! System audio capture for meetings. Windows uses default-render-device WASAPI
+//! loopback; macOS 14.2+ uses a Core Audio global process tap behind a private
+//! aggregate device. Native objects stay on one dedicated owner thread, and
+//! silence has a position in the recording's common timeline.
 
 use std::sync::{mpsc, Arc};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -16,8 +18,102 @@ pub struct SystemAudioChunk {
     pub discontinuity: bool,
 }
 
+/// Whether meetings can record this computer's audio right now.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SystemAudioStatus {
+    /// Capture can start. Windows loopback needs no permission.
+    Ready,
+    /// macOS has not asked yet. Requesting shows the system prompt.
+    NotDetermined,
+    /// macOS permission is off. Only System Settings can turn it on.
+    Denied,
+    /// This OS cannot capture system audio (macOS before 14.2, other platforms).
+    #[default]
+    Unsupported,
+}
+
+impl SystemAudioStatus {
+    /// A permission problem that the user can fix while a meeting records.
+    pub fn fixable(self) -> bool {
+        matches!(self, Self::NotDetermined | Self::Denied)
+    }
+}
+
+/// Stable prefixes let the recorder tell a permission refusal from a device fault.
+pub const PERMISSION_ERROR: &str =
+    "System audio permission is off. Allow SonoJot in System Settings, Privacy & Security, Screen & System Audio Recording.";
+pub const UNSUPPORTED_ERROR: &str = "Recording system audio needs macOS 14.2 or later.";
+
+pub fn is_permission_error(message: &str) -> bool {
+    message.starts_with(PERMISSION_ERROR)
+}
+
+/// Truthful per OS version and, on macOS, the current privacy permission.
+pub fn status() -> SystemAudioStatus {
+    #[cfg(windows)]
+    {
+        SystemAudioStatus::Ready
+    }
+    #[cfg(target_os = "macos")]
+    {
+        native::status()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        SystemAudioStatus::Unsupported
+    }
+}
+
 pub fn available() -> bool {
-    cfg!(windows)
+    status() == SystemAudioStatus::Ready
+}
+
+/// Shows the macOS prompt when it has not been answered. Returns the status
+/// after the request was issued; the answer arrives asynchronously.
+pub fn request_permission() -> SystemAudioStatus {
+    #[cfg(target_os = "macos")]
+    {
+        native::request_permission()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        status()
+    }
+}
+
+/// Privacy & Security, Screen & System Audio Recording, at the "System Audio
+/// Recording Only" list (macOS 15+; older versions open Privacy & Security).
+pub const SETTINGS_URL: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture";
+
+/// `permissions::PermissionSpec::granted`. An OS without taps has nothing to grant.
+pub fn permission_granted() -> bool {
+    !status().fixable()
+}
+
+/// `permissions::PermissionSpec::request`: true when no Settings visit is
+/// needed now, because access is allowed or macOS is showing its own prompt.
+pub fn request_permission_prompted() -> bool {
+    match request_permission() {
+        SystemAudioStatus::NotDetermined => true,
+        status => !status.fixable(),
+    }
+}
+
+/// The source a meeting actually records. A permission problem keeps the
+/// system side, so it joins the recording as soon as it is allowed; an OS
+/// that cannot capture system audio drops it.
+pub fn recording_source(saved: &str, status: SystemAudioStatus) -> Result<&'static str, String> {
+    match (saved, status) {
+        ("microphone", _) | ("both", SystemAudioStatus::Unsupported) => Ok("microphone"),
+        ("both", _) => Ok("both"),
+        ("system", SystemAudioStatus::Unsupported) => {
+            Err(format!("{UNSUPPORTED_ERROR} Choose Microphone only in Meetings."))
+        }
+        ("system", _) => Ok("system"),
+        _ => Err("Choose a meeting audio source.".into()),
+    }
 }
 
 pub struct SystemAudioCapture {
@@ -95,11 +191,34 @@ impl SystemAudioCapture {
         on_chunk: impl FnMut(SystemAudioChunk) + Send + 'static,
         on_error: impl FnMut(String) + Send + 'static,
     ) -> Result<Self, String> {
-        if !available() {
-            return Err(
-                "System audio capture is currently implemented only on Windows (WASAPI loopback)."
-                    .into(),
-            );
+        Self::start_checked(epoch, cancel, true, on_chunk, on_error)
+    }
+
+    /// Diagnostics only: starts even when the permission check fails, to
+    /// observe what macOS delivers (an unpermitted tap records silence).
+    #[doc(hidden)]
+    pub fn start_ignoring_permission(
+        epoch: Instant,
+        on_chunk: impl FnMut(SystemAudioChunk) + Send + 'static,
+        on_error: impl FnMut(String) + Send + 'static,
+    ) -> Result<Self, String> {
+        Self::start_checked(epoch, Arc::new(AtomicBool::new(false)), false, on_chunk, on_error)
+    }
+
+    fn start_checked(
+        epoch: Instant,
+        cancel: Arc<AtomicBool>,
+        check_permission: bool,
+        on_chunk: impl FnMut(SystemAudioChunk) + Send + 'static,
+        on_error: impl FnMut(String) + Send + 'static,
+    ) -> Result<Self, String> {
+        match status() {
+            SystemAudioStatus::Ready => {}
+            SystemAudioStatus::NotDetermined | SystemAudioStatus::Denied if check_permission => {
+                return Err(PERMISSION_ERROR.into());
+            }
+            SystemAudioStatus::NotDetermined | SystemAudioStatus::Denied => {}
+            SystemAudioStatus::Unsupported => return Err(UNSUPPORTED_ERROR.into()),
         }
         if cancel.load(Ordering::Acquire) {
             return Err("System audio startup was cancelled.".into());
@@ -110,7 +229,15 @@ impl SystemAudioCapture {
         let lease = OwnerLease;
         Self::start_owner(epoch, cancel, on_error, move |stop, ready, cancel, failure| {
             let _lease = lease;
-            native::run(epoch, stop, ready, cancel, failure, on_chunk)
+            #[cfg(target_os = "macos")]
+            {
+                native::run(epoch, stop, ready, cancel, failure, check_permission, on_chunk)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = check_permission;
+                native::run(epoch, stop, ready, cancel, failure, on_chunk)
+            }
         })
     }
 
@@ -696,7 +823,709 @@ mod native {
     }
 }
 
-#[cfg(not(windows))]
+/// Average every channel of every buffer into one mono timeline. Taps deliver
+/// either one interleaved buffer or one buffer per channel; both reduce here.
+#[cfg(any(target_os = "macos", test))]
+fn downmix(buffers: &[(&[f32], usize)]) -> Vec<f32> {
+    let frames = buffers
+        .iter()
+        .filter(|(_, channels)| *channels > 0)
+        .map(|(data, channels)| data.len() / channels)
+        .min()
+        .unwrap_or(0);
+    let channels: usize = buffers.iter().map(|(_, channels)| channels).sum();
+    if frames == 0 || channels == 0 {
+        return Vec::new();
+    }
+    let mut mono = vec![0.0f32; frames];
+    for (data, width) in buffers.iter().filter(|(_, channels)| *channels > 0) {
+        for (sum, frame) in mono.iter_mut().zip(data.chunks_exact(*width)) {
+            for value in frame {
+                if value.is_finite() {
+                    *sum += value.clamp(-1.0, 1.0);
+                }
+            }
+        }
+    }
+    let scale = 1.0 / channels as f32;
+    mono.iter_mut().for_each(|value| *value *= scale);
+    mono
+}
+
+/// "14.2.1" -> taps exist. macOS 26+ numbering stays above 14.
+#[cfg(any(target_os = "macos", test))]
+fn version_supports_taps(version: &str) -> bool {
+    let mut parts = version.trim().split('.').map(|part| part.parse::<u32>().ok());
+    match (parts.next().flatten(), parts.next().flatten().unwrap_or(0)) {
+        (Some(major), minor) => major > 14 || (major == 14 && minor >= 2),
+        _ => false,
+    }
+}
+
+/// TCCAccessPreflight: 0 granted, 1 denied, anything else not yet asked.
+#[cfg(any(target_os = "macos", test))]
+fn permission_from_preflight(result: i32) -> SystemAudioStatus {
+    match result {
+        0 => SystemAudioStatus::Ready,
+        1 => SystemAudioStatus::Denied,
+        _ => SystemAudioStatus::NotDetermined,
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod native {
+    //! Core Audio process tap: a global stereo tap of every process's output,
+    //! wrapped in a private tap-only aggregate device whose input IOProc
+    //! delivers the mix. It needs only the "System Audio Recording" privacy
+    //! permission (NSAudioCaptureUsageDescription), not Screen Recording.
+    use super::*;
+    use core_foundation::array::CFArray;
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+    use core_foundation::string::{CFString, CFStringRef};
+    use objc2::msg_send;
+    use objc2::rc::{autoreleasepool, Allocated, Retained};
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    use std::ffi::{c_char, c_int, c_void, CStr};
+    use std::sync::OnceLock;
+
+    type ObjectId = u32;
+    type OsStatus = i32;
+
+    #[repr(C)]
+    struct PropertyAddress {
+        selector: u32,
+        scope: u32,
+        element: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default, Debug)]
+    #[allow(dead_code)] // Core Audio layout; only some fields are read.
+    struct StreamFormat {
+        sample_rate: f64,
+        format_id: u32,
+        format_flags: u32,
+        bytes_per_packet: u32,
+        frames_per_packet: u32,
+        bytes_per_frame: u32,
+        channels_per_frame: u32,
+        bits_per_channel: u32,
+        reserved: u32,
+    }
+
+    #[repr(C)]
+    #[allow(dead_code)]
+    struct SmpteTime {
+        subframes: i16,
+        subframe_divisor: i16,
+        counter: u32,
+        kind: u32,
+        flags: u32,
+        hours: i16,
+        minutes: i16,
+        seconds: i16,
+        frames: i16,
+    }
+
+    #[repr(C)]
+    #[allow(dead_code)]
+    struct TimeStamp {
+        sample_time: f64,
+        host_time: u64,
+        rate_scalar: f64,
+        word_clock_time: u64,
+        smpte_time: SmpteTime,
+        flags: u32,
+        reserved: u32,
+    }
+
+    #[repr(C)]
+    struct Buffer {
+        channels: u32,
+        byte_size: u32,
+        data: *mut c_void,
+    }
+
+    #[repr(C)]
+    struct BufferList {
+        count: u32,
+        buffers: [Buffer; 1],
+    }
+
+    type IoProc = unsafe extern "C" fn(
+        ObjectId,
+        *const TimeStamp,
+        *const BufferList,
+        *const TimeStamp,
+        *mut BufferList,
+        *const TimeStamp,
+        *mut c_void,
+    ) -> OsStatus;
+    type IoProcId = Option<IoProc>;
+
+    const fn code(value: &[u8; 4]) -> u32 {
+        u32::from_be_bytes(*value)
+    }
+    const SCOPE_GLOBAL: u32 = code(b"glob");
+    const TAP_FORMAT: u32 = code(b"tfmt");
+    const LINEAR_PCM: u32 = code(b"lpcm");
+    const FORMAT_IS_FLOAT: u32 = 1;
+    const SAMPLE_TIME_VALID: u32 = 1;
+    const HOST_TIME_VALID: u32 = 2;
+    const TCC_SERVICE: &str = "kTCCServiceAudioCapture";
+
+    #[link(name = "CoreAudio", kind = "framework")]
+    extern "C" {
+        fn AudioHardwareCreateAggregateDevice(
+            description: CFDictionaryRef,
+            device: *mut ObjectId,
+        ) -> OsStatus;
+        fn AudioHardwareDestroyAggregateDevice(device: ObjectId) -> OsStatus;
+        fn AudioObjectGetPropertyData(
+            object: ObjectId,
+            address: *const PropertyAddress,
+            qualifier_size: u32,
+            qualifier: *const c_void,
+            size: *mut u32,
+            data: *mut c_void,
+        ) -> OsStatus;
+        fn AudioDeviceCreateIOProcID(
+            device: ObjectId,
+            procedure: IoProc,
+            client: *mut c_void,
+            id: *mut IoProcId,
+        ) -> OsStatus;
+        fn AudioDeviceDestroyIOProcID(device: ObjectId, id: IoProcId) -> OsStatus;
+        fn AudioDeviceStart(device: ObjectId, id: IoProcId) -> OsStatus;
+        fn AudioDeviceStop(device: ObjectId, id: IoProcId) -> OsStatus;
+    }
+    // NSArray, NSUUID and NSString back the tap description.
+    #[link(name = "Foundation", kind = "framework")]
+    extern "C" {}
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct TimebaseInfo {
+        numer: u32,
+        denom: u32,
+    }
+    extern "C" {
+        fn mach_absolute_time() -> u64;
+        fn mach_timebase_info(info: *mut TimebaseInfo) -> c_int;
+    }
+
+    type CreateTap = unsafe extern "C" fn(*mut AnyObject, *mut ObjectId) -> OsStatus;
+    type DestroyTap = unsafe extern "C" fn(ObjectId) -> OsStatus;
+    struct TapApi {
+        create: CreateTap,
+        destroy: DestroyTap,
+    }
+
+    fn os_version() -> Option<String> {
+        let mut buffer = [0u8; 64];
+        let mut size = buffer.len();
+        let result = unsafe {
+            libc::sysctlbyname(
+                c"kern.osproductversion".as_ptr(),
+                buffer.as_mut_ptr().cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if result != 0 {
+            return None;
+        }
+        CStr::from_bytes_until_nul(&buffer[..size.min(buffer.len())])
+            .ok()
+            .and_then(|text| text.to_str().ok())
+            .map(str::to_owned)
+    }
+
+    /// The minimum app version is macOS 14.0; taps arrived in 14.2. Bind them
+    /// at run time so the app still launches on 14.0 and 14.1.
+    fn tap_api() -> Option<&'static TapApi> {
+        static API: OnceLock<Option<TapApi>> = OnceLock::new();
+        API.get_or_init(|| {
+            if !os_version().is_some_and(|version| version_supports_taps(&version)) {
+                return None;
+            }
+            let create = unsafe {
+                libc::dlsym(libc::RTLD_DEFAULT, c"AudioHardwareCreateProcessTap".as_ptr())
+            };
+            let destroy = unsafe {
+                libc::dlsym(libc::RTLD_DEFAULT, c"AudioHardwareDestroyProcessTap".as_ptr())
+            };
+            if create.is_null() || destroy.is_null() || AnyClass::get(c"CATapDescription").is_none() {
+                return None;
+            }
+            Some(TapApi {
+                create: unsafe { std::mem::transmute::<*mut c_void, CreateTap>(create) },
+                destroy: unsafe { std::mem::transmute::<*mut c_void, DestroyTap>(destroy) },
+            })
+        })
+        .as_ref()
+    }
+
+    // TCC has no public API for this permission. The private TCC framework
+    // calls are the documented-by-practice route used by capture tools; when
+    // they are missing, report Ready and let the first tap ask instead.
+    type Preflight = unsafe extern "C" fn(CFStringRef, CFDictionaryRef) -> c_int;
+    type Request =
+        unsafe extern "C" fn(CFStringRef, CFDictionaryRef, *const block2::Block<dyn Fn(Bool)>);
+    struct Tcc {
+        preflight: Preflight,
+        request: Request,
+    }
+    fn tcc() -> Option<&'static Tcc> {
+        static TCC: OnceLock<Option<Tcc>> = OnceLock::new();
+        TCC.get_or_init(|| {
+            let handle = unsafe {
+                libc::dlopen(
+                    c"/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC".as_ptr(),
+                    libc::RTLD_NOW,
+                )
+            };
+            if handle.is_null() {
+                return None;
+            }
+            let preflight = unsafe { libc::dlsym(handle, c"TCCAccessPreflight".as_ptr()) };
+            let request = unsafe { libc::dlsym(handle, c"TCCAccessRequest".as_ptr()) };
+            if preflight.is_null() || request.is_null() {
+                return None;
+            }
+            Some(Tcc {
+                preflight: unsafe { std::mem::transmute::<*mut c_void, Preflight>(preflight) },
+                request: unsafe { std::mem::transmute::<*mut c_void, Request>(request) },
+            })
+        })
+        .as_ref()
+    }
+
+    fn permission() -> SystemAudioStatus {
+        let Some(tcc) = tcc() else { return SystemAudioStatus::Ready };
+        let service = CFString::new(TCC_SERVICE);
+        permission_from_preflight(unsafe {
+            (tcc.preflight)(service.as_concrete_TypeRef(), std::ptr::null())
+        })
+    }
+
+    pub(super) fn status() -> SystemAudioStatus {
+        if tap_api().is_none() {
+            return SystemAudioStatus::Unsupported;
+        }
+        permission()
+    }
+
+    pub(super) fn request_permission() -> SystemAudioStatus {
+        let current = status();
+        if current == SystemAudioStatus::NotDetermined {
+            if let Some(tcc) = tcc() {
+                let service = CFString::new(TCC_SERVICE);
+                // TCC copies the completion block; the UI polls the result.
+                let done = block2::RcBlock::new(|_granted: Bool| {});
+                unsafe {
+                    (tcc.request)(service.as_concrete_TypeRef(), std::ptr::null(), &*done);
+                }
+            }
+        }
+        current
+    }
+
+    fn status_text(status: OsStatus) -> String {
+        let bytes = status.to_be_bytes();
+        if bytes.iter().all(|byte| byte.is_ascii_graphic() || *byte == b' ') {
+            format!("'{}'", String::from_utf8_lossy(&bytes))
+        } else {
+            status.to_string()
+        }
+    }
+
+    struct Tap {
+        id: ObjectId,
+        uid: String,
+        destroy: DestroyTap,
+    }
+    impl Drop for Tap {
+        fn drop(&mut self) {
+            unsafe { (self.destroy)(self.id) };
+        }
+    }
+
+    fn create_tap(api: &TapApi) -> Result<Tap, String> {
+        autoreleasepool(|_| unsafe {
+            let class = AnyClass::get(c"CATapDescription").ok_or(UNSUPPORTED_ERROR)?;
+            let array = AnyClass::get(c"NSArray").ok_or("Foundation is unavailable.")?;
+            // Exclude no process: SonoJot itself plays nothing during a meeting.
+            let none: Retained<AnyObject> = msg_send![array, array];
+            let allocated: Allocated<AnyObject> = msg_send![class, alloc];
+            let description: Option<Retained<AnyObject>> =
+                msg_send![allocated, initStereoGlobalTapButExcludeProcesses: &*none];
+            let description = description.ok_or("Cannot describe the system audio tap.")?;
+            // Private: the tap and its aggregate are invisible to other apps.
+            let _: () = msg_send![&*description, setPrivate: Bool::YES];
+            let uuid: Option<Retained<AnyObject>> = msg_send![&*description, UUID];
+            let uuid = uuid.ok_or("The system audio tap has no identifier.")?;
+            let text: Option<Retained<AnyObject>> = msg_send![&*uuid, UUIDString];
+            let text = text.ok_or("The system audio tap has no identifier.")?;
+            let utf8: *const c_char = msg_send![&*text, UTF8String];
+            if utf8.is_null() {
+                return Err("The system audio tap has no identifier.".into());
+            }
+            let uid = CStr::from_ptr(utf8).to_string_lossy().into_owned();
+            let mut id = 0;
+            let status = (api.create)(Retained::as_ptr(&description) as *mut AnyObject, &mut id);
+            if status != 0 || id == 0 {
+                return Err(format!(
+                    "Cannot create the system audio tap (Core Audio {}).",
+                    status_text(status)
+                ));
+            }
+            Ok(Tap { id, uid, destroy: api.destroy })
+        })
+    }
+
+    fn tap_format(tap: ObjectId) -> Result<StreamFormat, String> {
+        let address = PropertyAddress { selector: TAP_FORMAT, scope: SCOPE_GLOBAL, element: 0 };
+        let mut format = StreamFormat::default();
+        let mut size = std::mem::size_of::<StreamFormat>() as u32;
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                tap,
+                &address,
+                0,
+                std::ptr::null(),
+                &mut size,
+                (&mut format as *mut StreamFormat).cast(),
+            )
+        };
+        if status != 0 {
+            return Err(format!("Cannot read the system audio format (Core Audio {}).", status_text(status)));
+        }
+        if format.format_id != LINEAR_PCM
+            || format.format_flags & FORMAT_IS_FLOAT == 0
+            || format.bits_per_channel != 32
+            || !(8000.0..=384000.0).contains(&format.sample_rate)
+            || format.channels_per_frame == 0
+        {
+            return Err("System audio uses an unsupported audio format.".into());
+        }
+        Ok(format)
+    }
+
+    struct Aggregate(ObjectId);
+    impl Drop for Aggregate {
+        fn drop(&mut self) {
+            unsafe { AudioHardwareDestroyAggregateDevice(self.0) };
+        }
+    }
+
+    fn create_aggregate(tap_uid: &str) -> Result<Aggregate, String> {
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+        let uid = format!(
+            "studio.codystevens.sonojot.meeting-audio.{}.{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        );
+        let key = |name: &str| CFString::new(name).as_CFType();
+        let text = |value: &str| CFString::new(value).as_CFType();
+        let tap = CFDictionary::from_CFType_pairs(&[
+            (key("uid"), text(tap_uid)),
+            (key("drift"), CFBoolean::true_value().as_CFType()),
+        ]);
+        let taps = CFArray::from_CFTypes(&[tap.as_CFType()]);
+        let none: CFArray<CFType> = CFArray::from_CFTypes(&[]);
+        // Tap-only: no output sub-device, so changing speakers or headphones
+        // does not interrupt the tap, and no headset microphone is mixed in.
+        let description = CFDictionary::from_CFType_pairs(&[
+            (key("name"), text("SonoJot meeting audio")),
+            (key("uid"), text(&uid)),
+            (key("private"), CFBoolean::true_value().as_CFType()),
+            (key("stacked"), CFBoolean::false_value().as_CFType()),
+            (key("tapautostart"), CFBoolean::true_value().as_CFType()),
+            (key("subdevices"), none.as_CFType()),
+            (key("taps"), taps.as_CFType()),
+        ]);
+        let mut id = 0;
+        let status =
+            unsafe { AudioHardwareCreateAggregateDevice(description.as_concrete_TypeRef(), &mut id) };
+        if status != 0 || id == 0 {
+            return Err(format!(
+                "Cannot open the system audio tap device (Core Audio {}).",
+                status_text(status)
+            ));
+        }
+        Ok(Aggregate(id))
+    }
+
+    struct Packet {
+        samples: Vec<f32>,
+        captured_at: Duration,
+        discontinuity: bool,
+    }
+
+    /// Shared with the real-time IOProc. Everything is lock-free except the
+    /// bounded try_send; the owner thread runs recorder code.
+    struct Context {
+        tx: mpsc::SyncSender<Packet>,
+        clock: HostClock,
+        frames_per_second: f64,
+        last_callback: AtomicU64,
+        next_sample_time: AtomicU64,
+        dropped: AtomicBool,
+    }
+
+    #[derive(Clone, Copy)]
+    struct HostClock {
+        anchor_ticks: u64,
+        anchor_elapsed: Duration,
+        numer: u64,
+        denom: u64,
+    }
+    impl HostClock {
+        fn new(epoch: Instant) -> Result<Self, String> {
+            let mut info = TimebaseInfo::default();
+            if unsafe { mach_timebase_info(&mut info) } != 0 || info.denom == 0 {
+                return Err("The macOS audio clock is unavailable.".into());
+            }
+            let before = epoch.elapsed();
+            let ticks = unsafe { mach_absolute_time() };
+            let after = epoch.elapsed();
+            Ok(Self {
+                anchor_ticks: ticks,
+                anchor_elapsed: before + after.saturating_sub(before) / 2,
+                numer: info.numer as u64,
+                denom: info.denom as u64,
+            })
+        }
+        fn nanos(&self, ticks: u64) -> u64 {
+            (ticks as u128 * self.numer as u128 / self.denom as u128).min(u64::MAX as u128) as u64
+        }
+        /// Same mapping as WASAPI QPC timestamps: host time into the epoch timeline.
+        fn elapsed(&self, ticks: u64) -> Duration {
+            if ticks >= self.anchor_ticks {
+                self.anchor_elapsed
+                    .saturating_add(Duration::from_nanos(self.nanos(ticks - self.anchor_ticks)))
+            } else {
+                self.anchor_elapsed
+                    .saturating_sub(Duration::from_nanos(self.nanos(self.anchor_ticks - ticks)))
+            }
+        }
+    }
+
+    unsafe extern "C" fn io_proc(
+        _device: ObjectId,
+        _now: *const TimeStamp,
+        input: *const BufferList,
+        input_time: *const TimeStamp,
+        _output: *mut BufferList,
+        _output_time: *const TimeStamp,
+        client: *mut c_void,
+    ) -> OsStatus {
+        if client.is_null() {
+            return 0;
+        }
+        let context = &*(client as *const Context);
+        let now = mach_absolute_time();
+        context.last_callback.store(now.max(1), Ordering::Release);
+        if input.is_null() {
+            return 0;
+        }
+        let list = &*input;
+        let buffers = std::slice::from_raw_parts(list.buffers.as_ptr(), list.count as usize);
+        let mut views: [(&[f32], usize); 8] = [(&[] as &[f32], 0usize); 8];
+        let mut used = 0;
+        for buffer in buffers.iter().take(views.len()) {
+            if buffer.data.is_null() || buffer.channels == 0 {
+                continue;
+            }
+            let values = buffer.byte_size as usize / std::mem::size_of::<f32>();
+            views[used] = (
+                std::slice::from_raw_parts(buffer.data as *const f32, values),
+                buffer.channels as usize,
+            );
+            used += 1;
+        }
+        let samples = downmix(&views[..used]);
+        if samples.is_empty() {
+            return 0;
+        }
+        let frames = samples.len();
+        let duration = Duration::from_secs_f64(frames as f64 / context.frames_per_second);
+        let mut discontinuity = context.dropped.swap(false, Ordering::AcqRel);
+        let captured_at = if !input_time.is_null() && (*input_time).flags & HOST_TIME_VALID != 0 {
+            context.clock.elapsed((*input_time).host_time)
+        } else {
+            discontinuity = true;
+            context.clock.elapsed(now).saturating_sub(duration)
+        };
+        if !input_time.is_null() && (*input_time).flags & SAMPLE_TIME_VALID != 0 {
+            let sample_time = (*input_time).sample_time;
+            let expected = f64::from_bits(context.next_sample_time.load(Ordering::Relaxed));
+            if expected.is_finite() && (sample_time - expected).abs() > 1.0 {
+                discontinuity = true;
+            }
+            context
+                .next_sample_time
+                .store((sample_time + frames as f64).to_bits(), Ordering::Relaxed);
+        }
+        if let Err(mpsc::TrySendError::Full(_)) =
+            context.tx.try_send(Packet { samples, captured_at, discontinuity })
+        {
+            context.dropped.store(true, Ordering::Release);
+        }
+        0
+    }
+
+    /// Owns the client context until Core Audio has released the IOProc.
+    struct Procedure {
+        device: ObjectId,
+        id: IoProcId,
+        context: *mut Context,
+    }
+    impl Procedure {
+        fn create(device: ObjectId, context: Context) -> Result<Self, String> {
+            let context = Box::into_raw(Box::new(context));
+            let mut id: IoProcId = None;
+            let status =
+                unsafe { AudioDeviceCreateIOProcID(device, io_proc, context.cast(), &mut id) };
+            if status != 0 || id.is_none() {
+                drop(unsafe { Box::from_raw(context) });
+                return Err(format!(
+                    "Cannot receive system audio (Core Audio {}).",
+                    status_text(status)
+                ));
+            }
+            Ok(Self { device, id, context })
+        }
+        fn context(&self) -> &Context {
+            unsafe { &*self.context }
+        }
+    }
+    impl Drop for Procedure {
+        fn drop(&mut self) {
+            unsafe {
+                AudioDeviceDestroyIOProcID(self.device, self.id);
+                drop(Box::from_raw(self.context));
+            }
+        }
+    }
+
+    /// AudioDeviceStop waits for an in-flight IOProc before returning.
+    struct Running<'a>(&'a Procedure);
+    impl Drop for Running<'_> {
+        fn drop(&mut self) {
+            unsafe { AudioDeviceStop(self.0.device, self.0.id) };
+        }
+    }
+
+    pub(super) fn run(
+        epoch: Instant,
+        stop: mpsc::Receiver<()>,
+        ready: &mpsc::SyncSender<Result<(), String>>,
+        cancel: &AtomicBool,
+        failure: &FailureTime,
+        check_permission: bool,
+        mut on_chunk: impl FnMut(SystemAudioChunk),
+    ) -> Result<(), String> {
+        let fail = |message: String| {
+            failure.record(epoch.elapsed());
+            message
+        };
+        if cancel.load(Ordering::Acquire) {
+            return Err("System audio startup was cancelled.".into());
+        }
+        let api = tap_api().ok_or_else(|| fail(UNSUPPORTED_ERROR.into()))?;
+        let tap = create_tap(api).map_err(fail)?;
+        let format = tap_format(tap.id).map_err(fail)?;
+        let aggregate = create_aggregate(&tap.uid).map_err(fail)?;
+        let (tx, rx) = mpsc::sync_channel(512);
+        let sample_rate = format.sample_rate.round() as u32;
+        let procedure = Procedure::create(
+            aggregate.0,
+            Context {
+                tx,
+                clock: HostClock::new(epoch).map_err(fail)?,
+                frames_per_second: format.sample_rate,
+                last_callback: AtomicU64::new(0),
+                next_sample_time: AtomicU64::new(f64::NAN.to_bits()),
+                dropped: AtomicBool::new(false),
+            },
+        )
+        .map_err(fail)?;
+        if !matches!(stop.try_recv(), Err(mpsc::TryRecvError::Empty)) {
+            cancel.store(true, Ordering::Release);
+        }
+        let stream = start_unless_cancelled(cancel, || {
+            let status = unsafe { AudioDeviceStart(procedure.device, procedure.id) };
+            if status != 0 {
+                return Err(fail(format!(
+                    "Cannot start system audio capture (Core Audio {}).",
+                    status_text(status)
+                )));
+            }
+            Ok(Running(&procedure))
+        })?;
+        if ready.send(Ok(())).is_err() {
+            return Ok(());
+        }
+        let started = Instant::now();
+        let mut permission_checked = Instant::now();
+        let mut deliver = |packet: Packet| {
+            on_chunk(SystemAudioChunk {
+                samples: packet.samples,
+                sample_rate,
+                captured_at: packet.captured_at,
+                discontinuity: packet.discontinuity,
+            })
+        };
+        loop {
+            let stopping = cancel.load(Ordering::Acquire)
+                || match stop.recv_timeout(Duration::from_millis(5)) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => true,
+                    Err(mpsc::RecvTimeoutError::Timeout) => false,
+                };
+            if stopping {
+                // Stop first, then deliver what was already captured; no new tail.
+                drop(stream);
+                while let Ok(packet) = rx.try_recv() {
+                    deliver(packet);
+                }
+                return Ok(());
+            }
+            for _ in 0..256 {
+                let Ok(packet) = rx.try_recv() else { break };
+                deliver(packet);
+            }
+            // A tap's IOProc runs continuously, with zeros when nothing plays.
+            // No callbacks at all means the device died: report it promptly.
+            let last = procedure.context().last_callback.load(Ordering::Acquire);
+            let stalled = if last == 0 {
+                started.elapsed() >= Duration::from_secs(3)
+            } else {
+                let now = unsafe { mach_absolute_time() };
+                let clock = procedure.context().clock;
+                clock.elapsed(now).saturating_sub(clock.elapsed(last)) >= Duration::from_secs(2)
+            };
+            if stalled {
+                failure.record_cause(epoch.elapsed(), 4);
+                return Err("System audio stopped delivering audio.".into());
+            }
+            if check_permission && permission_checked.elapsed() >= Duration::from_secs(1) {
+                permission_checked = Instant::now();
+                // Turning the permission off makes the tap record silence.
+                if permission() == SystemAudioStatus::Denied {
+                    failure.record_cause(epoch.elapsed(), 5);
+                    return Err(PERMISSION_ERROR.into());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod native {
     use super::*;
     pub(super) fn run(
@@ -776,6 +1605,80 @@ mod tests {
             timestamp_from_anchor(1, 10_000_000, Duration::from_millis(100)),
             Duration::ZERO
         );
+    }
+
+    #[test]
+    fn tap_downmix_handles_interleaved_and_planar_buffers() {
+        // One interleaved stereo buffer.
+        let stereo = [0.5f32, -0.5, 1.0, 0.0, f32::NAN, 0.25];
+        assert_eq!(downmix(&[(&stereo, 2)]), [0.0, 0.5, 0.125]);
+        // Two planar buffers; the shorter one bounds the frame count.
+        let left = [0.25f32, 2.0, 0.5];
+        let right = [0.25f32, 0.0];
+        assert_eq!(downmix(&[(&left, 1), (&right, 1)]), [0.25, 0.5]);
+        assert!(downmix(&[]).is_empty());
+        assert!(downmix(&[(&[] as &[f32], 2)]).is_empty());
+    }
+
+    #[test]
+    fn taps_need_macos_14_2_or_later() {
+        for (version, supported) in [
+            ("13.6.9", false),
+            ("14.0", false),
+            ("14.1.2", false),
+            ("14.2", true),
+            ("14.4.1", true),
+            ("15.0", true),
+            ("26.1", true),
+            ("27.2", true),
+            ("", false),
+            ("garbage", false),
+        ] {
+            assert_eq!(version_supports_taps(version), supported, "{version}");
+        }
+    }
+
+    #[test]
+    fn preflight_results_map_to_distinct_permission_states() {
+        assert_eq!(permission_from_preflight(0), SystemAudioStatus::Ready);
+        assert_eq!(permission_from_preflight(1), SystemAudioStatus::Denied);
+        assert_eq!(permission_from_preflight(2), SystemAudioStatus::NotDetermined);
+        assert_eq!(permission_from_preflight(-1), SystemAudioStatus::NotDetermined);
+        assert!(SystemAudioStatus::Denied.fixable());
+        assert!(SystemAudioStatus::NotDetermined.fixable());
+        assert!(!SystemAudioStatus::Ready.fixable());
+        assert!(!SystemAudioStatus::Unsupported.fixable());
+    }
+
+    #[test]
+    fn recording_source_keeps_a_fixable_system_side_and_drops_an_unsupported_one() {
+        use SystemAudioStatus::*;
+        for status in [Ready, NotDetermined, Denied, Unsupported] {
+            assert_eq!(recording_source("microphone", status), Ok("microphone"));
+        }
+        for status in [Ready, NotDetermined, Denied] {
+            assert_eq!(recording_source("both", status), Ok("both"));
+            assert_eq!(recording_source("system", status), Ok("system"));
+        }
+        assert_eq!(recording_source("both", Unsupported), Ok("microphone"));
+        assert!(recording_source("system", Unsupported).unwrap_err().starts_with(UNSUPPORTED_ERROR));
+        assert!(recording_source("speakers", Ready).is_err());
+    }
+
+    #[test]
+    fn permission_errors_are_recognized_by_prefix_only() {
+        assert!(is_permission_error(PERMISSION_ERROR));
+        assert!(!is_permission_error(UNSUPPORTED_ERROR));
+        assert!(!is_permission_error("System audio stopped delivering audio."));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_loopback_needs_no_permission() {
+        assert_eq!(status(), SystemAudioStatus::Ready);
+        assert!(available());
+        assert!(permission_granted());
+        assert!(request_permission_prompted());
     }
 
     #[test]

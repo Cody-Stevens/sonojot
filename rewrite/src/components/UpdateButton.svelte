@@ -2,15 +2,23 @@
   import { tick } from "svelte";
   import { app } from "../lib/app.svelte";
   import { updateButtonLabel, updateTooltip } from "../lib/updates";
+  import type { UpdateStatus } from "../lib/protocol";
 
+  // The setup tour pictures the button in its "available" state.
+  let { preview = false }: { preview?: boolean } = $props();
   const uid = $props.id();
-  const status = $derived(app.snapshot.update.status);
-  const installing = $derived(app.snapshot.update.installing);
+  const status = $derived<UpdateStatus>(
+    preview
+      ? { state: "available", version: "", notes: null, size: null }
+      : app.snapshot.update.status,
+  );
+  const installing = $derived(!preview && app.snapshot.update.installing);
   const reason = $derived(app.updateRestartBlockedReason);
   const label = $derived(updateButtonLabel(status, installing));
   const description = $derived(updateTooltip(status, installing, reason));
   const disabled = $derived(
-    !app.native ||
+    preview ||
+      !app.native ||
       installing ||
       status.state === "checking" ||
       status.state === "downloading" ||

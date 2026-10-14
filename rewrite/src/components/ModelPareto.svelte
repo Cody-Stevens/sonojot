@@ -67,22 +67,15 @@
       >
       <polyline points={line} class="frontier" />
       {#each layout.labels as label (label.point.name)}
-        <line
-          class="leader"
-          x1={x(label.point.gb)}
-          y1={y(label.point.wer)}
-          x2={Math.max(
-            label.x,
-            Math.min(label.x + label.width, x(label.point.gb)),
-          )}
-          y2={label.y + label.height / 2}
-        />
-        <text
-          class="model-label"
-          class:offered-label={label.point.offered}
-          x={label.x + 2}
-          y={label.y + 12}>{label.point.name}</text
-        >
+        {#if label.leader}
+          <line
+            class="leader"
+            x1={label.leader.x1}
+            y1={label.leader.y1}
+            x2={label.leader.x2}
+            y2={label.leader.y2}
+          />
+        {/if}
       {/each}
       {#each rows as point (point.name)}
         <circle
@@ -108,8 +101,26 @@
           <title>{describe(point)}</title>
         </circle>
       {/each}
+      {#each layout.labels as label (label.point.name)}
+        <text
+          class="model-label"
+          class:offered-label={label.point.offered}
+          class:key-label={label.key}
+          x={label.textX ?? label.x + 2}
+          y={label.y + 12}
+          text-anchor={label.anchor ?? "start"}
+          aria-hidden="true">{label.text}</text
+        >
+      {/each}
     </svg>
   </div>
+  {#if layout.key.length}
+    <ol class="chart-key" data-text-surface="flat">
+      {#each layout.key as entry (entry.point.name)}
+        <li><span>{entry.key}</span>{entry.point.name}</li>
+      {/each}
+    </ol>
+  {/if}
   <p class="description" aria-live="polite" data-text-surface="flat">
     {selected
       ? describe(selected)
@@ -219,8 +230,8 @@
   }
   .leader {
     stroke: var(--soft-ink);
-    stroke-width: 0.7;
-    opacity: 0.6;
+    stroke-width: 0.8;
+    opacity: 0.8;
   }
   .model-label {
     paint-order: stroke;
@@ -231,6 +242,22 @@
   }
   .offered-label {
     fill: var(--dye);
+    font-weight: 650;
+  }
+  .key-label {
+    font-weight: 650;
+  }
+  .chart-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 15px;
+    margin: 6px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.8rem;
+  }
+  .chart-key span {
+    margin-right: 5px;
     font-weight: 650;
   }
   circle {

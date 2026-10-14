@@ -293,6 +293,12 @@ mod native {
         }
     }
 
+    /// A CoreGraphics top-left y in the vertical space tao positions windows in.
+    pub(crate) fn to_window_space_y(cg_y: f64) -> f64 {
+        let (pixels, points) = main_display_heights();
+        window_space_y(cg_y, pixels, points)
+    }
+
     fn main_display_heights() -> (f64, f64) {
         unsafe {
             let id = CGMainDisplayID();
@@ -755,3 +761,5 @@ mod native {
 
 #[cfg(target_os = "macos")]
 pub use native::{menu_host, observe_tray, set_visible, sync_capture, toggle_allowed};
+#[cfg(target_os = "macos")]
+pub(crate) use native::to_window_space_y;

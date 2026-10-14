@@ -6,6 +6,7 @@
   import DictationHistory from "../components/DictationHistory.svelte";
   import TransientDictation from "../components/TransientDictation.svelte";
   import ModelSummary from "../components/ModelSummary.svelte";
+  import MacPasteAccess from "../components/MacPasteAccess.svelte";
   import { app } from "../lib/app.svelte";
   import { library } from "../lib/model-library.svelte";
   import {
@@ -139,6 +140,9 @@
         onchange={(autoPaste) => app.saveSettings({ autoPaste })}
       /></SettingRow
     >
+    {#if app.native && app.snapshot.capabilities.platform === "macos"}<MacPasteAccess
+        variant="settings"
+      />{/if}
     <details class="more-options license">
       <summary>More options</summary>
       <SettingRow

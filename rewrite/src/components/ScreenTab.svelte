@@ -8,9 +8,13 @@
   import { presentError } from "../lib/errors";
   import { dictationReady } from "../lib/dictation-control";
   import {
+    recordingSystemNotice,
+    tabMeetingWarning,
+  } from "../lib/meeting-source";
+  import { fixSystemAudio, refreshSystemAudio } from "../lib/system-audio.svelte";
+  import {
     COLLAPSE_DELAY_MS,
     ScreenTabRequests,
-    meetingSourceWarning,
     startTabMeeting,
     tabCapture,
     tabCollapseAllowed,
@@ -88,7 +92,16 @@
   const expanded = $derived(menubar ? visible : app.snapshot.tabExpanded);
   const meetingWarning = $derived(
     meetingConfirmation && !recording && visible
-      ? meetingSourceWarning(app.snapshot.settings.meetingSource)
+      ? tabMeetingWarning(
+          app.snapshot.settings.meetingSource,
+          app.snapshot.capabilities.systemAudioStatus,
+        )
+      : null,
+  );
+  // While recording, a missing other side outranks the live transcript.
+  const systemNotice = $derived(
+    capture === "meeting"
+      ? recordingSystemNotice(app.snapshot.meetingSystemAudio)
       : null,
   );
   const idleRecordBlocked = $derived(
@@ -310,6 +323,7 @@
       }
       // A long-hidden WebView may have missed a settings event from the app.
       app.apply(await call("get_snapshot"));
+      await refreshSystemAudio();
       if (!visible || capture !== "idle") return;
       if (!app.snapshot.settings.meetingConsentAcknowledged) {
         // The native dialog has room for consent and the source warning together.
@@ -325,7 +339,12 @@
         }
         app.apply(await call("get_snapshot"));
         scheduleCollapse();
-      } else if (meetingSourceWarning(app.snapshot.settings.meetingSource)) {
+      } else if (
+        tabMeetingWarning(
+          app.snapshot.settings.meetingSource,
+          app.snapshot.capabilities.systemAudioStatus,
+        )
+      ) {
         meetingConfirmation = true;
         cancelCollapse();
         // Choosing an action keeps its warning open, without taking editor focus.
@@ -340,21 +359,31 @@
       }
     });
   }
-  async function confirmMeeting(recordBoth: boolean): Promise<void> {
+  async function confirmMeeting(choice: "start" | "primary"): Promise<void> {
+    const warning = meetingWarning;
     if (
-      !meetingWarning ||
+      !warning ||
       capture !== "idle" ||
       app.busy("screen-tab-meeting") ||
       app.busy("settings")
     )
       return;
+    if (choice === "primary" && warning.primary?.action === "fix") {
+      // Keep the warning open: once allowed, its button becomes Record both sides.
+      await app.perform("screen-tab-meeting", async () => {
+        await fixSystemAudio();
+      });
+      return;
+    }
+    const meetingSource =
+      choice === "primary" ? "both" : warning.start.source;
     await app.perform("screen-tab-meeting", () =>
       startTabMeeting(
-        recordBoth,
+        meetingSource !== app.snapshot.settings.meetingSource,
         async () => {
           app.apply(
             await call("save_settings", {
-              settings: { ...app.snapshot.settings, meetingSource: "both" },
+              settings: { ...app.snapshot.settings, meetingSource },
             }),
           );
         },
@@ -520,25 +549,27 @@
     {#if meetingWarning}
       <div class="tab-meeting-warning">
         <div class="tab-warning-copy">
-          <span role="alert" data-text-surface="flat">{meetingWarning}</span>
+          <span role="alert" data-text-surface="flat">{meetingWarning.text}</span>
           <button
             type="button"
             class="start-anyway"
             disabled={!app.native ||
               app.busy("screen-tab-meeting") ||
               app.busy("settings")}
-            onclick={() => confirmMeeting(false)}>Start anyway</button
+            onclick={() => confirmMeeting("start")}
+            >{meetingWarning.start.label}</button
           >
         </div>
         <div class="tab-actions">
-          <button
-            type="button"
-            class="record-both"
-            disabled={!app.native ||
-              app.busy("screen-tab-meeting") ||
-              app.busy("settings")}
-            onclick={() => confirmMeeting(true)}>Record both sides</button
-          >
+          {#if meetingWarning.primary}<button
+              type="button"
+              class="record-both"
+              disabled={!app.native ||
+                app.busy("screen-tab-meeting") ||
+                app.busy("settings")}
+              onclick={() => confirmMeeting("primary")}
+              >{meetingWarning.primary.label}</button
+            >{/if}
           <button
             type="button"
             aria-label="Cancel meeting start"
@@ -699,7 +730,20 @@
       </div>
       {#if recording}
         <div class="tab-live-row">
-          {#if error}{@render errorAction()}{:else if sourceStatus}<div
+          {#if error}{@render errorAction()}{:else if systemNotice}<div
+              class="tab-system-alert"
+              role="alert"
+            >
+              <span title={systemNotice.text}>{systemNotice.text}</span>
+              {#if systemNotice.fix}<button
+                  type="button"
+                  disabled={!app.native || app.busy("screen-tab-fix")}
+                  onclick={() =>
+                    app.perform("screen-tab-fix", async () => {
+                      await fixSystemAudio();
+                    })}>{systemNotice.fix}</button
+                >{/if}
+            </div>{:else if sourceStatus}<div
               class="tab-preview"
               data-text-surface="flat"
               role="status"
@@ -1020,6 +1064,33 @@
   .tab-meeting-warning .record-both {
     background: var(--dye);
     color: var(--dye-ink);
+  }
+  .tab-system-alert {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--danger);
+    font-size: 12px;
+    font-weight: 620;
+    line-height: 18px;
+  }
+  .tab-system-alert span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .tab-system-alert button {
+    flex: none;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-decoration: underline;
   }
   .tab-error {
     flex: 1;

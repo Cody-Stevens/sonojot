@@ -24,6 +24,8 @@ export default defineConfig({
         allow: [
           fileURLToPath(new URL(".", import.meta.url)),
           fileURLToPath(new URL("../shared", import.meta.url)),
+          // The home page charts the app's own model data module.
+          fileURLToPath(new URL("../rewrite/src/lib/asr-pareto.ts", import.meta.url)),
           // The isolated relief proof reuses the app's exact bundled font.
           // Allow this public asset only, not the rest of the app directory.
           fileURLToPath(

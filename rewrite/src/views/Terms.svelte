@@ -55,23 +55,38 @@
 </main>
 
 <style>
+  /* Like first-run setup, the page fits the window: only the Terms panel
+     scrolls. Overflow stays available for very large text. */
   .terms-page {
     flex: 1;
     min-height: 0;
     overflow: auto;
     padding: 27px 36px;
+    display: flex;
+    flex-direction: column;
   }
   .terms-content {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
     max-width: 810px;
     margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .terms-content > * {
+    flex: none;
+  }
+  .terms-content > :global(.terms-acceptance) {
+    flex: 1 1 0;
   }
   h1 {
-    margin-top: 0;
+    margin: 0 0 18px;
   }
   .error {
     color: var(--danger);
   }
-  @media (max-width: 600px) {
+  @media (max-width: 600px), (max-height: 700px) {
     .terms-page {
       padding: 18px;
     }

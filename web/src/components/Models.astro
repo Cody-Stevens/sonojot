@@ -1,0 +1,385 @@
+---
+// The same data and label layout as the app's "Why these models" chart,
+// rendered once at build time as static SVG.
+import Section from "./Section.astro";
+import Icon from "./Icon.astro";
+import {
+  chartLayout,
+  devicePoints,
+  frontier,
+  points,
+  source,
+  type AsrPoint,
+  type Device,
+} from "../../../rewrite/src/lib/asr-pareto";
+
+const height = 330;
+// One decimal of a viewBox unit is far below a device pixel and halves the markup.
+const r = (n: number) => Math.round(n * 10) / 10;
+const revision = source.url.match(/blob\/([0-9a-f]{8})/)?.[1] ?? "";
+const snapshot = new Date(`${source.date}T00:00:00Z`).toLocaleDateString("en-US", {
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+const describe = (p: AsrPoint) =>
+  `${p.name}: ${p.gb.toFixed(2)} GB, ${p.wer.toFixed(2)}% word errors. ${p.offered ? "Offered" : "Left out"}. ${p.reason}`;
+
+function chart(device: Device, width: number) {
+  const rows = devicePoints(device);
+  const layout = chartLayout(rows, width);
+  const line = frontier(rows)
+    .map((p) => `${layout.x(p.gb).toFixed(1)},${layout.y(p.wer).toFixed(1)}`)
+    .join(" ");
+  return { width, rows, layout, line };
+}
+
+const views = (["CPU", "GPU"] as const).map((device) => ({
+  device,
+  title: device === "CPU" ? "Models that run on a CPU" : "Models that use a GPU",
+  sizes: [
+    { key: "wide", ...chart(device, 540) },
+    { key: "narrow", ...chart(device, 360) },
+  ],
+}));
+
+const table = [...points].sort((a, b) => Number(b.offered) - Number(a.offered) || a.wer - b.wer);
+const deviceLabel = (p: AsrPoint) => (p.device === "both" ? "CPU, GPU" : p.device);
+---
+
+<Section
+  id="models"
+  title="Why these models."
+  lede="We compared open speech models by download size and published accuracy before choosing which ones SonoJot offers."
+>
+  <div class="stock stock--card card research" style="--grain-x:-260px;--grain-y:-180px">
+    <p class="takeaway">
+      Qwen makes fewer English word errors than Whisper at a similar size, which is why SonoJot recommends it.
+    </p>
+
+    <div class="legend small" data-text-surface="flat">
+      <span><i class="key key--offered"></i>Offered in SonoJot</span>
+      <span><i class="key key--left-out"></i>Left out</span>
+      <span><i class="key key--frontier"></i>Best accuracy for its size</span>
+    </div>
+
+    <div class="charts">
+      {
+        views.map((view) => (
+          <figure class="chart">
+            <figcaption data-text-surface="flat">{view.title}</figcaption>
+            {view.sizes.map(({ key, width, rows, layout, line }) => (
+              <div class={`plot-wrap plot--${key}`}>
+                <svg
+                  class="plot"
+                  viewBox={`0 0 ${width} ${height}`}
+                  role="img"
+                  aria-label={`${view.title}: download size against published English word error rate. Details are in the model table below.`}
+                >
+                  <text x="0" y="18">Word errors (%), lower is better</text>
+                  {[6, 7, 8, 9].map((tick) => (
+                    <>
+                      <line class="grid" x1="30" x2={width - 18} y1={r(layout.y(tick))} y2={r(layout.y(tick))} />
+                      <text x="20" y={r(layout.y(tick) + 4)} text-anchor="end">{tick}</text>
+                    </>
+                  ))}
+                  {[0.1, 0.3, 1, 3, 10].map((tick) => (
+                    <text x={r(layout.x(tick))} y="301" text-anchor="middle">{tick}</text>
+                  ))}
+                  <text x={width / 2} y="324" text-anchor="middle">Download GB (log scale)</text>
+                  <polyline class="frontier" points={line} />
+                  {layout.labels.map(({ leader }) =>
+                    leader && <line class="leader" x1={r(leader.x1)} y1={r(leader.y1)} x2={r(leader.x2)} y2={r(leader.y2)} />,
+                  )}
+                  {rows.map((point) => (
+                    <circle class:list={{ offered: point.offered }} cx={r(layout.x(point.gb))} cy={r(layout.y(point.wer))} r="5">
+                      <title>{describe(point)}</title>
+                    </circle>
+                  ))}
+                  {layout.labels.map((label) => (
+                    <text
+                      class:list={["model-label", { "offered-label": label.point.offered, "key-label": label.key }]}
+                      x={r(label.textX ?? label.x + 2)}
+                      y={r(label.y + 12)}
+                      text-anchor={label.anchor ?? "start"}
+                      aria-hidden="true"
+                    >
+                      {label.text}
+                    </text>
+                  ))}
+                </svg>
+                {layout.key.length > 0 && (
+                  <ol class="chart-key small" data-text-surface="flat">
+                    {layout.key.map(({ key: n, point }) => (
+                      <li><span class="key-n">{n}</span>{point.name}</li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            ))}
+          </figure>
+        ))
+      }
+    </div>
+
+    <div class="method small" data-text-surface="flat">
+      <p>
+        Word errors are the Open ASR Leaderboard's published English average across seven public test sets,
+        excluding TED-LIUM, from the snapshot of {snapshot} (revision {revision}). They are scores for each model
+        family, not measurements of the quantized files SonoJot downloads, and they say nothing about speed or other
+        languages. Error rates do not depend on hardware; the two views only separate models by where they run.
+      </p>
+      <p>
+        Sizes exclude runtimes, and some sizes for models SonoJot does not ship are estimates. Whisper Small and
+        Medium use their English-only sibling's scores. Models without a comparable score, including Apple Speech,
+        are not shown. SonoJot's own tests on real dictation also shaped which models it offers.
+      </p>
+      <a class="out" href={source.url} rel="noreferrer noopener"><span>Leaderboard data</span><Icon name="external" size={13} stroke={1.6} /></a>
+    </div>
+
+    <details class="values">
+      <summary>Model table</summary>
+      <div class="table-wrap">
+        <table class="small">
+          <thead>
+            <tr><th scope="col">Model</th><th scope="col">Download</th><th scope="col">Word errors</th><th scope="col">Runs on</th><th scope="col">In SonoJot</th><th scope="col">Why</th></tr>
+          </thead>
+          <tbody>
+            {
+              table.map((p) => (
+                <tr>
+                  <th scope="row">{p.name}</th>
+                  <td>{p.gb.toFixed(2)} GB</td>
+                  <td>{p.wer.toFixed(2)}%</td>
+                  <td>{deviceLabel(p)}</td>
+                  <td>{p.offered ? "Offered" : "Left out"}</td>
+                  <td>{p.reason}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</Section>
+
+<style>
+  .research {
+    display: grid;
+    gap: var(--space-3);
+    padding: clamp(1.25rem, 3vw, 2.25rem);
+  }
+
+  .takeaway {
+    font-size: 1.1rem;
+    max-width: 46rem;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.4rem;
+    color: var(--soft-ink);
+  }
+
+  .legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .key {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  .key--offered {
+    background: var(--dye);
+    border: 1.5px solid var(--dye);
+  }
+
+  .key--left-out {
+    border: 1.5px solid var(--soft-ink);
+  }
+
+  .key--frontier {
+    width: 22px;
+    height: 0;
+    border-radius: 0;
+    border-top: 1.5px dashed var(--dye);
+  }
+
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+
+  .chart {
+    margin: 0;
+    min-width: 0;
+  }
+
+  figcaption {
+    margin-bottom: 0.4rem;
+    font-weight: 600;
+  }
+
+  .plot {
+    display: block;
+    width: 100%;
+    height: auto;
+    color: var(--ink);
+    /* WebKit paints stray copies of SVG text that inherits the page's
+       sub-pixel print shadow. Chart labels stay flat. */
+    text-shadow: none;
+  }
+
+  .plot--narrow {
+    display: none;
+  }
+
+  .chart-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 1rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--soft-ink);
+  }
+
+  .key-n {
+    margin-right: 0.35rem;
+    font-weight: 650;
+    color: var(--ink);
+  }
+
+  .plot text {
+    fill: currentColor;
+    font-family: inherit;
+    font-size: 12px;
+  }
+
+  .grid {
+    stroke: currentColor;
+    opacity: 0.15;
+  }
+
+  .frontier {
+    fill: none;
+    stroke: var(--dye);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+
+  .leader {
+    stroke: var(--soft-ink);
+    stroke-width: 0.8;
+    opacity: 0.8;
+  }
+
+  .plot .model-label {
+    paint-order: stroke;
+    stroke: var(--card);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+
+  .plot .offered-label {
+    fill: var(--dye);
+    font-weight: 650;
+  }
+
+  .plot .key-label {
+    font-weight: 650;
+  }
+
+  circle {
+    fill: var(--card);
+    stroke: var(--soft-ink);
+    stroke-width: 1.5;
+  }
+
+  circle.offered {
+    fill: var(--dye);
+    stroke: var(--dye);
+  }
+
+  .method {
+    display: grid;
+    gap: 0.6rem;
+    max-width: 52rem;
+    color: var(--soft-ink);
+  }
+
+  .out {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    justify-self: start;
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  .values summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    margin-top: var(--space-2);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 0.5em 0.7em 0.5em 0;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line);
+  }
+
+  thead th {
+    color: var(--soft-ink);
+    font-weight: 600;
+  }
+
+  td:nth-child(2),
+  td:nth-child(3) {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 60rem) {
+    .charts {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .chart {
+      max-width: 40rem;
+    }
+  }
+
+  @media (max-width: 34rem) {
+    .plot--wide {
+      display: none;
+    }
+
+    .plot--narrow {
+      display: block;
+    }
+  }
+</style>

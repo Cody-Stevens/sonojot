@@ -1,6 +1,6 @@
 [package]
 name = "sonojot"
-version = "0.27.1"
+version = "0.28.0"
 description = "Private local dictation and meetings"
 authors = ["Cody Stevens Studio"]
 license = "Apache-2.0"
@@ -81,6 +81,9 @@ libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
+# Core Audio process-tap description dictionaries and the TCC request block.
+core-foundation = "0.10"
+block2 = "0.6"
 coreaudio-rs = "0.11.3"
 whisper-rs = { version = "0.16.0", features = ["metal"] }
 security-framework = "3"

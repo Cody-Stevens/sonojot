@@ -7,6 +7,7 @@
   import { acceleration } from "../lib/acceleration.svelte";
   import { library } from "../lib/model-library.svelte";
   import { profileLabel } from "../lib/setup-profiles";
+  import { activePunctuation } from "../lib/punctuation";
   import {
     modelRoles,
     shortDeviceLabel,
@@ -43,9 +44,12 @@
       runtime.backend !== "cpu" &&
       (runtime.loading || (runtime.gpuLayers ?? 0) > 0),
   );
+  const punctuation = $derived(activePunctuation(library.data?.models ?? []));
   const summary = $derived(
     rulesOnly
-      ? "Cleanup · Formatting and vocabulary · no AI model"
+      ? punctuation
+        ? `Cleanup · ${punctuation.name} with your vocabulary · CPU`
+        : "Cleanup · Formatting and vocabulary · no AI model"
       : role === "notes" && !ai.data
         ? ai.busy
           ? "Notes · Checking model route…"

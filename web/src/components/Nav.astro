@@ -6,6 +6,7 @@ import { site } from "../site.config.mjs";
 const links = [
   { href: "/#dictation", label: "Dictation" },
   { href: "/#meetings", label: "Meetings" },
+  { href: "/#models", label: "Models" },
   { href: "/#install", label: "Install" },
 ];
 ---
@@ -180,7 +181,7 @@ const links = [
   }
 
   .strip-cta {
-    padding: 0.55em 1.05em 0.6em;
+    padding: calc(0.55em - 0.5px) calc(1.05em - 0.5px) calc(0.6em - 0.5px);
     font-size: 0.92rem;
     border-radius: 12px 10px 11px 13px;
   }

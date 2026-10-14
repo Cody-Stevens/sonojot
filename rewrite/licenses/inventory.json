@@ -2615,7 +2615,7 @@
         },
         {
           "path": "src/lib/meeting-source-copy.json",
-          "sha256": "88754e74b1cd2c7cdce842b0d787ebe8232efcf0dcfd901ff663f45ccc74cbf0"
+          "sha256": "e82703dcb194929d0b35d5aad5e18f9330e8a10b686a699a53e9672ab1af9ba0"
         }
       ],
       "id": "asset:compliance-copy",
@@ -41483,11 +41483,11 @@
     "licenses/sources/selectors-0.36.1.crate": "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c",
     "licenses/supplements.json": "5deea2be184681747ecd759041c58469c106e601aba6b5da3544ca501de8e89b",
     "licenses/upstream-evidence.json": "4ae4296502aeddbfd767d9528750f8ba70969343afa1f9afb44fb40913f756eb",
-    "package-lock.json": "0ffdf50e9286d79cdd313e00cb29ba6547f315f4aaf1d2486186275ba8cbcd24",
-    "package.json": "59bc8eb8e3b95ede52060a91d2fbaa0728824e9b7569afdc3238ba42ef573599",
+    "package-lock.json": "32de5e7a73a0392d3f04b7420a1c55e6251cb14bb45bd0e50a19d60874a03edd",
+    "package.json": "1e17db0570c6827a3630644bf747c2108fc2c64714674f5387633177c4702886",
     "scripts/generate_notices.py": "75893e4e28e00b97dedec538c35a880fed6157491938c8a2801b75478a006fda",
-    "src-tauri/Cargo.lock": "29e7e03700044a7c8e1d144c524eb3f6c480717d205e5a33f0915e517d59a1b9",
-    "src-tauri/Cargo.toml": "a378f984349f16e5dfb551935a31ed607e3bb19d5c3313fd069c6624556e3f15",
+    "src-tauri/Cargo.lock": "990c48c37caa6077c1eaf6ef66b3ec93dc5baf7484e1b88f639e563564b8c56d",
+    "src-tauri/Cargo.toml": "c3d4b5b11f0283115397dc286b91f60d055f6572d9802a7137e0efeeed7dbe92",
     "src-tauri/assets/model-identities.json": "97a174c8b3f0eb815a8b1ceedce3c63c322f099cb1dc1dc1bb8ccb867528fde0",
     "src-tauri/build.rs": "33126a7f3f8ac762d07234d15f37f837ee82804763bb74f5141a8dcdc6294ca0",
     "src-tauri/licenses/nnnoiseless-0.5.2.txt": "6550b9b34d95e28ea8f7c16bf3c08c4b6bee81bef5d62c9c1ea12ff1aaea032b",
@@ -41496,7 +41496,7 @@
     "src-tauri/src/punctuation_lowercase.txt": "b2045a2460991c60ec730bc627113368929828e274dc3eee272babbea78533de",
     "src-tauri/src/written_form/PROVENANCE.md": "19dcf78ec05e2119bcaea79eb6120cc4f433949ff8c413a305dab24964ace742",
     "src-tauri/src/written_form/models.json": "ee30a67479540b2df24846ddc8aa82fb5315a5991ab0b2bcd92fa429b158e111",
-    "src-tauri/tauri.conf.json": "e99947675a0d22cc41ad9d733ee9e20923d9bd97fabeb7f9c7e43e5e2e48ef34",
+    "src-tauri/tauri.conf.json": "595ee554046d4015108cf5f5fa8134dead70a4e434a3b51d050fb9a428d5ff33",
     "src-tauri/windows/README.md": "6dc7e3e800ffa00d5432105095ca7076509fe3cc8f14668b7a95d68451156355",
     "src-tauri/windows/brand-hooks.nsh": "094d10f7517eed1b14452520383144403cf41454ae4c94c3795d39909c22a064",
     "src-tauri/windows/installer.nsi": "b1787de3ee71f5a7c5a1616355412ab30bdbe2ef8d82dab882baa4ec4835e891",
@@ -41571,7 +41571,7 @@
     "src/brand/material/paper-stock-seamless.png": "f1acf4bf41a6eb0c5ddcb5a7f8e572860ed7cf0839dc1d5584abd8ad6171728f",
     "src/brand/material/paper-stock.jpg": "28169227ee090501ca700ebf6997dbdb413601095589c159bace9c6700255bf2",
     "src/brand/recommendations.json": "d572b4ca3d8610fecc10cb4e03e74c0ff09b5d3fcd0cc81adace1311be9426bb",
-    "src/lib/meeting-source-copy.json": "88754e74b1cd2c7cdce842b0d787ebe8232efcf0dcfd901ff663f45ccc74cbf0",
+    "src/lib/meeting-source-copy.json": "e82703dcb194929d0b35d5aad5e18f9330e8a10b686a699a53e9672ab1af9ba0",
     "vite.config.ts": "bfe99c685b118feff7fbcea180be975e06dbbcdad62d4f5c5f547be08206b35b"
   },
   "methodology": {

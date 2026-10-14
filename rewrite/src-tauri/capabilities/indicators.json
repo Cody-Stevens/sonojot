@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "indicators",
-  "description": "Status and controller windows: events and window information only; no file pickers",
-  "windows": ["overlay", "cursor"],
+  "description": "Status, controller and macOS permission helper windows: events and window information only; no file pickers",
+  "windows": ["overlay", "cursor", "permission-helper"],
   "permissions": ["core:default"]
 }

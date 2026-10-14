@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./src/tests",
-  testMatch: "onboarding-profiles.spec.js",
+  testMatch: ["onboarding-profiles.spec.js", "onboarding-fit.spec.js"],
   outputDir: "../artifacts/onboarding/test-results",
   workers: 1,
   timeout: 30000,

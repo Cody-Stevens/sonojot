@@ -31,6 +31,9 @@
   --space-5: 3rem;
   --space-6: 4.5rem;
 
+  /* Light caught on the hairline edge of dyed stock (see .stock below). */
+  --ink-edge-light: #f7f4dc40;
+
   --motion-control: 140ms;
   --motion-paper: 200ms;
   --motion-lay: 620ms;
@@ -188,6 +191,20 @@ body {
   background-color: var(--card);
 }
 
+/*
+ * WebKit (Safari) clips each background layer of a rounded box on its own. A
+ * blended grain layer then leaks its raw cream colour through the anti-aliased
+ * curve: a pale rim on every dark corner. Any border makes WebKit paint the
+ * whole background into one layer and clip it once, so every rounded piece
+ * with blended stock carries a transparent hairline. The stock runs under it.
+ */
+.stock,
+.dyed,
+.action {
+  border: 0.5px solid transparent;
+  background-origin: border-box;
+}
+
 /* ---- Mounted pieces ------------------------------------------------------ */
 .sheet {
   border-radius: 28px 30px 27px 29px;
@@ -260,6 +277,7 @@ body {
 
 /* Dyed stock: a piece dyed through, not a coloured fill. */
 .dyed {
+  border-color: var(--ink-edge-light) transparent transparent var(--ink-edge-light);
   background-color: var(--dye);
   background-image: var(--dye-layers);
   background-size: var(--dye-size);
@@ -380,8 +398,8 @@ img {
   align-items: center;
   justify-content: center;
   gap: 0.55em;
-  padding: 0.72em 1.25em 0.78em;
-  border: 0;
+  /* The padding gives back the hairline border declared with the stock. */
+  padding: calc(0.72em - 0.5px) calc(1.25em - 0.5px) calc(0.78em - 0.5px);
   border-radius: 15px 13px 14px 16px;
   font-size: 1rem;
   font-weight: 550;
@@ -393,6 +411,8 @@ img {
 }
 
 .action--ink {
+  /* The lit hairline keeps the highlight at the very edge, where it was. */
+  border-color: var(--ink-edge-light) transparent transparent var(--ink-edge-light);
   background-color: var(--dye);
   background-image: var(--dye-layers);
   background-size: var(--dye-size);
@@ -415,6 +435,7 @@ img {
 }
 
 .action--ink:active {
+  border-color: transparent;
   transform: translateY(2px);
   box-shadow:
     inset 0 1px 3px #0b110a99,

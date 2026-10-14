@@ -12,7 +12,11 @@
   import {
     meetingSourceWarning,
     prepareMeetingStart,
+    recordingSystemNotice,
+    systemAudioFixable,
+    systemAudioState,
   } from "../lib/meeting-source";
+  import { fixSystemAudio, watchSystemAudio } from "../lib/system-audio.svelte";
   import { call, chooseExport, chooseMedia } from "../lib/api";
   import MeetingAudioExport from "../components/MeetingAudioExport.svelte";
   import ModelSummary from "../components/ModelSummary.svelte";
@@ -86,6 +90,22 @@
     source = app.snapshot.settings.meetingSource;
   });
   const sourceWarning = $derived(meetingSourceWarning(source));
+  const systemStatus = $derived(app.snapshot.capabilities.systemAudioStatus);
+  const systemState = $derived(
+    systemAudioState(systemStatus, app.snapshot.capabilities.platform),
+  );
+  const systemNotice = $derived(
+    recordingSystemNotice(app.snapshot.meetingSystemAudio),
+  );
+  let systemFixError = $state("");
+  async function fixSystem(): Promise<void> {
+    systemFixError = "";
+    try {
+      await fixSystemAudio();
+    } catch (failure: unknown) {
+      systemFixError = failure instanceof Error ? failure.message : String(failure);
+    }
+  }
   let startRequested = $state(false);
   let title = $state("");
   let transcript = $state("");
@@ -346,6 +366,7 @@
   onMount(() => {
     if (app.native) void refresh(true);
     void loadAiSettings();
+    const stopWatching = watchSystemAudio();
     const interval = window.setInterval(() => {
       if (app.snapshot.meetingRecording) now = Date.now();
     }, 1000);
@@ -370,6 +391,7 @@
     };
     window.addEventListener("focus", onFocus);
     return () => {
+      stopWatching();
       window.clearInterval(interval);
       window.clearInterval(recovery);
       window.removeEventListener("focus", onFocus);
@@ -500,8 +522,9 @@
     try {
       if (!(await canLeave())) return;
       const detail = await app.perform("meeting-record", async () => {
-        const recordingSource = await prepareMeetingStart(
+        const plan = await prepareMeetingStart(
           app.snapshot.settings,
+          app.snapshot.capabilities.systemAudioStatus,
           (prompt) => app.chooseConfirmation(prompt),
           async (patch) => {
             app.apply(
@@ -515,10 +538,15 @@
             !app.snapshot.meetingRecording &&
             ["idle", "error"].includes(app.snapshot.state),
         );
-        if (recordingSource === null) return;
+        if (plan === null) return;
+        if (plan.action === "fix") {
+          // Nothing records yet; the user starts again once it is fixed.
+          await fixSystemAudio();
+          return;
+        }
         return call("start_meeting", {
           title: newTitle.trim(),
-          source: recordingSource,
+          source: plan.source,
         });
       });
       if (detail) {
@@ -595,6 +623,9 @@
     source = value;
     await app.saveSettings({ meetingSource: value });
     source = app.snapshot.settings.meetingSource;
+    // Choosing system audio without permission offers the fix right away.
+    if (value !== "microphone" && systemAudioFixable(systemStatus))
+      await fixSystem();
   }
   function sourceName(value: string): string {
     return value === "both"
@@ -791,6 +822,20 @@
   >
 {/snippet}
 
+{#snippet systemAlert()}
+  {#if systemNotice}
+    <div class="system-audio-alert" role="alert">
+      <p data-text-surface="flat">{systemNotice.text}</p>
+      {#if systemNotice.fix}<button
+          class="button"
+          disabled={!app.native}
+          onclick={fixSystem}>{systemNotice.fix}</button
+        >{/if}
+    </div>
+    {#if systemFixError}<p class="field-help" role="alert">{systemFixError}</p>{/if}
+  {/if}
+{/snippet}
+
 {#if !selected}
   <div class="segments" role="group" aria-label="Meetings">
     <button
@@ -808,7 +853,8 @@
 {#if app.snapshot.meetingRecording && selected?.id !== app.snapshot.activeMeetingId}
   <Card title="Meeting recording">
     <Meter level={app.snapshot.audioLevel} active />
-    {#if app.snapshot.meetingSourceStatus.length}
+    {@render systemAlert()}
+    {#if app.snapshot.meetingSourceStatus.length && !systemNotice}
       <p
         class="field-help"
         data-text-surface="flat"
@@ -965,7 +1011,8 @@
       <p class="field-help" data-text-surface="flat">
         Recording {sourceName(selected.source).toLowerCase()}.
       </p>
-      {#if app.snapshot.meetingSourceStatus.length}
+      {@render systemAlert()}
+      {#if app.snapshot.meetingSourceStatus.length && !systemNotice}
         <p
           class="field-help"
           data-text-surface="flat"
@@ -1442,8 +1489,7 @@
               app.snapshot.meetingRecording ||
               app.busy("meeting-record") ||
               app.busy("settings") ||
-              (choice.id !== "microphone" &&
-                !app.snapshot.capabilities.systemAudio)}
+              (choice.id !== "microphone" && systemStatus === "unsupported")}
             onclick={() =>
               changeSource(
                 choice.id === "both"
@@ -1462,12 +1508,22 @@
         >
           {sourceWarning}
         </p>{/if}
-      {#if !app.snapshot.capabilities.systemAudio}<p
-          class="field-help"
-          data-text-surface="flat"
-        >
-          System audio is unavailable on this device. Choose Microphone only.
-        </p>{/if}
+      {#if systemStatus !== "ready"}
+        <div class="system-audio-setup" role="status" aria-label="System audio">
+          <p class="field-help" data-text-surface="flat">
+            <strong>System audio: {systemState.label}.</strong>
+            {systemState.detail}
+          </p>
+          {#if systemState.action}<button
+              class="button"
+              disabled={!app.native || app.busy("settings")}
+              onclick={fixSystem}>{systemState.action}</button
+            >{/if}
+        </div>
+        {#if systemFixError}<p class="field-help" role="alert">
+            {systemFixError}
+          </p>{/if}
+      {/if}
       <label class="field-label spaced" for="new-meeting-title"
         >Title <span class="field-help" data-text-surface="flat"
           >(optional)</span
@@ -1489,8 +1545,7 @@
             dictating ||
             app.busy("meeting-record") ||
             startRequested ||
-            app.busy("settings") ||
-            (source !== "microphone" && !app.snapshot.capabilities.systemAudio)}
+            app.busy("settings")}
           onclick={start}
         >
           <Icon name="microphone" size={21} />{app.busy("meeting-record")
@@ -1726,6 +1781,27 @@
   }
   .meeting-sources button {
     white-space: normal;
+  }
+  .system-audio-setup,
+  .system-audio-alert {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin: 9px 0;
+  }
+  .system-audio-setup p,
+  .system-audio-alert p {
+    flex: 1;
+    margin: 0;
+  }
+  .system-audio-setup .button,
+  .system-audio-alert .button {
+    flex: none;
+  }
+  /* The other side going missing is printed in the danger ink, not as help. */
+  .system-audio-alert p {
+    color: var(--danger);
+    font-weight: 620;
   }
   @media (max-width: 720px) {
     .meeting-export-grid {

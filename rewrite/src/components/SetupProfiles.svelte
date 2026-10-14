@@ -12,6 +12,8 @@
   import { profiles } from "../lib/setup-profiles.svelte";
   import {
     PUNCTUATION_MODEL,
+    activePunctuation,
+    defaultCleanupName,
     profileIncludesPunctuation,
   } from "../lib/punctuation";
   import ProfileRecommendation from "./ProfileRecommendation.svelte";
@@ -41,6 +43,19 @@
   );
   const punctuation = $derived(
     models.find((model) => model.id === PUNCTUATION_MODEL),
+  );
+  // Default Cleanup is rules, vocabulary and the punctuation model.
+  const cleanupName = $derived(defaultCleanupName(models));
+  const cleanupStatus = $derived(
+    punctuation && checking(punctuation)
+      ? "Checking…"
+      : activePunctuation(models)
+        ? "Installed"
+        : !punctuation?.installable
+          ? ""
+          : includePunctuation
+            ? "Download included"
+            : "Not installed",
   );
   const missing = $derived(
     selection
@@ -124,13 +139,14 @@
           data-text-surface="flat"
         >
           {role.title}: {id === "local-rules"
-            ? "Local rules"
+            ? cleanupName
             : (model?.name ??
               app.snapshot.models.find((item) => item.id === id)?.name ??
               (library.data
                 ? id || "No model selected"
                 : "Reading model details…"))}
-          {#if model && checking(model)}
+          {#if id === "local-rules" && cleanupStatus}
+            · {cleanupStatus}{:else if model && checking(model)}
             · Checking…{/if}
         </p>
       {/each}
@@ -189,21 +205,6 @@
     profile={selected === "custom" ? "balanced" : selected}
   />
 </details>
-<div role="group" aria-label="Punctuation" class="profile-summary">
-  <p data-text-surface="flat">
-    Punctuation: {punctuation?.name ?? "SonoJot Punctuation v2"} · CPU
-    {#if punctuation && checking(punctuation)}
-      · Checking…
-    {:else if punctuation && installed(punctuation)}
-      · Installed
-    {:else if punctuation && !punctuation.installable}
-      · Unavailable
-    {:else if includePunctuation}
-      · Download included
-    {:else}
-      · Not installed{/if}
-  </p>
-</div>
 
 <style>
   /* Same recessed paper track as Dictation's cleanup-mode segments. */

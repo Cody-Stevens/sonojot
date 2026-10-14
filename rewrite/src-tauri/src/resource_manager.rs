@@ -869,7 +869,7 @@ pub fn estimated_ram_interval(id: &str) -> Option<(u64, u64)> {
         // variance; the planner's shared working allowance remains separate.
         // See evaluation/BENCHMARK-MAC-METAL-2026-09-28.md.
         crate::llama_asr::METAL_Q8_MODEL_ID => (2_800_000_000, 3600 * MIB),
-        crate::llama_asr::METAL_Q4_MODEL_ID => (2_360_000_000, 3100 * MIB),
+        crate::llama_asr::METAL_Q4_MODEL_ID => (2_360_000_000, 3000 * MIB),
         "whisper-tiny" => (300 * MIB, 600 * MIB),
         "whisper-tiny.en" => (530_000_000, 700 * MIB),
         "whisper-base" | "whisper-base.en" => (450 * MIB, 850 * MIB),
@@ -979,7 +979,7 @@ pub fn estimate_basis(id: &str) -> String {
             let (quantization, rss, worker_rss, upper_mib) = if id == crate::llama_asr::METAL_Q8_MODEL_ID {
                 ("Q8_0", "2.8", "2.91", 3600)
             } else {
-                ("Q4_K_M", "2.36", "2.35", 3100)
+                ("Q4_K_M", "2.36", "2.35", 3000)
             };
             format!("Observed 2026-09-28 on one M1 Pro with 16 GiB unified memory: {quantization} decoder plus Q8_0 audio projector, {rss} GB server RSS (decimal). App-bundled llama-server b10964 mac-arm64 Metal, context 2048, load-mode none, -ngl 999, full 12-clip corpus with explicit English. Later file and real-time app-worker runs peaked at {worker_rss} GB combined evaluator, worker and server RSS, sampled every 100 ms. The {upper_mib} MiB planning upper bound adds load/decode headroom. Notes and the planner's 256 MiB working allowance are separate. CPU and GPU share RAM; no separate VRAM is added. These are single-machine observations, not guarantees for other Macs. See evaluation/BENCHMARK-MAC-METAL-2026-09-28.md.")
         },
@@ -1017,7 +1017,7 @@ pub fn estimate_evidence(id: &str) -> &'static str {
         crate::llama_asr::CPU_MODEL_ID => "Observed 2026-09-28 app worker (runs/windows-2026/integrated2): 2.14 GB host peak. Bounds widened from one machine.",
         crate::llama_asr::MODEL_ID => "Observed 2026-09-28 app worker (runs/windows-2026/integrated2): 1.0 GB host peak; +3.43 GB device-use delta offline. Bounds widened from one machine.",
         crate::llama_asr::METAL_Q8_MODEL_ID => "Observed 2026-09-28 M1 Pro 16 GiB, b10964 Metal: 2.8 GB direct-server RSS; later evaluator + worker + server peak RSS 2.91 GB. Upper bound adds headroom; one machine. See evaluation/BENCHMARK-MAC-METAL-2026-09-28.md.",
-        crate::llama_asr::METAL_Q4_MODEL_ID => "Observed 2026-09-28 M1 Pro 16 GiB, b10964 Metal: 2.36 GB direct-server RSS; later evaluator + worker + server peak RSS 2.35 GB. Upper bound adds headroom; one machine. See evaluation/BENCHMARK-MAC-METAL-2026-09-28.md.",
+        crate::llama_asr::METAL_Q4_MODEL_ID => "Observed 2026-09-28 M1 Pro 16 GiB, b10964 Metal: 2.36 GB direct-server RSS; later evaluator + worker + server peak RSS 2.35 GB; 2026-10-13 M4 16 GiB, app-pinned Metal llama-server: 2.16 GB peak RSS. Upper bound adds about 30% headroom. See evaluation/BENCHMARK-MAC-METAL-2026-09-28.md.",
         "local-rules" | "off" | "" => "Host rules; no model rating applies.",
         "whisper-tiny-fp32-cuda" => "Provisional 2026-09-16; VRAM widens isolated RTX 5070 observation (+705 MiB decode, 1822->2527 MiB, public audio, gpu-asr-evidence.json); host RAM provisional",
         "qwen3-asr-1.7b-fp16-cuda" => "Observed 2026-09-17 app worker (native-qwen.json): 10.51 GB sampled private host peak, 2.60 GB working set, +7.56 GB device-use delta. Bounds are estimates widened from this single run.",
@@ -3036,7 +3036,7 @@ pub(crate) mod tests {
     fn metal_qwen_estimates_keep_server_evidence_and_one_unified_memory_pool() {
         for (id, rss, upper_mib) in [
             (crate::llama_asr::METAL_Q8_MODEL_ID, 2_800_000_000, 3600),
-            (crate::llama_asr::METAL_Q4_MODEL_ID, 2_360_000_000, 3100),
+            (crate::llama_asr::METAL_Q4_MODEL_ID, 2_360_000_000, 3000),
         ] {
             let speech = estimated_ram_interval(id).unwrap();
             assert_eq!(speech, (rss, upper_mib * MIB));

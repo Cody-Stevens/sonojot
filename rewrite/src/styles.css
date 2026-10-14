@@ -1436,6 +1436,8 @@ kbd {
 }
 .confirmation p {
   font-size: 18px;
+  /* Reminder, warning and fix lines are separate paragraphs. */
+  white-space: pre-line;
 }
 .confirmation .actions {
   justify-content: flex-end;
@@ -2253,6 +2255,19 @@ kbd {
     background-position: top left;
     background-repeat: repeat;
     background-blend-mode: soft-light;
+  }
+  /* WebKit clips each background layer of a rounded box on its own, so the
+     soft-light grain leaked a pale rim around the curves. Any border makes it
+     paint the whole background as one layer and clip it once. The hairline
+     sits in negative margin, so the content box and the flow do not move. */
+  .studio[data-theme="slate"][data-material="on"]
+    :is(.sheet, .page-frame, .paper-card) {
+    border-inline: 0.5px solid transparent;
+    margin-inline: -0.5px;
+    background-origin: border-box;
+  }
+  .studio[data-theme="slate"][data-material="on"] .sheet {
+    width: calc(100% + 1px);
   }
   .studio[data-theme="slate"][data-material="on"] .sheet,
   .studio[data-theme="slate"][data-material="on"] .tab-sheet {

@@ -685,8 +685,8 @@ fn punctuation_entry_with_status(models_root: &Path, model: crate::punctuation_m
         older: false,
         deprecated: false,
         disk_bytes: package,
-        ram_min_bytes: Some(400_000_000),
-        ram_max_bytes: Some(400_000_000),
+        ram_min_bytes: Some(crate::punctuation_model::RAM_ESTIMATE_BYTES),
+        ram_max_bytes: Some(crate::punctuation_model::RAM_ESTIMATE_BYTES),
         vram_min_bytes: Some(0),
         vram_max_bytes: Some(0),
         memory_basis: "CPU only. Estimated resident memory: about 400 MB; model and tokenizer download about 303 MB, plus the shared runtime when missing.".into(),
@@ -2551,7 +2551,7 @@ fn runtime_snapshot(runtime: &crate::app::Runtime) -> Result<(PathBuf, Settings)
     Ok((runtime.models_root.clone(), snapshot.settings))
 }
 
-fn require_idle_snapshot(snapshot: &crate::domain::Snapshot) -> Result<(), String> {
+pub(crate) fn require_idle_snapshot(snapshot: &crate::domain::Snapshot) -> Result<(), String> {
     if !matches!(
         snapshot.state,
         crate::domain::AppState::Idle | crate::domain::AppState::Error
@@ -3406,8 +3406,12 @@ mod tests {
             if entry.id == "moonshine-medium" {
                 assert!(entry.used_by.contains(&"asr".to_owned()));
             }
-            if entry.id == "lfm2.5-1.2b" {
+            // Default Cleanup is rules plus punctuation; no generative model.
+            if entry.id == "local-rules" {
                 assert!(entry.used_by.contains(&"cleanup".to_owned()));
+            }
+            if entry.id == "lfm2.5-1.2b" {
+                assert!(!entry.used_by.contains(&"cleanup".to_owned()));
             }
         }
         // Contract field presence (serde camelCase).

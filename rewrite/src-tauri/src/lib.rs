@@ -1,4 +1,5 @@
 pub mod acceleration;
+mod permissions;
 mod ai;
 mod ai_catalog;
 mod ai_commands;
@@ -29,6 +30,8 @@ mod model_licenses;
 mod legal_links;
 mod model_verification;
 mod mac_speech;
+#[cfg(target_os = "macos")]
+mod mac_paste;
 mod optional_asr;
 mod optional_llm;
 pub mod recognition;
@@ -63,6 +66,7 @@ pub mod speech;
 pub mod store;
 pub mod structured_clean;
 pub mod system_audio;
+pub mod system_audio_commands;
 mod menu_panel;
 mod windows;
 mod updater;
@@ -121,6 +125,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             onboarding::begin_onboarding,
             onboarding::confirm_onboarding_profile,
+            onboarding::queue_onboarding_download,
             onboarding::finish_onboarding,
             onboarding::onboarding_microphone,
             onboarding::open_permission_settings,
@@ -174,6 +179,7 @@ pub fn run() {
             commands::copy_smart_original,
             commands::copy_history_pre_model,
             commands::screen_tab_meeting,
+            system_audio_commands::system_audio_status,
             commands::show_page,
             commands::copy_text,
             commands::list_meetings,
@@ -205,7 +211,10 @@ pub fn run() {
             commands::copy_history,
             commands::open_path,
             commands::open_punctuation_model_page,
-            commands::get_diagnostics
+            commands::get_diagnostics,
+            permissions::permission_status,
+            permissions::permission_assistant,
+            permissions::permission_drag
         ])
         .setup(move |app| {
             let runtime = Runtime::create(app.handle()).map_err(std::io::Error::other)?;
@@ -221,6 +230,8 @@ pub fn run() {
                 runtime.report(app.handle(), error);
             }
             app.manage(runtime.clone());
+            // macOS: remember the app in use before a menu bar click activates SonoJot.
+            platform::observe_app_activations();
             meeting_ai::start_automatic_titles(&runtime, app.handle());
             updater::start_scheduler(&runtime, app.handle());
             let verification_runtime = Arc::downgrade(&runtime);
@@ -486,6 +497,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let weak = Arc::downgrade(&runtime);
             tauri::async_runtime::spawn(async move {
+                let mut shown_problem: Option<recording::SystemProblem> = None;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                     let Some(runtime) = weak.upgrade() else { break };
@@ -497,10 +509,14 @@ pub fn run() {
                                 capture.level(),
                                 capture.stem_levels(),
                                 capture.source_status(),
+                                capture.system_problem(),
                             )
                         })
                     });
-                    if let Some((_, Some(_), _, _, _)) = recording {
+                    if recording.is_none() {
+                        shown_problem = None;
+                    }
+                    if let Some((_, Some(_), _, _, _, _)) = recording {
                         let r = runtime.clone();
                         let a = handle.clone();
                         let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -509,7 +525,7 @@ pub fn run() {
                             }
                         })
                         .await;
-                    } else if let Some((id, None, level, stems, source_status)) = recording {
+                    } else if let Some((id, None, level, stems, source_status, problem)) = recording {
                         if let Ok(mut snapshot) = runtime.snapshot.lock() {
                             if !snapshot.meeting_recording
                                 || snapshot.active_meeting_id.as_deref() != Some(id.as_str())
@@ -518,6 +534,8 @@ pub fn run() {
                             }
                             snapshot.audio_level = level;
                             snapshot.meeting_source_status = source_status;
+                            snapshot.meeting_system_audio =
+                                problem.map(|problem| problem.as_str().to_owned());
                             snapshot.meeting_levels = stems.map(|(microphone, system)| {
                                 domain::MeetingLevels {
                                     microphone: microphone.clamp(0.0, 1.0),
@@ -525,6 +543,16 @@ pub fn run() {
                                 }
                             });
                         }
+                        // The other side going missing is never a quiet status
+                        // line: reveal the screen tab or menu bar sheet at once.
+                        if problem.is_some() && problem != shown_problem {
+                            let r = runtime.clone();
+                            let a = handle.clone();
+                            tauri::async_runtime::spawn_blocking(move || {
+                                let _ = r.apply_tab(&a, true, Some(true), false, true);
+                            });
+                        }
+                        shown_problem = problem;
                         runtime.emit(&handle);
                     }
                 }

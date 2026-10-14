@@ -7,27 +7,27 @@ export const structuredMeetingTranscript =
 // Fixed Mac scenarios from profiles.rs; this fixture does not detect hardware
 // or evaluate recommendation policy. Availability and free memory are simulated.
 export function macProfileFixture(ramGiB = 16) {
-  if (![8, 16, 32].includes(ramGiB)) throw new Error("Choose an 8, 16 or 32 GiB Mac fixture.");
+  if (![8, 16, 24, 32].includes(ramGiB)) throw new Error("Choose an 8, 16, 24 or 32 GiB Mac fixture.");
   const MiB = 2 ** 20;
   const GiB = 2 ** 30;
   const small = "whisper-small-metal";
   const q8 = "qwen3-asr-1.7b-q8-metal";
   const q4 = "qwen3-asr-1.7b-q4-metal";
   const notesModel = "qwen3-4b-instruct-2507";
-  const reasons = ["Apple Silicon shares memory between speech and the rest of the app."];
-  if (ramGiB === 16) reasons.push("Whisper Small replaces Qwen speech because the memory plan with Qwen3 notes exceeds 45% of unified memory.");
-  if (ramGiB === 8) reasons.push(
-    "Whisper Small replaces Qwen speech because the memory plan with Qwen3 notes exceeds 45% of unified memory.",
-    "Even this selection may use more than 45% of RAM; close other apps or run models one at a time.",
-  );
+  const apple = "Apple Silicon shares memory between speech and the rest of the app.";
+  // Dictation (speech + punctuation + overhead) fits Qwen Q4 from about 7.9 GiB and Q8 from about 9.2 GiB;
+  // Notes is planned separately and only warns below about 11.2 GiB.
+  const tight = ramGiB === 8;
+  const notesWarning = tight
+    ? ["Notes may use more than 45% of unified memory while it runs; close other apps before processing notes."] : [];
   const lightNotesReason = "Qwen3 keeps meeting notes local under Apache-2.0.";
-  const selection = (asrModel) => ({ asrModel, cleanupModel: "local-rules", notesModel,
-    reasons: [...reasons, lightNotesReason] });
+  const selection = (asrModel, steps) => ({ asrModel, cleanupModel: "local-rules", notesModel,
+    reasons: [apple, ...(tight ? steps : []), ...notesWarning, lightNotesReason] });
   const libraryModels = [
     { id: q8, name: "Qwen3-ASR 1.7B (Q8 Metal)", diskBytes: 2520744288,
       ramMinBytes: 2_800_000_000, ramMaxBytes: 3600 * MiB, quantization: "Q8_0", rss: "2.8", workerRss: "2.91" },
     { id: q4, name: "Qwen3-ASR 1.7B (Q4 Metal)", diskBytes: 1638144896,
-      ramMinBytes: 2_360_000_000, ramMaxBytes: 3100 * MiB, quantization: "Q4_K_M", rss: "2.36", workerRss: "2.35" },
+      ramMinBytes: 2_360_000_000, ramMaxBytes: 3000 * MiB, quantization: "Q4_K_M", rss: "2.36", workerRss: "2.35" },
   ].map(({ rss, workerRss, ...model }) => ({
     ...model, kind: "asr", roles: ["asr"], family: "Qwen3-ASR", languages: ["Multilingual"], older: false,
     vramMinBytes: 0, vramMaxBytes: 0,
@@ -49,18 +49,18 @@ export function macProfileFixture(ramGiB = 16) {
   });
   return {
     settings: { setupProfile: null, asrModel: small, cleanupModel: "local-rules", notesModel },
-    capabilities: { platform: "macos", autoPaste: false, systemAudio: false },
+    capabilities: { platform: "macos", autoPaste: true, systemAudio: false },
     hardwareProfile: {
       hardware: { platform: "macos", appleSilicon: true, totalRamBytes: ramGiB * GiB,
         physicalCores: 8, logicalCores: 8, gpuName: null, gpuDriverVersion: null,
         gpuComputeCapability: null, totalVramBytes: null, cudaOk: false },
       recommendations: {
-        accurate: selection(ramGiB < 32 ? small : q8),
-        balanced: selection(ramGiB < 32 ? small : q4),
+        accurate: selection(tight ? q4 : q8,
+          ["Qwen Q4 replaces Q8 because dictation memory would exceed 45% of unified memory."]),
+        balanced: selection(q4, []),
         light: { asrModel: small, cleanupModel: "local-rules", notesModel,
-          reasons: [reasons[0], "Whisper Small starts quickly and uses the least speech memory on this Mac.",
-            ...(ramGiB === 8 ? ["Even this selection may use more than 45% of RAM; close other apps or run models one at a time."] : []),
-            lightNotesReason] },
+          reasons: [apple, "Whisper Small starts quickly and uses the least speech memory on this Mac.",
+            ...notesWarning, lightNotesReason] },
       },
     },
     libraryHardware: { unifiedMemory: true, totalRamBytes: ramGiB * GiB, availableRamBytes: ramGiB * GiB * 0.75,
@@ -85,6 +85,7 @@ export async function installDesktopFixture(page, options = {}) {
     let onboardingRequired = options.firstRun ?? options.settings?.setupProfile === null;
     let onboardingProfile = null;
     let microphoneActive = false;
+    let permissionAssistantOpen = false;
     let nextCallback = 1;
     const callbacks = new Map();
     // Deterministic slow native responses, released explicitly by the spec.
@@ -156,6 +157,7 @@ export async function installDesktopFixture(page, options = {}) {
         cursorIndicator: true,
         meetingSource: "both",
         meetingSourceMigrated: true,
+        systemAudioDefaultApplied: true,
         autoMeetingTitles: true,
         meetingSpeakerLabels: true,
         ...options.settings,
@@ -195,6 +197,7 @@ export async function installDesktopFixture(page, options = {}) {
         platform: "Isolated UI test host",
         ...options.capabilities,
       },
+      meetingSystemAudio: null,
       version: "0.22.0",
       update: {
         currentVersion: "0.22.0",
@@ -837,6 +840,15 @@ export async function installDesktopFixture(page, options = {}) {
     window.__testCompleteTranscription = (patch = {}) => completeTranscription?.(patch);
     let nextSession = 2;
     window.__testCalls = [];
+    // Mock-only system audio permission: status follows capabilities unless
+    // set; a request moves notDetermined to the scripted answer.
+    state.capabilities.systemAudioStatus ??= state.capabilities.systemAudio ? "ready" : "unsupported";
+    const publishSystemAudio = (status) => {
+      state.capabilities.systemAudioStatus = status;
+      state.capabilities.systemAudio = status === "ready";
+    };
+    window.__testSetSystemAudio = (status) => { publishSystemAudio(status); emit(); };
+    let systemAudioAssistantOpen = false;
     // Audio-export test controls (mock only): queued save-dialog results,
     // one-shot export failure, and extra meetings for selection-change cover.
     let dialogSaveQueue = [];
@@ -945,8 +957,18 @@ export async function installDesktopFixture(page, options = {}) {
             return null;
           case "plugin:event|unlisten":
             return null;
-          case "get_setup":
           case "install_media_support":
+            // Mock install: later setup reads report the converter as installed.
+            options.setup = { ...options.setup, mediaImport: { state: "installed", detail: null } };
+            return clone({
+              microphone: { state: "installed", detail: null },
+              speech: { state: "installed", detail: null },
+              shortcut: { state: "ready", detail: null },
+              cleanup: { state: "installed", detail: null },
+              modelsPath: "C:/Models",
+              ...options.setup,
+            });
+          case "get_setup":
           case "install_asr_model":
           case "uninstall_asr_model":
           case "install_text_model":
@@ -1001,8 +1023,39 @@ export async function installDesktopFixture(page, options = {}) {
             return { level: microphoneActive ? options.microphoneLevel ?? 0.12 : 0, active: microphoneActive };
           case "open_permission_settings":
             return null;
+          case "system_audio_status":
+            return state.capabilities.systemAudioStatus;
           case "onboarding_paste_permission":
             return state.capabilities.platform === "macos" ? "Accessibility permission is not granted." : null;
+          case "permission_status":
+          case "permission_assistant": {
+            if (args.kind === "system_audio") {
+              // Mirrors the system_audio PermissionSpec: an unanswered
+              // permission shows the macOS prompt; a denied one opens Settings.
+              const before = state.capabilities.systemAudioStatus;
+              if (command === "permission_assistant" && args.action === "open") {
+                if (before === "notDetermined" && options.systemAudioAnswer) {
+                  publishSystemAudio(options.systemAudioAnswer);
+                  emit();
+                }
+                systemAudioAssistantOpen = before === "denied";
+              } else if (command === "permission_assistant") systemAudioAssistantOpen = false;
+              const current = state.capabilities.systemAudioStatus;
+              return { kind: "system_audio", required: state.capabilities.platform === "macos",
+                granted: current === "ready" || current === "unsupported",
+                assistantOpen: systemAudioAssistantOpen, title: "Allow SonoJot to record system audio",
+                body: "Switch SonoJot on under System Audio Recording Only. If it isn't there, drag this icon into that list.",
+                staleHint: "Already on? Select SonoJot, remove it with −, then drag this icon in again." };
+            }
+            if (command === "permission_assistant") permissionAssistantOpen = args.action === "open" && !options.permissionGranted;
+            const required = state.capabilities.platform === "macos";
+            return { kind: args.kind, required, granted: !required || Boolean(options.permissionGranted),
+              assistantOpen: permissionAssistantOpen, title: "Allow SonoJot to paste",
+              body: "Switch SonoJot on in the list. If it isn't there, drag this icon into the list.",
+              staleHint: "Already on? Select SonoJot, remove it with −, then drag this icon in again." };
+          }
+          case "permission_drag":
+            return null;
           case "apply_setup_profile": {
             if (profileApplyError) {
               const message = profileApplyError;
@@ -1235,6 +1288,15 @@ export async function installDesktopFixture(page, options = {}) {
             entry.downloadedBytes = Math.floor(entry.totalBytes / 2);
             return clone(library);
           }
+          case "queue_onboarding_download": {
+            // Mock of the setup queue: optional extras wait behind the profile.
+            const entry = library.models.find((item) => item.id === args.id);
+            if (!entry) throw new Error(`Unknown mock model: ${args.id}`);
+            if (!onboardingQueue.includes(args.id)) onboardingQueue.push(args.id);
+            if (!["installed", "ready", "unloaded"].includes(entry.state))
+              entry.state = library.models.some((item) => item.state === "downloading") ? "queued" : "downloading";
+            return clone(library);
+          }
           case "cancel_model_install": {
             const index = onboardingQueue.indexOf(args.id);
             if (index >= 0) onboardingQueue.splice(index, 1);
@@ -1424,11 +1486,29 @@ export async function installDesktopFixture(page, options = {}) {
             if (!state.settings.meetingConsentAcknowledged) {
               throw new Error("MEETING_CONSENT_REQUIRED: Review the recording reminder before starting a meeting.");
             }
+            // Mirrors system_audio::recording_source and the recorder's notice.
+            const status = state.capabilities.systemAudioStatus;
+            const saved = state.settings.meetingSource;
+            if (command === "start_meeting" && args.source !== saved) {
+              throw new Error("Meeting audio source changed. Review Record from before starting.");
+            }
+            if (saved === "system" && status === "unsupported") {
+              throw new Error("Recording system audio needs macOS 14.2 or later. Choose Microphone only in Meetings.");
+            }
+            const recorded = saved === "both" && status === "unsupported" ? "microphone" : saved;
+            state.meetingSystemAudio = recorded !== saved
+              ? "unsupported"
+              : recorded !== "microphone" && (status === "notDetermined" || status === "denied")
+                ? "permission"
+                : null;
+            state.meetingSourceStatus = state.meetingSystemAudio === "permission"
+              ? ["System audio is off. Allow it in System Settings."]
+              : [];
             const meeting = {
               ...clone(seed),
               id: "new-meeting",
               title: args.title || "Untitled meeting",
-              source: state.settings.meetingSource,
+              source: recorded,
               status: "recording",
               durationSeconds: 0,
               notes: "",
@@ -1453,6 +1533,8 @@ export async function installDesktopFixture(page, options = {}) {
             meeting.status = "ready";
             meeting.durationSeconds = 31;
             state.meetingsRevision += 1;
+            state.meetingSystemAudio = null;
+            state.meetingSourceStatus = [];
             state.meetingRecording = false;
             state.activeMeetingId = null;
             emit();

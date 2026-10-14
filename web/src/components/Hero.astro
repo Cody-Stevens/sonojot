@@ -305,8 +305,11 @@ const delivered = "Hey Sam, can you send me the beta installer before Thursday?"
   .display-frame {
     position: relative;
     padding: 4.75rem 1.5rem 1.7rem;
+    /* A hairline border keeps WebKit's grain inside the rounded edge; see paper.css. */
+    border: 0.5px solid transparent;
     border-radius: 20px 22px 21px 23px;
     background-color: var(--screen);
+    background-origin: border-box;
     background-image: var(--stock-layers);
     background-size: var(--stock-size);
     background-repeat: var(--stock-repeat);

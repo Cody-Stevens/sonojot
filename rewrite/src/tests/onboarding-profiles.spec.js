@@ -22,35 +22,69 @@ async function screenshot(page, name) {
   await page.screenshot({ path: fileURLToPath(new URL(`${name}.png`, directory)) });
 }
 
-test("first-run: seven screens, dwell, background downloads and finish", async ({ page }) => {
-  await open(page, { firstRun: true, modelPatches: { "sonojot-punct-v2": { state: "available", downloadedBytes: 0 } } });
+async function agree(page) {
+  await expect(page.getByRole("heading", { name: "Terms of Use", exact: true })).toBeVisible();
+  await page.getByRole("checkbox", { name: "I agree to the SonoJot Terms of Use" }).check();
+  await page.getByRole("button", { name: "Agree and continue", exact: true }).click();
+}
+const heading = (page, name) => expect(page.getByRole("heading", { name, exact: true, level: 1 })).toBeVisible();
+
+test("first-run: ten screens, dwell, background downloads, extras and finish", async ({ page }) => {
+  await open(page, { firstRun: true, modelPatches: { "sonojot-punct-v2": { state: "available", downloadedBytes: 0 } },
+    setup: { mediaImport: { state: "missing", detail: null } } });
   await expect(page.getByRole("heading", { name: "Welcome to SonoJot" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Main navigation" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  await expect(page.getByRole("progressbar", { name: "Setup step progress" })).toHaveAttribute("aria-valuetext", "Step 1 of 10");
   await screenshot(page, "01-welcome");
   await next(page);
-  await expect(page.getByRole("heading", { name: "Your microphone", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Agree and continue", exact: true })).toBeDisabled();
+  await agree(page);
+  await heading(page, "Your microphone");
   await dwell(page);
   await expect(page.getByRole("meter")).toHaveAttribute("aria-valuenow", /[1-9]/);
   await screenshot(page, "02-microphone");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   expect((await page.evaluate(() => window.__testOnboarding())).microphoneActive).toBe(false);
-  await screenshot(page, "03-dictation");
+  await heading(page, "Your shortcut");
+  await expect(page.getByRole("textbox", { name: "Keyboard shortcut" })).toBeVisible();
+  await screenshot(page, "03-shortcut");
+  await next(page);
+  await heading(page, "Dictation");
+  await expect(page.getByText("When you finish speaking, SonoJot pastes the text where your cursor is.")).toBeVisible();
+  await screenshot(page, "04-dictation");
   await next(page);
   await expect(page.getByRole("button", { name: "Balanced Recommended" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("group", { name: "Setup profile" }).getByRole("button")).toHaveCount(3);
   await expect(page.locator(".profile-memory")).not.toContainText(/benchmark|2026|b10964|576|CC BY|\.md/i);
-  await screenshot(page, "04-models");
+  await expect(page.getByText("Later, in Models, you can change these or add online OpenRouter models.")).toBeVisible();
+  await screenshot(page, "05-models");
   await next(page, "Use Balanced");
   expect((await page.evaluate(() => window.__testOnboarding().queue))[1]).toBe("sonojot-punct-v2");
   expect((await state(page)).settings.setupProfile).toBeNull();
-  await screenshot(page, "05-meetings");
+  await heading(page, "Meetings");
+  await expect(page.locator(".meetings-copy em.key")).toHaveCount(3);
+  await screenshot(page, "06-meetings");
   await next(page);
-  await screenshot(page, "06-sidebar");
+  await heading(page, "Meeting extras");
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Speaker labels" }).getByRole("status")).toHaveText("Queued. It downloads after your models.");
+  expect(await page.evaluate(() => window.__testOnboarding().queue)).toContain("nemotron-3-diarization");
+  expect(await calls(page, "start_model_install")).toHaveLength(0);
+  await screenshot(page, "07-extras");
+  await next(page);
+  await heading(page, "Where things are");
+  const notes = page.getByRole("list", { name: "Sidebar sections" });
+  await expect(notes.getByRole("listitem")).toHaveCount(9);
+  await expect(notes).toContainText("Models: Profiles, downloads and online models");
+  await expect(page.getByRole("navigation", { name: "Main navigation" })).toHaveCount(0);
+  await screenshot(page, "08-sidebar");
   await next(page);
   await expect(page.getByRole("heading", { name: "Ready", exact: true })).toBeVisible();
+  await expect(page.locator('[data-model-id="nemotron-3-diarization"]')).toContainText("Queued");
   await expect(page.locator('[data-model-id="sonojot-punct-v2"]')).toContainText("Queued");
-  await screenshot(page, "07-ready");
+  await screenshot(page, "09-ready");
   await next(page, "Go to SonoJot");
   await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
   expect((await state(page)).settings.setupProfile).toBe("balanced");
@@ -64,6 +98,7 @@ test("Mac denied microphone: permission action, timed confirmation and reduced m
   await page.setViewportSize({ width: 740, height: 540 });
   await open(page, { ...macProfileFixture(16), firstRun: true, microphoneError: "Microphone permission denied." }, "/?theme=slate");
   await next(page);
+  await agree(page);
   await expect(page.getByText("Microphone permission denied.", { exact: true })).toBeVisible();
   await dwell(page);
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
@@ -72,13 +107,34 @@ test("Mac denied microphone: permission action, timed confirmation and reduced m
   await dwell(page, 5100);
   await page.getByRole("button", { name: "It's working", exact: true }).click();
   await expect(page.getByText("Input detected. You can continue.", { exact: true })).toHaveCount(0);
+  // The denied state, with its error and three actions, still fits at the minimum size.
+  expect(await page.locator(".onboarding-content").evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeInViewport({ ratio: 1 });
   await screenshot(page, "mac-microphone-denied-slate");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("button", { name: "Open Accessibility settings", exact: true }).click();
-  expect((await calls(page, "open_permission_settings"))[1].args.kind).toBe("accessibility");
-  await expect(page.getByText(/Automatic paste is not implemented yet/)).toBeVisible();
+  await next(page);
+  await expect(page.getByText(/needs Accessibility access/)).toBeVisible();
+  await page.getByRole("button", { name: "Grant Accessibility", exact: true }).click();
+  expect((await calls(page, "permission_assistant"))[0].args).toEqual({ kind: "accessibility", action: "open" });
+  await expect(page.getByText(/drag the icon from the SonoJot helper/)).toBeVisible();
   await screenshot(page, "mac-dictation-slate");
   expect(await page.locator(".onboarding-content").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+test("Mac permission helper: drag icon, copy from the spec and the stale-entry hint", async ({ page }) => {
+  await page.setViewportSize({ width: 520, height: 150 });
+  for (const theme of ["fog", "slate"]) {
+    await open(page, { ...macProfileFixture(16) }, `/?view=permission&kind=accessibility&theme=${theme}`);
+    await expect(page.getByText("Allow SonoJot to paste")).toBeVisible();
+    await expect(page.getByRole("img", { name: /SonoJot app icon/ })).toHaveAttribute("draggable", "true");
+    await expect(page.getByText(/remove it with/)).toHaveCount(0);
+    await page.clock.runFor(6100);
+    await expect(page.getByText(/remove it with/)).toBeVisible();
+    expect(await page.locator(".helper-sheet").evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+    await screenshot(page, `mac-permission-helper-${theme}`);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    expect((await calls(page, "permission_assistant")).at(-1).args).toEqual({ kind: "accessibility", action: "close" });
+  }
 });
 
 test("completed Custom users see the app; an unchanged replay writes nothing", async ({ page }) => {
@@ -86,10 +142,14 @@ test("completed Custom users see the app; an unchanged replay writes nothing", a
   await expect(page.getByRole("heading", { name: "About", exact: true })).toBeVisible();
   const before = (await state(page)).settings;
   await page.getByRole("button", { name: "Take the tour again" }).click();
+  await next(page);
+  await next(page, "Agree and continue"); // already accepted: the tour keeps the box ticked
   await next(page); await next(page); await next(page);
-  await expect(page.getByRole("button", { name: "Keep my Custom models", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Custom Keep my models", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("group", { name: "Setup profile" }).getByRole("button")).toHaveCount(4);
+  expect(await page.locator(".onboarding-content").evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
   await next(page, "Keep my models");
-  await next(page); await next(page); await next(page, "Go to SonoJot");
+  await next(page); await next(page); await next(page); await next(page, "Go to SonoJot");
   expect((await state(page)).settings).toEqual(before);
   for (const command of ["save_settings", "confirm_onboarding_profile", "finish_onboarding", "start_model_install", "apply_setup_profile"]) {
     expect(await calls(page, command)).toHaveLength(0);
@@ -99,10 +159,12 @@ test("completed Custom users see the app; an unchanged replay writes nothing", a
 test("early close applies recommended defaults and queues v2 after an edited choice", async ({ page }) => {
   await open(page, { firstRun: true });
   await next(page);
+  await agree(page);
   await page.getByRole("combobox", { name: "Input device" }).selectOption("mic");
   await next(page);
   await page.getByRole("textbox", { name: "Keyboard shortcut" }).fill("Alt+Shift+D");
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await next(page);
   await next(page);
   await page.getByRole("button", { name: "Light", exact: true }).click();
   await next(page, "Use Light");
@@ -130,13 +192,15 @@ test("Models recommendation has three plain lines and no hidden evidence", async
 test("failed confirmation stays on Models and Back does not reapply choices", async ({ page }) => {
   await open(page, { firstRun: true, microphoneLevel: 0 });
   await next(page);
+  await agree(page);
   await dwell(page);
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await next(page);
+  await next(page, "Agree and continue");
   await dwell(page, 10100);
   await page.getByRole("button", { name: "It's working", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await next(page);
   await next(page);
   await page.evaluate(() => window.__testFailProfileApply("Settings could not be saved."));
   await next(page, "Use Balanced");

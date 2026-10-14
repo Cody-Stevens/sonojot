@@ -126,7 +126,9 @@ for (const profile of ["accurate", "balanced", "light"]) {
     await page.goto("/?page=setup");
     await expect(
       page.getByRole("group", { name: "Selected profile details" }),
-    ).toContainText("Cleanup: Local rules");
+    ).toContainText(
+      "Cleanup: SonoJot Punctuation v2 with your vocabulary · Installed",
+    );
     await expect(
       page.getByRole("switch", { name: "Experimental Smart cleanup" }),
     ).toHaveCount(0);

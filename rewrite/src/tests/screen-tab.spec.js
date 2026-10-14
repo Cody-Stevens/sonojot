@@ -186,6 +186,7 @@ async function screenTab(page, presentation) {
         startTabHidden: false,
         cursorIndicator: true,
         meetingSource: "both",
+        meetingConsentAcknowledged: true,
         meetingSpeakerLabels: true,
       },
       state: "idle",
@@ -212,12 +213,15 @@ async function screenTab(page, presentation) {
       capabilities: {
         autoPaste: true,
         systemAudio: true,
+        systemAudioStatus: "ready",
         globalShortcut: true,
         platform: "UI test only",
       },
       version: "0.10.1",
     };
-    const clone = (value) => structuredClone(value);
+    // Match Tauri's JSON boundary, including nested Svelte state proxies.
+    const clone = (value) =>
+      value === undefined ? undefined : JSON.parse(JSON.stringify(value));
     const emit = () => {
       state.revision++;
       callbacks.get(listeners.get("app-state"))?.({
@@ -240,6 +244,9 @@ async function screenTab(page, presentation) {
       audioPath: null,
       error: null,
     };
+    const systemAudioStatus = () =>
+      state.capabilities.systemAudioStatus ??
+      (state.capabilities.systemAudio ? "ready" : "unsupported");
     window.__tabCalls = [];
     window.__tabPush = (patch) => {
       Object.assign(state, clone(patch));
@@ -326,12 +333,28 @@ async function screenTab(page, presentation) {
           case "copy_text":
           case "copy_last_dictation":
             return null;
-          case "screen_tab_meeting":
+          case "system_audio_status":
+            return systemAudioStatus();
+          case "permission_status":
+          case "permission_assistant":
+            return { kind: args.kind, required: true,
+              granted: systemAudioStatus() === "ready", assistantOpen: false,
+              title: "", body: "", staleHint: "" };
+          case "screen_tab_meeting": {
+            // Mirrors the backend: a refused permission keeps the system side
+            // and the recorder reports it as missing.
             meeting.source = state.settings.meetingSource;
+            const status = systemAudioStatus();
+            state.meetingSystemAudio =
+              meeting.source !== "microphone" &&
+              (status === "notDetermined" || status === "denied")
+                ? "permission"
+                : null;
             state.meetingRecording = true;
             state.activeMeetingId = meeting.id;
             emit();
             return clone(meeting);
+          }
           case "stop_meeting":
             state.meetingRecording = false;
             emit();
@@ -633,7 +656,7 @@ for (const presentation of [undefined, "menubar"]) {
         .click();
       await expect(page.getByRole("alert")).toContainText(
         source === "microphone"
-          ? "the other people won't be in the recording"
+          ? "Other people on a Zoom, Teams or Meet call won't be in the recording"
           : "Your own voice won't be in the recording",
       );
       expect(
@@ -1066,4 +1089,91 @@ test("the menu bar sheet has no lip and stays open when the pointer leaves", asy
     window.__tabCalls.filter((call) => call.command === "set_screen_tab"),
   );
   expect(hidden.at(-1).args).toMatchObject({ visible: false, expanded: false });
+});
+
+for (const theme of ["fog", "slate"]) {
+  test(`a quick start without system audio records the microphone and shows the fix (${theme})`, async ({
+    page,
+  }) => {
+    await screenTab(page);
+    await page.evaluate(
+      (theme) =>
+        window.__tabPush({
+          settings: { ...window.__tabState().settings, theme },
+          capabilities: {
+            ...window.__tabState().capabilities,
+            systemAudio: false,
+            systemAudioStatus: "denied",
+          },
+          tabExpanded: true,
+        }),
+      theme,
+    );
+    await page
+      .getByRole("button", { name: "Start meeting", exact: true })
+      .click();
+    // Nothing waits on a fix: the meeting is already recording.
+    await expect(
+      page.getByRole("button", { name: "Stop meeting", exact: true }),
+    ).toBeEnabled();
+    const alert = page.getByRole("alert");
+    await expect(alert).toContainText(
+      "System audio is off. Other people on the call aren't being recorded.",
+    );
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({
+      path: `../artifacts/mac-audio-review/tab-recording-system-off-${theme}.png`,
+      clip: { x: 0, y: 0, width: 640, height: 110 },
+    });
+    await alert
+      .getByRole("button", { name: "Allow system audio", exact: true })
+      .click();
+    const calls = await page.evaluate(() => window.__tabCalls);
+    expect(calls).toContainEqual({
+      command: "permission_assistant",
+      args: { kind: "system_audio", action: "open" },
+    });
+    expect(
+      calls.filter((call) => call.command === "screen_tab_meeting"),
+    ).toHaveLength(1);
+  });
+}
+
+test("a microphone-only quick start without permission offers the fix, not both sides", async ({
+  page,
+}) => {
+  await screenTab(page);
+  await page.evaluate(() =>
+    window.__tabPush({
+      settings: { ...window.__tabState().settings, meetingSource: "microphone" },
+      capabilities: {
+        ...window.__tabState().capabilities,
+        systemAudio: false,
+        systemAudioStatus: "notDetermined",
+      },
+      tabExpanded: true,
+    }),
+  );
+  await page.getByRole("button", { name: "Start meeting", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Other people on a Zoom, Teams or Meet call won't be in the recording",
+  );
+  await expect(
+    page.getByRole("button", { name: "Record both sides", exact: true }),
+  ).toHaveCount(0);
+  await page.evaluate(() => document.fonts.ready);
+  await page.screenshot({
+    path: "../artifacts/mac-audio-review/tab-microphone-only-fix-fog.png",
+    clip: { x: 0, y: 0, width: 640, height: 90 },
+  });
+  await page
+    .getByRole("button", { name: "Fix system audio", exact: true })
+    .click();
+  const calls = await page.evaluate(() => window.__tabCalls);
+  expect(calls).toContainEqual({
+    command: "permission_assistant",
+    args: { kind: "system_audio", action: "open" },
+  });
+  expect(calls.some((call) => call.command === "screen_tab_meeting")).toBe(false);
+  expect(await page.evaluate(() => window.__tabState().meetingRecording)).toBe(false);
 });

@@ -110,19 +110,14 @@ for (const chosen of ["Accurate", "Balanced", "Light"]) {
       .getByRole("group", { name: "Setup profile", exact: true })
       .getByRole("button", { name: new RegExp(`^${chosen}`) })
       .click();
-    const row = page.getByRole("group", { name: "Punctuation", exact: true });
+    // Punctuation is the default Cleanup, shown on the Cleanup line.
+    const row = page.getByRole("group", { name: "Cleanup", exact: true });
     await expect(row).toContainText(
-      "SonoJot Punctuation v2 · CPU · Download included",
+      "Cleanup: SonoJot Punctuation v2 with your vocabulary · Download included",
     );
-    await expect(row).toContainText(help);
     await expect(page.locator(".profile-action")).toContainText(
       "303 MB to download",
     );
-    await row.locator("summary").click();
-    await expect(row).toContainText("CC BY-SA 4.0");
-    await expect(
-      row.getByRole("link", { name: "Model page ↗" }),
-    ).toHaveAttribute("href", modelPage);
     expect(await installs(page)).toHaveLength(0);
     await page
       .getByRole("button", { name: "Finish setup", exact: true })

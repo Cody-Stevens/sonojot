@@ -1,6 +1,6 @@
 //! Local onboarding recommendations; inspecting never installs or saves models.
 //! Call `inspect` from a blocking worker, not the UI thread.
-use crate::domain::{MemoryMode, SetupProfile};
+use crate::domain::SetupProfile;
 use crate::resource_manager;
 use serde::Serialize;
 use std::path::Path;
@@ -215,15 +215,51 @@ pub fn recommend(hardware: &HardwareProfile, profile: SetupProfile) -> Selection
     selection
 }
 
-fn planned_peak(selection: &Selection) -> Option<u64> {
-    // Cleanup and Notes share one worker. Cleanup is local-rules in every
-    // profile, so the larger text resident is always the Notes model.
-    resource_manager::plan_range(&selection.asr_model, &selection.notes_model, MemoryMode::Overlap)
-        .map(|(_, peak)| peak)
+/// Upper-bound memory of the models that are resident together.
+///
+/// Dictation keeps speech, the Cleanup model (none for local rules) and the
+/// warm punctuation helper loaded at once; the helper prewarms while speech
+/// records. Notes loads only while notes are processed. Cleanup and Notes
+/// share one text worker, and runtime admission releases idle speech before
+/// loading Notes under memory pressure. The two sets are therefore planned
+/// separately rather than summed. The overlap sum (`plan_range` Overlap)
+/// overstated a 16 GiB Mac's peak by the whole speech model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MemoryPlan {
+    dictation: u64,
+    notes: u64,
+}
+
+fn memory_plan(selection: &Selection) -> Option<MemoryPlan> {
+    let peak = |id: &str| resource_manager::estimated_ram_interval(id).map(|(_, max)| max);
+    let overhead = resource_manager::WORKING_OVERHEAD_BYTES;
+    Some(MemoryPlan {
+        dictation: peak(&selection.asr_model)?
+            .saturating_add(peak(&selection.cleanup_model)?)
+            .saturating_add(crate::punctuation_model::RAM_ESTIMATE_BYTES)
+            .saturating_add(overhead),
+        notes: peak(&selection.notes_model)?.saturating_add(overhead),
+    })
 }
 
 fn exceeds_memory_budget(peak: u64, ram: u64) -> bool {
     u128::from(peak) * 100 > u128::from(ram) * MAX_PLANNED_RAM_PERCENT
+}
+
+fn dictation_exceeds(selection: &Selection, ram: u64) -> bool {
+    memory_plan(selection).is_some_and(|plan| exceeds_memory_budget(plan.dictation, ram))
+}
+
+/// The next lighter speech model, in measured accuracy order. Qwen steps
+/// down within its family before leaving it.
+fn lighter_speech(id: &str) -> Option<(&'static str, &'static str)> {
+    match id {
+        QWEN_CPU => Some((QWEN_SMALL_CPU, "Qwen 0.6B replaces Qwen 1.7B")),
+        QWEN_SMALL_CPU => Some((MOONSHINE_MEDIUM, "Moonshine replaces Qwen speech")),
+        QWEN_Q8_METAL => Some((QWEN_Q4_METAL, "Qwen Q4 replaces Q8")),
+        QWEN_Q4_METAL => Some((WHISPER_SMALL_METAL, "Whisper Small replaces Qwen speech")),
+        _ => None,
+    }
 }
 
 fn apply_memory_guard(hardware: &HardwareProfile, selection: &mut Selection) {
@@ -231,30 +267,28 @@ fn apply_memory_guard(hardware: &HardwareProfile, selection: &mut Selection) {
         selection.reasons.push("RAM capacity is unknown; the memory estimate could not be checked.".into());
         return;
     };
-    if !planned_peak(selection).is_some_and(|peak| exceeds_memory_budget(peak, ram)) {
-        return;
+    let memory = if hardware.apple_silicon { "unified memory" } else { "RAM" };
+    // Only the dictation set depends on the speech choice. A smaller speech
+    // model cannot reduce the Notes peak, so Notes never forces a downgrade.
+    while dictation_exceeds(selection, ram) {
+        let Some((lighter, replacement)) = lighter_speech(&selection.asr_model) else { break };
+        selection.asr_model = lighter.into();
+        selection.reasons.push(format!("{replacement} because dictation memory would exceed 45% of {memory}."));
     }
-    if matches!(selection.asr_model.as_str(), QWEN_CPU | QWEN_SMALL_CPU) {
-        selection.asr_model = MOONSHINE_MEDIUM.into();
-        selection.reasons.push("Moonshine replaces Qwen speech because the memory plan exceeds 45% of RAM.".into());
+    let Some(plan) = memory_plan(selection) else { return };
+    if exceeds_memory_budget(plan.dictation, ram) {
+        selection.reasons.push(format!("Even this selection may use more than 45% of {memory} while dictating; close other apps."));
     }
-    // No smaller permissive Notes package is currently pinned. Keep Notes
-    // on Qwen3 and use the existing speech fallback to reduce memory.
-    if hardware.platform == "macos" && hardware.apple_silicon
-        && crate::llama_asr::is_metal(&selection.asr_model)
-        && planned_peak(selection).is_some_and(|peak| exceeds_memory_budget(peak, ram))
-    {
-        selection.asr_model = WHISPER_SMALL_METAL.into();
-        selection.reasons.push("Whisper Small replaces Qwen speech because the memory plan with Qwen3 notes exceeds 45% of unified memory.".into());
-    }
-    if planned_peak(selection).is_some_and(|peak| exceeds_memory_budget(peak, ram)) {
-        selection.reasons.push("Even this selection may use more than 45% of RAM; close other apps or run models one at a time.".into());
+    // No smaller permissive Notes package is currently pinned.
+    if exceeds_memory_budget(plan.notes, ram) {
+        selection.reasons.push(format!("Notes may use more than 45% of {memory} while it runs; close other apps before processing notes."));
     }
 }
 
 #[cfg(test)]
 mod profiles_tests {
     use super::*;
+    use crate::domain::MemoryMode;
 
     fn windows(ram_gib: u64, physical: Option<u32>, logical: Option<u32>) -> HardwareProfile {
         HardwareProfile {
@@ -319,11 +353,17 @@ mod profiles_tests {
             (windows(32, Some(4), Some(16)), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
             (windows(32, None, Some(11)), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
             (windows(32, None, None), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (windows(12, Some(4), Some(8)), [MOONSHINE_MEDIUM, MOONSHINE_MEDIUM, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
+            (HardwareProfile { total_ram_bytes: Some(16 * GIB), ..nvidia() }, [QWEN_CUDA, QWEN_CUDA, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (windows(16, Some(6), Some(12)), [QWEN_CPU, QWEN_CPU, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (windows(12, Some(4), Some(8)), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
+            (windows(8, Some(4), Some(8)), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
+            (windows(7, Some(4), Some(8)), [QWEN_SMALL_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
+            (windows(6, Some(4), Some(8)), [MOONSHINE_MEDIUM, MOONSHINE_MEDIUM, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
             (apple(32), [QWEN_Q8_METAL, QWEN_Q4_METAL, WHISPER_SMALL_METAL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (apple(16), [WHISPER_SMALL_METAL; 3], [LIGHT_NOTES; 3]),
-            (apple(12), [WHISPER_SMALL_METAL; 3], [LIGHT_NOTES; 3]),
-            (apple(8), [WHISPER_SMALL_METAL; 3], [LIGHT_NOTES; 3]),
+            (apple(24), [QWEN_Q8_METAL, QWEN_Q4_METAL, WHISPER_SMALL_METAL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (apple(16), [QWEN_Q8_METAL, QWEN_Q4_METAL, WHISPER_SMALL_METAL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (apple(12), [QWEN_Q8_METAL, QWEN_Q4_METAL, WHISPER_SMALL_METAL], [LIGHT_NOTES; 3]),
+            (apple(8), [QWEN_Q4_METAL, QWEN_Q4_METAL, WHISPER_SMALL_METAL], [LIGHT_NOTES; 3]),
             (unknown_cores, [QWEN_CPU, MOONSHINE_MEDIUM, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
         ];
         for (hardware, speech, notes) in cases {
@@ -334,21 +374,65 @@ mod profiles_tests {
     }
 
     #[test]
-    fn profiles_memory_guard_uses_existing_overlap_peak() {
-        let hardware = windows(16, Some(6), Some(12));
-        let peak = resource_manager::plan_range(QWEN_CPU, QWEN_NOTES, MemoryMode::Overlap).unwrap().1;
-        assert!(exceeds_memory_budget(peak, hardware.total_ram_bytes.unwrap()));
-        assert_models(&hardware, [MOONSHINE_MEDIUM; 3], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]);
-        let selection = recommend(&hardware, SetupProfile::Accurate);
-        assert!(selection.reasons.iter().any(|reason| reason.contains("replaces Qwen speech")));
-        assert!(!selection.reasons.iter().any(|reason| reason.contains("replaces Qwen notes")));
-        assert!(!exceeds_memory_budget(planned_peak(&selection).unwrap(), 16 * GIB));
-        assert_models(&windows(8, Some(4), Some(8)), [MOONSHINE_MEDIUM, MOONSHINE_MEDIUM, MOONSHINE_SMALL], [LIGHT_NOTES; 3]);
-        let tiny = recommend(&windows(2, Some(2), Some(4)), SetupProfile::Light);
-        assert!(tiny.reasons.iter().any(|reason| reason.contains("Even this selection")));
+    fn profiles_memory_plan_separates_dictation_from_notes() {
+        // The old overlap sum counted Notes as resident during dictation.
+        for (speech, ram) in [(QWEN_CPU, 16 * GIB), (QWEN_Q8_METAL, 16 * GIB), (QWEN_Q4_METAL, 16 * GIB)] {
+            let overlap = resource_manager::plan_range(speech, QWEN_NOTES, MemoryMode::Overlap).unwrap().1;
+            assert!(exceeds_memory_budget(overlap, ram), "{speech}");
+            let selection = Selection {
+                asr_model: speech.into(),
+                cleanup_model: "local-rules".into(),
+                notes_model: QWEN_NOTES.into(),
+                reasons: Vec::new(),
+            };
+            let plan = memory_plan(&selection).unwrap();
+            let speech_max = resource_manager::estimated_ram_interval(speech).unwrap().1;
+            let notes_max = resource_manager::estimated_ram_interval(QWEN_NOTES).unwrap().1;
+            let overhead = resource_manager::WORKING_OVERHEAD_BYTES;
+            assert_eq!(plan.dictation, speech_max + crate::punctuation_model::RAM_ESTIMATE_BYTES + overhead);
+            assert_eq!(plan.notes, notes_max + overhead);
+            assert!(!exceeds_memory_budget(plan.dictation, ram), "{speech}");
+            assert!(!exceeds_memory_budget(plan.notes, ram), "{speech}");
+        }
+        // A generative Cleanup model is resident during dictation; it counts.
+        let with_cleanup = Selection {
+            asr_model: QWEN_CPU.into(),
+            cleanup_model: "lfm2.5-1.2b".into(),
+            notes_model: QWEN_NOTES.into(),
+            reasons: Vec::new(),
+        };
+        let rules = Selection { cleanup_model: "local-rules".into(), ..with_cleanup.clone() };
+        assert_eq!(
+            memory_plan(&with_cleanup).unwrap().dictation - memory_plan(&rules).unwrap().dictation,
+            resource_manager::estimated_ram_interval("lfm2.5-1.2b").unwrap().1,
+        );
         assert!(!exceeds_memory_budget(45, 100));
         assert!(exceeds_memory_budget(46, 100));
         assert!(exceeds_memory_budget(u64::MAX, u64::MAX));
+    }
+
+    #[test]
+    fn profiles_memory_guard_steps_speech_down_only_for_dictation() {
+        let qwen = recommend(&windows(16, Some(6), Some(12)), SetupProfile::Accurate);
+        assert_eq!(qwen.asr_model, QWEN_CPU);
+        assert!(!qwen.reasons.iter().any(|reason| reason.contains("replaces") || reason.contains("45%")));
+
+        let smaller = recommend(&windows(7, Some(4), Some(8)), SetupProfile::Accurate);
+        assert_eq!(smaller.asr_model, QWEN_SMALL_CPU);
+        assert!(smaller.reasons.iter().any(|reason| reason == "Qwen 0.6B replaces Qwen 1.7B because dictation memory would exceed 45% of RAM."));
+        let moonshine = recommend(&windows(6, Some(4), Some(8)), SetupProfile::Accurate);
+        assert_eq!(moonshine.asr_model, MOONSHINE_MEDIUM);
+        assert!(moonshine.reasons.iter().any(|reason| reason.starts_with("Moonshine replaces Qwen speech")));
+
+        // 8 GiB fits Qwen dictation but not Notes. Notes is reported, never
+        // traded for a worse speech model.
+        let notes_heavy = recommend(&windows(8, Some(4), Some(8)), SetupProfile::Accurate);
+        assert_eq!(notes_heavy.asr_model, QWEN_CPU);
+        assert!(notes_heavy.reasons.iter().any(|reason| reason.starts_with("Notes may use more than 45% of RAM")));
+        assert!(!notes_heavy.reasons.iter().any(|reason| reason.contains("Even this selection")));
+
+        let tiny = recommend(&windows(2, Some(2), Some(4)), SetupProfile::Light);
+        assert!(tiny.reasons.iter().any(|reason| reason.contains("Even this selection")));
     }
 
     #[test]
@@ -364,34 +448,50 @@ mod profiles_tests {
     }
 
     #[test]
-    fn profiles_apple_guard_keeps_notes_permissive_and_uses_existing_speech_fallback() {
+    fn profiles_apple_16_gib_keeps_qwen_and_8_gib_keeps_qwen_q4() {
         for (profile, speech) in [(SetupProfile::Accurate, QWEN_Q8_METAL), (SetupProfile::Balanced, QWEN_Q4_METAL)] {
-            let initial_peak = resource_manager::plan_range(speech, QWEN_NOTES, MemoryMode::Overlap).unwrap().1;
-            assert!(exceeds_memory_budget(initial_peak, 16 * GIB));
-            let selection = recommend(&apple(16), profile);
-            assert_eq!(selection.asr_model, WHISPER_SMALL_METAL);
-            assert_eq!(selection.notes_model, LIGHT_NOTES);
-            assert!(!selection.notes_model.starts_with("lfm"));
-            assert!(selection.reasons.iter().any(|reason| reason.contains("replaces Qwen speech")));
-            assert!(!exceeds_memory_budget(planned_peak(&selection).unwrap(), 16 * GIB));
+            for ram in [16, 24] {
+                let selection = recommend(&apple(ram), profile);
+                assert_eq!(selection.asr_model, speech, "{ram} GiB");
+                assert_eq!(selection.cleanup_model, "local-rules");
+                assert_eq!(selection.notes_model, LIGHT_NOTES);
+                assert!(!selection.reasons.iter().any(|reason| reason.contains("replaces") || reason.contains("45%")));
+            }
 
+            // Measured Q4 use (2.16-2.36 GB) fits 8 GiB; it beats Whisper Small.
             let small = recommend(&apple(8), profile);
-            assert_eq!(small.asr_model, WHISPER_SMALL_METAL);
+            assert_eq!(small.asr_model, QWEN_Q4_METAL);
             assert_eq!(small.notes_model, LIGHT_NOTES);
-            assert!(small.reasons.iter().any(|reason| reason.contains("Whisper Small replaces Qwen speech")));
-            // No lighter supported Mac package: keep the residual warning.
-            assert!(exceeds_memory_budget(planned_peak(&small).unwrap(), 8 * GIB));
-            assert!(small.reasons.iter().any(|reason| reason.contains("Even this selection")));
+            assert!(!small.reasons.iter().any(|reason| reason.starts_with("Whisper Small replaces")));
+            // Q4 dictation fits; Notes alone still exceeds the budget.
+            let plan = memory_plan(&small).unwrap();
+            assert!(!exceeds_memory_budget(plan.dictation, 8 * GIB));
+            assert!(exceeds_memory_budget(plan.notes, 8 * GIB));
+            assert!(small.reasons.iter().any(|reason| reason.starts_with("Notes may use more than 45% of unified memory")));
+            assert!(!small.reasons.iter().any(|reason| reason.contains("Even this selection")));
         }
+        let accurate = recommend(&apple(8), SetupProfile::Accurate);
+        assert!(accurate.reasons.iter().any(|reason| reason.starts_with("Qwen Q4 replaces Q8")));
     }
 
     #[test]
     fn profiles_apple_guard_uses_actual_plan_boundary_and_keeps_unknown_ram_unknown() {
-        for (profile, speech) in [(SetupProfile::Accurate, QWEN_Q8_METAL), (SetupProfile::Balanced, QWEN_Q4_METAL)] {
-            let peak = resource_manager::plan_range(speech, LIGHT_NOTES, MemoryMode::Overlap).unwrap().1;
+        for (profile, speech, lighter) in [
+            (SetupProfile::Accurate, QWEN_Q8_METAL, QWEN_Q4_METAL),
+            (SetupProfile::Balanced, QWEN_Q4_METAL, WHISPER_SMALL_METAL),
+        ] {
+            let selection = Selection {
+                asr_model: speech.into(),
+                cleanup_model: "local-rules".into(),
+                notes_model: LIGHT_NOTES.into(),
+                reasons: Vec::new(),
+            };
+            let peak = memory_plan(&selection).unwrap().dictation;
             let minimum_ram = (u128::from(peak) * 100).div_ceil(MAX_PLANNED_RAM_PERCENT) as u64;
-            assert!(minimum_ram > LARGE_MODEL_MIN_RAM);
-            for (ram, expected) in [(minimum_ram - 1, WHISPER_SMALL_METAL), (minimum_ram, speech)] {
+            // Both Qwen tiers fit well below 16 GiB; Q8 needs about 9.2 GiB and
+            // Q4 about 7.9 GiB, so 8 GiB Macs keep Q4.
+            assert!(minimum_ram < 10 * GIB && minimum_ram > 7 * GIB);
+            for (ram, expected) in [(minimum_ram - 1, lighter), (minimum_ram, speech)] {
                 let hardware = HardwareProfile { total_ram_bytes: Some(ram), ..apple(16) };
                 assert_eq!(recommend(&hardware, profile).asr_model, expected);
             }

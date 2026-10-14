@@ -72,12 +72,33 @@ impl RecordingOutcome {
     }
 }
 
+/// Why the other side of a meeting is not being recorded right now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemProblem {
+    /// macOS permission is off; capture joins once it is allowed.
+    Permission,
+    /// The system audio stream failed or stopped; the recorder is reconnecting.
+    Lost,
+    /// This OS cannot capture system audio; only the microphone records.
+    Unsupported,
+}
+impl SystemProblem {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Permission => "permission",
+            Self::Lost => "lost",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
+
 #[derive(Default)]
 struct SourceNotices {
     // A recovery notice expires; an open gap stays visible until audio returns.
     notices: [Option<(String, Option<Instant>)>; 2],
     warnings: Arc<Mutex<Vec<String>>>,
     issues: Arc<Mutex<Vec<SourceIssue>>>,
+    system_problem: Option<SystemProblem>,
 }
 type SharedNotices = Arc<Mutex<SourceNotices>>;
 
@@ -260,6 +281,19 @@ impl MeetingRecorder {
                 f32::from_bits(stems.0[1].load(Ordering::Relaxed)),
             )
         })
+    }
+
+    /// Present while the requested system side is missing from the recording.
+    pub fn system_problem(&self) -> Option<SystemProblem> {
+        self.notices.lock().unwrap_or_else(|p| p.into_inner()).system_problem
+    }
+
+    /// The meeting asked for system audio, but this OS cannot capture it.
+    pub fn mark_system_unsupported(&self) {
+        let mut notices = self.notices.lock().unwrap_or_else(|p| p.into_inner());
+        notices.system_problem = Some(SystemProblem::Unsupported);
+        notices.notices[source_index(IssueSource::System)] =
+            Some(("System audio isn't recorded on this Mac".into(), None));
     }
 
     pub fn source_status(&self) -> Vec<String> {

@@ -1104,7 +1104,9 @@ fn run_job(
     let (effective_mode, effective_model) = if smart_unavailable {
         (cleanup::Mode::Clean, "local-rules")
     } else if needs_text_model && text_lease.is_none() {
-        (cleanup::Mode::Original, "local-rules")
+        // Busy or unadmitted optional model: keep the default cleanup (rules,
+        // vocabulary and punctuation) in the chosen mode instead of raw text.
+        (cleanup_mode, "local-rules")
     } else {
         (cleanup_mode, cleanup_model)
     };

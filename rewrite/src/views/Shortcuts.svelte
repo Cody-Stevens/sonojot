@@ -52,7 +52,8 @@
 {#if !embedded}<header class="page-heading">
     <h1 class="text-grain" data-text-surface="emboss">Shortcuts</h1>
   </header>{/if}
-<Card title="Your dictation shortcut">
+<!-- In setup the step heading names the shortcut. -->
+<Card title={embedded ? undefined : "Your dictation shortcut"}>
   <p class="body-copy" data-text-surface="flat">
     Use this shortcut from the app you are writing in.
   </p>

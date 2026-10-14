@@ -50,6 +50,19 @@ test("microphone confirmation gates Continue; model metadata does not", () => {
   assert.equal(canContinue(models, 60000, true, true), true);
 });
 
+test("meeting extras are optional and come before finishing setup", () => {
+  const ids = onboardingSteps.map((step) => step.id);
+  const extras = ids.indexOf("extras");
+  assert.ok(extras > ids.indexOf("models"));
+  assert.ok(extras < ids.indexOf("where"));
+  // Nothing on the step gates Continue once its short dwell has passed.
+  assert.equal(
+    canContinue(extras, onboardingSteps[extras].dwell, false, false),
+    true,
+  );
+  assert.ok(ids.indexOf("shortcut") < ids.indexOf("dictation"));
+});
+
 test("terms require an explicit checkbox before the microphone step", () => {
   const terms = onboardingSteps.findIndex((step) => step.id === "terms");
   const mic = onboardingSteps.findIndex((step) => step.id === "microphone");

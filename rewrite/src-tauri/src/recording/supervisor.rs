@@ -343,6 +343,8 @@ impl Input for SystemInput {
             let kind = match self.capture.failure_cause() {
                 2 => "system-output-changed",
                 3 => "system-output-unavailable",
+                4 => "system-audio-stalled",
+                5 => "system-audio-permission-revoked",
                 _ => "system-audio-error",
             };
             capture_event(kind, 0, self.epoch, 1);
@@ -353,6 +355,8 @@ impl Input for SystemInput {
         self.capture.request_stop();
     }
 }
+
+const PERMISSION_NOTICE: &str = "System audio is off. Allow it in System Settings.";
 
 struct SourceState {
     source: IssueSource,
@@ -369,6 +373,8 @@ struct SourceState {
     last_loss_end: Duration,
     received: bool,
     restarting: bool,
+    /// The last system open was refused for lack of macOS permission.
+    permission_blocked: bool,
 }
 impl SourceState {
     fn new(source: IssueSource, enabled: bool) -> Self {
@@ -387,6 +393,12 @@ impl SourceState {
             last_loss_end: Duration::ZERO,
             received: false,
             restarting: false,
+            permission_blocked: false,
+        }
+    }
+    fn system_problem(&self, notices: &SharedNotices, problem: Option<SystemProblem>) {
+        if self.source == IssueSource::System {
+            notices.lock().unwrap_or_else(|p| p.into_inner()).system_problem = problem;
         }
     }
     fn notice(&self, notices: &SharedNotices, message: String, recovered: bool) {
@@ -408,6 +420,7 @@ impl SourceState {
         }
         let label = self.source.label();
         let action = match kind {
+            IssueKind::Disconnected if self.permission_blocked => "was not allowed by macOS",
             IssueKind::Disconnected => "disconnected",
             IssueKind::Overflow => "queue overflowed",
             IssueKind::InvalidBuffer => "returned an invalid audio buffer",
@@ -427,13 +440,21 @@ impl SourceState {
         });
         self.notice(
             notices,
-            if kind == IssueKind::Disconnected {
+            if kind == IssueKind::Disconnected && self.permission_blocked {
+                PERMISSION_NOTICE.to_string()
+            } else if kind == IssueKind::Disconnected {
                 format!("{label} lost — reconnecting…")
             } else {
                 format!("{label} has an audio gap. Recording continues.")
             },
             false,
         );
+        if kind == IssueKind::Disconnected {
+            self.system_problem(
+                notices,
+                Some(if self.permission_blocked { SystemProblem::Permission } else { SystemProblem::Lost }),
+            );
+        }
     }
     fn close_gap(
         &mut self,
@@ -475,6 +496,8 @@ impl SourceState {
             format!("{} reconnected", self.source.label()),
             true,
         );
+        self.system_problem(notices, None);
+        self.permission_blocked = false;
         self.restarting = false;
         self.down_since = None;
         self.retries = 0;
@@ -512,29 +535,53 @@ impl SourceState {
         }
         let now = runtime.now();
         if let Some(opening) = &mut self.opening {
-            match opening.try_recv() {
+            let failed = match opening.try_recv() {
                 Ok(Ok(input)) => {
                     self.input = Some(input);
                     self.opening = None;
+                    None
                 }
-                Ok(Err(_)) | Err(TryRecvError::Disconnected) => {
-                    self.opening = None;
-                    self.begin_gap(IssueKind::Disconnected, self.last_end, issues, notices);
-                    self.restarting = true;
-                    self.down_since.get_or_insert(now);
-                    self.retries = self.retries.saturating_add(1);
-                    self.next_retry = now
-                        + Duration::from_millis((1000 + u64::from(self.retries) * 500).min(3000));
-                    if self.source == IssueSource::Microphone
-                        && microphone.as_ref().is_some_and(|id| !id.is_empty())
-                        && !self.fallback
-                    {
-                        self.next_retry = self
-                            .next_retry
-                            .min(self.down_since.unwrap_or(now) + Duration::from_secs(5));
+                Ok(Err(error)) => Some(Some(error)),
+                Err(TryRecvError::Disconnected) => Some(None),
+                Err(TryRecvError::Empty) => None,
+            };
+            if let Some(error) = failed {
+                self.opening = None;
+                let permission = self.source == IssueSource::System
+                    && error.as_deref().is_some_and(crate::system_audio::is_permission_error);
+                if permission && !self.permission_blocked {
+                    capture_event("system-audio-permission", 0, epoch, 0);
+                }
+                if permission {
+                    // A loss that turned into a refusal: say why it continues.
+                    let was_blocked = self.permission_blocked;
+                    if let Some(issue) = self.gap.as_mut().filter(|_| !was_blocked) {
+                        issue.message.push_str(" System audio permission is off.");
                     }
+                    self.notice(notices, PERMISSION_NOTICE.into(), false);
                 }
-                Err(TryRecvError::Empty) => {}
+                self.permission_blocked = permission;
+                self.begin_gap(IssueKind::Disconnected, self.last_end, issues, notices);
+                if permission {
+                    self.system_problem(notices, Some(SystemProblem::Permission));
+                }
+                self.restarting = true;
+                self.down_since.get_or_insert(now);
+                self.retries = self.retries.saturating_add(1);
+                // A refused permission joins within a second of being allowed.
+                self.next_retry = now + if permission {
+                    Duration::from_secs(1)
+                } else {
+                    Duration::from_millis((1000 + u64::from(self.retries) * 500).min(3000))
+                };
+                if self.source == IssueSource::Microphone
+                    && microphone.as_ref().is_some_and(|id| !id.is_empty())
+                    && !self.fallback
+                {
+                    self.next_retry = self
+                        .next_retry
+                        .min(self.down_since.unwrap_or(now) + Duration::from_secs(5));
+                }
             }
         }
         // Cancel a stalled selected-device open at the fallback deadline. The
@@ -559,16 +606,19 @@ impl SourceState {
             }
         }
         if self.input.is_none() && self.opening.is_none() && now >= self.next_retry {
-            capture_event(
-                if self.source == IssueSource::Microphone {
-                    "microphone-reopen-attempt"
-                } else {
-                    "system-audio-restart"
-                },
-                0,
-                epoch,
-                u64::from(self.fallback),
-            );
+            // A refused permission retries every second; log only real restarts.
+            if !self.permission_blocked {
+                capture_event(
+                    if self.source == IssueSource::Microphone {
+                        "microphone-reopen-attempt"
+                    } else {
+                        "system-audio-restart"
+                    },
+                    0,
+                    epoch,
+                    u64::from(self.fallback),
+                );
+            }
             self.opening = Some(runtime.open(
                 self.source,
                 if self.fallback {
@@ -758,8 +808,11 @@ pub(super) fn record(
     ready: mpsc::SyncSender<Result<(), String>>,
 ) -> Result<RecordingOutcome, String> {
     let epoch = Instant::now();
-    if source.system() && !crate::system_audio::available() {
-        let message = "System audio capture is currently available only on Windows.".to_string();
+    // A missing permission is recoverable mid-meeting; an unsupported OS is not.
+    if source.system()
+        && crate::system_audio::status() == crate::system_audio::SystemAudioStatus::Unsupported
+    {
+        let message = crate::system_audio::UNSUPPORTED_ERROR.to_string();
         let _ = ready.send(Err(message.clone()));
         return Err(message);
     }
@@ -1154,6 +1207,10 @@ mod tests {
         Unavailable,
         StopOnOpen,
         StalledSelected,
+        /// macOS refuses system audio until 3 s, then allows it.
+        SystemPermissionGranted,
+        /// macOS refuses system audio for the whole meeting.
+        SystemPermissionDenied,
     }
     struct ScriptInput {
         events: VecDeque<(Duration, InputEvent)>,
@@ -1210,6 +1267,14 @@ mod tests {
                 return opening;
             }
             let recovering = self.now >= Duration::from_secs(2);
+            if !microphone
+                && (matches!(self.scenario, Scenario::SystemPermissionDenied)
+                    || (matches!(self.scenario, Scenario::SystemPermissionGranted)
+                        && self.now < Duration::from_secs(3)))
+            {
+                assert!(tx.send(Err(crate::system_audio::PERMISSION_ERROR.into())).is_ok());
+                return opening;
+            }
             if matches!(self.scenario, Scenario::Unavailable)
                 || (recovering && microphone && matches!(self.scenario, Scenario::NeverReconnect))
             {
@@ -1222,7 +1287,9 @@ mod tests {
                 _ => false,
             };
             let mut events = VecDeque::new();
-            let first = if microphone && matches!(self.scenario, Scenario::StalledSelected) {
+            let first = if (microphone && matches!(self.scenario, Scenario::StalledSelected))
+                || (!microphone && matches!(self.scenario, Scenario::SystemPermissionGranted))
+            {
                 (self.now.as_millis() / 50) as u64
             } else if recovering && disconnect {
                 70
@@ -1290,6 +1357,15 @@ mod tests {
         files: &TestFiles,
         failing_writes: usize,
     ) -> (Result<RecordingOutcome, String>, ScriptRuntime) {
+        let notices = Arc::new(Mutex::new(SourceNotices::default()));
+        run_with_notices(scenario, files, failing_writes, &notices)
+    }
+    fn run_with_notices(
+        scenario: Scenario,
+        files: &TestFiles,
+        failing_writes: usize,
+        notices: &SharedNotices,
+    ) -> (Result<RecordingOutcome, String>, ScriptRuntime) {
         let stop = Arc::new(AtomicBool::new(false));
         let mut runtime = ScriptRuntime {
             now: Duration::ZERO,
@@ -1311,7 +1387,7 @@ mod tests {
             &Arc::new(Mutex::new(None)),
             Arc::new(AtomicU32::new(0)),
             StemLevels::default(),
-            &Arc::new(Mutex::new(SourceNotices::default())),
+            notices,
             ready,
             Instant::now(),
             &mut runtime,
@@ -1430,6 +1506,67 @@ mod tests {
         assert!(read_wav(&files.paths.audio)
             .iter()
             .all(|sample| (*sample as i32 - expected as i32).abs() <= 1));
+    }
+
+    #[test]
+    fn refused_system_permission_records_the_microphone_and_joins_when_allowed() {
+        let files = TestFiles::new();
+        let notices = Arc::new(Mutex::new(SourceNotices::default()));
+        let (outcome, runtime) =
+            run_with_notices(Scenario::SystemPermissionGranted, &files, 0, &notices);
+        let outcome = outcome.unwrap();
+        assert_aligned(&files, 10);
+        assert_eq!(outcome.issues.len(), 1);
+        let issue = &outcome.issues[0];
+        assert_eq!(issue.source, IssueSource::System);
+        assert_eq!(issue.started_at_seconds, 0.0);
+        assert!(issue.message.starts_with("System audio was not allowed by macOS at 0:00"), "{}", issue.message);
+        let joined = issue.ended_at_seconds.unwrap();
+        assert!((3.0..=3.3).contains(&joined), "{joined}");
+        // Permission retries are prompt: about one per second while refused.
+        let system_attempts = runtime.attempts.iter()
+            .filter(|attempt| attempt.0 == IssueSource::System).count();
+        assert!((4..=5).contains(&system_attempts), "{system_attempts}");
+        let system = read_wav(&files.paths.system);
+        let joined_frame = (joined * RATE as f64) as usize;
+        assert!(system[..joined_frame].iter().all(|sample| *sample == 0));
+        assert!(system[joined_frame + RATE as usize..].iter().all(|sample| *sample == pcm16(0.2)));
+        assert!(read_wav(&files.paths.microphone).iter().all(|sample| *sample == pcm16(0.8)));
+        assert_eq!(notices.lock().unwrap().system_problem, None);
+    }
+
+    #[test]
+    fn refused_system_permission_stays_visible_for_the_whole_meeting() {
+        let files = TestFiles::new();
+        let notices = Arc::new(Mutex::new(SourceNotices::default()));
+        let outcome = run_with_notices(Scenario::SystemPermissionDenied, &files, 0, &notices)
+            .0
+            .unwrap();
+        assert_aligned(&files, 10);
+        assert_eq!(outcome.issues.len(), 1);
+        assert_eq!(outcome.issues[0].ended_at_seconds, None);
+        assert!(read_wav(&files.paths.system).iter().all(|sample| *sample == 0));
+        let notices = notices.lock().unwrap();
+        assert_eq!(notices.system_problem, Some(SystemProblem::Permission));
+        assert_eq!(
+            notices.notices[source_index(IssueSource::System)].as_ref().map(|notice| notice.0.as_str()),
+            Some(PERMISSION_NOTICE)
+        );
+    }
+
+    #[test]
+    fn a_lost_system_stream_is_flagged_until_it_reconnects() {
+        let mut state = SourceState::new(IssueSource::System, true);
+        let notices = Arc::new(Mutex::new(SourceNotices::default()));
+        let mut issues = IssueCollector::default();
+        state.lost(Duration::from_secs(4), &mut issues, &notices);
+        assert_eq!(notices.lock().unwrap().system_problem, Some(SystemProblem::Lost));
+        state.close_gap(Duration::from_secs(5), &mut issues, &notices, Instant::now());
+        assert_eq!(notices.lock().unwrap().system_problem, None);
+        // A microphone loss never claims the other side is missing.
+        let mut microphone = SourceState::new(IssueSource::Microphone, true);
+        microphone.lost(Duration::from_secs(6), &mut issues, &notices);
+        assert_eq!(notices.lock().unwrap().system_problem, None);
     }
 
     #[test]

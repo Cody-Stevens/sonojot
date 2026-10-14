@@ -239,6 +239,45 @@ pub async fn confirm_onboarding_profile(
     Ok(result)
 }
 
+/// Optional meeting extras setup may queue behind the profile downloads.
+const OPTIONAL_DOWNLOADS: &[&str] = &["nemotron-3-diarization"];
+
+/// Queue an optional extra behind the confirmed profile downloads, so it
+/// installs one at a time even if setup is finished first. Without a setup
+/// marker (an existing install replaying the tour) it starts directly.
+#[tauri::command]
+pub async fn queue_onboarding_download(
+    app: AppHandle,
+    state: State<'_, Arc<Runtime>>,
+    id: String,
+) -> Result<crate::model_manager::ModelLibrary, String> {
+    if !OPTIONAL_DOWNLOADS.contains(&id.as_str()) {
+        return Err("This download cannot be queued from setup.".into());
+    }
+    let runtime = state.inner().clone();
+    require_terms(&runtime.snapshot()?.settings)?;
+    crate::download_consent::require_components(&runtime, &[&id])?;
+    let queued = {
+        let _gate = lock(&MARKER_GATE)?;
+        queue_at(runtime.store.root(), &id)?
+    };
+    if queued {
+        resume_downloads(&app, &runtime);
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        if !queued {
+            crate::model_manager::require_idle_snapshot(&runtime.snapshot()?)?;
+            crate::model_manager::start_install(runtime.models_root.clone(), id)?;
+        }
+        let settings = runtime.snapshot()?.settings;
+        let mut library = crate::model_manager::build_library(&runtime.models_root, &settings);
+        show_queue(&runtime, &mut library);
+        Ok(library)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn finish_onboarding(
     app: AppHandle,
@@ -273,13 +312,74 @@ pub(crate) async fn close_early(_app: &AppHandle, runtime: &Arc<Runtime>) -> Res
 /// Resume previously confirmed downloads after acceptance. An interrupted tour
 /// remains unfinished; restarting must never silently choose a profile.
 pub(crate) async fn recover(app: &AppHandle, runtime: &Arc<Runtime>) -> Result<(), String> {
+    if adopt_default_punctuation(runtime).await? {
+        runtime.emit(app);
+    }
     resume_downloads(app, runtime);
     Ok(())
+}
+
+/// One-time migration for installs that predate the punctuation default.
+/// Every new setup queues punctuation; an existing install adopts it only when
+/// nothing shows a choice against it: Setup is finished, Cleanup is still the
+/// default local rules, dictation is not As heard, neither punctuation notice
+/// was answered (install, dismiss or first-run inclusion all acknowledge it)
+/// and no punctuation package folder exists (a removal stays removed).
+fn punctuation_default_due(
+    settings: &Settings,
+    progress: Option<&SetupProgress>,
+    models_root: &Path,
+    available: bool,
+) -> bool {
+    use crate::punctuation_model::Package;
+    available
+        && !required(settings, progress)
+        && settings.cleanup_model == "local-rules"
+        && settings.cleanup_mode != crate::domain::CleanupMode::Original
+        && !settings.punctuation_recommendation_acknowledged
+        && !settings.punctuation_v2_recommendation_acknowledged
+        && [Package::V1, Package::V2].iter().all(|package| !package.path(models_root).exists())
+}
+
+async fn adopt_default_punctuation(runtime: &Arc<Runtime>) -> Result<bool, String> {
+    let _settings = runtime.settings_gate.lock().await;
+    let available = crate::diarization_model::AVAILABLE
+        && crate::punctuation_model::Package::V2.released();
+    let mut settings = runtime.snapshot()?.settings;
+    let _marker = lock(&MARKER_GATE)?;
+    let progress = read(runtime.store.root())?;
+    if !punctuation_default_due(&settings, progress.as_ref(), &runtime.models_root, available) {
+        return Ok(false);
+    }
+    // Queue before acknowledging, as `commit` does: a failed settings write
+    // leaves the notice unanswered and the queue deduplicated next launch.
+    let mut progress = progress.unwrap_or(SetupProgress { seen: true, ..Default::default() });
+    let id = crate::punctuation_model::Package::V2.id().to_string();
+    if !progress.downloads.contains(&id) {
+        progress.downloads.push(id);
+    }
+    write(runtime.store.root(), &progress)?;
+    settings.punctuation_v2_recommendation_acknowledged = true;
+    runtime.store.save_settings(&settings)?;
+    lock(&runtime.snapshot)?.settings = settings;
+    Ok(true)
 }
 
 pub(crate) fn cancel_queued(runtime: &Runtime, id: &str) -> Result<(), String> {
     let _gate = lock(&MARKER_GATE)?;
     cancel_at(runtime.store.root(), id)
+}
+/// Append to an existing setup queue once. Never creates a setup marker, which
+/// would reopen setup; returns whether a queue existed.
+fn queue_at(root: &Path, id: &str) -> Result<bool, String> {
+    let Some(mut progress) = read(root)? else {
+        return Ok(false);
+    };
+    if !progress.downloads.iter().any(|queued| queued == id) {
+        progress.downloads.push(id.to_string());
+        write(root, &progress)?;
+    }
+    Ok(true)
 }
 fn cancel_at(root: &Path, id: &str) -> Result<(), String> {
     if let Some(mut progress) = read(root)? {
@@ -449,6 +549,29 @@ pub fn onboarding_paste_permission() -> Option<String> {
 mod tests {
     use super::*;
     #[test]
+    fn optional_extras_join_an_existing_queue_once_and_never_create_one() {
+        let root = std::env::temp_dir().join(format!(
+            "sonojot-onboarding-extras-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(!queue_at(&root, "nemotron-3-diarization").unwrap());
+        assert!(read(&root).unwrap().is_none());
+        let progress = SetupProgress {
+            downloads: vec!["speech".into()],
+            seen: true,
+            ..SetupProgress::default()
+        };
+        write(&root, &progress).unwrap();
+        assert!(queue_at(&root, "nemotron-3-diarization").unwrap());
+        assert!(queue_at(&root, "nemotron-3-diarization").unwrap());
+        let saved = read(&root).unwrap().unwrap();
+        assert_eq!(saved.downloads, vec!["speech", "nemotron-3-diarization"]);
+        assert!(saved.seen);
+        assert!(!OPTIONAL_DOWNLOADS.contains(&"speech"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn terms_acceptance_requires_the_version_and_local_timestamp() {
         let mut settings = Settings::default();
         assert!(!terms_accepted(&settings));
@@ -489,6 +612,57 @@ mod tests {
             assert_eq!(ids[1], "sonojot-punct-v2");
             assert!(settings.punctuation_v2_recommendation_acknowledged);
         }
+    }
+    #[test]
+    fn fresh_settings_default_to_rules_and_punctuation_cleanup() {
+        let settings = Settings::default();
+        assert_eq!(settings.cleanup_model, "local-rules");
+        assert_eq!(settings.cleanup_mode, crate::domain::CleanupMode::Clean);
+        // A fresh install is not migrated; its Setup queues punctuation itself.
+        let root = std::env::temp_dir().join(format!("sonojot-punct-default-{}", uuid::Uuid::new_v4()));
+        assert!(!punctuation_default_due(&settings, None, &root, true));
+    }
+    #[test]
+    fn existing_installs_adopt_punctuation_unless_they_chose_otherwise() {
+        use crate::punctuation_model::Package;
+        let root = std::env::temp_dir().join(format!("sonojot-punct-migrate-{}", uuid::Uuid::new_v4()));
+        let seen = SetupProgress { seen: true, ..Default::default() };
+        let existing = Settings {
+            setup_profile: Some(SetupProfile::Balanced),
+            ..Settings::default()
+        };
+        for profile in [SetupProfile::Accurate, SetupProfile::Balanced, SetupProfile::Light, SetupProfile::Custom] {
+            let settings = Settings { setup_profile: Some(profile), ..existing.clone() };
+            assert!(punctuation_default_due(&settings, Some(&seen), &root, true), "{profile:?}");
+            // Legacy installs may have no setup marker at all.
+            assert!(punctuation_default_due(&settings, None, &root, true), "{profile:?}");
+        }
+        assert!(punctuation_default_due(
+            &Settings { cleanup_mode: crate::domain::CleanupMode::Format, ..existing.clone() },
+            Some(&seen), &root, true,
+        ));
+        let declined = [
+            Settings { cleanup_model: "lfm2.5-1.2b".into(), ..existing.clone() },
+            Settings { cleanup_model: crate::optional_llm::SMART_CLEANUP_ID.into(), setup_profile: Some(SetupProfile::Custom), ..existing.clone() },
+            Settings { cleanup_mode: crate::domain::CleanupMode::Original, ..existing.clone() },
+            Settings { punctuation_recommendation_acknowledged: true, ..existing.clone() },
+            Settings { punctuation_v2_recommendation_acknowledged: true, ..existing.clone() },
+            Settings { setup_profile: None, ..existing.clone() },
+        ];
+        for settings in &declined {
+            assert!(!punctuation_default_due(settings, Some(&seen), &root, true));
+        }
+        // Unfinished tours and unsupported platforms are left alone.
+        assert!(!punctuation_default_due(&existing, Some(&SetupProgress::default()), &root, true));
+        assert!(!punctuation_default_due(&existing, Some(&seen), &root, false));
+        // Any package folder (installed, damaged or manual) is an earlier choice.
+        for package in [Package::V1, Package::V2] {
+            std::fs::create_dir_all(package.path(&root)).unwrap();
+            assert!(!punctuation_default_due(&existing, Some(&seen), &root, true));
+            std::fs::remove_dir_all(package.path(&root)).unwrap();
+        }
+        assert!(punctuation_default_due(&existing, Some(&seen), &root, true));
+        let _ = std::fs::remove_dir_all(&root);
     }
     #[test]
     fn explicit_default_choice_preserves_cleanup_behavior() {

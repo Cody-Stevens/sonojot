@@ -19,9 +19,11 @@
   import BrandMark from "./brand/BrandMark.svelte";
   import { paperScroll } from "./lib/paper-scroll";
   import ErrorBanner from "./components/ErrorBanner.svelte";
-  import UpdateButton from "./components/UpdateButton.svelte";
+  import Sidebar from "./components/Sidebar.svelte";
+  import { navigation, type Page, type SetupPage } from "./lib/navigation";
   import type { ErrorAction } from "./lib/errors";
   import ScreenTab from "./components/ScreenTab.svelte";
+  import PermissionHelper from "./components/PermissionHelper.svelte";
   import { listen } from "@tauri-apps/api/event";
   import WindowControls from "./components/WindowControls.svelte";
   import CursorIndicator from "./components/CursorIndicator.svelte";
@@ -46,28 +48,11 @@
     }, STATUS_NOTICE_MS);
     return () => clearTimeout(timer);
   });
-  type Page =
-    | "dictation"
-    | "microphone"
-    | "vocabulary"
-    | "meetings"
-    | "appearance"
-    | "shortcuts"
-    | "about";
-  type SetupPage = "setup";
-  const navigation = [
-    { id: "dictation", label: "Dictation" },
-    { id: "meetings", label: "Meetings" },
-    { id: "microphone", label: "Microphone" },
-    { id: "shortcuts", label: "Shortcuts" },
-    { id: "vocabulary", label: "Vocabulary" },
-    { id: "appearance", label: "Appearance" },
-    { id: "setup", label: "Models" },
-    { id: "about", label: "About" },
-  ] satisfies { id: Page | SetupPage; label: string }[];
   const query = new URLSearchParams(window.location.search);
   const overlay = query.get("view") === "overlay";
   const cursor = query.get("view") === "cursor";
+  // macOS permission helper floating beside System Settings.
+  const helper = query.get("view") === "permission";
   let maximized = $state(false);
   let closing = false;
   let onboardingMode = $state<"first-run" | "tour" | null>(null);
@@ -112,7 +97,7 @@
     let cleanup: (() => void) | undefined;
     let cleanupWindow: (() => void) | undefined;
     let cleanupNavigation: (() => void) | undefined;
-    if (app.native && !overlay && !cursor) {
+    if (app.native && !overlay && !cursor && !helper) {
       void listen<string>("navigate-page", ({ payload }) => {
         const next = navigation.find((item) => item.id === payload);
         if (next) void navigate(next.id);
@@ -124,7 +109,7 @@
     void app.initialize().then(async (unlisten) => {
       if (disposed) unlisten();
       else cleanup = unlisten;
-      if (app.native && !overlay && !cursor && app.ready) {
+      if (app.native && !overlay && !cursor && !helper && app.ready) {
         try {
           if (await call("begin_onboarding")) onboardingMode = "first-run";
         } catch (failure: unknown) {
@@ -135,7 +120,7 @@
       }
       setupChecked = true;
     });
-    if (!overlay && !cursor) {
+    if (!overlay && !cursor && !helper) {
       void watchWindowMaximized(
         (value) => {
           maximized = value;
@@ -221,7 +206,7 @@
     await navigate(action);
   }
   function keyboard(event: KeyboardEvent): void {
-    if (overlay) return;
+    if (overlay || helper) return;
     if (event.defaultPrevented || app.confirmation) return;
     if (event.key === "Escape" && app.snapshot.state === "cleaning") {
       event.preventDefault();
@@ -265,9 +250,11 @@
 <svelte:window onkeydown={keyboard} onbeforeunload={beforeUnload} />
 <svelte:head
   ><title
-    >{overlay
-      ? "Recording"
-      : navigation.find((item) => item.id === page)?.label} · SonoJot</title
+    >{helper
+      ? "Permission helper"
+      : overlay
+        ? "Recording"
+        : navigation.find((item) => item.id === page)?.label} · SonoJot</title
   ></svelte:head
 >
 
@@ -275,12 +262,14 @@
   <CursorIndicator />
 {:else}<div
     class="studio type-material"
-    class:overlay
+    class:overlay={overlay || helper}
     data-theme={app.snapshot.settings.theme}
     data-material={app.snapshot.settings.material ? "on" : "off"}
   >
     {#if overlay}
       <ScreenTab />
+    {:else if helper}
+      <PermissionHelper />
     {:else}
       {#if !onboardingMode}<a class="skip-link" href="#page-content"
           >Skip to page</a
@@ -327,56 +316,7 @@
         {:else if termsRequired}
           <Terms onclose={() => windowAction("close")} />
         {:else}<div class="sheet-body">
-            <aside class="paper-nav">
-              <nav aria-label="Main navigation">
-                {#snippet navItem(item: (typeof navigation)[number])}<button
-                    type="button"
-                    class="nav-item"
-                    class:selected={page === item.id}
-                    aria-current={page === item.id ? "page" : undefined}
-                    onclick={() => navigate(item.id)}
-                    >{#if item.id === "setup"}<svg
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.55"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                        ><path
-                          d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"
-                        /></svg
-                      >
-                    {:else}<Icon name={item.id} />{/if}<span>{item.label}</span
-                    >{#if item.id === "meetings" && app.snapshot.meetingRecording}<span
-                        class="nav-recording"
-                        aria-label="Recording"
-                      ></span>{/if}</button
-                  >{/snippet}
-                <div class="nav-primary">
-                  {#each navigation.slice(0, 2) as item}{@render navItem(
-                      item,
-                    )}{/each}
-                </div>
-                <div
-                  class="nav-settings"
-                  role="group"
-                  aria-labelledby="settings-label"
-                >
-                  <span
-                    id="settings-label"
-                    class="nav-group-label"
-                    data-text-surface="flat">Settings</span
-                  >
-                  {#each navigation.slice(2) as item}{@render navItem(
-                      item,
-                    )}{/each}
-                </div>
-              </nav>
-              <UpdateButton />
-            </aside>
+            <Sidebar {page} onnavigate={navigate} />
             <div class="stock mounted page-frame">
               <main
                 id="page-content"

@@ -96,12 +96,14 @@ pub async fn get_model_acceleration(
 }
 
 #[tauri::command]
-pub async fn get_snapshot(state: AppStateHandle<'_>) -> Result<Snapshot, String> {
+pub async fn get_snapshot(app: AppHandle, state: AppStateHandle<'_>) -> Result<Snapshot, String> {
     let root = state.models_root.clone();
     let (devices, models) =
         tauri::async_runtime::spawn_blocking(move || (audio::list_devices(), model_catalog(&root)))
             .await
             .map_err(|e| e.to_string())?;
+    // Permission can change in System Settings while SonoJot runs.
+    crate::system_audio_commands::refresh(state.inner(), &app).await?;
     let mut snapshot = lock(&state.snapshot)?;
     snapshot.models = models;
     match devices {
@@ -377,6 +379,19 @@ pub async fn screen_tab_record(
     } else {
         None
     };
+    // macOS: the menu bar sheet is not captured at reveal, and clicking it can
+    // activate SonoJot first. Unless SonoJot's own window was in use, paste
+    // into the app that was active before the click.
+    #[cfg(target_os = "macos")]
+    let target = if app
+        .get_webview_window("main")
+        .is_some_and(|window| window.is_focused().unwrap_or(false))
+    {
+        platform::capture_paste_target()
+    } else {
+        platform::capture_paste_target_or_previous()
+    };
+    #[cfg(not(target_os = "macos"))]
     let target = if windows::screen_tab_has_focus(&app) {
         lock(&runtime.tab_target)?.clone()
     } else {
@@ -463,9 +478,9 @@ pub async fn screen_tab_meeting(
 ) -> Result<MeetingDetail, String> {
     crate::setup_commands::require_setup(&state.snapshot()?.settings, crate::setup_commands::CaptureKind::Meeting)?;
     let mut source = state.snapshot()?.settings.meeting_source;
-    if source != "microphone" && !state.snapshot()?.capabilities.system_audio {
-        return Err("This meeting source is unavailable. Choose microphone in Meetings.".into());
-    }
+    // Quick starts never wait on a fix: a missing system side records the
+    // microphone at once, and the tab reveals the problem with its fix.
+    let system_status = crate::system_audio_commands::refresh(state.inner(), &app).await?;
     if !state.snapshot()?.settings.meeting_consent_acknowledged {
         // A native dialog fits both messages without changing the compact tab's
         // input region. The macOS panel and Windows tray use this same command.
@@ -477,10 +492,14 @@ pub async fn screen_tab_meeting(
             "system" => Some(&copy.system),
             _ => None,
         };
-        let detail = match warning {
+        let mut detail = match warning {
             Some(warning) => format!("{}\n\n{warning}", copy.reminder),
             None => copy.reminder.clone(),
         };
+        if let Some(problem) = consent_system_note(&copy, &source, system_status) {
+            detail.push_str("\n\n");
+            detail.push_str(problem);
+        }
         let buttons = if warning.is_some() {
             MessageDialogButtons::YesNoCancelCustom(
                 copy.got_it_record_both.clone(), copy.got_it_start_anyway.clone(), copy.cancel.clone(),
@@ -523,7 +542,26 @@ pub async fn screen_tab_meeting(
         }
         source = chosen;
     }
+    if source != "microphone" && system_status == crate::system_audio::SystemAudioStatus::NotDetermined {
+        // Ask now, while the user is starting the meeting, not after it ends.
+        let _ = tauri::async_runtime::spawn_blocking(crate::system_audio::request_permission).await;
+    }
     start_meeting(app, state, String::new(), source).await
+}
+
+/// The consent dialog also says when the other side cannot be recorded yet.
+fn consent_system_note<'a>(
+    copy: &'a MeetingConsentCopy,
+    source: &str,
+    status: crate::system_audio::SystemAudioStatus,
+) -> Option<&'a str> {
+    use crate::system_audio::SystemAudioStatus;
+    match (source, status) {
+        ("microphone", _) | (_, SystemAudioStatus::Ready) => None,
+        (_, SystemAudioStatus::Unsupported) => Some(&copy.system_unsupported),
+        ("system", _) => Some(&copy.system_only_blocked),
+        _ => Some(&copy.system_permission),
+    }
 }
 
 const MEETING_START_CANCELLED: &str = "MEETING_START_CANCELLED";
@@ -534,6 +572,9 @@ struct MeetingConsentCopy {
     reminder: String,
     microphone: String,
     system: String,
+    system_permission: String,
+    system_unsupported: String,
+    system_only_blocked: String,
     title: String,
     got_it: String,
     got_it_record_both: String,
@@ -645,7 +686,11 @@ pub async fn start_meeting(
         let _control = lock(&runtime.control)?;
         let settings = runtime.snapshot()?.settings;
         require_meeting_consent(&settings)?;
-        let source = saved_meeting_source(&settings, &source)?.to_owned();
+        let requested = saved_meeting_source(&settings, &source)?.to_owned();
+        // A refused permission keeps the system side so it joins once allowed;
+        // an OS without system audio capture records the microphone only.
+        let source =
+            crate::system_audio::recording_source(&requested, crate::system_audio::status())?.to_owned();
         if _control.microphone_preview.is_some() {
             return Err("Finish the microphone check before recording a meeting.".into());
         }
@@ -681,6 +726,9 @@ pub async fn start_meeting(
             runtime.snapshot()?.settings.microphone,
         ) {
             Ok(capture) => {
+                if requested != source {
+                    capture.mark_system_unsupported();
+                }
                 *recorder = Some((meeting.id.clone(), capture));
                 *lock(&runtime.meeting_update_activity)? = Some(activity);
             }
@@ -696,6 +744,7 @@ pub async fn start_meeting(
             snapshot.publication_stage = None;
             snapshot.guard_reason = None;
             snapshot.meeting_source_status.clear();
+            snapshot.meeting_system_audio = None;
             snapshot.active_meeting_id = Some(meeting.id.clone());
             snapshot.error = None;
             snapshot.tab_visible = true;
@@ -730,7 +779,24 @@ fn require_meeting_consent(settings: &Settings) -> Result<(), String> {
 
 #[cfg(test)]
 mod meeting_source_tests {
-    use super::{saved_meeting_source, require_meeting_consent, meeting_consent_copy, consent_meeting_source};
+    use super::{saved_meeting_source, require_meeting_consent, meeting_consent_copy, consent_meeting_source, consent_system_note};
+
+    #[test]
+    fn native_reminder_names_a_missing_system_side() {
+        use crate::system_audio::SystemAudioStatus::*;
+        let copy = meeting_consent_copy().unwrap();
+        for source in ["both", "system", "microphone"] {
+            assert_eq!(consent_system_note(&copy, source, Ready), None);
+        }
+        for status in [NotDetermined, Denied, Unsupported] {
+            assert_eq!(consent_system_note(&copy, "microphone", status), None);
+        }
+        for status in [NotDetermined, Denied] {
+            assert_eq!(consent_system_note(&copy, "both", status), Some(copy.system_permission.as_str()));
+            assert_eq!(consent_system_note(&copy, "system", status), Some(copy.system_only_blocked.as_str()));
+        }
+        assert_eq!(consent_system_note(&copy, "both", Unsupported), Some(copy.system_unsupported.as_str()));
+    }
     use crate::domain::Settings;
     use tauri_plugin_dialog::MessageDialogResult;
 
@@ -820,6 +886,7 @@ fn finish_meeting_capture(
         snapshot.audio_level = 0.0;
         snapshot.meeting_levels = None;
         snapshot.meeting_source_status.clear();
+        snapshot.meeting_system_audio = None;
     }
     // Neither the UI snapshot nor the control mutex waits on a device driver.
     drop(_control);
