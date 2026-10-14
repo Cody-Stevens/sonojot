@@ -12,6 +12,12 @@
 //! reports it and SonoJot comes back to the front. The helper never blocks
 //! setup; it closes with its own button, when System Settings closes, or
 //! after 15 minutes. Other platforms need no permission and report granted.
+//!
+//! macOS ties an entry to the app's code signature, and apps cannot read
+//! whether it is switched on. An entry left by an older, differently signed
+//! build looks switched on but grants nothing, and System Settings may not
+//! let the user remove it. [`permission_reset`] clears SonoJot's own entry
+//! with `tccutil`, asks macOS again and reopens the pane.
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -28,10 +34,9 @@ pub struct PermissionSpec {
     pub title: &'static str,
     /// Helper explanation shown next to the icon.
     pub body: &'static str,
-    /// Shown by the helper after a few seconds without access. macOS ties an
-    /// entry to the code signature and apps cannot read its database, so a
-    /// switched-on entry left by an older build (for example the ad-hoc signed
-    /// 0.27.1) can only be fixed by removing and re-adding it.
+    /// Shown with the reset action after a few seconds without access. A
+    /// switched-on entry left by an older build (for example an ad-hoc signed
+    /// one) grants nothing until it is reset.
     pub stale_hint: &'static str,
     /// `x-apple.systempreferences:` URL of the pane.
     pub settings_url: &'static str,
@@ -39,6 +44,17 @@ pub struct PermissionSpec {
     pub granted: fn() -> bool,
     /// Called when the assistant opens; returns true if access is already granted.
     pub request: Option<fn() -> bool>,
+    /// Clears SonoJot's own entry so macOS asks again.
+    pub reset: Option<PermissionReset>,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // Reset runs only on macOS.
+pub struct PermissionReset {
+    /// `tccutil` service name (the TCC service without `kTCCService`).
+    pub tcc_service: &'static str,
+    /// Asks macOS again after the reset. True when no Settings visit is
+    /// needed now: access is granted or macOS is showing its own prompt.
+    pub prompt: fn() -> bool,
 }
 
 fn accessibility_request() -> bool {
@@ -52,25 +68,48 @@ fn accessibility_request() -> bool {
     }
 }
 
+/// After a reset the old entry is gone, so this always asks: macOS lists
+/// SonoJot again, switched off, and shows its alert.
+fn accessibility_prompt() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::mac_paste::prompt_accessibility()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
 pub static SPECS: &[PermissionSpec] = &[
     PermissionSpec {
         kind: "accessibility",
         title: "Allow SonoJot to paste",
         body: "Switch SonoJot on in the list. If it isn't there, drag this icon into the list.",
-        stale_hint: "Already on? Select SonoJot, remove it with \u{2212}, then drag this icon in again.",
+        stale_hint: "Already on but not working?",
         settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
         granted: crate::platform::paste_permission_granted,
         request: Some(accessibility_request),
+        reset: Some(PermissionReset {
+            tcc_service: "Accessibility",
+            prompt: accessibility_prompt,
+        }),
     },
     PermissionSpec {
         kind: "system_audio",
         title: "Allow SonoJot to record system audio",
         body: "Switch SonoJot on under System Audio Recording Only. If it isn't there, drag this icon into that list.",
-        stale_hint: "Already on? Select SonoJot, remove it with \u{2212}, then drag this icon in again.",
+        stale_hint: "Already on but not recording?",
         settings_url: crate::system_audio::SETTINGS_URL,
         granted: crate::system_audio::permission_granted,
         // An unanswered permission shows macOS's own prompt instead of Settings.
         request: Some(crate::system_audio::request_permission_prompted),
+        // kTCCServiceAudioCapture. After the reset the permission is
+        // unanswered again, so the request shows macOS's prompt.
+        reset: Some(PermissionReset {
+            tcc_service: "AudioCapture",
+            prompt: crate::system_audio::request_permission_prompted,
+        }),
     },
 ];
 
@@ -93,6 +132,8 @@ pub struct PermissionStatus {
     pub title: &'static str,
     pub body: &'static str,
     pub stale_hint: &'static str,
+    /// [`permission_reset`] can clear this permission's entry.
+    pub can_reset: bool,
 }
 
 pub fn status(app: &AppHandle, spec: &'static PermissionSpec) -> PermissionStatus {
@@ -112,6 +153,7 @@ pub fn status(app: &AppHandle, spec: &'static PermissionSpec) -> PermissionStatu
         title: spec.title,
         body: spec.body,
         stale_hint: spec.stale_hint,
+        can_reset: required && spec.reset.is_some(),
     }
 }
 
@@ -147,6 +189,66 @@ pub async fn permission_assistant(
             Ok(announce(&app, spec))
         }
         _ => Err("Unknown permission assistant action.".into()),
+    }
+}
+
+/// Clears SonoJot's own entry for the permission, asks macOS again and
+/// reopens the System Settings pane with the helper. For an entry left by an
+/// older build: it looks switched on, grants nothing and may not be removable.
+#[tauri::command]
+pub async fn permission_reset(app: AppHandle, kind: String) -> Result<PermissionStatus, String> {
+    let spec = spec(&kind)?;
+    let reset = spec.reset.as_ref().ok_or("This permission cannot be reset.")?;
+    #[cfg(target_os = "macos")]
+    {
+        native::reset(&app, spec, reset).await?;
+        Ok(announce(&app, spec))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, reset);
+        Err("This permission is needed only on macOS.".into())
+    }
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const TCCUTIL: &str = "/usr/bin/tccutil";
+
+/// A reverse-DNS bundle identifier: dot-separated labels of ASCII letters,
+/// digits and hyphens. It is passed to `tccutil` as one argument, never
+/// through a shell; this also keeps it from looking like an option.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn valid_bundle_id(id: &str) -> bool {
+    id.len() <= 255
+        && id.contains('.')
+        && id.split('.').all(|label| {
+            !label.is_empty()
+                && !label.starts_with('-')
+                && label.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+}
+
+/// `tccutil reset <service> <bundle id>`, as separate arguments.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn tccutil_reset_args(service: &str, bundle_id: &str) -> Result<[String; 3], String> {
+    if service.is_empty() || !service.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        return Err(format!("Unknown permission service: {service}."));
+    }
+    if !valid_bundle_id(bundle_id) {
+        return Err(format!("SonoJot's bundle identifier is not valid: {bundle_id}."));
+    }
+    Ok(["reset".into(), service.into(), bundle_id.into()])
+}
+
+/// Error for a failed `tccutil`, with its own message when it printed one.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn reset_failure(stderr: &[u8]) -> String {
+    let detail = String::from_utf8_lossy(stderr);
+    let detail = detail.trim();
+    if detail.is_empty() {
+        "macOS could not reset the permission.".into()
+    } else {
+        format!("macOS could not reset the permission: {detail}")
     }
 }
 
@@ -244,7 +346,7 @@ mod native {
     use objc2::rc::{autoreleasepool, Allocated, Retained};
     use objc2::runtime::{AnyClass, AnyObject, AnyProtocol, ClassBuilder, MessageReceiver, Sel};
     use objc2::{class, msg_send, sel};
-    use std::ffi::{c_void, CString};
+    use std::ffi::{c_char, c_void, CStr, CString};
     use std::os::unix::ffi::OsStrExt;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Mutex;
@@ -252,7 +354,8 @@ mod native {
     use tauri::{LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder};
 
     const WIDTH: f64 = 520.0;
-    const HEIGHT: f64 = 150.0;
+    // Room for the reset offer under the instruction.
+    const HEIGHT: f64 = 172.0;
     const SETTINGS_BUNDLE: &str = "com.apple.systempreferences";
     /// NSFloatingWindowLevel: above System Settings, below menus and alerts.
     const FLOATING_LEVEL: isize = 3;
@@ -508,6 +611,11 @@ mod native {
             close(app);
             return Ok(());
         }
+        show(app, spec)
+    }
+
+    /// Opens the pane and floats the helper beside it.
+    fn show(app: &AppHandle, spec: &'static PermissionSpec) -> Result<(), String> {
         std::process::Command::new("/usr/bin/open")
             .arg(spec.settings_url)
             .spawn()
@@ -519,6 +627,44 @@ mod native {
         let generation = GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
         watch(app.clone(), window, spec, generation);
         Ok(())
+    }
+
+    /// The running app's bundle identifier, from its bundle; the configured
+    /// identifier when running outside a bundle (development builds).
+    fn bundle_identifier(app: &AppHandle) -> String {
+        let from_bundle = autoreleasepool(|_| unsafe {
+            let bundle: Option<Retained<AnyObject>> = msg_send![class!(NSBundle), mainBundle];
+            let identifier: Option<Retained<AnyObject>> = msg_send![&*bundle?, bundleIdentifier];
+            let utf8: *const c_char = msg_send![&*identifier?, UTF8String];
+            (!utf8.is_null()).then(|| CStr::from_ptr(utf8).to_string_lossy().into_owned())
+        });
+        from_bundle.unwrap_or_else(|| app.config().identifier.clone())
+    }
+
+    /// `tccutil reset`, then ask macOS again; open the pane with the helper
+    /// unless access is back or macOS is showing its own prompt. An open
+    /// helper for this permission stays (the reset may come from it) and is
+    /// watched afresh.
+    pub async fn reset(
+        app: &AppHandle,
+        spec: &'static PermissionSpec,
+        reset: &'static PermissionReset,
+    ) -> Result<(), String> {
+        let args = tccutil_reset_args(reset.tcc_service, &bundle_identifier(app))?;
+        let output = tauri::async_runtime::spawn_blocking(move || {
+            std::process::Command::new(TCCUTIL).args(&args).output()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("Cannot run tccutil: {e}"))?;
+        if !output.status.success() {
+            return Err(reset_failure(&output.stderr));
+        }
+        if (reset.prompt)() || (spec.granted)() {
+            close(app);
+            return Ok(());
+        }
+        show(app, spec)
     }
 
     pub fn close(app: &AppHandle) {
@@ -722,8 +868,58 @@ mod tests {
             assert!(spec.settings_url.starts_with("x-apple.systempreferences:"));
             assert!(!spec.title.is_empty() && !spec.body.is_empty());
             assert!(!spec.stale_hint.is_empty());
+            // System Settings may not let the user remove an old entry.
+            assert!(spec.stale_hint.starts_with("Already on but "), "{}", spec.stale_hint);
+            let reset = spec.reset.as_ref().expect("every permission can be reset");
+            assert!(tccutil_reset_args(reset.tcc_service, "studio.codystevens.eavesdropper.next").is_ok());
             assert_eq!(SPECS.iter().filter(|other| other.kind == spec.kind).count(), 1);
         }
+    }
+
+    #[test]
+    fn tccutil_gets_separate_arguments_for_the_service_and_bundle() {
+        assert_eq!(
+            tccutil_reset_args("Accessibility", "studio.codystevens.eavesdropper.next").unwrap(),
+            ["reset", "Accessibility", "studio.codystevens.eavesdropper.next"]
+        );
+        assert_eq!(TCCUTIL, "/usr/bin/tccutil");
+        assert!(tccutil_reset_args("", "studio.codystevens.app").is_err());
+        assert!(tccutil_reset_args("All Services", "studio.codystevens.app").is_err());
+        assert!(tccutil_reset_args("Accessibility;", "studio.codystevens.app").is_err());
+    }
+
+    #[test]
+    fn bundle_id_must_be_reverse_dns() {
+        for id in ["studio.codystevens.eavesdropper.next", "com.example.My-App2"] {
+            assert!(valid_bundle_id(id), "{id}");
+        }
+        let long = format!("com.{}", "a".repeat(260));
+        for id in [
+            "",
+            "sonojot",
+            ".studio.codystevens",
+            "studio.codystevens.",
+            "studio..codystevens",
+            "-reset.studio",
+            "studio.codystevens next",
+            "studio.codystevens;rm",
+            "studio.codystevens\nnext",
+            "studio.codystevens/next",
+            "studio.c\u{f6}dy",
+            long.as_str(),
+        ] {
+            assert!(!valid_bundle_id(id), "{id:?}");
+            assert!(tccutil_reset_args("Accessibility", id).is_err());
+        }
+    }
+
+    #[test]
+    fn reset_failure_keeps_tccutil_message() {
+        assert_eq!(reset_failure(b"  \n"), "macOS could not reset the permission.");
+        assert_eq!(
+            reset_failure(b"tccutil: No such bundle identifier\n"),
+            "macOS could not reset the permission: tccutil: No such bundle identifier"
+        );
     }
 
     #[test]

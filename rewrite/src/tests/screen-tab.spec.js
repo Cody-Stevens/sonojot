@@ -339,7 +339,7 @@ async function screenTab(page, presentation) {
           case "permission_assistant":
             return { kind: args.kind, required: true,
               granted: systemAudioStatus() === "ready", assistantOpen: false,
-              title: "", body: "", staleHint: "" };
+              title: "", body: "", staleHint: "", canReset: true };
           case "screen_tab_meeting": {
             // Mirrors the backend: a refused permission keeps the system side
             // and the recorder reports it as missing.

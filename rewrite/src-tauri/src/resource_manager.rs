@@ -407,7 +407,28 @@ mod mac_memory {
         }
         let fields = stats.as_ptr().cast::<u32>();
         let pages = unsafe { u64::from(*fields) + u64::from(*fields.add(2)) };
-        Some(pages.saturating_mul(page_size as u64).min(total()?))
+        let total = total()?;
+        let counted = pages.saturating_mul(page_size as u64).min(total);
+        // Free + inactive leaves out compressible and purgeable memory, so it
+        // can read near zero while macOS still has room. The kernel's own
+        // memory-pressure figure (percent available, as used by jetsam) does
+        // count them; take whichever is larger.
+        Some(counted.max(pressure_level().map_or(0, |percent| total / 100 * percent)))
+    }
+
+    fn pressure_level() -> Option<u64> {
+        let mut percent = 0i32;
+        let mut size = std::mem::size_of::<i32>();
+        let status = unsafe {
+            libc::sysctlbyname(
+                c"kern.memorystatus_level".as_ptr(),
+                (&mut percent as *mut i32).cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        (status == 0 && size == 4 && (0..=100).contains(&percent)).then_some(percent as u64)
     }
 }
 
@@ -2112,6 +2133,12 @@ fn admission_check_inner(
         format_bytes(Some(additional)),
         format_bytes(Some(reserve)),
     );
+    // Reusing a resident model frees nothing by evicting; it could only evict
+    // the model about to be reused. Warn and admit.
+    if already_resident {
+        admission_warning(&warning);
+        return Ok(());
+    }
     // Evict confirmed-idle safely, then admit with an advisory warning.
     evict_idle_on_pressure();
     // Give the OS a moment to reclaim after a confirmed shutdown; do not spin.
@@ -2162,8 +2189,8 @@ pub fn acquire_asr_with_admission(model_id: &str, what: &str) -> Result<(), Stri
         let hw = probe_hardware();
         let gpu = selected_gpu_pair();
         match try_acquire_asr_locked(model_id, what, &hw, gpu, probe_gen, evicted) {
-            LockedAdmission::Admitted => {
-                if let Some(warning) = pressure_warning.as_deref() {
+            LockedAdmission::Admitted(advisory) => {
+                if let Some(warning) = advisory.as_deref().or(pressure_warning.as_deref()) {
                     admission_warning(warning);
                 }
                 return Ok(());
@@ -2191,14 +2218,16 @@ pub fn acquire_asr_with_admission(model_id: &str, what: &str) -> Result<(), Stri
 /// transition landed between sample and lock, so the sample and the
 /// in-lock pending figures describe different worlds and must not be mixed.
 enum LockedAdmission {
-    Admitted,
+    /// Admitted; carries an advisory when a resident reuse was admitted
+    /// despite a low-memory estimate.
+    Admitted(Option<String>),
     Busy(String),
     Denied(String),
     Insufficient(String),
     Stale,
 }
 
-const MEMORY_UNAVAILABLE: &str = "Memory unavailable:";
+pub(crate) const MEMORY_UNAVAILABLE: &str = "Memory unavailable:";
 
 fn memory_denied(detail: &str) -> LockedAdmission {
     LockedAdmission::Denied(format!("{MEMORY_UNAVAILABLE} {detail} Close another GPU application, choose CPU text processing, or use one model at a time."))
@@ -2245,11 +2274,12 @@ fn try_acquire_asr_locked(
     let (host_max, vram_max) = estimate_pair_max(model_id);
     let known = estimated_ram_interval(model_id).is_some();
     // RAM fit including the OTHER stage's pending (not yet visible to the OS).
+    let mut advisory = None;
     if known {
         let additional = if already_resident { 0 } else { host_max };
         let need = additional.saturating_add(WORKING_OVERHEAD_BYTES);
         if let Some(available) = hw.available_ram_bytes {
-            if admit_on_pressure && available < WORKING_OVERHEAD_BYTES {
+            if admit_on_pressure && !already_resident && available < WORKING_OVERHEAD_BYTES {
                 return memory_denied("System RAM is critically low.");
             }
             let reserve = reserve_bytes(hw.total_ram_bytes);
@@ -2262,7 +2292,13 @@ fn try_acquire_asr_locked(
                     format_bytes(Some(additional)),
                     format_bytes(Some(reserve)),
                 );
-                if !admit_on_pressure {
+                if already_resident {
+                    // Reuse allocates no model bytes. Pressure eviction would
+                    // only mark this very model for release (and the caller,
+                    // often its owner, would wait on itself), so never evict
+                    // or deny a resident reuse: warn and admit.
+                    advisory = Some(warning);
+                } else if !admit_on_pressure {
                     return LockedAdmission::Insufficient(warning);
                 }
             }
@@ -2304,7 +2340,7 @@ fn try_acquire_asr_locked(
     state.asr_idle_since = None;
     state.asr_release_pending = false;
     state.generation = state.generation.wrapping_add(1);
-    LockedAdmission::Admitted
+    LockedAdmission::Admitted(advisory)
 }
 
 /// Fit check + active marking + pending reservation for text in ONE critical
@@ -2319,8 +2355,8 @@ pub fn acquire_text_with_admission(role: &str, model_id: &str, what: &str) -> Re
         let hw = probe_hardware();
         let gpu = selected_gpu_pair();
         match try_acquire_text_locked(role, model_id, what, &hw, gpu, probe_gen, evicted) {
-            LockedAdmission::Admitted => {
-                if let Some(warning) = pressure_warning.as_deref() {
+            LockedAdmission::Admitted(advisory) => {
+                if let Some(warning) = advisory.as_deref().or(pressure_warning.as_deref()) {
                     admission_warning(warning);
                 }
                 return Ok(());
@@ -2374,12 +2410,13 @@ fn try_acquire_text_locked(
     let already_resident = state.text_loaded.as_deref() == Some(model_id);
     let (host_max, vram_max) = estimate_pair_max(model_id);
     let mut budget_cpu = false;
+    let mut advisory = None;
     let known = estimated_ram_interval(model_id).is_some();
     if known {
         let additional = if already_resident { 0 } else { host_max };
         let need = additional.saturating_add(WORKING_OVERHEAD_BYTES);
         if let Some(available) = hw.available_ram_bytes {
-            if admit_on_pressure && available < WORKING_OVERHEAD_BYTES {
+            if admit_on_pressure && !already_resident && available < WORKING_OVERHEAD_BYTES {
                 return memory_denied("System RAM is critically low.");
             }
             let reserve = reserve_bytes(hw.total_ram_bytes);
@@ -2395,7 +2432,11 @@ fn try_acquire_text_locked(
                     format_bytes(Some(additional)),
                     format_bytes(Some(reserve)),
                 );
-                if !admit_on_pressure {
+                if already_resident {
+                    // Same rule as ASR: pressure eviction would stop the text
+                    // worker this caller is about to reuse.
+                    advisory = Some(warning);
+                } else if !admit_on_pressure {
                     return LockedAdmission::Insufficient(warning);
                 }
             }
@@ -2434,7 +2475,7 @@ fn try_acquire_text_locked(
     }
     state.text_idle_since = None;
     state.generation = state.generation.wrapping_add(1);
-    LockedAdmission::Admitted
+    LockedAdmission::Admitted(advisory)
 }
 
 /// Release a pending reservation WITHOUT touching active/loaded.
@@ -3378,7 +3419,7 @@ pub(crate) mod tests {
             generation_blocking(),
             true,
         );
-        assert!(matches!(result, LockedAdmission::Admitted));
+        assert!(matches!(result, LockedAdmission::Admitted(_)));
         if !crate::acceleration::cpu_only() {
             assert!(text_cpu_required("qwen3-4b-instruct-2507"));
         }
@@ -3405,6 +3446,46 @@ pub(crate) mod tests {
         let error = acquire_asr_with_admission("whisper-tiny", "test").unwrap_err();
         assert!(error.starts_with(MEMORY_UNAVAILABLE));
         assert!(!model_state_blocking("whisper-tiny").0);
+        reset_for_tests(MemoryMode::Overlap, ModelRetention::Minutes10);
+    }
+
+    /// Field failure 2026-10-14 (Mac mini, 16 GB, whisper-small-metal):
+    /// reusing the resident speech model under host pressure must neither
+    /// mark it for release nor wait on the owner that is asking, and even
+    /// critically low RAM only warns because reuse allocates no model bytes.
+    #[test]
+    fn resident_models_under_pressure_are_admitted_and_not_evicted() {
+        let _gate = test_gate();
+        reset_for_tests(MemoryMode::Overlap, ModelRetention::Minutes10);
+        acquire_asr("whisper-small-metal").unwrap();
+        note_asr_loaded("whisper-small-metal");
+        notify_asr_finished();
+        acquire_text("cleanup", "lfm2.5-1.2b").unwrap();
+        note_text_loaded("lfm2.5-1.2b");
+        notify_text_finished();
+        for available in [1 << 30, 64 * MIB] {
+            set_test_memory(16 << 30, available);
+            let started = Instant::now();
+            acquire_asr_with_admission("whisper-small-metal", "dictation").unwrap();
+            // No pressure wait: the old path slept up to 1 s for its own release.
+            assert!(started.elapsed() < Duration::from_millis(500));
+            assert!(!asr_release_pending_blocking());
+            assert!(model_state_blocking("whisper-small-metal").1);
+            assert_eq!(shared().lock().unwrap().asr_pending_host, 0);
+            notify_asr_finished();
+            acquire_text_with_admission("cleanup", "lfm2.5-1.2b", "dictation cleanup").unwrap();
+            // A resident text reuse never evicts the idle speech model either.
+            assert!(!asr_release_pending_blocking());
+            assert!(model_state_blocking("lfm2.5-1.2b").1);
+            notify_text_finished();
+            assert!(admission_check_model("lfm2.5-1.2b", 3 << 30, "legacy").is_ok());
+            assert!(!asr_release_pending_blocking());
+        }
+        // A model that is not resident still faces the critical-RAM refusal.
+        set_test_memory(16 << 30, 64 * MIB);
+        assert!(acquire_asr_with_admission("whisper-turbo-metal", "dictation")
+            .unwrap_err()
+            .starts_with(MEMORY_UNAVAILABLE));
         reset_for_tests(MemoryMode::Overlap, ModelRetention::Minutes10);
     }
 

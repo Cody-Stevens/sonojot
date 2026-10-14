@@ -25,6 +25,31 @@ test("Dictation page: Accessibility row opens the assistant", async ({ page }) =
   await screenshot(page, "dictation-row-needed-fog");
 });
 
+test("Dictation page: after a try without access, reset and ask again", async ({ page }) => {
+  await installDesktopFixture(page, settled);
+  await page.goto("/?theme=fog");
+  const row = page.getByRole("group", { name: "Accessibility access" });
+  const reset = page.getByRole("button", { name: "Reset and ask again", exact: true });
+  await expect(row).toBeVisible();
+  await expect(reset).toHaveCount(0);
+  await row.getByRole("button", { name: "Grant Accessibility", exact: true }).click();
+  await expect(page.getByText("If SonoJot is already switched on but paste still doesn't work, reset it. macOS will ask again; switch SonoJot on.")).toBeVisible();
+  await expect(page.getByText(/remove it with/)).toHaveCount(0);
+  await reset.click();
+  expect((await calls(page, "permission_reset"))[0].args).toEqual({ kind: "accessibility" });
+  await expect(page.getByText(/drag the icon from the SonoJot helper/)).toBeVisible();
+  await reset.scrollIntoViewIfNeeded();
+  await screenshot(page, "dictation-row-reset-fog");
+});
+
+test("Dictation page: a failed reset says why", async ({ page }) => {
+  await installDesktopFixture(page, { ...settled, permissionResetError: "macOS could not reset the permission: tccutil: No such bundle identifier" });
+  await page.goto("/?theme=slate");
+  await page.getByRole("button", { name: "Grant Accessibility", exact: true }).click();
+  await page.getByRole("button", { name: "Reset and ask again", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("No such bundle identifier");
+});
+
 test("Dictation page: access already on", async ({ page }) => {
   await installDesktopFixture(page, { ...settled, permissionGranted: true });
   await page.goto("/?theme=slate");

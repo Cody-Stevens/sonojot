@@ -721,6 +721,9 @@
     {/if}
     <ModelDownload
       model={download}
+      errorShownElsewhere={!profiles.custom &&
+        !!download?.error &&
+        profiles.failure?.message === download.error}
       pending={!app.native || !!pending}
       retryDisabled={installDisabled}
       oncancel={cancel}

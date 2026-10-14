@@ -335,6 +335,47 @@ fn legacy_startup_executables(executable: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Move a login-item file written under the pre-SonoJot name to its SonoJot
+/// name. Only a file this installation wrote (`belongs`) is moved: the new file
+/// is written first, then the old one removed, so a failure never leaves the
+/// user without a registration. A disabled or unrelated file stays untouched.
+#[cfg_attr(windows, allow(dead_code))]
+fn hand_over_registration_file(
+    previous: &Path,
+    current: &Path,
+    belongs: impl Fn(&str) -> bool,
+    contents: &str,
+) -> Result<bool, String> {
+    let actual = match std::fs::read_to_string(previous) {
+        Ok(actual) => actual,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("Cannot read the previous login registration: {e}")),
+    };
+    if !belongs(&actual) {
+        return Ok(false);
+    }
+    write_registration_file(current, contents)?;
+    match std::fs::remove_file(previous) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(format!("Cannot remove the previous login registration: {e}")),
+    }
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+fn write_registration_file(path: &Path, contents: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or("Invalid login registration directory.")?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Cannot create login registration directory: {e}"))?;
+    let temporary = path.with_extension("next-tmp");
+    std::fs::write(&temporary, contents)
+        .map_err(|e| format!("Cannot write login registration: {e}"))?;
+    std::fs::rename(&temporary, path)
+        .map_err(|e| format!("Cannot install login registration: {e}"))
+}
+
 pub fn set_startup_enabled(enabled: bool, installed_executable: &Path) -> Result<bool, String> {
     let executable = validated_startup_executable(installed_executable)?;
     native::set_startup_enabled(enabled, &executable)?;
@@ -398,8 +439,13 @@ mod native {
     use winreg::{enums::*, RegKey};
 
     const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-    // A separate name deliberately leaves the old C# installation untouched.
-    const RUN_VALUE: &str = "EavesdropperNext";
+    // Task Manager keeps each Run value's enabled/disabled choice here, by name.
+    const APPROVED_KEY: &str =
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+    const RUN_VALUE: &str = "SonoJot";
+    // Builds up to 0.28.3 registered under this name. The C# app's own
+    // "Eavesdropper" value is a different name and is never touched.
+    const PREVIOUS_RUN_VALUE: &str = "EavesdropperNext";
 
     #[derive(Clone, Copy, Debug, Default)]
     struct Foreground {
@@ -771,6 +817,15 @@ mod native {
     }
 
     pub(super) fn migrate_startup_registration(executable: &Path) -> Result<(), String> {
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        match root.open_subkey_with_flags(RUN_KEY, KEY_READ | KEY_WRITE) {
+            Ok(run) => {
+                let approved = root.open_subkey_with_flags(APPROVED_KEY, KEY_READ | KEY_WRITE).ok();
+                hand_over_run_value(&run, approved.as_ref(), executable)?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(format!("Cannot open launch-at-login registration: {e}")),
+        }
         for previous in legacy_startup_executables(executable) {
             if startup_enabled(&previous)? {
                 set_startup_enabled(true, executable)?;
@@ -778,6 +833,45 @@ mod native {
             }
         }
         Ok(())
+    }
+
+    /// The command was written for this installation, by this or an earlier build.
+    fn run_command_belongs_to(command: &str, executable: &Path) -> bool {
+        command == startup_command(executable)
+            || legacy_startup_executables(executable)
+                .iter()
+                .any(|previous| command == startup_command(previous))
+    }
+
+    /// Rename this installation's `EavesdropperNext` Run value to `SonoJot`,
+    /// carrying Task Manager's enabled/disabled choice so a disabled entry
+    /// stays disabled. The new value is written before the old one is removed.
+    fn hand_over_run_value(
+        run: &RegKey,
+        approved: Option<&RegKey>,
+        executable: &Path,
+    ) -> Result<bool, String> {
+        let Ok(command) = run.get_value::<String, _>(PREVIOUS_RUN_VALUE) else {
+            return Ok(false);
+        };
+        if !run_command_belongs_to(&command, executable) {
+            return Ok(false);
+        }
+        if let Some(approved) = approved {
+            if let Ok(state) = approved.get_raw_value(PREVIOUS_RUN_VALUE) {
+                approved
+                    .set_raw_value(RUN_VALUE, &state)
+                    .map_err(|e| format!("Cannot carry the launch-at-login state: {e}"))?;
+                let _ = approved.delete_value(PREVIOUS_RUN_VALUE);
+            }
+        }
+        run.set_value(RUN_VALUE, &startup_command(executable))
+            .map_err(|e| format!("Cannot register launch at login: {e}"))?;
+        match run.delete_value(PREVIOUS_RUN_VALUE) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+            Err(e) => Err(format!("Cannot remove the previous launch-at-login value: {e}")),
+        }
     }
 
     pub(super) fn set_startup_enabled(enabled: bool, executable: &Path) -> Result<(), String> {
@@ -789,6 +883,13 @@ mod native {
             key.set_value(RUN_VALUE, &startup_command(executable))
                 .map_err(|e| format!("Cannot register launch at login: {e}"))
         } else {
+            // A leftover pre-SonoJot value for this installation would still launch it.
+            if key
+                .get_value::<String, _>(PREVIOUS_RUN_VALUE)
+                .is_ok_and(|command| run_command_belongs_to(&command, executable))
+            {
+                let _ = key.delete_value(PREVIOUS_RUN_VALUE);
+            }
             match key.delete_value(RUN_VALUE) {
                 Ok(()) => Ok(()),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -800,6 +901,88 @@ mod native {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        /// A scratch HKCU key stands in for Run and StartupApproved\Run; the
+        /// real login registration is never read or written by these tests.
+        struct ScratchKeys {
+            name: String,
+            run: RegKey,
+            approved: RegKey,
+        }
+
+        impl ScratchKeys {
+            fn new() -> Self {
+                let name = format!(r"Software\SonoJotTest-{}", uuid::Uuid::new_v4().simple());
+                let root = RegKey::predef(HKEY_CURRENT_USER);
+                let (run, _) = root.create_subkey(format!(r"{name}\Run")).unwrap();
+                let (approved, _) = root.create_subkey(format!(r"{name}\Approved")).unwrap();
+                Self { name, run, approved }
+            }
+        }
+
+        impl Drop for ScratchKeys {
+            fn drop(&mut self) {
+                let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(&self.name);
+            }
+        }
+
+        #[test]
+        fn previous_run_value_hands_over_to_sonojot_with_its_task_manager_state() {
+            let keys = ScratchKeys::new();
+            let executable = Path::new(r"C:\Users\a\AppData\Local\Programs\Eavesdropper Next\SonoJot.exe");
+            keys.run
+                .set_value(PREVIOUS_RUN_VALUE, &startup_command(executable))
+                .unwrap();
+            // Task Manager's "disabled" record: 0x03 followed by a FILETIME.
+            let disabled = winreg::RegValue {
+                bytes: vec![3, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8],
+                vtype: REG_BINARY,
+            };
+            keys.approved.set_raw_value(PREVIOUS_RUN_VALUE, &disabled).unwrap();
+
+            assert!(hand_over_run_value(&keys.run, Some(&keys.approved), executable).unwrap());
+            assert_eq!(
+                keys.run.get_value::<String, _>(RUN_VALUE).unwrap(),
+                startup_command(executable)
+            );
+            assert!(keys.run.get_value::<String, _>(PREVIOUS_RUN_VALUE).is_err());
+            assert_eq!(keys.approved.get_raw_value(RUN_VALUE).unwrap(), disabled);
+            assert!(keys.approved.get_raw_value(PREVIOUS_RUN_VALUE).is_err());
+            // Nothing left to hand over the second time.
+            assert!(!hand_over_run_value(&keys.run, Some(&keys.approved), executable).unwrap());
+        }
+
+        #[test]
+        fn previous_run_value_for_the_old_binary_name_points_at_sonojot() {
+            let keys = ScratchKeys::new();
+            let executable = Path::new(r"C:\Programs\Eavesdropper Next\SonoJot.exe");
+            keys.run
+                .set_value(
+                    PREVIOUS_RUN_VALUE,
+                    &startup_command(&executable.with_file_name("eavesdropper-next.exe")),
+                )
+                .unwrap();
+            assert!(hand_over_run_value(&keys.run, None, executable).unwrap());
+            assert_eq!(
+                keys.run.get_value::<String, _>(RUN_VALUE).unwrap(),
+                startup_command(executable)
+            );
+            assert!(keys.run.get_value::<String, _>(PREVIOUS_RUN_VALUE).is_err());
+        }
+
+        #[test]
+        fn another_installations_run_value_is_left_alone() {
+            let keys = ScratchKeys::new();
+            let executable = Path::new(r"C:\Programs\SonoJot\SonoJot.exe");
+            let other = startup_command(Path::new(r"D:\Elsewhere\SonoJot.exe"));
+            keys.run.set_value(PREVIOUS_RUN_VALUE, &other).unwrap();
+            assert!(!hand_over_run_value(&keys.run, Some(&keys.approved), executable).unwrap());
+            assert_eq!(keys.run.get_value::<String, _>(PREVIOUS_RUN_VALUE).unwrap(), other);
+            assert!(keys.run.get_value::<String, _>(RUN_VALUE).is_err());
+            // An absent value is not an error.
+            let empty = ScratchKeys::new();
+            assert!(!hand_over_run_value(&empty.run, None, executable).unwrap());
+        }
 
         fn captured_fixture() -> PasteTarget {
             PasteTarget {
@@ -1152,12 +1335,22 @@ mod native {
         Err("Clipboard support needs wl-copy on Wayland, or xclip/xsel on X11.".into())
     }
 
-    fn registration_path() -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    const LABEL: &str = "studio.codystevens.sonojot";
+    // Builds up to 0.28.3 used this launchd label and file name.
+    #[cfg(target_os = "macos")]
+    const PREVIOUS_LABEL: &str = "studio.codystevens.eavesdropper-next";
+    #[cfg(not(target_os = "macos"))]
+    const LABEL: &str = "sonojot";
+    // Builds up to 0.28.3 used this autostart file name.
+    #[cfg(not(target_os = "macos"))]
+    const PREVIOUS_LABEL: &str = "eavesdropper-next";
+
+    fn registration_path_for(label: &str) -> Result<PathBuf, String> {
         let user_dir = std::env::var_os("HOME").ok_or("The user home directory is unavailable.")?;
         #[cfg(target_os = "macos")]
         {
-            Ok(PathBuf::from(user_dir)
-                .join("Library/LaunchAgents/studio.codystevens.eavesdropper-next.plist"))
+            Ok(PathBuf::from(user_dir).join(format!("Library/LaunchAgents/{label}.plist")))
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -1165,15 +1358,19 @@ mod native {
                 .map(PathBuf::from)
                 .filter(|v| v.is_absolute())
                 .unwrap_or_else(|| PathBuf::from(user_dir).join(".config"));
-            Ok(config_dir.join("autostart/eavesdropper-next.desktop"))
+            Ok(config_dir.join(format!("autostart/{label}.desktop")))
         }
     }
 
-    fn registration_contents(executable: &Path) -> String {
-        registration_contents_with_brand(executable, true)
+    fn registration_path() -> Result<PathBuf, String> {
+        registration_path_for(LABEL)
     }
 
-    fn registration_contents_with_brand(executable: &Path, branded: bool) -> String {
+    fn registration_contents(executable: &Path) -> String {
+        registration_contents_for(executable, true, LABEL)
+    }
+
+    fn registration_contents_for(executable: &Path, branded: bool, label: &str) -> String {
         let path = executable.to_string_lossy();
         #[cfg(target_os = "macos")]
         {
@@ -1183,17 +1380,19 @@ mod native {
                 .replace('>', "&gt;")
                 .replace('"', "&quot;")
                 .replace('\'', "&apos;");
-            // Associate the stable legacy job label with the SonoJot bundle in
-            // System Settings. launchd.plist(5) defines this display metadata.
+            // Associate the job with the SonoJot bundle in System Settings.
+            // launchd.plist(5) defines this display metadata.
             let association = if branded {
                 "<key>AssociatedBundleIdentifiers</key><string>studio.codystevens.eavesdropper.next</string>"
             } else {
                 ""
             };
-            format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>studio.codystevens.eavesdropper-next</string>{association}<key>ProgramArguments</key><array><string>{escaped}</string><string>--startup</string></array><key>RunAtLoad</key><true/></dict></plist>\n")
+            format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>{label}</string>{association}<key>ProgramArguments</key><array><string>{escaped}</string><string>--startup</string></array><key>RunAtLoad</key><true/></dict></plist>\n")
         }
         #[cfg(not(target_os = "macos"))]
         {
+            // The file name carries the label; the contents do not.
+            let _ = label;
             // Desktop Entry Exec uses its own escaping, not shell interpolation.
             let escaped = path
                 .replace('\\', "\\\\\\\\")
@@ -1206,27 +1405,43 @@ mod native {
         }
     }
 
-    fn registration_needs_migration(actual: &str, executable: &Path) -> bool {
-        if actual == registration_contents(executable) {
-            return false;
-        }
+    /// Contents an earlier build wrote for this installation under `label`.
+    fn earlier_registration(actual: &str, executable: &Path, label: &str) -> bool {
         legacy_startup_executables(executable)
             .iter()
             .any(|previous| {
-                let legacy = registration_contents_with_brand(previous, false);
+                let legacy = registration_contents_for(previous, false, label);
                 // Earlier macOS builds opened settings at login and omitted --startup.
                 #[cfg(target_os = "macos")]
                 if actual == legacy.replace("<string>--startup</string>", "") {
                     return true;
                 }
                 actual == legacy
-                    || actual == registration_contents(previous)
-                    || actual == registration_contents_with_brand(executable, false)
+                    || actual == registration_contents_for(previous, true, label)
+                    || actual == registration_contents_for(executable, false, label)
             })
     }
 
+    fn registration_needs_migration(actual: &str, executable: &Path) -> bool {
+        actual != registration_contents(executable)
+            && earlier_registration(actual, executable, LABEL)
+    }
+
+    /// A registration written under the pre-SonoJot label for this installation.
+    fn previous_registration(actual: &str, executable: &Path) -> bool {
+        actual == registration_contents_for(executable, true, PREVIOUS_LABEL)
+            || earlier_registration(actual, executable, PREVIOUS_LABEL)
+    }
+
     pub(super) fn migrate_startup_registration(executable: &Path) -> Result<(), String> {
-        match std::fs::read_to_string(registration_path()?) {
+        let path = registration_path()?;
+        hand_over_registration_file(
+            &registration_path_for(PREVIOUS_LABEL)?,
+            &path,
+            |actual| previous_registration(actual, executable),
+            &registration_contents(executable),
+        )?;
+        match std::fs::read_to_string(&path) {
             Ok(actual) if registration_needs_migration(&actual, executable) => {
                 set_startup_enabled(true, executable)
             }
@@ -1247,17 +1462,15 @@ mod native {
     pub(super) fn set_startup_enabled(enabled: bool, executable: &Path) -> Result<(), String> {
         let path = registration_path()?;
         if enabled {
-            let parent = path
-                .parent()
-                .ok_or("Invalid login registration directory.")?;
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Cannot create login registration directory: {e}"))?;
-            let temporary = path.with_extension("next-tmp");
-            std::fs::write(&temporary, registration_contents(executable))
-                .map_err(|e| format!("Cannot write login registration: {e}"))?;
-            std::fs::rename(&temporary, &path)
-                .map_err(|e| format!("Cannot install login registration: {e}"))
+            write_registration_file(&path, &registration_contents(executable))
         } else {
+            // A leftover pre-SonoJot file for this installation would still launch it.
+            let previous = registration_path_for(PREVIOUS_LABEL)?;
+            if std::fs::read_to_string(&previous)
+                .is_ok_and(|actual| previous_registration(&actual, executable))
+            {
+                let _ = std::fs::remove_file(&previous);
+            }
             match std::fs::remove_file(&path) {
                 Ok(()) => Ok(()),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1275,7 +1488,11 @@ mod native {
         assert!(xml.contains(
             "<string>/Applications/SonoJot.app/Contents/MacOS/SonoJot</string><string>--startup</string>"
         ));
+        assert!(xml.contains("<key>Label</key><string>studio.codystevens.sonojot</string>"));
         assert!(xml.contains("<key>AssociatedBundleIdentifiers</key><string>studio.codystevens.eavesdropper.next</string>"));
+        assert!(registration_path()
+            .unwrap()
+            .ends_with("Library/LaunchAgents/studio.codystevens.sonojot.plist"));
     }
 
     #[cfg(test)]
@@ -1283,7 +1500,7 @@ mod native {
     fn login_migration_matches_only_the_same_installation() {
         let executable = Path::new("/Applications/SonoJot.app/Contents/MacOS/SonoJot");
         let previous = executable.with_file_name("eavesdropper-next");
-        let old = registration_contents_with_brand(&previous, false);
+        let old = registration_contents_for(&previous, false, LABEL);
         assert!(registration_needs_migration(&old, executable));
         let interim = registration_contents(&executable.with_file_name("sonojot"));
         assert!(registration_needs_migration(&interim, executable));
@@ -1314,6 +1531,47 @@ mod native {
             &old,
             Path::new("/Applications/another-app")
         ));
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn previous_label_hands_over_to_the_sonojot_label() {
+        let executable = Path::new("/Applications/SonoJot.app/Contents/MacOS/SonoJot");
+        // The registration from 0.20.7 to 0.28.3, and the original eavesdropper-next one.
+        let branded = registration_contents_for(executable, true, PREVIOUS_LABEL);
+        let original = registration_contents_for(
+            &executable.with_file_name("eavesdropper-next"),
+            false,
+            PREVIOUS_LABEL,
+        );
+        assert!(previous_registration(&branded, executable));
+        assert!(previous_registration(&original, executable));
+        assert!(!previous_registration(
+            &branded,
+            Path::new("/other/SonoJot.app/Contents/MacOS/SonoJot")
+        ));
+        let disabled = branded
+            .replace("<key>RunAtLoad</key><true/>", "<key>RunAtLoad</key><false/>")
+            .replace("X-GNOME-Autostart-enabled=true", "X-GNOME-Autostart-enabled=false");
+        assert!(!previous_registration(&disabled, executable));
+
+        let directory = std::env::temp_dir()
+            .join(format!("sonojot-login-{}", uuid::Uuid::new_v4().simple()));
+        let old_path = directory.join("old.plist");
+        let new_path = directory.join("new/new.plist");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(&old_path, &branded).unwrap();
+        let current = registration_contents(executable);
+        assert!(hand_over_registration_file(
+            &old_path,
+            &new_path,
+            |actual| previous_registration(actual, executable),
+            &current
+        )
+        .unwrap());
+        assert!(!old_path.exists());
+        assert_eq!(std::fs::read_to_string(&new_path).unwrap(), current);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
 
@@ -1350,6 +1608,32 @@ mod tests {
     fn captured_target_can_cross_threads() {
         fn assert_send_sync_clone<T: Send + Sync + Clone>() {}
         assert_send_sync_clone::<PasteTarget>();
+    }
+
+    #[test]
+    fn registration_file_hands_over_only_when_it_belongs_to_this_installation() {
+        let directory = std::env::temp_dir()
+            .join(format!("sonojot-login-file-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let previous = directory.join("studio.codystevens.eavesdropper-next.plist");
+        let current = directory.join("agents/studio.codystevens.sonojot.plist");
+
+        // Absent: nothing to do.
+        assert!(!hand_over_registration_file(&previous, &current, |_| true, "new").unwrap());
+        assert!(!current.exists());
+
+        // Unrelated or disabled: both files stay as they are.
+        std::fs::write(&previous, "other").unwrap();
+        assert!(!hand_over_registration_file(&previous, &current, |a| a == "ours", "new").unwrap());
+        assert_eq!(std::fs::read_to_string(&previous).unwrap(), "other");
+        assert!(!current.exists());
+
+        // Ours: the new file is written and the old one removed.
+        std::fs::write(&previous, "ours").unwrap();
+        assert!(hand_over_registration_file(&previous, &current, |a| a == "ours", "new").unwrap());
+        assert!(!previous.exists());
+        assert_eq!(std::fs::read_to_string(&current).unwrap(), "new");
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

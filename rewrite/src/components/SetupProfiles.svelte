@@ -19,6 +19,9 @@
   import ProfileRecommendation from "./ProfileRecommendation.svelte";
   import {
     missingDownloadBytes,
+    modelInstallStatus,
+    profileCardState,
+    profileChangeText,
     profileLabel,
     sameProfileModels,
     setupProfiles,
@@ -85,11 +88,40 @@
       ? "Same models as Balanced on this computer"
       : setupProfiles.find((profile) => profile.id === selected)?.subtitle,
   );
-  const inUse = $derived(
-    !unfinished &&
-      selected !== "custom" &&
-      app.snapshot.settings.setupProfile === selected &&
-      ai.data?.backend === "local",
+  // "In use" only when the saved models are this profile's current picks.
+  const card = $derived(
+    profileCardState({
+      saved: app.snapshot.settings.setupProfile,
+      selected,
+      unfinished,
+      settings: app.snapshot.settings,
+      recommendation,
+      localNotes: ai.data ? ai.data.backend === "local" : null,
+    }),
+  );
+  function modelName(id: string): string {
+    if (id === "local-rules") return cleanupName;
+    if (id === "openrouter") return "an OpenRouter model";
+    return (
+      models.find((model) => model.id === id)?.name ??
+      app.snapshot.models.find((model) => model.id === id)?.name ??
+      (id || "no model")
+    );
+  }
+  const changeText = $derived(
+    card.kind === "changed" && selected !== "custom"
+      ? profileChangeText(selected, card.changes, modelName)
+      : "",
+  );
+  const failure = $derived(
+    profiles.failure?.profile === selected ? profiles.failure.message : "",
+  );
+  const applyDisabled = $derived(
+    profiles.applyLocked ||
+      speechChecking ||
+      (selected === "custom"
+        ? !speechReady
+        : !recommendation?.asrModel || profiles.checking),
   );
   onMount(() => {
     void profiles.check();
@@ -119,6 +151,10 @@
       {#each modelRoles as role}
         {@const id = selection[role.setting]}
         {@const model = models.find((item) => item.id === id)}
+        <!-- Every row states its install state, so a recommended model that
+             is missing never reads as the one in use. -->
+        {@const status =
+          id === "local-rules" ? cleanupStatus : modelInstallStatus(model)}
         <p
           id={`setup-${role.id}`}
           class="profile-summary"
@@ -134,9 +170,7 @@
               (library.data
                 ? id || "No model selected"
                 : "Reading model details…"))}
-          {#if id === "local-rules" && cleanupStatus}
-            · {cleanupStatus}{:else if model && checking(model)}
-            · Checking…{/if}
+          {#if status}· {status}{/if}
         </p>
       {/each}
     {:else}<p class="field-help" data-text-surface="flat">
@@ -145,19 +179,44 @@
   {/if}
 </div>
 
-{#if inUse}
+{#if card.kind === "in-use"}
   <p class="profile-action">
     <span class="in-use" data-text-surface="flat">In use</span>
   </p>
+{:else if card.kind === "unknown"}
+  {#if profiles.checking || !ai.data}<p
+      class="profile-action field-help"
+      data-text-surface="flat"
+    >
+      Checking…
+    </p>{/if}
+{:else if card.kind === "changed"}
+  <!-- The saved profile's recommendation changed after setup (an update can
+       do that). Say so, and offer the switch; never switch by itself. -->
+  <div class="profile-action profile-change">
+    <p data-text-surface="flat">{changeText}</p>
+    <div class="actions">
+      <button
+        class="button primary"
+        disabled={applyDisabled}
+        onclick={() => profiles.use()}
+      >
+        {profiles.busy
+          ? "Preparing…"
+          : `Switch to ${profileLabel(selected)}${
+              missing ? ` · ${formatBytes(missing)} download` : ""
+            }`}
+      </button>
+      {#if checkingSelection}<span class="field-help" data-text-surface="flat"
+          >Checking…</span
+        >{/if}
+    </div>
+  </div>
 {:else if selected !== "custom" || unfinished}
   <div class="actions profile-action">
     <button
       class="button primary"
-      disabled={profiles.applyLocked ||
-        speechChecking ||
-        (selected === "custom"
-          ? !speechReady
-          : !recommendation?.asrModel || profiles.checking)}
+      disabled={applyDisabled}
       onclick={() => profiles.use()}
     >
       {profiles.busy
@@ -183,6 +242,13 @@
     </span>
   </div>
 {/if}
+{#if failure}<p
+    class="profile-failure danger-text"
+    role="alert"
+    data-text-surface="flat"
+  >
+    {failure}
+  </p>{/if}
 
 <details class="profile-memory">
   <summary data-text-surface="flat"
@@ -237,6 +303,14 @@
   }
   .profile-action {
     margin-top: 18px;
+  }
+  .profile-change p,
+  .profile-failure {
+    margin: 0 0 9px;
+    overflow-wrap: anywhere;
+  }
+  .profile-failure {
+    margin: 9px 0 0;
   }
   .in-use {
     display: inline-block;

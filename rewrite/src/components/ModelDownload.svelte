@@ -15,6 +15,7 @@
     onretry,
     idleLabel = "Cancelled",
     compact = false,
+    errorShownElsewhere = false,
   }: {
     model: ModelEntry | undefined;
     pending: boolean;
@@ -24,6 +25,8 @@
     idleLabel?: string;
     /** A tighter row without the byte counts, for the setup tour. */
     compact?: boolean;
+    /** The profile card above already prints this error beside its action. */
+    errorShownElsewhere?: boolean;
   } = $props();
   const phase = $derived(
     !model
@@ -92,7 +95,10 @@
         onclick={() => model && onretry(model)}>Retry</button
       >
     {/if}
-    {#if model.error}<p role="alert" data-text-surface="flat">
+    {#if model.error && !errorShownElsewhere}<p
+        role="alert"
+        data-text-surface="flat"
+      >
         {model.error}
       </p>{/if}
   </section>

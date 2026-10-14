@@ -11,6 +11,9 @@ import {
  * permission registered there:
  * - `openPermissionAssistant(kind)` opens its System Settings pane and the
  *   floating drag helper (`?view=permission&kind=…`), or reports it granted.
+ * - `resetPermission(kind)` clears SonoJot's own entry (one left by an older
+ *   build looks switched on but grants nothing), asks macOS again and
+ *   reopens the pane with the helper.
  * - `watchPermission(kind, onStatus)` reports the current status, every
  *   `permission-status` event for that kind, and a recheck when this window
  *   regains focus. It returns a cleanup function.
@@ -35,6 +38,22 @@ export async function closePermissionAssistant(
   kind: PermissionKind,
 ): Promise<PermissionStatus> {
   return call("permission_assistant", { kind, action: "close" });
+}
+
+export async function resetPermission(
+  kind: PermissionKind,
+): Promise<PermissionStatus> {
+  return call("permission_reset", { kind });
+}
+
+/** Offer the reset once the user has been through the flow without access. */
+export function offerReset(
+  status: PermissionStatus | null,
+  asked: boolean,
+): boolean {
+  return (
+    asked && Boolean(status?.canReset) && permissionState(status) !== "granted"
+  );
 }
 
 export function watchPermission(
@@ -70,6 +89,9 @@ export function watchPermission(
   };
 }
 
+/** Clears an entry left by an older build; see `resetPermission`. */
+export const PERMISSION_RESET_LABEL = "Reset and ask again";
+
 /** Copy for automatic paste on macOS, shared by setup and the Dictation page. */
 export const MAC_PASTE_COPY = {
   on: "Automatic paste is on.",
@@ -77,11 +99,14 @@ export const MAC_PASTE_COPY = {
     "To paste into the app you were using, SonoJot needs Accessibility access. Until then, text is copied; press Command+V to paste.",
   grant: "Grant Accessibility",
   assistant:
-    "In System Settings, switch SonoJot on. If it isn't listed, drag the icon from the SonoJot helper into the list. If it is already on, remove it with − and add it again.",
+    "In System Settings, switch SonoJot on. If it isn't listed, drag the icon from the SonoJot helper into the list.",
+  reset: PERMISSION_RESET_LABEL,
+  resetHelp:
+    "If SonoJot is already switched on but paste still doesn't work, reset it. macOS will ask again; switch SonoJot on.",
   rowLabel: "Accessibility access",
   rowOn: "On. SonoJot can paste into the app you were using.",
   rowNeeded: "Needed to paste on a Mac. Until then, press Command+V to paste.",
 } as const;
 
-/** The helper offers the stale-entry fix after this long without access. */
+/** The helper offers the reset after this long without access. */
 export const STALE_HINT_DELAY_MS = 6000;

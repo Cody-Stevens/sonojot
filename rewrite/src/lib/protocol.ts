@@ -282,6 +282,7 @@ export const permissionStatusSchema = z.object({
   title: z.string(),
   body: z.string(),
   staleHint: z.string(),
+  canReset: z.boolean(),
 });
 export type PermissionStatus = z.infer<typeof permissionStatusSchema>;
 
@@ -302,6 +303,7 @@ export const commandSchemas = {
   permission_status: permissionStatusSchema,
   permission_assistant: permissionStatusSchema,
   permission_drag: nothing,
+  permission_reset: permissionStatusSchema,
   get_model_library: modelLibrarySchema,
   open_model_license: nothing,
   open_legal_link: nothing,
@@ -401,6 +403,7 @@ export interface CommandArguments {
   permission_status: { kind: PermissionKind };
   permission_assistant: { kind: PermissionKind; action: "open" | "close" };
   permission_drag: undefined;
+  permission_reset: { kind: PermissionKind };
   get_model_library: undefined;
   open_model_license: { id: string };
   open_legal_link: { url: string };

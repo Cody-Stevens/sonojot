@@ -26,6 +26,10 @@ import {
   hardwareLine,
   hardwareProfileSchema,
   missingDownloadBytes,
+  modelInstallStatus,
+  profileCardState,
+  profileChangeText,
+  profileChanges,
   profileLabel,
   profileSpeechMemory,
   sameProfileModels,
@@ -804,4 +808,184 @@ test("punctuation library pages identify each package", () => {
     punctuationModelPage(PUNCTUATION_MODEL),
     "https://huggingface.co/SonoJot/sonojot-punct-v2",
   );
+});
+
+// October 14 field report (0.28.3, 16 GB Mac): setup on 0.27.1 saved Balanced
+// with Whisper Small; 0.28 moved Balanced to Qwen Q4 Metal. The card said
+// "In use" and listed Qwen without an install state.
+const macBalanced = {
+  asrModel: "qwen3-asr-1.7b-q4-metal",
+  cleanupModel: "local-rules",
+  notesModel: "qwen3-4b-instruct-2507",
+};
+const ownerSettings = {
+  asrModel: "whisper-small-metal",
+  cleanupModel: "local-rules",
+  notesModel: "lfm2.5-1.2b",
+};
+
+test("a profile card says In use only when every role matches its current recommendation", () => {
+  const base = {
+    saved: "balanced" as const,
+    selected: "balanced" as const,
+    unfinished: false,
+    settings: macBalanced,
+    recommendation: macBalanced,
+    localNotes: true,
+  };
+  assert.deepEqual(profileCardState(base), { kind: "in-use" });
+  for (const key of ["asrModel", "cleanupModel", "notesModel"] as const) {
+    const state = profileCardState({
+      ...base,
+      settings: { ...macBalanced, [key]: "other" },
+    });
+    assert.equal(state.kind, "changed", key);
+  }
+  assert.deepEqual(profileCardState({ ...base, settings: ownerSettings }), {
+    kind: "changed",
+    changes: [
+      { role: "asr", recommended: macBalanced.asrModel, current: "whisper-small-metal" },
+      { role: "notes", recommended: macBalanced.notesModel, current: "lfm2.5-1.2b" },
+    ],
+  });
+  // Another tab, Custom, unfinished setup and OpenRouter Notes never claim
+  // In use or a change; they offer the ordinary Use action.
+  for (const options of [
+    { selected: "light" as const },
+    { selected: "custom" as const, saved: "custom" as const },
+    { unfinished: true },
+    { saved: null },
+    { localNotes: false },
+  ]) {
+    assert.deepEqual(profileCardState({ ...base, ...options }), { kind: "available" });
+  }
+  // Without this computer's recommendation or the Notes route, say nothing yet.
+  assert.deepEqual(profileCardState({ ...base, recommendation: null }), { kind: "unknown" });
+  assert.deepEqual(profileCardState({ ...base, recommendation: undefined }), { kind: "unknown" });
+  assert.deepEqual(profileCardState({ ...base, localNotes: null }), { kind: "unknown" });
+});
+
+test("profile changes list only differing roles, in Speech, Cleanup, Notes order", () => {
+  assert.deepEqual(profileChanges(macBalanced, macBalanced), []);
+  assert.deepEqual(
+    profileChanges({ ...macBalanced, cleanupModel: "lfm2.5-1.2b" }, macBalanced).map((change) => change.role),
+    ["cleanup"],
+  );
+  assert.deepEqual(
+    profileChanges({ asrModel: "a", cleanupModel: "b", notesModel: "c" }, macBalanced).map((change) => change.role),
+    ["asr", "cleanup", "notes"],
+  );
+});
+
+test("the change line names what the profile uses now and what is in use", () => {
+  const names: Record<string, string> = {
+    "qwen3-asr-1.7b-q4-metal": "Qwen3-ASR 1.7B (Q4 Metal)",
+    "whisper-small-metal": "Whisper Small · Metal",
+    "qwen3-4b-instruct-2507": "Qwen3-4B-Instruct-2507",
+    "lfm2.5-1.2b": "LFM 2.5",
+    "local-rules": "SonoJot Punctuation v2 with your vocabulary",
+  };
+  const name = (id: string) => names[id] ?? id;
+  const speechOnly = profileChanges({ ...macBalanced, asrModel: "whisper-small-metal" }, macBalanced);
+  assert.equal(
+    profileChangeText("balanced", speechOnly, name),
+    "Balanced now uses Qwen3-ASR 1.7B (Q4 Metal) for speech. You're using Whisper Small · Metal.",
+  );
+  assert.equal(
+    profileChangeText("balanced", profileChanges(ownerSettings, macBalanced), name),
+    "Balanced now uses Qwen3-ASR 1.7B (Q4 Metal) for speech and Qwen3-4B-Instruct-2507 for notes. You're using Whisper Small · Metal and LFM 2.5.",
+  );
+  assert.equal(
+    profileChangeText(
+      "light",
+      profileChanges({ asrModel: "a", cleanupModel: "b", notesModel: "c" }, macBalanced),
+      name,
+    ),
+    "Light now uses Qwen3-ASR 1.7B (Q4 Metal) for speech, SonoJot Punctuation v2 with your vocabulary for cleanup and Qwen3-4B-Instruct-2507 for notes. You're using a, b and c.",
+  );
+  assert.equal(profileChangeText("balanced", [], name), "");
+});
+
+test("profile rows state install state for every model, never implying a missing one is ready", () => {
+  assert.equal(modelInstallStatus(undefined), "");
+  assert.equal(modelInstallStatus(model("speech", "installed")), "Installed");
+  assert.equal(modelInstallStatus(model("speech", "loading")), "Installed");
+  assert.equal(modelInstallStatus(model("speech", "available")), "Not installed");
+  assert.equal(modelInstallStatus(model("speech", "failed")), "Not installed");
+  assert.equal(modelInstallStatus(model("speech", "downloading")), "Downloading");
+  assert.equal(modelInstallStatus(model("speech", "queued")), "Downloading");
+  assert.equal(modelInstallStatus(model("speech", "checking")), "Checking…");
+});
+
+test("a failed switch keeps the installer's words for the profile card, not a generic banner", async () => {
+  const javascript = ts.transpileModule(
+    readFileSync(new URL("./setup-profiles.svelte.ts", import.meta.url), "utf8"),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } },
+  ).outputText;
+  const code = ts.transpileModule(
+    compileModule(javascript, { filename: "setup-profiles.svelte.js", generate: "server" }).js.code,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
+  ).outputText;
+  const disk = "Not enough disk space for the speech model and Metal runtime. Free space and try again.";
+  const snapshot = structuredClone(previewSnapshot);
+  snapshot.settings.setupProfile = "balanced";
+  snapshot.settings.asrModel = "installed-speech";
+  const commands: string[] = [];
+  const app = {
+    native: true,
+    ready: true,
+    snapshot,
+    error: "",
+    notice: "",
+    pending: [] as string[],
+    busy: () => false,
+    // Same contract as app.svelte.ts: failures become the banner text.
+    perform: async (_key: string, action: () => Promise<unknown>) => {
+      try {
+        return await action();
+      } catch (failure) {
+        app.error = failure instanceof Error ? failure.message : String(failure);
+      }
+    },
+  };
+  const failedSpeech = { ...model("speech", "failed"), error: disk };
+  const library = {
+    data: { models: [model("speech")] },
+    downloadId: "",
+    acquire: () => () => {},
+    apply: (data: { models: ReturnType<typeof model>[] }) => {
+      library.data = data;
+    },
+  };
+  const exports: { profiles?: typeof import("./setup-profiles.svelte").profiles } = {};
+  const dependencies: Record<string, unknown> = {
+    "./api": {
+      call: async (command: string) => {
+        commands.push(command);
+        if (command === "get_model_library") return { models: [model("speech")] };
+        if (command === "start_model_install") return { models: [failedSpeech] };
+        throw new Error(`Unexpected command: ${command}`);
+      },
+    },
+    "./app.svelte": { app },
+    "./download-consent.svelte": { ensureDownloadConsent: async () => true },
+    "./ai.svelte": { ai: { busy: false, data: { backend: "local" } } },
+    "./model-library.svelte": { library },
+    "./model-library": { checking, installed, installing },
+    "./protocol": {
+      errorMessage: (failure: unknown) => (failure instanceof Error ? failure.message : String(failure)),
+    },
+    "./setup-profiles": { applyProfileSelection, profileLabel, selectedProfile, showCustomModels },
+  };
+  new Function("require", "exports", code)((name: string) => dependencies[name], exports);
+  const state = exports.profiles!;
+  state.hardware = hardwareProfileSchema.parse(report);
+  await state.use("balanced");
+  assert.deepEqual(state.failure, { profile: "balanced", message: disk });
+  assert.equal(app.error, "", "the card shows it once; the generic banner stays clear");
+  assert.equal(snapshot.settings.asrModel, "installed-speech", "nothing switched");
+  assert.ok(!commands.includes("apply_setup_profile"));
+  // Choosing another tab starts clean.
+  await state.choose("light");
+  assert.equal(state.failure, null);
 });

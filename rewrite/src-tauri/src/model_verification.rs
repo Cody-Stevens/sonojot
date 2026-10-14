@@ -12,7 +12,7 @@ use std::{
     time::SystemTime,
 };
 
-const CACHE_FILE: &str = ".sonojot-verification-v1.json";
+pub(crate) const CACHE_FILE: &str = ".sonojot-verification-v1.json";
 const MAX_ENTRIES: usize = 512;
 const MAX_ROOTS: usize = 8;
 const MAX_CACHE_BYTES: u64 = 512 * 1024;

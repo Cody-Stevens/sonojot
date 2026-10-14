@@ -11,7 +11,7 @@
 //!   cargo run --example cleanup_compare -- <models_root> [lfm|qwen|both]
 //!
 //! models_root is the rewrite models dir, e.g.
-//! `%LOCALAPPDATA%/EavesdropperNext/models/rewrite`. The example never writes
+//! `%LOCALAPPDATA%/SonoJot/models/rewrite`. The example never writes
 //! settings; it only warms/queries llama-server and shuts down afterwards.
 
 use sonojot_core::cleanup::{self, CleanupPolicy, Mode};

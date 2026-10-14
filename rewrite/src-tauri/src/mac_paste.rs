@@ -145,7 +145,15 @@ pub fn request_accessibility_listing() -> bool {
     if trusted {
         return true;
     }
-    PROMPTED.call_once(|| unsafe {
+    PROMPTED.call_once(|| trusted = prompt_accessibility());
+    trusted
+}
+
+/// Ask macOS to list SonoJot under Accessibility (switched off) and show its
+/// alert. Unlike [`request_accessibility_listing`], this always asks, which
+/// the permission reset needs after the old entry is gone.
+pub fn prompt_accessibility() -> bool {
+    unsafe {
         let keys = [kAXTrustedCheckOptionPrompt];
         let values = [kCFBooleanTrue];
         let options = CFDictionaryCreate(
@@ -156,12 +164,13 @@ pub fn request_accessibility_listing() -> bool {
             (&raw const kCFTypeDictionaryKeyCallBacks).cast(),
             (&raw const kCFTypeDictionaryValueCallBacks).cast(),
         );
-        if !options.is_null() {
-            trusted = AXIsProcessTrustedWithOptions(options);
-            CFRelease(options);
+        if options.is_null() {
+            return AXIsProcessTrusted();
         }
-    });
-    trusted
+        let trusted = AXIsProcessTrustedWithOptions(options);
+        CFRelease(options);
+        trusted
+    }
 }
 
 fn running_application(pid: i32) -> Option<Retained<AnyObject>> {

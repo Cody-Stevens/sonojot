@@ -472,8 +472,7 @@ impl Connection {
                 .try_wait()
                 .ok()
                 .flatten()
-                .and_then(|s| s.code())
-                .map(|v| v as u32 as u64)
+                .map(exit_value)
                 .unwrap_or(0);
             diag::event(
                 reason,
@@ -493,6 +492,19 @@ impl Connection {
         }
         result
     }
+}
+
+/// Content-free exit metadata for diagnostics: the exit code, or 128 + signal
+/// on Unix (137 = SIGKILL, which is how macOS memory pressure kills a worker).
+pub(crate) fn exit_value(status: std::process::ExitStatus) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return 128 + signal as u32 as u64;
+        }
+    }
+    status.code().map_or(0, |code| code as u32 as u64)
 }
 
 fn validate_response(response: &Response, request: u64, session: u64) -> Result<(), String> {
@@ -581,6 +593,22 @@ impl Remote {
         self.connection
             .as_mut()
             .is_some_and(|connection| matches!(connection.child.child.try_wait(), Ok(None)))
+    }
+    /// The worker's PID and exit value once it has exited (see `exit_value`).
+    pub(crate) fn exit(&mut self) -> Option<(u32, u64)> {
+        let connection = self.connection.as_mut()?;
+        let status = connection.child.child.try_wait().ok().flatten()?;
+        Some((connection.child.child.id(), exit_value(status)))
+    }
+    #[cfg(test)]
+    pub(crate) fn pid_for_test(&self) -> u32 {
+        self.connection.as_ref().map_or(0, |c| c.child.child.id())
+    }
+    #[cfg(test)]
+    pub(crate) fn kill_worker_for_test(&mut self) {
+        let connection = self.connection.as_mut().expect("worker is resident");
+        connection.child.child.kill().unwrap();
+        let _ = connection.child.child.wait();
     }
     pub(crate) fn load(root: &Path, model: &str, cancel: &AtomicBool) -> Result<Self, String> {
         let mut remote = Self {

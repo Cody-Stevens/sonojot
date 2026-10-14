@@ -22,7 +22,7 @@ Cody Stevens Studio LLC, a Texas limited liability company, makes SonoJot. This 
 
 ## 2. What SonoJot stores on your computer
 
-SonoJot stores the following in its data folder: `%LOCALAPPDATA%\EavesdropperNext` on Windows, or `~/Library/Application Support/EavesdropperNext` on macOS. Use **About → Troubleshooting → Open data folder** to see it.
+SonoJot stores the following in its data folder: `%LOCALAPPDATA%\SonoJot` on Windows, or `~/Library/Application Support/SonoJot` on macOS. Use **About → Troubleshooting → Open data folder** to see it.
 
 - **Dictation history.** The text of each dictation, including the raw recognized text and the cleaned text. SonoJot does not keep dictation audio. History is saved by default. Turn on "do not save dictations" to stop saving it, or delete single entries or all of them.
 - **Meeting recordings.** Audio files of your microphone, your computer's audio output, and a mixed track, plus any recordings you import. Meetings record both your microphone and your computer's audio by default, so recordings contain other people's voices.

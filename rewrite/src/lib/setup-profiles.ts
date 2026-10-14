@@ -119,6 +119,89 @@ export function sameProfileModels(left: ProfileSelection, right: ProfileSelectio
   return modelRoles.every((role) => left[role.setting] === right[role.setting]);
 }
 
+type RoleSelection = Pick<Settings, "asrModel" | "cleanupModel" | "notesModel">;
+export type ModelRoleId = (typeof modelRoles)[number]["id"];
+/** One role where the saved choice differs from the profile's current pick. */
+export interface ProfileChange {
+  role: ModelRoleId;
+  recommended: string;
+  current: string;
+}
+
+/**
+ * What a profile tab may claim. "in-use" only when every role the profile sets
+ * matches its current recommendation; "changed" when the saved profile's
+ * recommendation moved since setup (an update can change it); "unknown" while
+ * the recommendation for this computer has not been read.
+ */
+export type ProfileCardState =
+  | { kind: "available" }
+  | { kind: "unknown" }
+  | { kind: "in-use" }
+  | { kind: "changed"; changes: ProfileChange[] };
+
+export function profileChanges(settings: RoleSelection, recommendation: RoleSelection): ProfileChange[] {
+  return modelRoles
+    .filter((role) => settings[role.setting] !== recommendation[role.setting])
+    .map((role) => ({
+      role: role.id,
+      recommended: recommendation[role.setting],
+      current: settings[role.setting],
+    }));
+}
+
+export function profileCardState(options: {
+  saved: SetupProfile | null;
+  selected: SetupProfile;
+  unfinished: boolean;
+  settings: RoleSelection;
+  recommendation: RoleSelection | null | undefined;
+  /**
+   * Automatic profiles name local Notes models, so OpenRouter Notes never
+   * match. Null while the Notes route has not been read.
+   */
+  localNotes: boolean | null;
+}): ProfileCardState {
+  const { saved, selected, unfinished, settings, recommendation, localNotes } = options;
+  if (unfinished || selected === "custom" || saved !== selected || localNotes === false) return { kind: "available" };
+  if (!recommendation || localNotes === null) return { kind: "unknown" };
+  const changes = profileChanges(settings, recommendation);
+  return changes.length ? { kind: "changed", changes } : { kind: "in-use" };
+}
+
+const roleWords: Record<ModelRoleId, string> = { asr: "speech", cleanup: "cleanup", notes: "notes" };
+
+function listWords(items: string[]): string {
+  return items.length < 3
+    ? items.join(" and ")
+    : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * Plain card text for a saved profile whose recommendation changed, e.g.
+ * "Balanced now uses Qwen3-ASR 1.7B (Q4 Metal) for speech. You're using
+ * Whisper Small · Metal."
+ */
+export function profileChangeText(
+  profile: AutomaticProfile,
+  changes: ProfileChange[],
+  name: (id: string) => string,
+): string {
+  if (!changes.length) return "";
+  const uses = listWords(changes.map((change) => `${name(change.recommended)} for ${roleWords[change.role]}`));
+  const current = listWords(changes.map((change) => name(change.current)));
+  return `${profileLabel(profile)} now uses ${uses}. You're using ${current}.`;
+}
+
+/** Install state words for a profile row, matching default Cleanup's words. */
+export function modelInstallStatus(model: ModelEntry | undefined): string {
+  if (!model) return "";
+  if (checking(model)) return "Checking…";
+  if (installed(model)) return "Installed";
+  if (installing(model)) return "Downloading";
+  return "Not installed";
+}
+
 // Exact Windows packages only. Worker peaks in decimal GB, not planning bounds.
 // Source: rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md, app-worker measurements.
 // Do not extend these observations to Moonshine Small or other Whisper variants.

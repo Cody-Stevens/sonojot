@@ -7677,7 +7677,7 @@ mod tests {
     #[ignore = "requires installed Qwen cleanup; one short local smoke check"]
     fn installed_qwen_repairs_fragmented_dictation() {
         let root = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap())
-            .join("EavesdropperNext/models/rewrite");
+            .join("SonoJot/models/rewrite");
         let source = "I think it was unpacking the files onto the disk or something, and the. The. Progress bar wasn't moving at all, and then eventually it did. We need a. Careful. Review of the installer. I don't think the window had locked up.";
         let started = Instant::now();
         let result = run_interruptible(
@@ -7707,7 +7707,7 @@ mod tests {
     #[ignore = "One explicitly coordinated local model probe; never part of routine tests"]
     fn director_sample_local_probe() {
         let root = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap())
-            .join("EavesdropperNext/models/rewrite");
+            .join("SonoJot/models/rewrite");
         warm_blocking(&root, "lfm2.5-1.2b").unwrap();
         let start = Instant::now();
         let result = run(
@@ -7747,7 +7747,7 @@ mod tests {
         // available text backend (CUDA when the NVIDIA runtime is installed,
         // then forced CPU), so both launch variants carry the flags.
         let root = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap())
-            .join("EavesdropperNext/models/rewrite");
+            .join("SonoJot/models/rewrite");
         assert!(
             model_ready(&root, "lfm2.5-1.2b"),
             "installed LFM model required for the warm-erase receipt"

@@ -22,6 +22,18 @@ const families: [string, string][] = [
     "SETUP_NOTES_DOWNLOAD: The text model download could not start.",
   ],
   [
+    "setup-notes-download",
+    "SETUP_NOTES_DOWNLOAD: Not enough disk space: need about 2.8 GB free, found 1.7 GB.",
+  ],
+  [
+    "disk-space",
+    "Not enough disk space for the speech model and Metal runtime. Free space and try again.",
+  ],
+  [
+    "disk-space",
+    "Not enough disk space: need about 1.9 GB free, found 1.7 GB. Free space and try again.",
+  ],
+  [
     "meeting-title",
     "Transcript saved. Automatic title unavailable: The selected notes model is not installed. Choose an installed model in Setup before generating titles.",
   ],

@@ -72,6 +72,14 @@ const rules: readonly ErrorRule[] = [
     action: { id: "setup", label: "Open Models" },
   },
   {
+    // Installers check free space first; say so instead of a generic failure.
+    family: "disk-space",
+    match: /not enough disk space/i,
+    title: "Not enough disk space",
+    body: "Free space on this disk, then try the download again. Installed models stay in place.",
+    action: { id: "setup", label: "Open Models" },
+  },
+  {
     // The transcript is saved; only the automatic name is missing. This
     // precedes the cloud and model rules its details would otherwise match.
     family: "meeting-title",

@@ -31,8 +31,10 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; Keep the startup value identity and enabled/disabled state. Only replace
-  ; this installation's exact old command; another installation is untouched.
+  ; Keep an older build's startup value pointing at the renamed binary. Only
+  ; this installation's exact old command is replaced; another installation is
+  ; untouched. At its next launch the app renames the value to "SonoJot" and
+  ; carries Task Manager's enabled/disabled state with it (platform.rs).
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "EavesdropperNext"
   ${If} $0 == '$\"$INSTDIR\eavesdropper-next.exe$\" --startup'
   ${OrIf} $0 == '$\"$INSTDIR\sonojot.exe$\" --startup'

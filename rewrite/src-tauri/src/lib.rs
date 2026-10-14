@@ -101,9 +101,10 @@ pub fn run() {
     punctuation::dispatch_worker();
     diarization_process::dispatch_worker();
     granite_worker::dispatch_worker();
-    recognition_diagnostics::initialize();
+    // Diagnostics start in setup, after the single-instance check: the first
+    // data-folder lookup moves the pre-SonoJot folder, which must not happen
+    // while another instance is still using it.
     let desktop_started = std::time::Instant::now();
-    recognition_diagnostics::event("desktop-start", "", std::process::id(), 0, 0, 0);
     if std::env::args().any(|arg| arg == "--register-startup") {
         let result = std::env::current_exe()
             .map_err(|e| e.to_string())
@@ -215,9 +216,12 @@ pub fn run() {
             commands::get_diagnostics,
             permissions::permission_status,
             permissions::permission_assistant,
-            permissions::permission_drag
+            permissions::permission_drag,
+            permissions::permission_reset
         ])
         .setup(move |app| {
+            recognition_diagnostics::initialize();
+            recognition_diagnostics::event("desktop-start", "", std::process::id(), 0, 0, 0);
             let runtime = Runtime::create(app.handle()).map_err(std::io::Error::other)?;
             // Settings lifecycle: keep the shared resource coordinator on the
             // current overlap/retention choices from startup. Dictation starts
@@ -304,7 +308,7 @@ pub fn run() {
             // The paper sheet needs that click, so the menu is shown only on right click.
             #[cfg(target_os = "macos")]
             let status_menu = menu.clone();
-            TrayIconBuilder::with_id("eavesdropper")
+            TrayIconBuilder::with_id("sonojot")
                 .icon(tray_icon()?)
                 .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("SonoJot · local dictation")
@@ -472,7 +476,7 @@ pub fn run() {
             {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn_blocking(move || {
-                    if let Some(tray) = handle.tray_by_id("eavesdropper") {
+                    if let Some(tray) = handle.tray_by_id("sonojot") {
                         let _ = tray.set_menu(None::<Menu<tauri::Wry>>);
                     }
                 });

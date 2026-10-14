@@ -444,6 +444,82 @@ fn consecutive_worker_sessions_never_share_audio_text_or_replay() {
     }
 }
 
+/// Field failure 2026-10-14: the idle resident worker exited (macOS memory
+/// pressure) right as the next dictation started. Whether the death is seen
+/// before admission or only after it, the next job reloads once and succeeds.
+#[test]
+fn resident_worker_that_died_between_jobs_is_reloaded_for_the_next_job() {
+    use crate::{
+        domain::{MemoryMode, ModelRetention},
+        resource_manager as rm,
+        speech::{self, FailureKind},
+    };
+    let _gate = rm::tests::test_gate();
+    rm::reset_for_tests(MemoryMode::Overlap, ModelRetention::Minutes10);
+    let root = Path::new("unused-model-root");
+    let model = "fake-model";
+    for died_after_admission in [false, true] {
+        let _children = Children::set(&["success", "success"]);
+        let mut failure = FailureKind::Other;
+        let mut recognizer = None;
+        rm::acquire_asr_with_admission(model, "dictation").unwrap();
+        speech::ensure_recognizer(root, &mut recognizer, model, &NEVER_CANCEL, 1, false, &mut failure)
+            .unwrap();
+        rm::notify_asr_finished();
+        let first_pid = recognizer.as_mut().unwrap().worker_pid_for_test();
+        recognizer.as_mut().unwrap().kill_worker_for_test();
+        assert!(recognizer.as_mut().unwrap().worker_exit().is_some());
+
+        // Next job. The pre-admission check normally drops the dead worker;
+        // when the death lands after it, admission still sees a resident.
+        let exited = !died_after_admission
+            && speech::drop_unusable_recognizer(&mut recognizer, model, 2);
+        assert_eq!(exited, !died_after_admission);
+        assert_eq!(rm::model_state_blocking(model).1, died_after_admission);
+        rm::acquire_asr_with_admission(model, "dictation").unwrap();
+        speech::ensure_recognizer(root, &mut recognizer, model, &NEVER_CANCEL, 2, exited, &mut failure)
+            .unwrap();
+        let active = recognizer.as_mut().unwrap();
+        assert!(active.is_alive());
+        assert_ne!(active.worker_pid_for_test(), first_pid);
+        assert!(rm::model_state_blocking(model).1);
+        let mut stream = active.stream_interruptible(&NEVER_CANCEL).unwrap();
+        stream.add(&[0.1], 16_000).unwrap();
+        let result = stream.finish_recognition().unwrap();
+        assert_eq!(result.text, "0.1");
+        assert_eq!(result.completeness, RecognitionCompleteness::Complete);
+        rm::notify_asr_finished();
+        drop(recognizer);
+        rm::confirm_asr_released();
+    }
+    rm::reset_for_tests(MemoryMode::Overlap, ModelRetention::Minutes10);
+}
+
+/// A worker that dies after the last liveness check is replaced by the
+/// stream's single Begin reconnect, before any audio is consumed.
+#[test]
+fn worker_death_before_begin_reconnects_once() {
+    let _children = Children::set(&["success", "success"]);
+    let mut remote = remote();
+    remote.kill_worker_for_test();
+    let mut stream = remote.stream(None).unwrap();
+    stream.add(&[0.2], 16_000).unwrap();
+    assert_eq!(stream.finish(false).unwrap().0.text, "0.2");
+    assert!(remote.is_alive());
+}
+
+#[test]
+fn killed_worker_reports_its_exit_value() {
+    let _children = Children::set(&["success"]);
+    let mut remote = remote();
+    assert!(remote.exit().is_none());
+    remote.kill_worker_for_test();
+    let (_, value) = remote.exit().unwrap();
+    // 128 + SIGKILL on Unix (the macOS memory-pressure signature); Windows
+    // TerminateProcess exits with code 1.
+    assert_eq!(value, if cfg!(unix) { 137 } else { 1 });
+}
+
 #[test]
 fn stalled_native_drop_is_bounded() {
     let _children = Children::set(&["hang-shutdown"]);

@@ -503,6 +503,26 @@ impl Recognizer {
             _ => true,
         }
     }
+    /// PID and exit value of an exited worker (`None` while it runs).
+    pub(crate) fn worker_exit(&mut self) -> Option<(u32, u64)> {
+        match &mut self.backend {
+            Backend::Remote(remote) => remote.exit(),
+            _ => None,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn kill_worker_for_test(&mut self) {
+        if let Backend::Remote(remote) = &mut self.backend {
+            remote.kill_worker_for_test();
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn worker_pid_for_test(&self) -> u32 {
+        match &self.backend {
+            Backend::Remote(remote) => remote.pid_for_test(),
+            _ => 0,
+        }
+    }
     pub fn load(root: &Path, requested: &str) -> Result<Self, String> {
         Self::load_interruptible(root, requested, &AtomicBool::new(false))
     }

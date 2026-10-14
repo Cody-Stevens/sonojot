@@ -117,24 +117,50 @@ test("Mac denied microphone: permission action, timed confirmation and reduced m
   await page.getByRole("button", { name: "Grant Accessibility", exact: true }).click();
   expect((await calls(page, "permission_assistant"))[0].args).toEqual({ kind: "accessibility", action: "open" });
   await expect(page.getByText(/drag the icon from the SonoJot helper/)).toBeVisible();
+  // After one try, the reset sits beside Grant and the step still fits.
+  await expect(page.getByText(/already switched on but paste still doesn't work, reset it/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reset and ask again", exact: true })).toBeInViewport({ ratio: 1 });
   await screenshot(page, "mac-dictation-slate");
   expect(await page.locator(".onboarding-content").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(await page.locator(".onboarding-content").evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+  await page.getByRole("button", { name: "Reset and ask again", exact: true }).click();
+  expect((await calls(page, "permission_reset"))[0].args).toEqual({ kind: "accessibility" });
 });
 
-test("Mac permission helper: drag icon, copy from the spec and the stale-entry hint", async ({ page }) => {
-  await page.setViewportSize({ width: 520, height: 150 });
+test("Mac permission helper: drag icon, copy from the spec and the reset offer", async ({ page }) => {
+  // permissions.rs native::WIDTH and HEIGHT.
+  await page.setViewportSize({ width: 520, height: 172 });
   for (const theme of ["fog", "slate"]) {
     await open(page, { ...macProfileFixture(16) }, `/?view=permission&kind=accessibility&theme=${theme}`);
     await expect(page.getByText("Allow SonoJot to paste")).toBeVisible();
     await expect(page.getByRole("img", { name: /SonoJot app icon/ })).toHaveAttribute("draggable", "true");
+    const reset = page.getByRole("button", { name: "Reset and ask again", exact: true });
+    await expect(reset).toHaveCount(0);
     await expect(page.getByText(/remove it with/)).toHaveCount(0);
-    await page.clock.runFor(6100);
-    await expect(page.getByText(/remove it with/)).toBeVisible();
+    await page.clock.runFor(1000);
+    await screenshot(page, `mac-permission-helper-start-${theme}`);
+    await page.clock.runFor(5100);
+    await expect(page.getByText("Already on but not working?")).toBeVisible();
+    await expect(reset).toBeVisible();
     expect(await page.locator(".helper-sheet").evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
     await screenshot(page, `mac-permission-helper-${theme}`);
+    await reset.click();
+    expect((await calls(page, "permission_reset")).at(-1).args).toEqual({ kind: "accessibility" });
     await page.getByRole("button", { name: "Close", exact: true }).click();
     expect((await calls(page, "permission_assistant")).at(-1).args).toEqual({ kind: "accessibility", action: "close" });
   }
+  // The longer system audio copy fits the same sheet; a failed reset shows why.
+  const fixture = macProfileFixture(16);
+  await open(page, { ...fixture, permissionResetError: "macOS could not reset the permission.",
+    capabilities: { ...fixture.capabilities, systemAudio: false, systemAudioStatus: "denied" } },
+    "/?view=permission&kind=system_audio&theme=fog");
+  await page.clock.runFor(6100);
+  await expect(page.getByText("Already on but not recording?")).toBeVisible();
+  expect(await page.locator(".helper-sheet").evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  await screenshot(page, "mac-permission-helper-system-audio-fog");
+  await page.getByRole("button", { name: "Reset and ask again", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("macOS could not reset the permission.");
+  expect(await page.locator(".helper-sheet").evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
 });
 
 test("completed Custom users see the app; an unchanged replay writes nothing", async ({ page }) => {

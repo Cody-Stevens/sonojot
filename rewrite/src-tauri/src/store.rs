@@ -1023,21 +1023,206 @@ fn remove_learning_sources(entries: &mut Vec<LearnedEntry>, removed: &HashSet<St
     entries.retain(|e| e.source_type == "manual" || !e.source_ids.is_empty());
 }
 
-pub(crate) fn default_root() -> Result<PathBuf, String> {
+pub(crate) const DATA_DIR_NAME: &str = "SonoJot";
+/// Builds up to 0.28.3 kept their data here. The C# app's `EavesdropperData`
+/// and roaming `Eavesdropper` folders are separate and only ever read by the
+/// legacy import.
+pub(crate) const PREVIOUS_DATA_DIR_NAME: &str = "EavesdropperNext";
+
+/// Where the per-user data folder lives: `%LOCALAPPDATA%`, macOS Application
+/// Support, or the XDG data directory.
+fn data_parent() -> Result<PathBuf, String> {
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-        return Ok(PathBuf::from(local).join("EavesdropperNext"));
+        return Ok(PathBuf::from(local));
     }
     #[cfg(target_os = "macos")]
     if let Some(home) = std::env::var_os("HOME") {
-        return Ok(PathBuf::from(home).join("Library/Application Support/EavesdropperNext"));
+        return Ok(PathBuf::from(home).join("Library/Application Support"));
     }
     if let Some(data) = std::env::var_os("XDG_DATA_HOME") {
-        return Ok(PathBuf::from(data).join("EavesdropperNext"));
+        return Ok(PathBuf::from(data));
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return Ok(PathBuf::from(home).join(".local/share/EavesdropperNext"));
+        return Ok(PathBuf::from(home).join(".local/share"));
     }
     Err("Set SONOJOT_DATA_DIR to a writable data directory.".into())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DataFolder {
+    /// The SonoJot folder was already in place, or nothing existed yet.
+    Current,
+    /// The pre-SonoJot folder was renamed to the SonoJot name this launch.
+    Moved,
+    /// The rename failed; this run keeps using the pre-SonoJot folder and the
+    /// next launch tries again. The value is the OS error code, when known.
+    MoveFailed(Option<i32>),
+}
+
+static DEFAULT_ROOT: std::sync::OnceLock<Result<(PathBuf, DataFolder), String>> =
+    std::sync::OnceLock::new();
+
+/// The data folder for this run. The first call moves the pre-SonoJot folder
+/// into place, so it must run before anything opens files in either folder.
+/// Tests never move a real folder; they only resolve which one exists.
+pub(crate) fn default_root() -> Result<PathBuf, String> {
+    resolve_default_root().map(|(root, _)| root)
+}
+
+/// What the first `default_root` call did to the data folder.
+pub(crate) fn default_root_outcome() -> Option<DataFolder> {
+    DEFAULT_ROOT
+        .get()
+        .and_then(|result| result.as_ref().ok())
+        .map(|(_, outcome)| outcome.clone())
+}
+
+fn resolve_default_root() -> Result<(PathBuf, DataFolder), String> {
+    DEFAULT_ROOT
+        .get_or_init(|| {
+            let parent = data_parent()?;
+            if cfg!(test) {
+                return Ok((existing_data_folder(&parent), DataFolder::Current));
+            }
+            Ok(adopt_previous_data_folder(&parent, |from, to| fs::rename(from, to)))
+        })
+        .clone()
+}
+
+/// Read-only resolution: the SonoJot folder unless only the previous one exists.
+fn existing_data_folder(parent: &Path) -> PathBuf {
+    let current = parent.join(DATA_DIR_NAME);
+    let previous = parent.join(PREVIOUS_DATA_DIR_NAME);
+    if fs::symlink_metadata(&current).is_err() && previous.is_dir() {
+        previous
+    } else {
+        current
+    }
+}
+
+/// Move `EavesdropperNext` to `SonoJot` with one same-volume rename, which is
+/// atomic: the data is either entirely under the old name or entirely under
+/// the new one, never half-copied. If the rename fails (a file held open by
+/// another program, permissions), this run keeps using the old folder. When
+/// both exist the SonoJot folder wins and the old one is left untouched,
+/// unless the SonoJot folder is empty, which only an interrupted or accidental
+/// creation leaves behind.
+fn adopt_previous_data_folder(
+    parent: &Path,
+    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> (PathBuf, DataFolder) {
+    let current = parent.join(DATA_DIR_NAME);
+    let previous = parent.join(PREVIOUS_DATA_DIR_NAME);
+    if !previous.is_dir() {
+        return (current, DataFolder::Current);
+    }
+    if fs::symlink_metadata(&current).is_ok() {
+        let empty = fs::read_dir(&current).is_ok_and(|mut entries| entries.next().is_none());
+        // remove_dir only removes an empty directory, so this cannot lose data.
+        if !empty || fs::remove_dir(&current).is_err() {
+            return (current, DataFolder::Current);
+        }
+    }
+    let previous_canonical = fs::canonicalize(&previous).ok();
+    match rename(&previous, &current) {
+        Ok(()) => {
+            let mut prefixes = vec![(previous.clone(), current.clone())];
+            if let (Some(old), Ok(new)) = (previous_canonical, fs::canonicalize(&current)) {
+                prefixes.insert(0, (old, new));
+            }
+            rebase_stored_paths(&current, &prefixes);
+            eprintln!(
+                "SonoJot moved its data folder from {} to {}",
+                previous.display(),
+                current.display()
+            );
+            (current, DataFolder::Moved)
+        }
+        Err(error) => {
+            eprintln!(
+                "SonoJot could not move its data folder from {} to {} ({error}); using the old folder this time",
+                previous.display(),
+                current.display()
+            );
+            (previous, DataFolder::MoveFailed(error.raw_os_error()))
+        }
+    }
+}
+
+/// Files that record absolute paths into the data folder: the managed FFmpeg
+/// pointer, "Locate models" pointers and model verification receipts. Meeting
+/// audio paths are rebuilt from the current root on every read and need no
+/// rewrite. Other stored files hold no paths into the data folder.
+const PATH_FILES: [&str; 3] = [
+    "converter.json",
+    "paths.json",
+    crate::model_verification::CACHE_FILE,
+];
+/// Folders that hold user content rather than path records; never scanned.
+const CONTENT_FOLDERS: [&str; 6] = ["meetings", "dictations", "logs", "diagnostics", "temp", "migrations"];
+
+/// After the rename, point stored absolute paths at the new folder. A file that
+/// cannot be read or rewritten is left as it was: each reader already treats
+/// a missing path as absent and falls back (re-locate, re-install, re-verify).
+fn rebase_stored_paths(root: &Path, prefixes: &[(PathBuf, PathBuf)]) {
+    fn visit(directory: &Path, depth: usize, root: &Path, prefixes: &[(PathBuf, PathBuf)]) {
+        let Ok(entries) = fs::read_dir(directory) else { return };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else { continue };
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if kind.is_dir() {
+                let content = directory == root && CONTENT_FOLDERS.contains(&name.as_ref());
+                if depth < 4 && !content {
+                    visit(&entry.path(), depth + 1, root, prefixes);
+                }
+            } else if kind.is_file() && PATH_FILES.contains(&name.as_ref()) {
+                rebase_file(&entry.path(), prefixes);
+            }
+        }
+    }
+    visit(root, 0, root, prefixes);
+}
+
+fn rebase_file(path: &Path, prefixes: &[(PathBuf, PathBuf)]) {
+    if fs::metadata(path).map_or(true, |m| m.len() > MAX_JSON_BYTES) {
+        return;
+    }
+    let Ok(bytes) = fs::read(path) else { return };
+    let Ok(mut value) = serde_json::from_slice::<Value>(&bytes) else { return };
+    if rebase_value(&mut value, prefixes) {
+        if let Ok(bytes) = serde_json::to_vec_pretty(&value) {
+            if let Err(error) = atomic_write(path, &bytes) {
+                eprintln!("SonoJot could not update {}: {error}", path.display());
+            }
+        }
+    }
+}
+
+fn rebase_value(value: &mut Value, prefixes: &[(PathBuf, PathBuf)]) -> bool {
+    match value {
+        Value::String(text) => {
+            for (old, new) in prefixes {
+                if let Ok(rest) = Path::new(text.as_str()).strip_prefix(old) {
+                    let moved = if rest.as_os_str().is_empty() {
+                        new.clone()
+                    } else {
+                        new.join(rest)
+                    };
+                    *text = moved.to_string_lossy().into_owned();
+                    return true;
+                }
+            }
+            false
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .fold(false, |changed, item| rebase_value(item, prefixes) | changed),
+        Value::Object(map) => map
+            .values_mut()
+            .fold(false, |changed, item| rebase_value(item, prefixes) | changed),
+        _ => false,
+    }
 }
 pub(crate) fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
@@ -2068,5 +2253,146 @@ mod tests {
         let _ = report;
         std::fs::remove_dir_all(legacy).unwrap();
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn data_parent_fixture(label: &str) -> PathBuf {
+        let parent = std::env::temp_dir().join(format!("sonojot-folder-{label}-{}", new_id()));
+        fs::create_dir_all(&parent).unwrap();
+        parent
+    }
+
+    #[test]
+    fn previous_data_folder_moves_to_sonojot_and_stored_paths_follow() {
+        let parent = data_parent_fixture("old-only");
+        let previous = parent.join(PREVIOUS_DATA_DIR_NAME);
+        let models = previous.join("models/rewrite");
+        fs::create_dir_all(previous.join("dictations")).unwrap();
+        fs::create_dir_all(&models).unwrap();
+        fs::create_dir_all(previous.join("meetings")).unwrap();
+        fs::write(previous.join("dictations/a.json"), b"{\"id\":\"a\"}").unwrap();
+        let old = fs::canonicalize(&previous).unwrap();
+        let ffmpeg = old.join("tools/ffmpeg-n9/bin/ffmpeg.exe");
+        let outside = std::env::temp_dir().join("elsewhere/ffmpeg.exe");
+        fs::write(previous.join("converter.json"), serde_json::to_vec(&ffmpeg).unwrap()).unwrap();
+        fs::write(
+            models.join("paths.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "cleanup_gguf": old.join("models/rewrite/cleanup/model.gguf"),
+                "llama_server_exe": outside,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            models.join(crate::model_verification::CACHE_FILE),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "root": old.join("models/rewrite"),
+                "receipts": [{"key": {"root": old.join("models/rewrite"),
+                    "path": old.join("models/rewrite/a.onnx"), "sha256": "ab"}}],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        // A meeting file that happens to be named like a path record is content, not touched.
+        let meeting_bytes = serde_json::to_vec(&serde_json::json!([old.join("x")])).unwrap();
+        fs::write(previous.join("meetings/paths.json"), &meeting_bytes).unwrap();
+
+        let (root, outcome) = adopt_previous_data_folder(&parent, |from, to| fs::rename(from, to));
+        assert_eq!(outcome, DataFolder::Moved);
+        assert_eq!(root, parent.join(DATA_DIR_NAME));
+        assert!(!previous.exists());
+        assert_eq!(fs::read(root.join("dictations/a.json")).unwrap(), b"{\"id\":\"a\"}");
+
+        let new = fs::canonicalize(&root).unwrap();
+        let converter: PathBuf =
+            serde_json::from_slice(&fs::read(root.join("converter.json")).unwrap()).unwrap();
+        assert_eq!(converter, new.join("tools/ffmpeg-n9/bin/ffmpeg.exe"));
+        let located: Value =
+            serde_json::from_slice(&fs::read(root.join("models/rewrite/paths.json")).unwrap()).unwrap();
+        assert_eq!(
+            Path::new(located["cleanup_gguf"].as_str().unwrap()),
+            new.join("models/rewrite/cleanup/model.gguf")
+        );
+        assert_eq!(Path::new(located["llama_server_exe"].as_str().unwrap()), outside);
+        let cache: Value = serde_json::from_slice(
+            &fs::read(root.join("models/rewrite").join(crate::model_verification::CACHE_FILE)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(Path::new(cache["root"].as_str().unwrap()), new.join("models/rewrite"));
+        assert_eq!(
+            Path::new(cache["receipts"][0]["key"]["path"].as_str().unwrap()),
+            new.join("models/rewrite/a.onnx")
+        );
+        assert_eq!(fs::read(root.join("meetings/paths.json")).unwrap(), meeting_bytes);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn sonojot_data_folder_alone_is_used_as_is() {
+        let parent = data_parent_fixture("new-only");
+        let current = parent.join(DATA_DIR_NAME);
+        fs::create_dir_all(&current).unwrap();
+        fs::write(current.join("settings.json"), b"{}").unwrap();
+        let (root, outcome) =
+            adopt_previous_data_folder(&parent, |_, _| panic!("nothing to move"));
+        assert_eq!((root, outcome), (current.clone(), DataFolder::Current));
+        assert_eq!(fs::read(current.join("settings.json")).unwrap(), b"{}");
+        assert!(!parent.join(PREVIOUS_DATA_DIR_NAME).exists());
+
+        // A first launch with neither folder creates nothing here; Store::open does.
+        let empty = data_parent_fixture("neither");
+        let (root, outcome) = adopt_previous_data_folder(&empty, |_, _| panic!("nothing to move"));
+        assert_eq!((root, outcome), (empty.join(DATA_DIR_NAME), DataFolder::Current));
+        assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
+        fs::remove_dir_all(parent).unwrap();
+        fs::remove_dir_all(empty).unwrap();
+    }
+
+    #[test]
+    fn both_data_folders_prefer_sonojot_and_leave_the_old_one_alone() {
+        let parent = data_parent_fixture("both");
+        let current = parent.join(DATA_DIR_NAME);
+        let previous = parent.join(PREVIOUS_DATA_DIR_NAME);
+        fs::create_dir_all(&current).unwrap();
+        fs::create_dir_all(&previous).unwrap();
+        fs::write(current.join("settings.json"), b"new").unwrap();
+        fs::write(previous.join("settings.json"), b"old").unwrap();
+        let (root, outcome) =
+            adopt_previous_data_folder(&parent, |_, _| panic!("must not move over data"));
+        assert_eq!((root, outcome), (current.clone(), DataFolder::Current));
+        assert_eq!(fs::read(current.join("settings.json")).unwrap(), b"new");
+        assert_eq!(fs::read(previous.join("settings.json")).unwrap(), b"old");
+        assert_eq!(existing_data_folder(&parent), current);
+
+        // An empty SonoJot folder holds nothing to prefer; the old data moves in.
+        fs::remove_file(current.join("settings.json")).unwrap();
+        let (root, outcome) = adopt_previous_data_folder(&parent, |from, to| fs::rename(from, to));
+        assert_eq!((root, outcome), (current.clone(), DataFolder::Moved));
+        assert_eq!(fs::read(current.join("settings.json")).unwrap(), b"old");
+        assert!(!previous.exists());
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn failed_data_folder_move_keeps_using_the_old_folder() {
+        let parent = data_parent_fixture("locked");
+        let previous = parent.join(PREVIOUS_DATA_DIR_NAME);
+        fs::create_dir_all(previous.join("models")).unwrap();
+        fs::write(previous.join("settings.json"), b"old").unwrap();
+        let (root, outcome) = adopt_previous_data_folder(&parent, |_, _| {
+            Err(std::io::Error::from_raw_os_error(32))
+        });
+        assert_eq!(root, previous);
+        assert_eq!(outcome, DataFolder::MoveFailed(Some(32)));
+        assert_eq!(fs::read(previous.join("settings.json")).unwrap(), b"old");
+        assert!(previous.join("models").is_dir());
+        assert!(!parent.join(DATA_DIR_NAME).exists());
+        assert_eq!(existing_data_folder(&parent), previous);
+        // The store opens the old folder normally for this run.
+        let store = Store::open(Some(root)).unwrap();
+        assert!(store.root().ends_with(PREVIOUS_DATA_DIR_NAME));
+        drop(store);
+        fs::remove_dir_all(parent).unwrap();
     }
 }

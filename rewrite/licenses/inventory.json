@@ -2848,127 +2848,19 @@
       "files": [
         {
           "path": "src/brand/marks/app/128x128.png",
-          "sha256": "3283733c513d26d9531448a422743edda6d480413857e3dd25fb78bce3f5849a"
+          "sha256": "a5667a6615eedaf007618ab1e7aac9ea568d0981b46506a3cfeb02026898d6d1"
         },
         {
           "path": "src/brand/marks/app/128x128@2x.png",
-          "sha256": "b4fad706a75e2234161c4c7f0c6e7569eaf922e420d5e504803196fc1cf1eb28"
+          "sha256": "913d390c956e9963312673c23b1e6e5723a018eee9241a6dbfa1e6a0a37ae37d"
         },
         {
           "path": "src/brand/marks/app/32x32.png",
-          "sha256": "96482ddd5051c3c8a70e54dc6eb4a21962c763ed835e400a12ca025d6a24c955"
+          "sha256": "bda5b08e38e304e1881867ab1e0e6c1178de9427a45142abd979bcc43f8a8fbb"
         },
         {
           "path": "src/brand/marks/app/64x64.png",
-          "sha256": "f9a0c1ca03e1db831ce99639756ad127c4e37c886edbb018e92f70c100a3bb7a"
-        },
-        {
-          "path": "src/brand/marks/app/Square107x107Logo.png",
-          "sha256": "bbcfdd8bc9f5edc914077f05941c085e35544dc5201cdee8cd605e0740a568f6"
-        },
-        {
-          "path": "src/brand/marks/app/Square142x142Logo.png",
-          "sha256": "e5e1f89f86ed2df887a0c65b9225d2e3d63c2da6e5f2fbc78a91edf736147d90"
-        },
-        {
-          "path": "src/brand/marks/app/Square150x150Logo.png",
-          "sha256": "b351176ade83ca968c685e866f7ecb8448e9c84712e0a2433b5ee2117460c9f0"
-        },
-        {
-          "path": "src/brand/marks/app/Square284x284Logo.png",
-          "sha256": "299b3acae77c43e48c862f349ce5369987dc27334c0e8c6272e08aac5c014f51"
-        },
-        {
-          "path": "src/brand/marks/app/Square30x30Logo.png",
-          "sha256": "9beab73db8b20a29bd136d4b7403985fde33a4cd25bed43a63caf2dafbec716a"
-        },
-        {
-          "path": "src/brand/marks/app/Square310x310Logo.png",
-          "sha256": "1524640343b2b30cbdb9e4f7ecc0ae3cb8542d13781ed4db734a8716a60734ad"
-        },
-        {
-          "path": "src/brand/marks/app/Square44x44Logo.png",
-          "sha256": "5802bbe662de369fa583b5d9c96dd5f0d15d3ff6319127094f0efd68f2589d31"
-        },
-        {
-          "path": "src/brand/marks/app/Square71x71Logo.png",
-          "sha256": "295daeac85e4e4f2dbb17c2e626170976ebff7f1dc1b24cea34a7289912ba0bb"
-        },
-        {
-          "path": "src/brand/marks/app/Square89x89Logo.png",
-          "sha256": "50ddb71c25d3815cc65df47cd73cf2980b603c2c3857ed1091a5644ce37abbef"
-        },
-        {
-          "path": "src/brand/marks/app/StoreLogo.png",
-          "sha256": "58918701d4f9980eba038f481a52d7116d9756a13ca845cbff8459de6af1da2f"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-anydpi-v26/ic_launcher.xml",
-          "sha256": "760d4b8a06bf7163dd010c33ad2cac9e4a75fa0177afaba042f83e311eef0c3e"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-hdpi/ic_launcher.png",
-          "sha256": "c394326032ca05d304a1819658c06d9a9356110867a0f33c8cf3d5e1054f1a2a"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-hdpi/ic_launcher_foreground.png",
-          "sha256": "4d66157ebbbc77f3f929856893975831d10ab0f9c3deb74ac904bda2842b1ba6"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-hdpi/ic_launcher_round.png",
-          "sha256": "d09546e0956e9b8796cc94809c642164e0058276301a629ca1f186eb66bf0fc3"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-mdpi/ic_launcher.png",
-          "sha256": "4d00746d94873cfe93b92cb7dab395c74978ea1fa7fd0de53bf5f5a7331427f9"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-mdpi/ic_launcher_foreground.png",
-          "sha256": "ce90bc6dd048a971fe0bb1a2ce5b3754c71ef342160c9dfd18acca4ccc286934"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-mdpi/ic_launcher_round.png",
-          "sha256": "8b7577c515e6656d0ea16604dd9e146484e1ea26685af79b6a3ea0e1d29ca829"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xhdpi/ic_launcher.png",
-          "sha256": "ca73a876c1ba7e0e8a3c6076a61ad8e393e4d68c7c0da5e7a2756e9a767bf158"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xhdpi/ic_launcher_foreground.png",
-          "sha256": "5b5854ed66ffb14e06f8396c52bea9cae5b869cf1cc16e3d23a82caf569f6c82"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xhdpi/ic_launcher_round.png",
-          "sha256": "911aa0edf8e4e9aa6226b9233ba3e65f20e90995e6d6eb311bb78c9e43755108"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xxhdpi/ic_launcher.png",
-          "sha256": "37a5e5ade0d7cf1b2481e9d11cf9ebeadfabdfc16122c094a1c16a6f5831b180"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xxhdpi/ic_launcher_foreground.png",
-          "sha256": "8c326b2f6415c70fd5666e1046d58c536c6c8f932ce23d04996d57a1c3e2354e"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xxhdpi/ic_launcher_round.png",
-          "sha256": "455ba94cf03ac0662f21d5e145b4f07a8e3be42d82216852d0e4e0afaf479f97"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xxxhdpi/ic_launcher.png",
-          "sha256": "f76424c3f1a967561496ca9cfb60d77c8b912969a7baf71ce84004308e64ca38"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xxxhdpi/ic_launcher_foreground.png",
-          "sha256": "492bd4e65c011daf479391cfbfe58c87dff87faf38713fa0fe631a5445bc50e5"
-        },
-        {
-          "path": "src/brand/marks/app/android/mipmap-xxxhdpi/ic_launcher_round.png",
-          "sha256": "2d59e56018f135717f8ca7d9beae7290ee3273be8bda811ca7a36559ffa0797f"
-        },
-        {
-          "path": "src/brand/marks/app/android/values/ic_launcher_background.xml",
-          "sha256": "0687336f0ccc6f7ee09c7c95110667c63b75931238df779a21af401fb864cd34"
+          "sha256": "9732f861679f3b735397e3e8af2a6e12ac2261cf218d94a19ecce30827b94f43"
         },
         {
           "path": "src/brand/marks/app/icon.icns",
@@ -2976,87 +2868,15 @@
         },
         {
           "path": "src/brand/marks/app/icon.ico",
-          "sha256": "766602920b6f3287a4ad4ea1f9771b9453e28ccc81ed3a699cdd8789bd84d660"
+          "sha256": "fbc90dd0cf1b22e973ecb9d2653eee637dbc3e644bb0af01bd993e2d7c0a1e30"
         },
         {
           "path": "src/brand/marks/app/icon.png",
-          "sha256": "2b0da9545aaf19056547d5fef038dabcdf7af4cfe3581c61bfcdaf16c0856184"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-20x20@1x.png",
-          "sha256": "7f8a2bc1dc5a9d05e31ba250185edf45677cbb9014d467271a96de1222417abf"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-20x20@2x-1.png",
-          "sha256": "e0de8b6f81225e36642e471298be761ac2749838a313fe2d8c197005f04a7665"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-20x20@2x.png",
-          "sha256": "e0de8b6f81225e36642e471298be761ac2749838a313fe2d8c197005f04a7665"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-20x20@3x.png",
-          "sha256": "3d52dc4523a7caa0d98995c57f78c281532d86f96c5c1bc409f2c5d3094b2f1b"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-29x29@1x.png",
-          "sha256": "d82da5beefead9564aac7c36d9971f79b2cf7e2195dac67964707970ff7663f5"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-29x29@2x-1.png",
-          "sha256": "a19cc61cde6790c2c48ddce3c886fedd17e93c9522b4e0f475f215ea5aef94d2"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-29x29@2x.png",
-          "sha256": "a19cc61cde6790c2c48ddce3c886fedd17e93c9522b4e0f475f215ea5aef94d2"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-29x29@3x.png",
-          "sha256": "bc63622428d3b477147d7408afbca7b561ead154d90e9f6820ae2e932bd4a325"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-40x40@1x.png",
-          "sha256": "e0de8b6f81225e36642e471298be761ac2749838a313fe2d8c197005f04a7665"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-40x40@2x-1.png",
-          "sha256": "66792504cd8c9459535961a479d91a23e5800dff2e5fb5d1d31b8495d566ae7f"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-40x40@2x.png",
-          "sha256": "66792504cd8c9459535961a479d91a23e5800dff2e5fb5d1d31b8495d566ae7f"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-40x40@3x.png",
-          "sha256": "3044e1f4dbcaf5ac7380dffc6522aa81b9d295d78b1364d47cb3bf240156a83d"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-512@2x.png",
-          "sha256": "ac20c74963783cdd308533f4ca6fc44c6291f63f5894968640d6419f8a89356b"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-60x60@2x.png",
-          "sha256": "3044e1f4dbcaf5ac7380dffc6522aa81b9d295d78b1364d47cb3bf240156a83d"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-60x60@3x.png",
-          "sha256": "568a7369d6777839c314c06593deebbd91b5764df0726df378b5b564e82fb13e"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-76x76@1x.png",
-          "sha256": "25d0bc6e67861c216e4b974445d9b2d575f3bbc55a4a1580cfb8ced214ac5a2c"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-76x76@2x.png",
-          "sha256": "e641445fbe00987db406273c2e711fb0cc32ba5d43a49c3a2724fa4c55297bee"
-        },
-        {
-          "path": "src/brand/marks/app/ios/AppIcon-83.5x83.5@2x.png",
-          "sha256": "f8c6a4e41226869075227b8550a2cf7f774c8432fe9f12d80c222d8c00c14084"
+          "sha256": "148b4ee1d93df37a288e4408298b2ea0ba21f03a51711b5e838fa6b39892198d"
         },
         {
           "path": "src/brand/marks/app/sonojot.ico",
-          "sha256": "c16047d2fb07e28475d0cb7c8b7621b989cfcfefaf92bc65af00ad386e792637"
+          "sha256": "fbc90dd0cf1b22e973ecb9d2653eee637dbc3e644bb0af01bd993e2d7c0a1e30"
         },
         {
           "path": "src/brand/marks/favicon.ico",
@@ -3064,7 +2884,7 @@
         },
         {
           "path": "src/brand/marks/favicon.svg",
-          "sha256": "dfeff3b8240f037b6ef51d8e1fa7587732f5313a6ea07dd3a08a93336b22f091"
+          "sha256": "d4e55ef4f563e292fad36d82fbbb0ed7e616f4670b386724e489a70ee91660fe"
         },
         {
           "path": "src/brand/marks/sonojot-horizontal-pine.svg",
@@ -33152,7 +32972,7 @@
   ],
   "counts": {
     "artwork": 2,
-    "assetFiles": 75,
+    "assetFiles": 32,
     "buildOnlyRust": 84,
     "data": 2,
     "dictionary": 1,
@@ -41483,11 +41303,11 @@
     "licenses/sources/selectors-0.36.1.crate": "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c",
     "licenses/supplements.json": "5deea2be184681747ecd759041c58469c106e601aba6b5da3544ca501de8e89b",
     "licenses/upstream-evidence.json": "4ae4296502aeddbfd767d9528750f8ba70969343afa1f9afb44fb40913f756eb",
-    "package-lock.json": "bc7c51e492e0b1513b060c21c968b1f7b156b339cd4711e6816350d71cbfb010",
-    "package.json": "995322f8b57551c7df40284676ac9b1a9c221f63f0798a32febb28c5dbf957c3",
+    "package-lock.json": "f0d135125c1e03f1535766ba24920c8cca6860bafa20529f913616d71e0fe2f6",
+    "package.json": "2594f222311bc521d2617d43a3559daa4d3a661048b2ea314ace023a9966a59f",
     "scripts/generate_notices.py": "75893e4e28e00b97dedec538c35a880fed6157491938c8a2801b75478a006fda",
-    "src-tauri/Cargo.lock": "6861e3c508497379bc38ed2e4d26d161b494ec3a65f450ce886e4baa10032718",
-    "src-tauri/Cargo.toml": "371a1af9f66e315ed24a0813b896238b7bc8012d06833c2cdf95771c7f8b045f",
+    "src-tauri/Cargo.lock": "f92f5697d7cc92078735792ecb3dc44d0f8c0621a9a558376aa56fbfec5333e4",
+    "src-tauri/Cargo.toml": "cbe3b5356ff0e386a91f2810d2bd3b6ebe41a1b016fee26942ead5ac3d9bd3eb",
     "src-tauri/assets/model-identities.json": "97a174c8b3f0eb815a8b1ceedce3c63c322f099cb1dc1dc1bb8ccb867528fde0",
     "src-tauri/build.rs": "33126a7f3f8ac762d07234d15f37f837ee82804763bb74f5141a8dcdc6294ca0",
     "src-tauri/licenses/nnnoiseless-0.5.2.txt": "6550b9b34d95e28ea8f7c16bf3c08c4b6bee81bef5d62c9c1ea12ff1aaea032b",
@@ -41496,71 +41316,26 @@
     "src-tauri/src/punctuation_lowercase.txt": "b2045a2460991c60ec730bc627113368929828e274dc3eee272babbea78533de",
     "src-tauri/src/written_form/PROVENANCE.md": "19dcf78ec05e2119bcaea79eb6120cc4f433949ff8c413a305dab24964ace742",
     "src-tauri/src/written_form/models.json": "ee30a67479540b2df24846ddc8aa82fb5315a5991ab0b2bcd92fa429b158e111",
-    "src-tauri/tauri.conf.json": "662a89f6db5922177b1e01d991a36845c174d21de6c48df17fb98877df47a8ff",
-    "src-tauri/windows/README.md": "6dc7e3e800ffa00d5432105095ca7076509fe3cc8f14668b7a95d68451156355",
-    "src-tauri/windows/brand-hooks.nsh": "094d10f7517eed1b14452520383144403cf41454ae4c94c3795d39909c22a064",
-    "src-tauri/windows/installer.nsi": "b1787de3ee71f5a7c5a1616355412ab30bdbe2ef8d82dab882baa4ec4835e891",
+    "src-tauri/tauri.conf.json": "e1942d943708bdf7374819baa2588b0c86bfa50f65ebef85be38a8edf33a6005",
+    "src-tauri/windows/README.md": "67ff7b9f09a46be101cfdeac39b3776d3b3190827ac6f491a867ab58cf5b834f",
+    "src-tauri/windows/brand-hooks.nsh": "688c37bff025a7d15fe992c42a62e0db469876665a041291e7ee6dad1d1d44f5",
+    "src-tauri/windows/installer.nsi": "3cfd12da9629a2be541f558673bc945fe7f560a6f5eab4dc15f21a1501c04d15",
     "src/brand/GUIDE.md": "244b20d754002e79cd90b54fd7358dd3265b2cfaf85227a6be451df8ea03bae3",
     "src/brand/fonts/SourceSerif-LICENSE.md": "c21d7293d87b6d7ab1d0229a2f55b77f33a7613a6a4e66f6693d68d7d8d09464",
     "src/brand/fonts/SourceSerif4-Bold.ttf": "7cf4f4e1ad74f45058d5bc61716b82560442fbdcd9d3654d2dea96bf6c683d86",
     "src/brand/fonts/SourceSerif4-Regular.ttf": "e5a4ee6a3d87bb9024796be390c6771e2a0eb1883dae25effaf57ca01668e24b",
     "src/brand/fonts/SourceSerif4Variable-Roman.ttf.woff2": "940a76eda1388de39d38c8e7a79bf6ea058a387faee0a9f33c8d25c6ba05e1be",
-    "src/brand/manifest.json": "b1341e2b10e460443c75f87994fbda03d8a488efe2eddffe843bf924586fce6d",
-    "src/brand/marks/app/128x128.png": "3283733c513d26d9531448a422743edda6d480413857e3dd25fb78bce3f5849a",
-    "src/brand/marks/app/128x128@2x.png": "b4fad706a75e2234161c4c7f0c6e7569eaf922e420d5e504803196fc1cf1eb28",
-    "src/brand/marks/app/32x32.png": "96482ddd5051c3c8a70e54dc6eb4a21962c763ed835e400a12ca025d6a24c955",
-    "src/brand/marks/app/64x64.png": "f9a0c1ca03e1db831ce99639756ad127c4e37c886edbb018e92f70c100a3bb7a",
-    "src/brand/marks/app/Square107x107Logo.png": "bbcfdd8bc9f5edc914077f05941c085e35544dc5201cdee8cd605e0740a568f6",
-    "src/brand/marks/app/Square142x142Logo.png": "e5e1f89f86ed2df887a0c65b9225d2e3d63c2da6e5f2fbc78a91edf736147d90",
-    "src/brand/marks/app/Square150x150Logo.png": "b351176ade83ca968c685e866f7ecb8448e9c84712e0a2433b5ee2117460c9f0",
-    "src/brand/marks/app/Square284x284Logo.png": "299b3acae77c43e48c862f349ce5369987dc27334c0e8c6272e08aac5c014f51",
-    "src/brand/marks/app/Square30x30Logo.png": "9beab73db8b20a29bd136d4b7403985fde33a4cd25bed43a63caf2dafbec716a",
-    "src/brand/marks/app/Square310x310Logo.png": "1524640343b2b30cbdb9e4f7ecc0ae3cb8542d13781ed4db734a8716a60734ad",
-    "src/brand/marks/app/Square44x44Logo.png": "5802bbe662de369fa583b5d9c96dd5f0d15d3ff6319127094f0efd68f2589d31",
-    "src/brand/marks/app/Square71x71Logo.png": "295daeac85e4e4f2dbb17c2e626170976ebff7f1dc1b24cea34a7289912ba0bb",
-    "src/brand/marks/app/Square89x89Logo.png": "50ddb71c25d3815cc65df47cd73cf2980b603c2c3857ed1091a5644ce37abbef",
-    "src/brand/marks/app/StoreLogo.png": "58918701d4f9980eba038f481a52d7116d9756a13ca845cbff8459de6af1da2f",
-    "src/brand/marks/app/android/mipmap-anydpi-v26/ic_launcher.xml": "760d4b8a06bf7163dd010c33ad2cac9e4a75fa0177afaba042f83e311eef0c3e",
-    "src/brand/marks/app/android/mipmap-hdpi/ic_launcher.png": "c394326032ca05d304a1819658c06d9a9356110867a0f33c8cf3d5e1054f1a2a",
-    "src/brand/marks/app/android/mipmap-hdpi/ic_launcher_foreground.png": "4d66157ebbbc77f3f929856893975831d10ab0f9c3deb74ac904bda2842b1ba6",
-    "src/brand/marks/app/android/mipmap-hdpi/ic_launcher_round.png": "d09546e0956e9b8796cc94809c642164e0058276301a629ca1f186eb66bf0fc3",
-    "src/brand/marks/app/android/mipmap-mdpi/ic_launcher.png": "4d00746d94873cfe93b92cb7dab395c74978ea1fa7fd0de53bf5f5a7331427f9",
-    "src/brand/marks/app/android/mipmap-mdpi/ic_launcher_foreground.png": "ce90bc6dd048a971fe0bb1a2ce5b3754c71ef342160c9dfd18acca4ccc286934",
-    "src/brand/marks/app/android/mipmap-mdpi/ic_launcher_round.png": "8b7577c515e6656d0ea16604dd9e146484e1ea26685af79b6a3ea0e1d29ca829",
-    "src/brand/marks/app/android/mipmap-xhdpi/ic_launcher.png": "ca73a876c1ba7e0e8a3c6076a61ad8e393e4d68c7c0da5e7a2756e9a767bf158",
-    "src/brand/marks/app/android/mipmap-xhdpi/ic_launcher_foreground.png": "5b5854ed66ffb14e06f8396c52bea9cae5b869cf1cc16e3d23a82caf569f6c82",
-    "src/brand/marks/app/android/mipmap-xhdpi/ic_launcher_round.png": "911aa0edf8e4e9aa6226b9233ba3e65f20e90995e6d6eb311bb78c9e43755108",
-    "src/brand/marks/app/android/mipmap-xxhdpi/ic_launcher.png": "37a5e5ade0d7cf1b2481e9d11cf9ebeadfabdfc16122c094a1c16a6f5831b180",
-    "src/brand/marks/app/android/mipmap-xxhdpi/ic_launcher_foreground.png": "8c326b2f6415c70fd5666e1046d58c536c6c8f932ce23d04996d57a1c3e2354e",
-    "src/brand/marks/app/android/mipmap-xxhdpi/ic_launcher_round.png": "455ba94cf03ac0662f21d5e145b4f07a8e3be42d82216852d0e4e0afaf479f97",
-    "src/brand/marks/app/android/mipmap-xxxhdpi/ic_launcher.png": "f76424c3f1a967561496ca9cfb60d77c8b912969a7baf71ce84004308e64ca38",
-    "src/brand/marks/app/android/mipmap-xxxhdpi/ic_launcher_foreground.png": "492bd4e65c011daf479391cfbfe58c87dff87faf38713fa0fe631a5445bc50e5",
-    "src/brand/marks/app/android/mipmap-xxxhdpi/ic_launcher_round.png": "2d59e56018f135717f8ca7d9beae7290ee3273be8bda811ca7a36559ffa0797f",
-    "src/brand/marks/app/android/values/ic_launcher_background.xml": "0687336f0ccc6f7ee09c7c95110667c63b75931238df779a21af401fb864cd34",
+    "src/brand/manifest.json": "4338c1c0f8b94c782613285b41964ac90cd57bb94b8fb88b6685703f32319a89",
+    "src/brand/marks/app/128x128.png": "a5667a6615eedaf007618ab1e7aac9ea568d0981b46506a3cfeb02026898d6d1",
+    "src/brand/marks/app/128x128@2x.png": "913d390c956e9963312673c23b1e6e5723a018eee9241a6dbfa1e6a0a37ae37d",
+    "src/brand/marks/app/32x32.png": "bda5b08e38e304e1881867ab1e0e6c1178de9427a45142abd979bcc43f8a8fbb",
+    "src/brand/marks/app/64x64.png": "9732f861679f3b735397e3e8af2a6e12ac2261cf218d94a19ecce30827b94f43",
     "src/brand/marks/app/icon.icns": "e525911a69448edbafdf4cf59c8650a02277a1e36a06ce2267a18e35893d06b4",
-    "src/brand/marks/app/icon.ico": "766602920b6f3287a4ad4ea1f9771b9453e28ccc81ed3a699cdd8789bd84d660",
-    "src/brand/marks/app/icon.png": "2b0da9545aaf19056547d5fef038dabcdf7af4cfe3581c61bfcdaf16c0856184",
-    "src/brand/marks/app/ios/AppIcon-20x20@1x.png": "7f8a2bc1dc5a9d05e31ba250185edf45677cbb9014d467271a96de1222417abf",
-    "src/brand/marks/app/ios/AppIcon-20x20@2x-1.png": "e0de8b6f81225e36642e471298be761ac2749838a313fe2d8c197005f04a7665",
-    "src/brand/marks/app/ios/AppIcon-20x20@2x.png": "e0de8b6f81225e36642e471298be761ac2749838a313fe2d8c197005f04a7665",
-    "src/brand/marks/app/ios/AppIcon-20x20@3x.png": "3d52dc4523a7caa0d98995c57f78c281532d86f96c5c1bc409f2c5d3094b2f1b",
-    "src/brand/marks/app/ios/AppIcon-29x29@1x.png": "d82da5beefead9564aac7c36d9971f79b2cf7e2195dac67964707970ff7663f5",
-    "src/brand/marks/app/ios/AppIcon-29x29@2x-1.png": "a19cc61cde6790c2c48ddce3c886fedd17e93c9522b4e0f475f215ea5aef94d2",
-    "src/brand/marks/app/ios/AppIcon-29x29@2x.png": "a19cc61cde6790c2c48ddce3c886fedd17e93c9522b4e0f475f215ea5aef94d2",
-    "src/brand/marks/app/ios/AppIcon-29x29@3x.png": "bc63622428d3b477147d7408afbca7b561ead154d90e9f6820ae2e932bd4a325",
-    "src/brand/marks/app/ios/AppIcon-40x40@1x.png": "e0de8b6f81225e36642e471298be761ac2749838a313fe2d8c197005f04a7665",
-    "src/brand/marks/app/ios/AppIcon-40x40@2x-1.png": "66792504cd8c9459535961a479d91a23e5800dff2e5fb5d1d31b8495d566ae7f",
-    "src/brand/marks/app/ios/AppIcon-40x40@2x.png": "66792504cd8c9459535961a479d91a23e5800dff2e5fb5d1d31b8495d566ae7f",
-    "src/brand/marks/app/ios/AppIcon-40x40@3x.png": "3044e1f4dbcaf5ac7380dffc6522aa81b9d295d78b1364d47cb3bf240156a83d",
-    "src/brand/marks/app/ios/AppIcon-512@2x.png": "ac20c74963783cdd308533f4ca6fc44c6291f63f5894968640d6419f8a89356b",
-    "src/brand/marks/app/ios/AppIcon-60x60@2x.png": "3044e1f4dbcaf5ac7380dffc6522aa81b9d295d78b1364d47cb3bf240156a83d",
-    "src/brand/marks/app/ios/AppIcon-60x60@3x.png": "568a7369d6777839c314c06593deebbd91b5764df0726df378b5b564e82fb13e",
-    "src/brand/marks/app/ios/AppIcon-76x76@1x.png": "25d0bc6e67861c216e4b974445d9b2d575f3bbc55a4a1580cfb8ced214ac5a2c",
-    "src/brand/marks/app/ios/AppIcon-76x76@2x.png": "e641445fbe00987db406273c2e711fb0cc32ba5d43a49c3a2724fa4c55297bee",
-    "src/brand/marks/app/ios/AppIcon-83.5x83.5@2x.png": "f8c6a4e41226869075227b8550a2cf7f774c8432fe9f12d80c222d8c00c14084",
-    "src/brand/marks/app/sonojot.ico": "c16047d2fb07e28475d0cb7c8b7621b989cfcfefaf92bc65af00ad386e792637",
+    "src/brand/marks/app/icon.ico": "fbc90dd0cf1b22e973ecb9d2653eee637dbc3e644bb0af01bd993e2d7c0a1e30",
+    "src/brand/marks/app/icon.png": "148b4ee1d93df37a288e4408298b2ea0ba21f03a51711b5e838fa6b39892198d",
+    "src/brand/marks/app/sonojot.ico": "fbc90dd0cf1b22e973ecb9d2653eee637dbc3e644bb0af01bd993e2d7c0a1e30",
     "src/brand/marks/favicon.ico": "b74ad6c67d375050465efe473bffb069edf1afb2b111182f9e0bb8f14303afce",
-    "src/brand/marks/favicon.svg": "dfeff3b8240f037b6ef51d8e1fa7587732f5313a6ea07dd3a08a93336b22f091",
+    "src/brand/marks/favicon.svg": "d4e55ef4f563e292fad36d82fbbb0ed7e616f4670b386724e489a70ee91660fe",
     "src/brand/marks/sonojot-horizontal-pine.svg": "1fa557bcb46630f2b759e94f48fb14a5ed5ee1ca78ccd4d56e2002be479073ef",
     "src/brand/marks/sonojot-horizontal-white.svg": "6176012bdda6a15fec504f3cea13fdfb0a6dc2f5befbd9c030f706ae9a65dd67",
     "src/brand/marks/sonojot-symbol-compact-pine.svg": "205683088e45b552bc3cae320652e8dbe22bb62b7ad3a4a77a7c08b9f9df0ac1",

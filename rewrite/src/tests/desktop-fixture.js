@@ -77,6 +77,18 @@ export function macProfileFixture(ramGiB = 16) {
   };
 }
 
+// October 14 field report: a 16 GB Apple Silicon Mac set up as Balanced on
+// 0.27.1, when Balanced meant Whisper Small. 0.28 recommends Qwen Q4 Metal for
+// Balanced, which this Mac has not downloaded. Saved settings are unchanged.
+export function macDriftFixture() {
+  const fixture = macProfileFixture(16);
+  return {
+    ...fixture,
+    settings: { ...fixture.settings, setupProfile: "balanced",
+      asrModel: "whisper-small-metal", cleanupModel: "local-rules", notesModel: "lfm2.5-1.2b" },
+  };
+}
+
 export async function installDesktopFixture(page, options = {}) {
   await page.addInitScript((options) => {
     window.isTauri = true;
@@ -1033,7 +1045,14 @@ export async function installDesktopFixture(page, options = {}) {
           case "onboarding_paste_permission":
             return state.capabilities.platform === "macos" ? "Accessibility permission is not granted." : null;
           case "permission_status":
-          case "permission_assistant": {
+          case "permission_assistant":
+          case "permission_reset": {
+            // Mirrors permissions.rs: a reset clears the entry, asks macOS
+            // again and reopens the pane with the helper.
+            if (command === "permission_reset") {
+              if (state.capabilities.platform !== "macos") throw new Error("This permission is needed only on macOS.");
+              if (options.permissionResetError) throw new Error(options.permissionResetError);
+            }
             if (args.kind === "system_audio") {
               // Mirrors the system_audio PermissionSpec: an unanswered
               // permission shows the macOS prompt; a denied one opens Settings.
@@ -1050,14 +1069,17 @@ export async function installDesktopFixture(page, options = {}) {
                 granted: current === "ready" || current === "unsupported",
                 assistantOpen: systemAudioAssistantOpen, title: "Allow SonoJot to record system audio",
                 body: "Switch SonoJot on under System Audio Recording Only. If it isn't there, drag this icon into that list.",
-                staleHint: "Already on? Select SonoJot, remove it with −, then drag this icon in again." };
+                staleHint: "Already on but not recording?",
+                canReset: state.capabilities.platform === "macos" };
             }
             if (command === "permission_assistant") permissionAssistantOpen = args.action === "open" && !options.permissionGranted;
+            if (command === "permission_reset") permissionAssistantOpen = !options.permissionGranted;
             const required = state.capabilities.platform === "macos";
             return { kind: args.kind, required, granted: !required || Boolean(options.permissionGranted),
               assistantOpen: permissionAssistantOpen, title: "Allow SonoJot to paste",
               body: "Switch SonoJot on in the list. If it isn't there, drag this icon into the list.",
-              staleHint: "Already on? Select SonoJot, remove it with −, then drag this icon in again." };
+              staleHint: "Already on but not working?",
+              canReset: required };
           }
           case "permission_drag":
             return null;
@@ -1291,6 +1313,17 @@ export async function installDesktopFixture(page, options = {}) {
             entry.error = null;
             entry.state = "downloading";
             entry.downloadedBytes = Math.floor(entry.totalBytes / 2);
+            // Mock of an install job that starts, then stops with the native
+            // installer's message (for example the free-space check).
+            const jobError = options.installJobErrors?.[args.id];
+            if (jobError) {
+              entry.downloadedBytes = 0;
+              setTimeout(() => {
+                entry.state = "failed";
+                entry.error = jobError;
+                emit();
+              }, 200);
+            }
             return clone(library);
           }
           case "queue_onboarding_download": {

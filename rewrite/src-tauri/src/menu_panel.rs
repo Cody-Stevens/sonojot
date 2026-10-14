@@ -562,7 +562,7 @@ mod native {
         // TrayIcon::rect waits for the main thread, so never call it there.
         if objc2::MainThreadMarker::new().is_none() {
             let fresh = app
-                .tray_by_id("eavesdropper")
+                .tray_by_id("sonojot")
                 .and_then(|tray| tray.rect().ok().flatten())
                 .and_then(|rect| tray_anchor(displays, &rect, None))
                 .filter(|anchor| displays.iter().any(|d| anchor_fits(*anchor, d.rect)));

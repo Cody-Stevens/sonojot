@@ -372,8 +372,14 @@ impl Engine {
                         recognizer = None;
                         resource_manager::confirm_asr_released();
                     }
-                    let outcome =
-                        run_job(&models_root, &mut recognizer, &mut job, &worker_callback);
+                    let mut failure = FailureKind::Other;
+                    let outcome = run_job(
+                        &models_root,
+                        &mut recognizer,
+                        &mut job,
+                        &worker_callback,
+                        &mut failure,
+                    );
                     // A cancelled/crashed child no longer holds model memory.
                     // Clear residency now; the next load needs fresh admission.
                     if recognizer.as_mut().is_some_and(|r| !r.is_alive()) {
@@ -408,10 +414,20 @@ impl Engine {
                             session_id: id,
                             result,
                         }),
-                        Err(message) => (worker_callback)(Event::Error {
-                            session_id: id,
-                            message,
-                        }),
+                        Err(message) => {
+                            crate::recognition_diagnostics::event(
+                                "dictation-failure",
+                                &job.options.asr_model,
+                                std::process::id(),
+                                id,
+                                job.control.started.elapsed().as_millis() as u64,
+                                failure as u64,
+                            );
+                            (worker_callback)(Event::Error {
+                                session_id: id,
+                                message,
+                            })
+                        }
                     }
                 }
                 // Acknowledge only after the recognition process and queued
@@ -803,11 +819,101 @@ fn shape_dictation(
     lease.finish();
 }
 
+/// Stable, content-free categories for the `dictation-failure` diagnostic
+/// (`value`). Codes are compared across field reports: never renumber.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FailureKind {
+    /// The resident speech worker had exited and its replacement failed.
+    WorkerExited = 1,
+    /// Another job held the speech stage, or admission stayed contended.
+    AdmissionBusy = 2,
+    /// Admission refused the load for lack of memory.
+    MemoryDenied = 3,
+    LoadFailed = 4,
+    StreamFailed = 5,
+    Microphone = 6,
+    Other = 7,
+}
+
+/// Drop a cached recognizer that cannot serve `model`: another model, or a
+/// worker that exited while idle (macOS kills idle helpers under memory
+/// pressure). Logs the exit value content-free and confirms the release so
+/// admission sees the truth. Returns true when the worker was dead.
+pub(crate) fn drop_unusable_recognizer(
+    recognizer: &mut Option<asr::Recognizer>,
+    model: &str,
+    session: u64,
+) -> bool {
+    let Some(current) = recognizer.as_mut() else {
+        return false;
+    };
+    let alive = current.is_alive();
+    if alive && current.requested_model == model {
+        return false;
+    }
+    if let Some((pid, value)) = current.worker_exit() {
+        crate::recognition_diagnostics::event(
+            "asr-worker-exited",
+            &current.model_id,
+            pid,
+            session,
+            0,
+            value,
+        );
+    }
+    *recognizer = None;
+    resource_manager::confirm_asr_released();
+    !alive
+}
+
+/// Under the held ASR lease, leave `recognizer` holding a live worker for
+/// `model`: reuse it, or load it once. A worker found dead here (it exited
+/// after the pre-admission check) is dropped and confirmed first, which arms
+/// the lease's reservation for the replacement. Audio keeps buffering in the
+/// backlog meanwhile, so a reload only delays the first words.
+pub(crate) fn ensure_recognizer(
+    root: &std::path::Path,
+    recognizer: &mut Option<asr::Recognizer>,
+    model: &str,
+    cancel: &AtomicBool,
+    session: u64,
+    worker_exited: bool,
+    failure: &mut FailureKind,
+) -> Result<(), String> {
+    let exited = drop_unusable_recognizer(recognizer, model, session) || worker_exited;
+    if recognizer.is_some() {
+        // Reusing the resident worker: confirm readiness under the new lease.
+        resource_manager::note_asr_loaded(model);
+        return Ok(());
+    }
+    // Clear any stale resident flag so a failed load cannot strand it.
+    resource_manager::confirm_asr_released();
+    *failure = if exited {
+        FailureKind::WorkerExited
+    } else {
+        FailureKind::LoadFailed
+    };
+    match asr::Recognizer::load_interruptible(root, model, cancel) {
+        Ok(loaded) => {
+            *recognizer = Some(loaded);
+            // Readiness is marked on actual successful load, not on lease.
+            resource_manager::note_asr_loaded(model);
+            Ok(())
+        }
+        Err(error) => {
+            // Nothing resident; the lease's Drop clears active.
+            resource_manager::note_asr_load_failed();
+            Err(error)
+        }
+    }
+}
+
 fn run_job(
     root: &std::path::Path,
     recognizer: &mut Option<asr::Recognizer>,
     job: &mut Job,
     callback: &Callback,
+    failure: &mut FailureKind,
 ) -> Result<DictationResult, String> {
     let control = &job.control;
     let id = control.id;
@@ -821,16 +927,15 @@ fn run_job(
     // Release a different or dead cached model before sampling free memory.
     // This owner cannot service its own idle-release request while blocked in
     // admission. Waiting there would wrongly reject an otherwise fitting switch.
-    if recognizer
-        .as_mut()
-        .is_some_and(|r| r.requested_model != job.options.asr_model || !r.is_alive())
-    {
-        *recognizer = None;
-        resource_manager::confirm_asr_released();
-    }
+    let worker_exited = drop_unusable_recognizer(recognizer, &job.options.asr_model, id);
     // Atomic acquire: fit + active + pending reservation in one critical
     // section (see resource_manager). No separate pre-acquire admission.
-    let asr_lease = AsrLease::acquire(&job.options.asr_model)?;
+    *failure = FailureKind::AdmissionBusy;
+    let asr_lease = AsrLease::acquire(&job.options.asr_model).inspect_err(|error| {
+        if error.starts_with(resource_manager::MEMORY_UNAVAILABLE) {
+            *failure = FailureKind::MemoryDenied;
+        }
+    })?;
     // Prewarm uses the SAME text lease/reservation the later cleanup phase
     // reuses — never a separate should_prewarm check + unowned
     // cleanup::prewarm. Single try, fail-open (None skips prewarm); the text
@@ -860,38 +965,32 @@ fn run_job(
         None
     };
     // A pending idle eviction is cancelled by this new activity. The acquire
-    // above already cleared it via touch_activity.
-    if recognizer
-        .as_ref()
-        .is_none_or(|r| r.requested_model != job.options.asr_model)
-    {
-        // Model switch: drop the stale resident first so the new load never
-        // runs under a stale worker, and clear the stale flag so a failed
-        // load cannot strand it.
-        *recognizer = None;
-        resource_manager::confirm_asr_released();
-        match asr::Recognizer::load_interruptible(root, &job.options.asr_model, &control.cancel) {
-            Ok(loaded) => {
-                *recognizer = Some(loaded);
-                // Readiness is marked on actual successful load, not on lease.
-                resource_manager::note_asr_loaded(&job.options.asr_model);
-            }
-            Err(e) => {
-                // Loaded stays None (no resident); Drop clears active.
-                resource_manager::note_asr_load_failed();
-                return Err(e);
-            }
-        }
-    } else if recognizer.is_some() {
-        // Reusing the resident worker: confirm readiness under the new lease.
-        resource_manager::note_asr_loaded(&job.options.asr_model);
-    }
+    // above already cleared it via touch_activity. Admission can take a
+    // while, so liveness is checked again here (defence in depth): a worker
+    // that died meanwhile is reloaded once instead of failing the job. If it
+    // dies after this check, the remote stream's single Begin reconnect
+    // covers it; a second failure surfaces as before.
+    ensure_recognizer(
+        root,
+        recognizer,
+        &job.options.asr_model,
+        &control.cancel,
+        id,
+        worker_exited,
+        failure,
+    )?;
     if control.cancel.load(Ordering::Acquire) {
         return Err("Dictation cancelled.".into());
     }
+    *failure = if worker_exited {
+        FailureKind::WorkerExited
+    } else {
+        FailureKind::StreamFailed
+    };
     let active = recognizer.as_mut().unwrap();
     let model_id = active.model_id.clone();
     let mut stream = active.stream_interruptible(&control.cancel)?;
+    *failure = FailureKind::StreamFailed;
     let mut last_update = Instant::now();
     let mut silence_start = Duration::ZERO;
     let mut last_interim = String::new();
@@ -973,10 +1072,14 @@ fn run_job(
                 }
             }
             Ok(AudioMessage::End) => break,
-            Ok(AudioMessage::Error(error)) => return Err(error),
+            Ok(AudioMessage::Error(error)) => {
+                *failure = FailureKind::Microphone;
+                return Err(error);
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err("Audio ended without capture finalization.".into())
+                *failure = FailureKind::Microphone;
+                return Err("Audio ended without capture finalization.".into());
             }
         }
     }
@@ -1004,6 +1107,7 @@ fn run_job(
     });
     let finalized = Instant::now();
     let recognition = stream.finish_recognition()?;
+    *failure = FailureKind::Other;
     let recognition_completeness = recognition.completeness;
     let guarded_text = &recognition.text;
     let asr_ms = finalized.elapsed().as_millis() as u64;

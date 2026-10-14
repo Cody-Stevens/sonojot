@@ -137,6 +137,20 @@ pub(crate) fn initialize() {
             let _ = LOG.set(Mutex::new(directory));
         }
     }
+    match crate::store::default_root_outcome() {
+        Some(crate::store::DataFolder::Moved) => {
+            event("data-folder-moved", "", std::process::id(), 0, 0, 0)
+        }
+        Some(crate::store::DataFolder::MoveFailed(code)) => event(
+            "data-folder-move-failed",
+            "",
+            std::process::id(),
+            0,
+            0,
+            code.map_or(0, |code| code as u32 as u64),
+        ),
+        _ => {}
+    }
 }
 
 pub(crate) fn event(kind: &'static str, model: &str, pid: u32, session: u64, ms: u64, value: u64) {

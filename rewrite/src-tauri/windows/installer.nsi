@@ -64,6 +64,8 @@ ${StrLoc}
 !define WEBVIEW2BOOTSTRAPPERPATH "{{webview2_bootstrapper_path}}"
 !define WEBVIEW2INSTALLERPATH "{{webview2_installer_path}}"
 !define MINIMUMWEBVIEW2VERSION "{{minimum_webview2_version}}"
+; These registry key names stay "Eavesdropper Next": upgrades find the existing
+; installation through them. Users never see them; DisplayName is ${PRODUCTNAME}.
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Eavesdropper Next"
 !define MANUKEY "Software\${MANUFACTURER}"
 !define MANUPRODUCTKEY "${MANUKEY}\Eavesdropper Next"
@@ -512,7 +514,9 @@ Function .onInit
         StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\Eavesdropper Next"
+      ; New installations only. RestorePreviousInstallLocation below keeps an
+      ; existing "Eavesdropper Next" directory on upgrade.
+      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCTNAME}"
     !endif
 
     Call RestorePreviousInstallLocation
@@ -863,6 +867,8 @@ Section Uninstall
   ; If it doesn't exist, it does nothing.
   ; We do this when not updating (to preserve the registry value on updates)
   ${If} $UpdateMode <> 1
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "SonoJot"
+    ; The name used up to 0.28.3, until the app renames it at its next launch.
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "EavesdropperNext"
   ${EndIf}
 

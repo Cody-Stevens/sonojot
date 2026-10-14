@@ -26,6 +26,11 @@ class SetupProfilesState {
   draft = $state<SetupProfile | null>(null);
   retrySpeechId = $state("");
   needsCompletion = $state(false);
+  /**
+   * Why the last Use/Switch for a profile stopped, in the installer's own
+   * words (for example "Not enough disk space…"). The profile card shows it.
+   */
+  failure = $state<{ profile: SetupProfile; message: string } | null>(null);
   private deferredNotes = new Set<string>();
 
   get selected(): SetupProfile {
@@ -74,6 +79,7 @@ class SetupProfilesState {
   async choose(profile: SetupProfile): Promise<void> {
     if (this.locked) return;
     this.retrySpeechId = "";
+    this.failure = null;
     // Every tab previews. Only a model edit or Finish setup commits Custom.
     this.draft = profile;
   }
@@ -192,81 +198,95 @@ class SetupProfilesState {
 
   async use(profile = this.selected): Promise<void> {
     if (this.applyLocked || (profile !== "custom" && !this.hardware)) return;
+    this.failure = null;
     // Own the whole operation, including confirmation, across route changes.
-    const deferredNotes = await app.perform("setup-profile", async () => {
-      if (
-        app.snapshot.settings.setupProfile === "custom" &&
-        profile !== "custom" &&
-        !(await app.confirm(
-          `Use ${profileLabel(profile)}?`,
-          "Replace your Speech, Cleanup and Notes model choices with this profile.",
-          "Use this",
-        ))
-      )
-        return;
-      if (
-        app.busy("settings") ||
-        !["idle", "error"].includes(app.snapshot.state) ||
-        app.snapshot.meetingRecording
-      )
-        return;
-      const release = library.acquire();
-      try {
-        if (
-          profile === "custom" &&
-          app.snapshot.settings.setupProfile !== null
-        ) {
-          await this.apply(profile);
-          if (this.draft === profile) this.draft = null;
-          if (this.needsCompletion) await this.complete();
-          return;
-        }
-        const selection =
-          profile === "custom"
-            ? app.snapshot.settings
-            : this.hardware?.recommendations[profile];
-        if (!selection) return;
-        if (
-          !(await ensureDownloadConsent([
-            selection.asrModel,
-            selection.cleanupModel,
-            selection.notesModel,
-          ]))
-        )
-          return;
-        // Waiting is scoped to the requested model, never the whole catalog.
-        if (
-          library.data?.models.some(
-            (model) => model.id === selection.asrModel && checking(model),
-          )
-        )
-          return;
-        this.retrySpeechId = selection.asrModel;
-        const notesToCheck = await applyProfileSelection(
-          profile,
-          selection,
-          {
-            readLibrary: () => this.readLibrary(),
-            install: (id) => this.install(id),
-            wait: () => new Promise((resolve) => setTimeout(resolve, 1000)),
-            apply: async (chosen) => {
-              const next = await this.apply(chosen);
-              if (this.draft === profile) this.draft = null;
-              this.retrySpeechId = "";
-              this.needsCompletion = true;
-              return next;
-            },
-            complete: () => this.complete(),
-          },
-          app.snapshot.settings.setupProfile,
-        );
-        app.notice = "Setup saved.";
-        return notesToCheck;
-      } finally {
-        release();
-      }
-    });
+    const deferredNotes = await app.perform("setup-profile", () =>
+      this.useProfile(profile).catch((failure: unknown) => {
+        const message = errorMessage(failure);
+        // A Notes failure after the profile saved keeps its own banner and
+        // Open Models action; everything else belongs to the profile card.
+        if (!message.startsWith("SETUP_NOTES_DOWNLOAD:"))
+          this.failure = { profile, message };
+        throw failure;
+      }),
+    );
+    // Show the reason once, on the card, instead of a generic banner whose
+    // Details hide words such as "Not enough disk space".
+    // (Read through the declared type; the catch above assigns it.)
+    const failure = this.failure as SetupProfilesState["failure"];
+    if (failure && app.error === failure.message) app.error = "";
     if (deferredNotes) void this.prepareNotesAfterCheck(deferredNotes);
+  }
+
+  private async useProfile(profile: SetupProfile): Promise<string | undefined> {
+    if (
+      app.snapshot.settings.setupProfile === "custom" &&
+      profile !== "custom" &&
+      !(await app.confirm(
+        `Use ${profileLabel(profile)}?`,
+        "Replace your Speech, Cleanup and Notes model choices with this profile.",
+        "Use this",
+      ))
+    )
+      return;
+    if (
+      app.busy("settings") ||
+      !["idle", "error"].includes(app.snapshot.state) ||
+      app.snapshot.meetingRecording
+    )
+      return;
+    const release = library.acquire();
+    try {
+      if (profile === "custom" && app.snapshot.settings.setupProfile !== null) {
+        await this.apply(profile);
+        if (this.draft === profile) this.draft = null;
+        if (this.needsCompletion) await this.complete();
+        return;
+      }
+      const selection =
+        profile === "custom"
+          ? app.snapshot.settings
+          : this.hardware?.recommendations[profile];
+      if (!selection) return;
+      if (
+        !(await ensureDownloadConsent([
+          selection.asrModel,
+          selection.cleanupModel,
+          selection.notesModel,
+        ]))
+      )
+        return;
+      // Waiting is scoped to the requested model, never the whole catalog.
+      if (
+        library.data?.models.some(
+          (model) => model.id === selection.asrModel && checking(model),
+        )
+      )
+        return;
+      this.retrySpeechId = selection.asrModel;
+      const notesToCheck = await applyProfileSelection(
+        profile,
+        selection,
+        {
+          readLibrary: () => this.readLibrary(),
+          install: (id) => this.install(id),
+          wait: () => new Promise((resolve) => setTimeout(resolve, 1000)),
+          apply: async (chosen) => {
+            const next = await this.apply(chosen);
+            if (this.draft === profile) this.draft = null;
+            this.retrySpeechId = "";
+            this.needsCompletion = true;
+            return next;
+          },
+          complete: () => this.complete(),
+        },
+        app.snapshot.settings.setupProfile,
+      );
+      app.notice = "Setup saved.";
+      return notesToCheck;
+    } finally {
+      release();
+    }
   }
 }
 

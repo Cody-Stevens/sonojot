@@ -662,7 +662,7 @@ impl Runtime {
             };
             format!("SonoJot · {} · {status}", snapshot.settings.hotkey)
         });
-        if let (Some(tray), Some(tooltip)) = (app.tray_by_id("eavesdropper"), tooltip) {
+        if let (Some(tray), Some(tooltip)) = (app.tray_by_id("sonojot"), tooltip) {
             let _ = tray.set_tooltip(Some(tooltip));
         }
     }

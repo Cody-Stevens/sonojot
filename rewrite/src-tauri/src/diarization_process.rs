@@ -247,7 +247,7 @@ mod tests {
         let golden =
             PathBuf::from(std::env::var_os("SONOJOT_DIAR_GOLDEN").expect("SONOJOT_DIAR_GOLDEN"));
         let models =
-            PathBuf::from(std::env::var_os("EAVESDROPPER_MODELS").expect("EAVESDROPPER_MODELS"));
+            PathBuf::from(crate::environment::var_os("MODELS").expect("set SONOJOT_MODELS"));
         let golden: Vec<Golden> = read_json(&golden).unwrap();
         let root = std::env::temp_dir().join(format!("sonojot-diar-parity-{}", new_id()));
         let store = Store::open(Some(root.clone())).unwrap();
