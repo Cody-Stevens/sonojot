@@ -81,6 +81,70 @@ export function updateTooltip(
   }
 }
 
+export type UpdateActionKind = "download" | "restart";
+
+/**
+ * The next step About and the main-window notice offer beside the status.
+ * While downloading there is nothing to press; the status text beside it
+ * carries the progress.
+ */
+export function updateAction(
+  status: UpdateStatus,
+  installing: boolean,
+): { kind: UpdateActionKind; label: string } | null {
+  if (installing) return { kind: "restart", label: "Restarting…" };
+  switch (status.state) {
+    case "available":
+      return { kind: "download", label: "Download update" };
+    case "ready":
+      return { kind: "restart", label: "Restart to update" };
+    default:
+      return null;
+  }
+}
+
+/** Whether the shared update action can run now. */
+export function updateActionDisabled(
+  status: UpdateStatus,
+  installing: boolean,
+  blockedReason: string | null,
+  native: boolean,
+  busy: (key: string) => boolean,
+): boolean {
+  return (
+    !native ||
+    installing ||
+    status.state === "checking" ||
+    status.state === "downloading" ||
+    busy("update-download") ||
+    busy("update-check") ||
+    busy("update-install") ||
+    (status.state === "ready" && !!blockedReason)
+  );
+}
+
+/**
+ * The main window's update notice: shown while an update is available,
+ * downloading or ready, until Later is chosen for that version. Errors and
+ * checks stay in About and the sidebar.
+ */
+export function updateNoticeMessage(update: {
+  status: UpdateStatus;
+  installing: boolean;
+  noticeDismissed: boolean;
+}): string | null {
+  if (update.noticeDismissed) return null;
+  if (update.installing) return "Restarting to update…";
+  switch (update.status.state) {
+    case "available":
+    case "downloading":
+    case "ready":
+      return updateStatusLabel(update.status);
+    default:
+      return null;
+  }
+}
+
 export function restartBlockedReason(
   backendReason: string | null,
   dirty: boolean,

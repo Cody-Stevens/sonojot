@@ -7,9 +7,12 @@
   import { call } from "../lib/api";
   import { ai } from "../lib/ai.svelte";
   import {
-    modelRoles,
+    catalogRows,
+    effortLabel,
+    groupQuickModels,
     priceLine,
-    quickModelRemoval,
+    quickModelGroupRemoval,
+    rolesLabel,
     routeNotes,
     type AiModel,
     type AiModelCheck,
@@ -44,33 +47,44 @@
       ]),
     ),
   );
+  // One row per model, even when it serves text and meeting transcription.
   const matches = $derived(
-    (browsingAll
-      ? (catalog ?? recommended ?? [])
-      : (recommended ?? catalog ?? [])
-    )
-      .flatMap((item) => modelRoles(item).map((role) => ({ item, role })))
-      .filter(
-        ({ item, role }) =>
-          !query ||
-          `${item.name} ${item.id} ${role} ${roleLabel(role)} ${item.inputModalities.join(" ")}`
-            .toLocaleLowerCase()
-            .includes(query),
-      ),
+    catalogRows(
+      browsingAll
+        ? (catalog ?? recommended ?? [])
+        : (recommended ?? catalog ?? []),
+      query,
+    ),
   );
   const results = $derived(matches.slice(0, shown));
+  const quickGroups = $derived(groupQuickModels(ai.data?.quickModels ?? []));
   const locked = $derived(
     ai.busy || !app.native || app.busy("settings") || app.busy("setup-profile"),
   );
-
-  function roleLabel(role: AiQuickModel["role"]): string {
-    return role === "speech" ? "Meeting transcription" : "Text and notes";
-  }
 
   function hasModel(id: string, role: AiQuickModel["role"]): boolean {
     return !!ai.data?.quickModels.some(
       (entry) => entry.id === id && entry.role === role,
     );
+  }
+  function missingRoles(
+    id: string,
+    roles: AiQuickModel["role"][],
+  ): AiQuickModel["role"][] {
+    return roles.filter((role) => !hasModel(id, role));
+  }
+  /** Row note: roles, the curated effort when the model reasons for text, price. */
+  function rowNote(item: AiModel | undefined, roles: AiQuickModel["role"][]) {
+    const effort = roles.includes("text")
+      ? effortLabel(item?.reasoningEffort)
+      : "";
+    return [
+      rolesLabel(roles),
+      effort,
+      item ? priceLine(item) : "Price unavailable.",
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
 
   async function loadModels(force = false): Promise<void> {
@@ -108,36 +122,53 @@
     }
   }
 
-  async function add(item: AiModel, role: AiQuickModel["role"]): Promise<void> {
-    if (locked || !ai.data?.connected || hasModel(item.id, role)) return;
+  async function add(
+    item: AiModel,
+    roles: AiQuickModel["role"][],
+  ): Promise<void> {
+    const missing = missingRoles(item.id, roles);
+    if (locked || !ai.data?.connected || !missing.length) return;
     notice = "";
-    // Adding makes the model available to pickers without selecting a route.
+    // Adding makes the model available to every picker it suits, without
+    // selecting a route.
     if (
       await ai.save({
-        quickModels: [...ai.data.quickModels, { id: item.id, role }],
+        quickModels: [
+          ...ai.data.quickModels,
+          ...missing.map((role) => ({ id: item.id, role })),
+        ],
       })
     )
-      notice = `${item.name} added for ${roleLabel(role).toLocaleLowerCase()}.`;
+      notice = `${item.name} added for ${
+        missing.length > 1
+          ? "text, notes and meeting transcription"
+          : rolesLabel(missing).toLocaleLowerCase()
+      }.`;
   }
 
-  async function remove(entry: AiQuickModel): Promise<void> {
+  async function remove(id: string): Promise<void> {
     const current = ai.data;
     if (locked || !current) return;
+    const roles = current.quickModels
+      .filter((entry) => entry.id === id)
+      .map((entry) => entry.role);
     const resetText =
-      entry.role === "text" &&
-      current.model === entry.id &&
+      roles.includes("text") &&
+      current.model === id &&
       (current.backend === "openrouter" ||
         app.snapshot.settings.notesModel === "openrouter");
-    const resetSpeech =
-      entry.role === "speech" && current.speechModel === entry.id;
+    const resetSpeech = roles.includes("speech") && current.speechModel === id;
     notice = "";
-    const saved = await ai.save(quickModelRemoval(current, entry));
+    const saved = await ai.save(quickModelGroupRemoval(current, id));
     if (saved)
-      notice = resetText
-        ? "Model removed. Notes now use the local model."
-        : resetSpeech
-          ? "Model removed. Meeting transcription now uses the local Speech model."
-          : "Model removed from your list.";
+      notice =
+        resetText && resetSpeech
+          ? "Model removed. Notes and meeting transcription now use local models."
+          : resetText
+            ? "Model removed. Notes now use the local model."
+            : resetSpeech
+              ? "Model removed. Meeting transcription now uses the local Speech model."
+              : "Model removed from your list.";
   }
 
   $effect(() => {
@@ -253,23 +284,21 @@
         </p>
       {:else}
         <ul class="quick-models" aria-label="Your OpenRouter models">
-          {#each ai.data.quickModels as entry (`${entry.role}:${entry.id}`)}
+          {#each quickGroups as entry (entry.id)}
             {@const item = modelById.get(entry.id)}
             <li class="model-row">
               <div class="model-copy">
                 <span>{item?.name ?? entry.id}<RemoteModelBadge /></span>
                 <small data-text-surface="flat"
-                  >{roleLabel(entry.role)} · {item
-                    ? priceLine(item)
-                    : "Price unavailable."}</small
+                  >{rowNote(item, entry.roles)}</small
                 >
                 {@render details(entry.id, item)}
               </div>
               <button
                 class="button small"
                 disabled={locked}
-                aria-label={`Remove ${item?.name ?? entry.id} for ${roleLabel(entry.role)}`}
-                onclick={() => remove(entry)}>Remove</button
+                aria-label={`Remove ${item?.name ?? entry.id}`}
+                onclick={() => remove(entry.id)}>Remove</button
               >
             </li>
           {/each}
@@ -345,22 +374,21 @@
       {/if}
       {#if !browsingAll && recommended?.length}
         <p class="field-help" data-text-surface="flat">
-          Recommended models, least expensive first. Use All models for the full
-          text and speech catalog.
+          Recommended models. Use All models for the full text and speech
+          catalog.
         </p>
       {/if}
       {#if results.length}
         <ul class="catalog-models" aria-label="OpenRouter catalog results">
-          {#each results as { item, role } (`${role}:${item.id}`)}
+          {#each results as { item, roles } (item.id)}
+            {@const missing = missingRoles(item.id, roles)}
             <li class="model-row">
               <div class="model-copy">
                 <span>{item.name}<RemoteModelBadge /></span>
-                <small data-text-surface="flat"
-                  >{roleLabel(role)} · {priceLine(item)}</small
-                >
+                <small data-text-surface="flat">{rowNote(item, roles)}</small>
                 {@render details(item.id, item)}
               </div>
-              {#if hasModel(item.id, role)}
+              {#if !missing.length}
                 <span class="in-list" data-text-surface="flat"
                   >In your list</span
                 >
@@ -368,8 +396,8 @@
                 <button
                   class="button small"
                   disabled={locked}
-                  aria-label={`Add ${item.name} for ${roleLabel(role)}`}
-                  onclick={() => add(item, role)}>Add</button
+                  aria-label={`Add ${item.name} for ${rolesLabel(missing)}`}
+                  onclick={() => add(item, roles)}>Add</button
                 >
               {/if}
             </li>

@@ -809,7 +809,7 @@ fn optional_llm_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
     let (state, _, _, _) = entry_state("local-rules", true, false);
     out.push(ModelEntry {
         id: "local-rules".into(),
-        name: "Formatting and vocabulary".into(),
+        name: "SonoJot Punctuation with your vocabulary".into(),
         kind: "cleanup".into(),
         roles: vec!["cleanup".into()],
         family: "Rules".into(),
@@ -822,7 +822,7 @@ fn optional_llm_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
         vram_min_bytes: None,
         vram_max_bytes: None,
         memory_basis: "Host-only rules; no model weights, no measurable inference RAM.".into(),
-        guidance: "Immediate local rules; no language model. Use when no text model is installed."
+        guidance: "Rules, your vocabulary and the SonoJot punctuation model when it is installed. Runs on CPU; no text model needed."
             .into(),
         evidence: "Host rules; no model rating applies.".into(),
         backend: "local-rules".into(),

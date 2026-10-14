@@ -6,7 +6,7 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant, SystemTime},
 };
 use tauri::AppHandle;
 use tauri_plugin_updater::{RemoteRelease, Update, UpdaterExt};
@@ -15,6 +15,9 @@ const CHECK_FAILED: &str = "Updates are unavailable. Try again later.";
 const DOWNLOAD_FAILED: &str = "The update could not be downloaded. Check for updates to try again.";
 const INSTALL_FAILED: &str = "The update could not be installed. Check for updates to try again.";
 const FIRST_CHECK: Duration = Duration::from_secs(30);
+/// Opening or returning to the main window checks again once the last check
+/// is this old. Privacy notice section 3 describes this cadence.
+const FOCUS_CHECK_AFTER: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -46,6 +49,9 @@ pub struct UpdateSnapshot {
     pub status: UpdateStatus,
     pub restart_blocked_reason: Option<String>,
     pub installing: bool,
+    /// The user chose Later on the main-window notice for this offered
+    /// version. Held in memory, so it lasts until SonoJot next starts.
+    pub notice_dismissed: bool,
 }
 
 impl Default for UpdateSnapshot {
@@ -55,8 +61,85 @@ impl Default for UpdateSnapshot {
             status: UpdateStatus::Idle,
             restart_blocked_reason: None,
             installing: false,
+            notice_dismissed: false,
         }
     }
+}
+
+/// What prompted an automatic check.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Trigger {
+    Timer,
+    Focus,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Moment {
+    mono: Instant,
+    wall: SystemTime,
+}
+
+impl Moment {
+    fn now() -> Self {
+        Self {
+            mono: Instant::now(),
+            wall: SystemTime::now(),
+        }
+    }
+}
+
+/// When automatic checks are due: once about 30 seconds after launch, then
+/// about six hours after the most recent check, and on window focus once the
+/// most recent check is an hour old. Any check, including Check now, restarts
+/// both clocks, so focus and the timer never stack requests.
+#[derive(Debug)]
+struct Schedule {
+    launched: Instant,
+    last: Option<Moment>,
+    interval: Duration,
+}
+
+impl Schedule {
+    fn new(launched: Instant) -> Self {
+        Self {
+            launched,
+            last: None,
+            // Unused until the first check records a jittered interval.
+            interval: Duration::MAX,
+        }
+    }
+
+    fn since_last(&self, now: Moment) -> Option<Duration> {
+        let last = self.last?;
+        // Monotonic time can pause while the computer sleeps and the wall
+        // clock can move backwards; whichever has advanced further counts.
+        Some(
+            now.mono
+                .saturating_duration_since(last.mono)
+                .max(now.wall.duration_since(last.wall).unwrap_or_default()),
+        )
+    }
+
+    fn due(&self, trigger: Trigger, now: Moment) -> bool {
+        match (self.since_last(now), trigger) {
+            (None, Trigger::Timer) => {
+                now.mono.saturating_duration_since(self.launched) >= FIRST_CHECK
+            }
+            // The launch check comes first; opening the window never preempts it.
+            (None, Trigger::Focus) => false,
+            (Some(elapsed), Trigger::Timer) => elapsed >= self.interval,
+            (Some(elapsed), Trigger::Focus) => elapsed >= FOCUS_CHECK_AFTER,
+        }
+    }
+
+    fn record(&mut self, now: Moment, jitter: u64) {
+        self.last = Some(now);
+        self.interval = next_check_delay(jitter);
+    }
+}
+
+fn jitter() -> u64 {
+    uuid::Uuid::new_v4().as_u128() as u64
 }
 
 struct Package<R> {
@@ -69,6 +152,10 @@ struct State<R> {
     available: Option<R>,
     package: Option<Package<R>>,
     installing: bool,
+    schedule: Schedule,
+    /// Version most recently found by a check, kept through download.
+    offered: Option<String>,
+    dismissed: Option<String>,
 }
 
 impl<R> Default for State<R> {
@@ -78,6 +165,9 @@ impl<R> Default for State<R> {
             available: None,
             package: None,
             installing: false,
+            schedule: Schedule::new(Instant::now()),
+            offered: None,
+            dismissed: None,
         }
     }
 }
@@ -106,6 +196,7 @@ impl<R> Service<R> {
             status: state.status.clone(),
             installing: state.installing,
             restart_blocked_reason: resource_manager::update_blocked_reason(),
+            notice_dismissed: state.offered.is_some() && state.dismissed == state.offered,
             ..UpdateSnapshot::default()
         })
     }
@@ -126,7 +217,27 @@ impl<R> Service<R> {
         state.package = None;
         state.available = None;
         state.status = UpdateStatus::Checking;
+        state.schedule.record(Moment::now(), jitter());
         Ok(true)
+    }
+
+    /// Claims an automatic check if one is due. A claim restarts the clocks
+    /// even when the check itself is skipped (an update is already offered).
+    fn claim_automatic(&self, trigger: Trigger, now: Moment, jitter: u64) -> bool {
+        let Ok(mut state) = self.lock() else {
+            return false;
+        };
+        if !state.schedule.due(trigger, now) {
+            return false;
+        }
+        state.schedule.record(now, jitter);
+        true
+    }
+
+    fn dismiss_notice(&self) -> Result<(), String> {
+        let mut state = self.lock()?;
+        state.dismissed = state.offered.clone();
+        Ok(())
     }
 
     fn set_status(&self, status: UpdateStatus) -> bool {
@@ -304,6 +415,7 @@ async fn check<B: Backend>(service: &Service<B::Release>, backend: &B, emit: imp
         let (version, notes, size) = B::describe(&release);
         let mut state = service.lock().map_err(|_| ())?;
         state.available = Some(release);
+        state.offered = Some(version.clone());
         state.status = UpdateStatus::Available {
             version,
             notes,
@@ -420,6 +532,36 @@ pub(crate) fn download_update(
     state.snapshot()
 }
 
+/// Later on the main-window notice: hide it for this version until next launch.
+#[tauri::command]
+pub(crate) fn dismiss_update_notice(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<Runtime>>,
+) -> Result<Snapshot, String> {
+    state.updater.dismiss_notice()?;
+    state.emit(&app);
+    state.snapshot()
+}
+
+/// The main window was opened or brought to the front.
+pub(crate) fn window_focused(app: &AppHandle) {
+    use tauri::Manager;
+    let Some(runtime) = app.try_state::<Arc<Runtime>>().map(|s| s.inner().clone()) else {
+        return;
+    };
+    if runtime
+        .updater
+        .claim_automatic(Trigger::Focus, Moment::now(), jitter())
+    {
+        // Window events arrive on the UI thread; emit from a worker as the
+        // scheduler does.
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = request_check(&runtime, &app);
+        });
+    }
+}
+
 #[tauri::command]
 pub(crate) fn restart_to_update(
     app: AppHandle,
@@ -467,7 +609,6 @@ pub(crate) fn start_scheduler(runtime: &Arc<Runtime>, app: &AppHandle) {
     let weak = Arc::downgrade(runtime);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut next = tokio::time::Instant::now() + FIRST_CHECK;
         let mut last_reason = resource_manager::update_blocked_reason();
         loop {
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -477,10 +618,11 @@ pub(crate) fn start_scheduler(runtime: &Arc<Runtime>, app: &AppHandle) {
                 last_reason = reason;
                 runtime.emit(&app);
             }
-            if tokio::time::Instant::now() >= next {
+            if runtime
+                .updater
+                .claim_automatic(Trigger::Timer, Moment::now(), jitter())
+            {
                 let _ = request_check(&runtime, &app);
-                next = tokio::time::Instant::now()
-                    + next_check_delay(uuid::Uuid::new_v4().as_u128() as u64);
             }
         }
     });
@@ -784,6 +926,115 @@ mod tests {
         assert!(validate_manifest(&bad, "windows-x86_64").is_err());
     }
 
+    /// A moment `mono` after launch on the monotonic clock and `wall` after
+    /// launch on the wall clock. They differ only across sleep or clock changes.
+    fn at(launch: Instant, mono: u64, wall: u64) -> Moment {
+        Moment {
+            mono: launch + Duration::from_secs(mono),
+            wall: SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + wall),
+        }
+    }
+
+    const HOUR: u64 = 60 * 60;
+
+    #[test]
+    fn launch_check_waits_thirty_seconds_and_focus_never_preempts_it() {
+        let launch = Instant::now();
+        let schedule = Schedule::new(launch);
+        assert!(!schedule.due(Trigger::Timer, at(launch, 0, 0)));
+        assert!(!schedule.due(Trigger::Timer, at(launch, 29, 29)));
+        assert!(schedule.due(Trigger::Timer, at(launch, 30, 30)));
+        // Opening the window at launch (or before the first check) waits for it.
+        for seconds in [0, 10, 31, 2 * HOUR] {
+            assert!(!schedule.due(Trigger::Focus, at(launch, seconds, seconds)));
+        }
+    }
+
+    #[test]
+    fn focus_checks_only_once_the_last_check_is_an_hour_old() {
+        let launch = Instant::now();
+        let mut schedule = Schedule::new(launch);
+        schedule.record(at(launch, 30, 30), 900);
+        for fresh in [31, 30 + 10 * 60, 30 + HOUR - 1] {
+            assert!(!schedule.due(Trigger::Focus, at(launch, fresh, fresh)));
+        }
+        assert!(schedule.due(Trigger::Focus, at(launch, 30 + HOUR, 30 + HOUR)));
+        // A focus check restarts both clocks: neither focus nor the timer
+        // repeats it straight away.
+        let focus = 30 + 2 * HOUR;
+        schedule.record(at(launch, focus, focus), 900);
+        assert!(!schedule.due(Trigger::Focus, at(launch, focus + 60, focus + 60)));
+        assert!(!schedule.due(
+            Trigger::Timer,
+            at(launch, focus + 5 * HOUR, focus + 5 * HOUR)
+        ));
+        assert!(schedule.due(
+            Trigger::Timer,
+            at(launch, focus + 6 * HOUR, focus + 6 * HOUR)
+        ));
+    }
+
+    #[test]
+    fn timer_keeps_the_six_hour_cadence_and_catches_up_after_sleep() {
+        let launch = Instant::now();
+        let mut schedule = Schedule::new(launch);
+        // Jitter 0 and 1800 give the 5 h 45 min and 6 h 15 min bounds.
+        schedule.record(at(launch, 30, 30), 0);
+        assert!(!schedule.due(Trigger::Timer, at(launch, 30 + 20_699, 30 + 20_699)));
+        assert!(schedule.due(Trigger::Timer, at(launch, 30 + 20_700, 30 + 20_700)));
+        schedule.record(at(launch, 30, 30), 1800);
+        assert!(!schedule.due(Trigger::Timer, at(launch, 30 + 22_499, 30 + 22_499)));
+        assert!(schedule.due(Trigger::Timer, at(launch, 30 + 22_500, 30 + 22_500)));
+        // Eight hours asleep: the monotonic clock may pause, the wall clock
+        // does not. Both triggers are due as soon as the computer wakes.
+        let asleep = at(launch, 30 + 60, 30 + 8 * HOUR);
+        assert!(schedule.due(Trigger::Timer, asleep));
+        assert!(schedule.due(Trigger::Focus, asleep));
+        // A wall clock set back a day does not stall checks either.
+        let set_back = Moment {
+            mono: launch + Duration::from_secs(30 + 7 * HOUR),
+            wall: SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 - 24 * HOUR),
+        };
+        assert!(schedule.due(Trigger::Timer, set_back));
+    }
+
+    #[test]
+    fn claims_restart_the_clocks_and_dismissal_follows_the_offered_version() {
+        let _gate = resource_manager::tests::test_gate();
+        resource_manager::reset_for_tests(
+            crate::domain::MemoryMode::Overlap,
+            crate::domain::ModelRetention::OnExit,
+        );
+        let service = Service::<String>::default();
+        let launch = service.lock().unwrap().schedule.launched;
+        assert!(!service.claim_automatic(Trigger::Timer, at(launch, 10, 10), 900));
+        assert!(service.claim_automatic(Trigger::Timer, at(launch, 30, 30), 900));
+        assert!(!service.claim_automatic(Trigger::Timer, at(launch, 31, 31), 900));
+        assert!(!service.claim_automatic(Trigger::Focus, at(launch, 60, 60), 900));
+        // Check now counts as the most recent check.
+        assert!(service.begin_check().unwrap());
+        assert!(service.lock().unwrap().schedule.last.is_some());
+        assert!(!service.snapshot().unwrap().notice_dismissed);
+        run(check(&service, &MockBackend::default(), || {}));
+        assert!(!service.snapshot().unwrap().notice_dismissed);
+        service.dismiss_notice().unwrap();
+        assert!(service.snapshot().unwrap().notice_dismissed);
+        // The dismissal holds through download and ready for that version.
+        let release = service.begin_download().unwrap().unwrap();
+        assert!(service.snapshot().unwrap().notice_dismissed);
+        run(download(&service, &MockBackend::default(), release, || {}));
+        assert!(matches!(
+            service.snapshot().unwrap().status,
+            UpdateStatus::Ready { .. }
+        ));
+        assert!(service.snapshot().unwrap().notice_dismissed);
+        // A newer version is offered afresh.
+        service.lock().unwrap().offered = Some("0.24.0".into());
+        assert!(!service.snapshot().unwrap().notice_dismissed);
+        let value = serde_json::to_value(service.snapshot().unwrap()).unwrap();
+        assert_eq!(value["noticeDismissed"], false);
+    }
+
     #[test]
     fn wire_contract_progress_and_schedule_are_bounded() {
         let snapshot = UpdateSnapshot::default();
@@ -797,7 +1048,9 @@ mod tests {
         assert_eq!(percent(u64::MAX, Some(1)), Some(99));
         assert_eq!(percent(10, Some(0)), None);
         assert_eq!(percent(10, None), None);
+        assert_eq!(value["noticeDismissed"], false);
         assert_eq!(FIRST_CHECK, Duration::from_secs(30));
+        assert_eq!(FOCUS_CHECK_AFTER, Duration::from_secs(3600));
         assert_eq!(next_check_delay(0), Duration::from_secs(20_700));
         assert_eq!(next_check_delay(1800), Duration::from_secs(22_500));
     }

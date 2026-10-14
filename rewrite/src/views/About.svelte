@@ -3,6 +3,7 @@
   import { app } from "../lib/app.svelte";
   import { call } from "../lib/api";
   import { updateStatusLabel } from "../lib/updates";
+  import UpdateAction from "../components/UpdateAction.svelte";
   import ThirdPartyNotices from "../components/ThirdPartyNotices.svelte";
   import LegalLinks from "../components/LegalLinks.svelte";
   import TermsText from "../components/TermsText.svelte";
@@ -10,6 +11,13 @@
   import { TERMS_VERSION } from "../lib/terms";
   let diagnostics = $state("");
   let { ontour }: { ontour?: () => void } = $props();
+  // Explains a disabled Restart to update beside Check now.
+  const updateReason = $derived(
+    app.snapshot.update.status.state === "ready" &&
+      !app.snapshot.update.installing
+      ? app.updateRestartBlockedReason
+      : null,
+  );
 </script>
 
 <header class="page-heading">
@@ -34,20 +42,32 @@
     </div>
   </dl>
   <div class="update-check">
-    <button
-      class="text-action"
-      disabled={!app.native ||
-        app.busy("update-check") ||
-        app.snapshot.update.installing ||
-        app.snapshot.update.status.state === "checking" ||
-        app.snapshot.update.status.state === "downloading"}
-      onclick={() => app.checkForUpdates()}>Check now</button
-    >
+    <div class="update-actions">
+      <button
+        class="text-action"
+        disabled={!app.native ||
+          app.busy("update-check") ||
+          app.snapshot.update.installing ||
+          app.snapshot.update.status.state === "checking" ||
+          app.snapshot.update.status.state === "downloading"}
+        onclick={() => app.checkForUpdates()}>Check now</button
+      >
+      <UpdateAction
+        describedby={updateReason ? "about-update-reason" : undefined}
+      />
+    </div>
     <p class="field-help" role="status" data-text-surface="flat">
       {app.snapshot.update.installing
         ? "Restarting to update…"
         : updateStatusLabel(app.snapshot.update.status)}
     </p>
+    {#if updateReason}<p
+        id="about-update-reason"
+        class="field-help"
+        data-text-surface="flat"
+      >
+        {updateReason}
+      </p>{/if}
   </div>
   <h3 class="spaced" data-text-surface="emboss">Where recognition runs</h3>
   <p class="body-copy" data-text-surface="flat">
@@ -113,3 +133,15 @@
   <LegalLinks />
   <ThirdPartyNotices />
 </Card>
+
+<style>
+  .update-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+  .update-check .field-help {
+    margin: var(--space-1) 0 0;
+  }
+</style>

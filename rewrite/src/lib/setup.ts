@@ -129,7 +129,7 @@ export function setupHelp(
       return "Local AI helps with punctuation and sentence boundaries. Loads during dictation.";
     if (state === "loading")
       return "Preparing enhanced cleanup. Local formatting remains available.";
-    return "Formatting and vocabulary work without enhanced cleanup. A graphics card is optional.";
+    return "SonoJot Punctuation and your vocabulary work without a text model. A graphics card is optional.";
   }
   return "This capability is unavailable on this computer.";
 }

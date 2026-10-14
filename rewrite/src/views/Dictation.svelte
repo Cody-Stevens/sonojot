@@ -187,7 +187,7 @@
       <p class="field-help" data-text-surface="flat">
         Shape by type works in Format only and Clean with a ready local text
         model selected for Cleanup or Notes. It checks Cleanup first, then
-        Notes. Local rules, online models and Smart cleanup alone cannot provide
+        Notes. SonoJot Punctuation, online models and Smart cleanup alone cannot provide
         it. Short dictations stay unchanged.
       </p>
       <div class="section-toolbar">

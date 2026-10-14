@@ -1,7 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { app } from "../lib/app.svelte";
-  import { updateButtonLabel, updateTooltip } from "../lib/updates";
+  import {
+    updateActionDisabled,
+    updateButtonLabel,
+    updateTooltip,
+  } from "../lib/updates";
   import type { UpdateStatus } from "../lib/protocol";
 
   // The setup tour pictures the button in its "available" state.
@@ -18,13 +22,9 @@
   const description = $derived(updateTooltip(status, installing, reason));
   const disabled = $derived(
     preview ||
-      !app.native ||
-      installing ||
-      status.state === "checking" ||
-      status.state === "downloading" ||
-      app.busy("update-download") ||
-      app.busy("update-check") ||
-      (status.state === "ready" && !!reason),
+      updateActionDisabled(status, installing, reason, app.native, (key) =>
+        app.busy(key),
+      ),
   );
   const progress = $derived(
     status.state === "downloading" ? status.percent : 100,

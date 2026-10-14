@@ -54,8 +54,89 @@ export const aiModelSchema = z.object({
   completionPrice: z.string().nullable(),
   description: z.string().nullable().default(null),
   inputModalities: z.array(z.string()).default([]),
+  /** Curated OpenRouter reasoning effort for a recommended model. */
+  reasoningEffort: z.string().nullable().optional(),
 });
 export type AiModel = z.infer<typeof aiModelSchema>;
+
+const effortNames: Record<string, string> = {
+  max: "Maximum",
+  xhigh: "Extra-high",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  minimal: "Minimal",
+};
+/** Short row note for a curated effort, e.g. "High reasoning". */
+export function effortLabel(effort: string | null | undefined): string {
+  if (!effort || effort === "none") return "";
+  return `${effortNames[effort] ?? effort} reasoning`;
+}
+
+export function roleLabel(role: AiQuickModel["role"]): string {
+  return role === "speech" ? "Meeting transcription" : "Text and notes";
+}
+
+/** Plain list of roles, e.g. "Text and notes, meeting transcription". */
+export function rolesLabel(roles: readonly AiQuickModel["role"][]): string {
+  const text = roles.map((role, index) =>
+    index === 0 ? roleLabel(role) : roleLabel(role).toLocaleLowerCase(),
+  );
+  return text.join(", ");
+}
+
+export interface CatalogRow {
+  item: AiModel;
+  roles: AiQuickModel["role"][];
+}
+/** One row per model; a speech-capable text model lists both roles. */
+export function catalogRows(
+  items: readonly AiModel[],
+  query: string,
+): CatalogRow[] {
+  return items
+    .map((item) => ({ item, roles: modelRoles(item) }))
+    .filter(
+      ({ item, roles }) =>
+        roles.length > 0 &&
+        (!query ||
+          `${item.name} ${item.id} ${roles.join(" ")} ${roles.map(roleLabel).join(" ")} ${item.inputModalities.join(" ")}`
+            .toLocaleLowerCase()
+            .includes(query)),
+    );
+}
+
+/** Group the saved per-role list into one entry per model, in list order. */
+export function groupQuickModels(
+  entries: readonly AiQuickModel[],
+): { id: string; roles: AiQuickModel["role"][] }[] {
+  const groups = new Map<string, AiQuickModel["role"][]>();
+  for (const entry of entries)
+    groups.set(entry.id, [...(groups.get(entry.id) ?? []), entry.role]);
+  return [...groups].map(([id, roles]) => ({
+    id,
+    roles: (["text", "speech"] as const).filter((role) => roles.includes(role)),
+  }));
+}
+
+/** Settings patch that removes a model from every role it holds. */
+export function quickModelGroupRemoval(
+  settings: AiSettings,
+  id: string,
+): AiSettingsPatch {
+  const roles = settings.quickModels
+    .filter((entry) => entry.id === id)
+    .map((entry) => entry.role);
+  return {
+    quickModels: settings.quickModels.filter((entry) => entry.id !== id),
+    ...(roles.includes("text") && settings.model === id
+      ? { backend: "local" as const }
+      : {}),
+    ...(roles.includes("speech") && settings.speechModel === id
+      ? { speechModel: "" }
+      : {}),
+  };
+}
 export const vocabularySuggestionSchema = z.object({
   heard: z.string(),
   written: z.string(),

@@ -204,6 +204,7 @@ export async function installDesktopFixture(page, options = {}) {
         status: { state: "idle" },
         restartBlockedReason: null,
         installing: false,
+        noticeDismissed: false,
         ...options.update,
       },
     };
@@ -511,7 +512,7 @@ export async function installDesktopFixture(page, options = {}) {
         },
         {
           id: "local-rules",
-          name: "Formatting and vocabulary",
+          name: "SonoJot Punctuation with your vocabulary",
           kind: "cleanup",
           roles: ["cleanup"],
           family: "Rules",
@@ -995,6 +996,10 @@ export async function installDesktopFixture(page, options = {}) {
               return clone(state);
             if (state.update.status.state !== "available") throw new Error("Check for updates before downloading.");
             state.update.status = { state: "downloading", percent: null };
+            emit();
+            return clone(state);
+          case "dismiss_update_notice":
+            state.update.noticeDismissed = true;
             emit();
             return clone(state);
           case "restart_to_update":

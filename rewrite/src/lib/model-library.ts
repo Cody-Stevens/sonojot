@@ -126,7 +126,7 @@ export function checking(model: ModelEntry): boolean {
   return model.state === "checking";
 }
 export function deviceLabel(model: ModelEntry): string {
-  if (model.id === "local-rules") return "CPU · no AI model";
+  if (model.id === "local-rules") return "CPU";
   if (/metal/i.test(model.backend))
     return model.kind === "asr"
       ? "Apple GPU · Metal"
@@ -223,4 +223,117 @@ export function removalBlock(
     return "Model in use";
   if (installing(model)) return "Installation in progress";
   return null;
+}
+
+type RoleSetting = "asrModel" | "cleanupModel" | "notesModel";
+export type RemovalSelection = Record<RoleSetting | "meetingAsrModel", string>;
+export interface RemovalSwitch {
+  setting: RoleSetting | "meetingAsrModel";
+  /** Settings value saved before the files are deleted. */
+  to: string;
+  /** Plain sentence for the confirmation; empty when nothing visible changes. */
+  sentence: string;
+}
+export interface RemovalPlan {
+  switches: RemovalSwitch[];
+  /** One-line reason removal cannot go ahead right now. */
+  blocked: string | null;
+}
+
+/**
+ * Removing a selected model first moves each role that uses it to the
+ * recommended replacement, after an explicit confirmation. Roles without an
+ * installed replacement block removal with a visible reason instead.
+ */
+export function removalPlan(
+  model: ModelEntry,
+  context: {
+    selection: RemovalSelection;
+    models: ModelEntry[];
+    /** Notes currently go to OpenRouter, so the local Notes model is idle. */
+    remoteNotes: boolean;
+    recommended?: Partial<Record<RoleSetting, string>>;
+    nameOf: (id: string) => string;
+  },
+): RemovalPlan {
+  if (checking(model)) return { switches: [], blocked: "Checking…" };
+  if (["loading", "busy", "unloading"].includes(model.state))
+    return {
+      switches: [],
+      blocked: "Running now. Remove it after dictation or notes finish.",
+    };
+  if (installing(model))
+    return { switches: [], blocked: "Installation in progress." };
+  const { selection, models, recommended, nameOf } = context;
+  const used = (setting: keyof RemovalSelection, role: string) =>
+    selection[setting] === model.id || model.usedBy.includes(role);
+  const replacement = (setting: RoleSetting, role: ModelRole) => {
+    const usable = (entry: ModelEntry | undefined): entry is ModelEntry =>
+      !!entry &&
+      entry.id !== model.id &&
+      entry.id !== "speakoflow-mini-q4_k_m" &&
+      entry.id !== "openrouter" &&
+      (role !== "notes" || entry.id !== "local-rules") &&
+      selectable(entry, role);
+    const preferred = models.find((entry) => entry.id === recommended?.[setting]);
+    return usable(preferred) ? preferred : models.find(usable);
+  };
+  const switches: RemovalSwitch[] = [];
+  if (used("asrModel", "asr")) {
+    const next = replacement("asrModel", "asr");
+    if (!next)
+      return {
+        switches: [],
+        blocked: "Speech uses this model. Install another speech model first.",
+      };
+    switches.push({
+      setting: "asrModel",
+      to: next.id,
+      sentence: `Speech will switch to ${nameOf(next.id)}.`,
+    });
+  }
+  if (used("cleanupModel", "cleanup"))
+    switches.push({
+      setting: "cleanupModel",
+      to: "local-rules",
+      sentence: `Cleanup will switch to ${nameOf("local-rules")}.`,
+    });
+  if (used("notesModel", "notes")) {
+    const next = replacement("notesModel", "notes");
+    // Notes run on OpenRouter, so only the saved local fallback changes.
+    if (context.remoteNotes)
+      switches.push({
+        setting: "notesModel",
+        to: next?.id ?? "openrouter",
+        sentence: "",
+      });
+    else {
+      if (!next)
+        return {
+          switches: [],
+          blocked:
+            "Notes uses this model. Install another text model or choose an OpenRouter model first.",
+        };
+      switches.push({
+        setting: "notesModel",
+        to: next.id,
+        sentence: `Notes will switch to ${nameOf(next.id)}.`,
+      });
+    }
+  }
+  if (used("meetingAsrModel", "meetingSpeech"))
+    switches.push({
+      setting: "meetingAsrModel",
+      to: "",
+      sentence: "Meeting transcription will use your Speech model.",
+    });
+  return { switches, blocked: null };
+}
+
+/** Confirmation detail for a removal plan. */
+export function removalDetail(plan: RemovalPlan): string {
+  const changes = plan.switches.map((item) => item.sentence).filter(Boolean);
+  return changes.length
+    ? [...changes, "Its downloaded model files will be deleted."].join(" ")
+    : "Delete its downloaded model files.";
 }

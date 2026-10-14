@@ -1296,11 +1296,11 @@ pub fn model_catalog(root: &std::path::Path) -> Vec<Model> {
     }
     models.push(Model {
         id: "local-rules".into(),
-        name: "Formatting and vocabulary".into(),
+        name: "SonoJot Punctuation with your vocabulary".into(),
         kind: ModelKind::Cleanup,
         ready: true,
         state: "installed".into(),
-        description: "Immediate local rules; no language model".into(),
+        description: "Rules, your vocabulary and the SonoJot punctuation model; CPU".into(),
         size_bytes: 0,
         installable: false,
         removable: false,

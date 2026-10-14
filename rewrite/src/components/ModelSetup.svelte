@@ -13,6 +13,7 @@
   import {
     PUNCTUATION_MODEL,
     PUNCTUATION_UPGRADE_REASON,
+    modelDisplayName,
     profileIncludesPunctuation,
     punctuationRecommendation,
   } from "../lib/punctuation";
@@ -48,10 +49,12 @@
     installing,
     modelRoles,
     modelUnavailableReason,
-    removalBlock,
+    removalDetail,
+    removalPlan,
     selectable,
     type ModelEntry,
     type ModelRole,
+    type RemovalPlan,
   } from "../lib/model-library";
 
   let {
@@ -449,32 +452,54 @@
       pending = "";
     }
   }
+  /** Replacements come from the saved profile's recommendation, else Balanced. */
+  function removal(model: ModelEntry): RemovalPlan {
+    const saved = app.snapshot.settings.setupProfile;
+    return removalPlan(model, {
+      selection: app.snapshot.settings,
+      models,
+      remoteNotes: !!remoteNotes,
+      recommended:
+        profiles.hardware?.recommendations[
+          saved && saved !== "custom" ? saved : "balanced"
+        ],
+      nameOf: (id) => {
+        const entry = models.find((item) => item.id === id);
+        return entry ? modelDisplayName(entry, models) : id;
+      },
+    });
+  }
+  const samePlan = (a: RemovalPlan, b: RemovalPlan) =>
+    a.blocked === b.blocked &&
+    JSON.stringify(a.switches) === JSON.stringify(b.switches);
   async function remove(model: ModelEntry): Promise<void> {
+    const plan = removal(model);
     if (
       locked ||
       installRunning ||
       !model.removable ||
       !installed(model) ||
-      removalBlock(model, selectedIds)
+      plan.blocked
     )
       return;
     if (
       !(await app.confirm(
         `Remove ${model.name}?`,
-        "Delete its downloaded model files.",
+        removalDetail(plan),
         "Remove",
         true,
       ))
     )
       return;
-    // Capture or a selection in another window may have started while confirming.
+    // Capture or a selection in another window may have started while
+    // confirming. Only the confirmed switches may be saved.
     const current = models.find((item) => item.id === model.id);
     if (
       locked ||
       installRunning ||
       !current?.removable ||
       !installed(current) ||
-      removalBlock(current, selectedIds)
+      !samePlan(plan, removal(current))
     )
       return;
     pending = model.id;
@@ -482,6 +507,24 @@
       await app.perform("model-remove", async () => {
         if (model.id === PUNCTUATION_MODEL && !(await acknowledgePunctuation()))
           return;
+        if (plan.switches.length) {
+          const patch = Object.fromEntries(
+            plan.switches.map((item) => [item.setting, item.to]),
+          );
+          await app.saveSettings({
+            ...patch,
+            ...(app.snapshot.settings.setupProfile !== null
+              ? { setupProfile: "custom" as const }
+              : {}),
+          });
+          if (
+            app.error ||
+            plan.switches.some(
+              (item) => app.snapshot.settings[item.setting] !== item.to,
+            )
+          )
+            return;
+        }
         library.apply(
           await call("remove_model", { id: model.id, confirmed: true }),
         );
@@ -700,7 +743,14 @@
       <ModelLibrary
         {models}
         {selectedIds}
+        remoteNotes={!!remoteNotes}
         locked={locked || installRunning}
+        lockedReason={active
+          ? "Remove is available after dictation, meetings and model work finish."
+          : installRunning
+            ? "Remove is available after the current download finishes."
+            : ""}
+        {removal}
         {installDisabled}
         oninstall={install}
         onremove={remove}

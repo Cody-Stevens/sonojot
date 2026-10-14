@@ -110,7 +110,7 @@ test("library removal is independent, protects selected models and rechecks afte
   const before = await settings(page);
   await expect(
     library.getByRole("button", { name: "Remove LFM 2.5", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await library.getByRole("searchbox").fill("Mock Cleanup 2B (CPU)");
   const remove = library.getByRole("button", {
     name: "Remove Mock Cleanup 2B (CPU)",
@@ -154,7 +154,9 @@ test("library removal is independent, protects selected models and rechecks afte
     .getByRole("dialog")
     .getByRole("button", { name: "Remove", exact: true })
     .click();
-  await expect(remove).toBeDisabled();
+  // The plan changed while confirming, so nothing is switched or deleted.
+  await expect(remove).toBeEnabled();
+  expect((await settings(page)).notesModel).toBe("mock-cleanup-2b-cpu");
   expect(
     await page.evaluate(() =>
       window.__testCalls.filter((call) => call.command === "remove_model"),
@@ -202,7 +204,7 @@ test("keyboard browsing, unavailable models and failed saves preserve current se
       return invoke(command, args);
     };
   });
-  const installed = await openPicker(page, "Cleanup", "Formatting");
+  const installed = await openPicker(page, "Cleanup", "with your vocabulary");
   await installed.getByRole("searchbox").press("Tab");
   await expect(installed.getByRole("option")).toBeFocused();
   await page.keyboard.press("Enter");

@@ -10,22 +10,31 @@
     memoryRange,
     modelRoles,
     modelUnavailableReason,
-    removalBlock,
     shortDeviceLabel,
     type ModelEntry,
+    type RemovalPlan,
   } from "../lib/model-library";
+  import { modelDisplayName } from "../lib/punctuation";
   let {
     models,
     selectedIds,
+    remoteNotes = false,
     locked,
+    lockedReason = "",
     installDisabled,
+    removal,
     oninstall,
     onremove,
   }: {
     models: ModelEntry[];
     selectedIds: string[];
+    /** Notes go to OpenRouter, so the saved local Notes model is not in use. */
+    remoteNotes?: boolean;
     locked: boolean;
+    /** Shown under installed rows while every Remove is paused. */
+    lockedReason?: string;
     installDisabled: boolean;
+    removal: (model: ModelEntry) => RemovalPlan;
     oninstall: (model: ModelEntry) => Promise<void>;
     onremove: (model: ModelEntry) => Promise<void>;
   } = $props();
@@ -42,7 +51,7 @@
           ? installed(model) || checking(model)
           : !model.deprecated && !installed(model) && !checking(model)) &&
         (filter === "all" || model.roles.includes(filter)) &&
-        `${model.name} ${shortDeviceLabel(model)} ${model.languages.join(" ")}`
+        `${modelDisplayName(model, models)} ${shortDeviceLabel(model)} ${model.languages.join(" ")}`
           .toLowerCase()
           .includes(query.toLowerCase()),
     ),
@@ -68,7 +77,8 @@
     const selected: string[] = modelRoles
       .filter(
         (role, index) =>
-          selectedIds[index] === model.id || model.usedBy.includes(role.id),
+          (role.id !== "notes" || !remoteNotes) &&
+          (selectedIds[index] === model.id || model.usedBy.includes(role.id)),
       )
       .map((role) => role.title);
     if (
@@ -139,11 +149,22 @@
     aria-labelledby={`${uid}-${tab}`}
     tabindex="0"
   >
+    {#if locked && lockedReason && tab === "installed"}<p
+        class="meta paused"
+        data-text-surface="flat"
+        role="status"
+      >
+        {lockedReason}
+      </p>{/if}
     {#each rows as model (model.id)}
-      {@const reason = removalBlock(model, selectedIds)}
+      {@const plan =
+        installed(model) && model.removable ? removal(model) : null}
+      {@const reason = plan?.blocked ?? ""}
       <div class="entry" data-model-id={model.id}>
         <div class="copy">
-          <span>{model.name}</span><span class="meta" data-text-surface="flat"
+          <span>{modelDisplayName(model, models)}</span><span
+            class="meta"
+            data-text-surface="flat"
             >{model.roles.includes("meetingSpeech")
               ? "meetings · "
               : ""}{shortDeviceLabel(model)} · {model.diskBytes
@@ -162,6 +183,11 @@
           {#if modelUnavailableReason(model)}<span
               class="meta"
               data-text-surface="flat">{modelUnavailableReason(model)}</span
+            >{/if}
+          {#if reason}<span
+              class="meta removal-reason"
+              data-text-surface="flat"
+              role="status">{reason}</span
             >{/if}
           {#if model.kind === "punctuation"}
             {#if !installed(model) && model.totalBytes > 0}<span
@@ -186,8 +212,8 @@
         {:else if installed(model)}
           {#if model.removable}<button
               class="button quiet"
-              disabled={locked || !!reason}
-              title={reason ?? `Remove ${model.name}`}
+              disabled={locked || !!plan?.blocked}
+              title={reason || `Remove ${model.name}`}
               aria-label={`Remove ${model.name}`}
               onclick={() => onremove(model)}>Remove</button
             >{:else}<span class="meta" data-text-surface="flat">Included</span
@@ -292,6 +318,12 @@
   }
   .empty {
     margin: 18px 0;
+  }
+  .paused {
+    margin: 9px 0 0;
+  }
+  .removal-reason {
+    margin-top: 9px;
   }
   .pagination {
     display: flex;

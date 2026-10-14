@@ -133,6 +133,7 @@ pub fn run() {
             updater::check_for_updates,
             updater::download_update,
             updater::restart_to_update,
+            updater::dismiss_update_notice,
             commands::get_model_acceleration,
             ai_commands::get_ai_settings,
             ai_commands::save_ai_settings,
@@ -561,6 +562,9 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if window.label() == "main" {
+                if let tauri::WindowEvent::Focused(true) = event {
+                    updater::window_focused(window.app_handle());
+                }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let window = window.clone();

@@ -353,7 +353,7 @@ pub fn inspect(runtime: &Runtime) -> Result<SetupStatus, String> {
             Status::Checking => capability(SetupState::Checking, "Checking local text model files."),
             Status::Missing => capability(
                 SetupState::Missing,
-                "Optional. Formatting and vocabulary remain available.",
+                "Optional. SonoJot Punctuation and your vocabulary remain available.",
             ),
         },
         media_import: if converter_available(runtime) {

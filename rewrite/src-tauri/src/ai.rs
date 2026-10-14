@@ -147,6 +147,8 @@ pub struct AiModel {
     pub completion_price: Option<String>,
     /// Short curator note from the recommendations document, if any.
     pub description: Option<String>,
+    /// Curated OpenRouter reasoning effort for a recommended model.
+    pub reasoning_effort: Option<String>,
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1014,6 +1016,7 @@ pub(crate) fn parse_models(value: serde_json::Value) -> Result<Vec<AiModel>, Str
             prompt_price: price("/pricing/prompt"),
             completion_price: price("/pricing/completion"),
             description: None,
+            reasoning_effort: None,
         });
     }
     models.sort_by(|a, b| {
@@ -1029,11 +1032,28 @@ pub(crate) fn parse_models(value: serde_json::Value) -> Result<Vec<AiModel>, Str
 struct RecommendedModel {
     id: String,
     description: Option<String>,
+    /// OpenRouter `reasoning.effort` chosen for this model, if any.
+    effort: Option<String>,
 }
 
-/// The website document is data only: model identifiers and optional short
-/// curator notes. Entries that look like URLs, markup or instructions are
-/// rejected, so a malformed document cannot influence requests or the UI.
+/// Effort names OpenRouter's unified `reasoning` parameter accepts, highest
+/// first. Anything else in the recommendations document is ignored.
+const REASONING_EFFORTS: [&str; 7] = ["max", "xhigh", "high", "medium", "low", "minimal", "none"];
+
+/// The optional `reasoning: {"effort": …}` object on a recommendation. It is
+/// an addition to version 1: 0.27/0.28 read only `id` and `description` and
+/// ignore it. An unknown effort drops the hint, never the model.
+fn recommended_effort(item: &serde_json::Value) -> Option<String> {
+    item.pointer("/reasoning/effort")
+        .and_then(serde_json::Value::as_str)
+        .filter(|effort| REASONING_EFFORTS.contains(effort))
+        .map(str::to_owned)
+}
+
+/// The website document is data only: model identifiers, optional short
+/// curator notes and an optional reasoning effort from a fixed list. Entries
+/// that look like URLs, markup or instructions are rejected, so a malformed
+/// document cannot influence requests or the UI beyond those known values.
 fn parse_recommendations(value: &serde_json::Value) -> Result<Vec<RecommendedModel>, String> {
     if value.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
         return Err("unsupported recommendations version".into());
@@ -1071,6 +1091,7 @@ fn parse_recommendations(value: &serde_json::Value) -> Result<Vec<RecommendedMod
         result.push(RecommendedModel {
             id: id.into(),
             description,
+            effort: recommended_effort(item),
         });
     }
     if result.is_empty() {
@@ -1090,43 +1111,23 @@ fn bundled_recommendations() -> Vec<RecommendedModel> {
     .unwrap_or_default()
 }
 
-/// Combined USD-per-token list price. Unknown or partial prices sort last.
-fn price_total(model: &AiModel) -> Option<f64> {
-    let parse = |price: &Option<String>| {
-        price
-            .as_deref()?
-            .parse::<f64>()
-            .ok()
-            .filter(|n| n.is_finite() && *n >= 0.0)
-    };
-    Some(parse(&model.prompt_price)? + parse(&model.completion_price)?)
-}
-
 /// The offerable list is the curated document intersected with the live
-/// catalog, least expensive first. Curated models missing from the live
-/// catalog are never offered, and catalog models outside the list are not
-/// shown.
+/// catalog, in the document's order (the curator's ranking). Curated models
+/// missing from the live catalog are never offered, and catalog models outside
+/// the list are not shown.
 fn curated_models(catalog: Vec<AiModel>, curated: Vec<RecommendedModel>) -> Vec<AiModel> {
     let mut by_id: HashMap<String, AiModel> =
         catalog.into_iter().map(|model| (model.id.clone(), model)).collect();
-    let mut models: Vec<AiModel> = curated
+    curated
         .iter()
         .filter_map(|entry| {
             by_id.remove(&entry.id).map(|mut model| {
                 model.description = entry.description.clone();
+                model.reasoning_effort = entry.effort.clone();
                 model
             })
         })
-        .collect();
-    models.sort_by(|a, b| {
-        price_total(a)
-            .unwrap_or(f64::MAX)
-            .partial_cmp(&price_total(b).unwrap_or(f64::MAX))
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-            .then_with(|| a.id.cmp(&b.id))
-    });
-    models
+        .collect()
 }
 
 /// Reasoning metadata advertised by the public model catalog. A model that
@@ -1138,6 +1139,8 @@ pub(crate) struct ModelReasoning {
     pub default_enabled: bool,
     pub default_effort: Option<String>,
     pub supported_efforts: Vec<String>,
+    /// The top provider's output limit, which bounds the shared budget.
+    pub max_completion_tokens: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1150,6 +1153,10 @@ struct PolicyCache {
     fetched_at: i64,
     #[serde(default)]
     models: HashMap<String, ModelReasoning>,
+    /// Curated efforts from the last recommendations read, by model id. None
+    /// until a list has been read; the bundled list stands in until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recommended_efforts: Option<HashMap<String, String>>,
 }
 
 const POLICY_REFRESH_SECS: i64 = 6 * 3600;
@@ -1200,6 +1207,11 @@ fn parse_reasoning(item: &serde_json::Value) -> Option<ModelReasoning> {
             .unwrap_or(false),
         default_effort,
         supported_efforts: efforts,
+        max_completion_tokens: item
+            .pointer("/top_provider/max_completion_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .filter(|tokens| *tokens > 0)
+            .map(|tokens| tokens.min(u64::from(u32::MAX)) as u32),
     })
 }
 
@@ -1227,14 +1239,155 @@ fn catalog_reasoning(catalog: &serde_json::Value) -> HashMap<String, ModelReason
 /// metadata, never user text or credentials, so a missing or corrupt cache
 /// just means no negotiation.
 pub(crate) fn cache_model_policy(store: &Store, catalog: &serde_json::Value) {
+    let recommended_efforts = load_policy(store).and_then(|cache| cache.recommended_efforts);
+    write_policy(store, catalog, recommended_efforts);
+}
+
+fn write_policy(
+    store: &Store,
+    catalog: &serde_json::Value,
+    recommended_efforts: Option<HashMap<String, String>>,
+) {
     let _ = store.write(
         &store.root().join(POLICY_FILE),
         &PolicyCache {
             version: 1,
             fetched_at: now_unix(),
             models: catalog_reasoning(catalog),
+            recommended_efforts,
         },
     );
+}
+
+fn effort_map(curated: &[RecommendedModel]) -> HashMap<String, String> {
+    curated
+        .iter()
+        .filter_map(|entry| Some((entry.id.clone(), entry.effort.clone()?)))
+        .collect()
+}
+
+/// The curated effort for a model: the last recommendations read, else the
+/// bundled copy. Models outside the list keep catalog negotiation.
+fn curated_effort(store: &Store, model: &str) -> Option<String> {
+    match load_policy(store).and_then(|cache| cache.recommended_efforts) {
+        Some(efforts) => efforts.get(model).cloned(),
+        None => effort_map(&bundled_recommendations()).remove(model),
+    }
+}
+
+/// Approximate share of `max_tokens` OpenRouter gives reasoning per effort
+/// (documented for Anthropic budgets; other providers think within the same
+/// total). Unknown names count as the largest share.
+fn effort_share(effort: &str) -> f64 {
+    match effort {
+        "none" => 0.0,
+        "minimal" => 0.1,
+        "low" => 0.2,
+        "medium" => 0.5,
+        "high" => 0.8,
+        _ => 0.95,
+    }
+}
+
+/// Shared output limit when no provider limit is published.
+const REASONING_BUDGET_FALLBACK_CAP: u32 = 32_768;
+/// OpenRouter caps reasoning budgets at 128k tokens.
+const REASONING_BUDGET_CAP: u32 = 128_000;
+
+/// A curated effort the model accepts: the same effort when the catalog lists
+/// it (or lists nothing), otherwise the nearest listed one, preferring the
+/// lower of two equally near. `none` is never sent to a model that requires
+/// reasoning.
+fn accepted_effort(effort: &str, reasoning: Option<&ModelReasoning>) -> Option<String> {
+    let rank = |name: &str| REASONING_EFFORTS.iter().position(|e| *e == name);
+    let wanted = rank(effort)?;
+    let Some(reasoning) = reasoning else {
+        // The catalog does not describe reasoning for this model; sending an
+        // effort could be rejected, so leave the request unchanged.
+        return None;
+    };
+    let listed: Vec<usize> = reasoning
+        .supported_efforts
+        .iter()
+        .filter_map(|e| rank(e))
+        .filter(|r| !(reasoning.mandatory && REASONING_EFFORTS[*r] == "none"))
+        .collect();
+    if reasoning.supported_efforts.is_empty() {
+        return (!(reasoning.mandatory && effort == "none")).then(|| effort.to_owned());
+    }
+    listed
+        .iter()
+        .copied()
+        .min_by_key(|r| (r.abs_diff(wanted), std::cmp::Reverse(*r)))
+        .map(|r| REASONING_EFFORTS[r].to_owned())
+}
+
+/// The `max_tokens` and `reasoning.effort` a text request sends. A curated
+/// effort keeps the caller's visible-output allowance after the documented
+/// reasoning share; other models keep the low catalog-negotiated effort.
+fn request_reasoning(
+    curated: Option<&str>,
+    reasoning: Option<&ModelReasoning>,
+    max_tokens: u32,
+) -> (u32, Option<String>) {
+    if let Some(effort) = curated.and_then(|effort| accepted_effort(effort, reasoning)) {
+        let share = effort_share(&effort);
+        let cap = reasoning
+            .and_then(|r| r.max_completion_tokens)
+            .unwrap_or(REASONING_BUDGET_FALLBACK_CAP)
+            .min(REASONING_BUDGET_CAP)
+            .max(max_tokens);
+        let wanted = (f64::from(max_tokens) / (1.0 - share).max(0.05)).ceil() as u32;
+        let budget = if effort == "none" {
+            max_tokens
+        } else {
+            wanted.max(REASONING_SHARED_BUDGET).min(cap)
+        };
+        return (budget, Some(effort));
+    }
+    let thinking = reasoning.filter(|r| r.mandatory || r.default_enabled);
+    let budget = if thinking.is_some() {
+        max_tokens.max(REASONING_SHARED_BUDGET)
+    } else {
+        max_tokens
+    };
+    (budget, thinking.and_then(negotiate_effort))
+}
+
+/// Chat completion body for a text request. Every call asks OpenRouter to
+/// use only providers that do not collect data.
+fn text_request_body(
+    model: &str,
+    system: &str,
+    prompt: &str,
+    budget: u32,
+    effort: Option<String>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": [{"role":"system","content":system},{"role":"user","content":prompt}],
+        "max_tokens": budget,
+        "stream": false,
+        "provider": {"data_collection":"deny"}
+    });
+    if let Some(effort) = effort {
+        body["reasoning"] = serde_json::json!({"effort": effort});
+    }
+    body
+}
+
+fn text_request(
+    store: &Store,
+    model: &str,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+    cancel: &AtomicBool,
+) -> serde_json::Value {
+    let reasoning = model_reasoning_fresh(store, model, cancel);
+    let curated = curated_effort(store, model);
+    let (budget, effort) = request_reasoning(curated.as_deref(), reasoning.as_ref(), max_tokens);
+    text_request_body(model, system, prompt, budget, effort)
 }
 
 /// Lowest advertised effort first keeps shared-budget thinking small. Efforts
@@ -1290,6 +1443,7 @@ fn refresh_model_policy(store: &Store, cancel: &AtomicBool) {
         version: 1,
         fetched_at: 0,
         models: HashMap::new(),
+        recommended_efforts: None,
     });
     if let Ok(catalog) = fetched {
         cache.models = catalog_reasoning(&catalog);
@@ -1331,7 +1485,7 @@ pub fn list_models(store: &Store, cancel: &AtomicBool) -> Result<Vec<AiModel>, S
         )
         .await
     })?;
-    cache_model_policy(store, &value);
+    write_policy(store, &value, Some(effort_map(&curated)));
     Ok(curated_models(parse_models(value)?, curated))
 }
 
@@ -1518,27 +1672,12 @@ pub fn generate_with_snapshot(
         let _guard = store.lock()?;
         load_key_unlocked(store)?
     };
-    // Catalog-described reasoning shares the output budget. Request the lowest
-    // advertised effort under a bounded shared total instead of letting default
-    // thinking silently consume the text budget. The catalog lookup is advisory
-    // and must never fail an otherwise working request.
-    let reasoning = model_reasoning_fresh(store, &snapshot.cloud_model, cancel)
-        .filter(|reasoning| reasoning.mandatory || reasoning.default_enabled);
-    let budget = if reasoning.is_some() {
-        max_tokens.max(REASONING_SHARED_BUDGET)
-    } else {
-        max_tokens
-    };
-    let mut body = serde_json::json!({
-        "model": snapshot.cloud_model,
-        "messages": [{"role":"system","content":system},{"role":"user","content":prompt}],
-        "max_tokens": budget,
-        "stream": false,
-        "provider": {"data_collection":"deny"}
-    });
-    if let Some(effort) = reasoning.as_ref().and_then(negotiate_effort) {
-        body["reasoning"] = serde_json::json!({"effort": effort});
-    }
+    // Catalog-described reasoning shares the output budget. Recommended models
+    // use their curated effort with room for it; other models request the
+    // lowest advertised effort under a bounded shared total instead of letting
+    // default thinking silently consume the text budget. The catalog lookup is
+    // advisory and must never fail an otherwise working request.
+    let body = text_request(store, &snapshot.cloud_model, system, prompt, max_tokens, cancel);
     let value = network(cancel, async {
         request_json(
             attribution(client(Duration::from_secs(120))?.post(COMPLETIONS_URL))
@@ -1599,23 +1738,7 @@ pub fn generate_cloud_held(
         let _guard = store.lock()?;
         load_key_unlocked(store)?
     };
-    let reasoning = model_reasoning_fresh(store, &snapshot.cloud_model, cancel)
-        .filter(|reasoning| reasoning.mandatory || reasoning.default_enabled);
-    let budget = if reasoning.is_some() {
-        max_tokens.max(REASONING_SHARED_BUDGET)
-    } else {
-        max_tokens
-    };
-    let mut body = serde_json::json!({
-        "model": snapshot.cloud_model,
-        "messages": [{"role":"system","content":system},{"role":"user","content":prompt}],
-        "max_tokens": budget,
-        "stream": false,
-        "provider": {"data_collection":"deny"}
-    });
-    if let Some(effort) = reasoning.as_ref().and_then(negotiate_effort) {
-        body["reasoning"] = serde_json::json!({"effort": effort});
-    }
+    let body = text_request(store, &snapshot.cloud_model, system, prompt, max_tokens, cancel);
     let value = network(cancel, async {
         request_json(
             attribution(client(Duration::from_secs(120))?.post(COMPLETIONS_URL))
@@ -1828,8 +1951,10 @@ mod tests {
                             default_enabled: true,
                             default_effort: Some("max".into()),
                             supported_efforts: vec!["max".into(), "low".into()],
+                            max_completion_tokens: None,
                         },
                     )]),
+                    recommended_efforts: None,
                 },
             )
             .unwrap();
@@ -1850,6 +1975,7 @@ mod tests {
             default_enabled: true,
             default_effort: default.map(str::to_owned),
             supported_efforts: efforts.iter().map(|e| e.to_string()).collect(),
+            max_completion_tokens: None,
         };
         assert_eq!(
             negotiate_effort(&fixed(&["max", "high"], Some("max"))).as_deref(),
@@ -2022,13 +2148,81 @@ mod tests {
         let bundled = bundled_recommendations();
         assert!(bundled.len() >= 5);
         assert!(bundled.iter().all(|m| valid_model(&m.id)));
-        assert!(bundled
-            .iter()
-            .any(|m| m.id == "anthropic/claude-sonnet-5"));
+        let ids: Vec<_> = bundled.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "z-ai/glm-5.3-flash",
+                "openai/gpt-6-luna",
+                "anthropic/claude-haiku-5.5",
+                "openai/gpt-6.1-sol",
+                "anthropic/claude-sonnet-5.5",
+                "google/gemini-3.8-flash",
+                "x-ai/grok-4.7",
+            ]
+        );
+        let efforts: Vec<_> = bundled.iter().map(|m| m.effort.as_deref()).collect();
+        assert_eq!(
+            efforts,
+            [Some("high"), Some("xhigh"), Some("xhigh"), Some("high"), Some("medium"), Some("high"), Some("high")]
+        );
+        // The bundled copy and the website file must stay identical.
+        assert_eq!(
+            include_str!("../../src/brand/recommendations.json").replace("\r\n", "\n"),
+            website_recommendations().replace("\r\n", "\n")
+        );
+    }
+
+    /// The website copy lives outside `rewrite/`, so tests read it at run time
+    /// instead of embedding it (the notices generator rejects embedded files
+    /// outside `rewrite/`).
+    fn website_recommendations() -> String {
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/public/recommendations.json"))
+            .unwrap()
     }
 
     #[test]
-    fn curated_models_match_live_catalog_cheapest_first() {
+    fn recommendations_keep_version_one_and_optional_reasoning() {
+        // The 0.27/0.28 document shape still parses, with no effort.
+        let old = serde_json::json!({"version":1,"models":[{"id":"a/text"},{"id":"b/text"}]});
+        let parsed = parse_recommendations(&old).unwrap();
+        assert!(parsed.iter().all(|m| m.effort.is_none()));
+        // The new shape adds an optional reasoning object per model.
+        let new = serde_json::json!({"version":1,"models":[
+            {"id":"a/text","reasoning":{"effort":"xhigh"}},
+            {"id":"b/text","reasoning":{"effort":"turbo"}},
+            {"id":"c/text","reasoning":"high"},
+            {"id":"d/text","reasoning":{"effort":"none"}},
+            {"id":"e/text"}
+        ]});
+        let parsed = parse_recommendations(&new).unwrap();
+        assert_eq!(
+            parsed.iter().map(|m| m.effort.as_deref()).collect::<Vec<_>>(),
+            [Some("xhigh"), None, None, Some("none"), None]
+        );
+        // What 0.27/0.28 read from the new document: the same ids, in order.
+        // Their parser is this one without the effort field, which only reads
+        // `version`, `models[].id` and `models[].description` through
+        // serde_json::Value lookups, so extra keys are never an error.
+        let released = |value: &serde_json::Value| -> Vec<String> {
+            value["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|item| item.get("id")?.as_str().map(str::to_owned))
+                .collect()
+        };
+        let website: serde_json::Value =
+            serde_json::from_str(&website_recommendations()).unwrap();
+        assert_eq!(website["version"], 1);
+        assert_eq!(
+            released(&website),
+            parse_recommendations(&website).unwrap().into_iter().map(|m| m.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn curated_models_follow_document_order_and_carry_effort() {
         let model = |id: &str, prompt: Option<&str>, completion: Option<&str>| AiModel {
             input_modalities: vec!["text".into()],
             id: id.into(),
@@ -2037,6 +2231,7 @@ mod tests {
             prompt_price: prompt.map(str::to_owned),
             completion_price: completion.map(str::to_owned),
             description: None,
+            reasoning_effort: None,
         };
         let catalog = vec![
             model("mid/model", Some("0.000002"), Some("0.00001")),
@@ -2045,17 +2240,118 @@ mod tests {
             model("other/model", Some("0"), Some("0")),
         ];
         let curated = vec![
-            RecommendedModel { id: "gone/model".into(), description: None },
-            RecommendedModel { id: "mid/model".into(), description: Some("note".into()) },
-            RecommendedModel { id: "unlisted/model".into(), description: None },
-            RecommendedModel { id: "cheap/model".into(), description: None },
+            RecommendedModel { id: "gone/model".into(), description: None, effort: None },
+            RecommendedModel { id: "mid/model".into(), description: Some("note".into()), effort: Some("high".into()) },
+            RecommendedModel { id: "unlisted/model".into(), description: None, effort: None },
+            RecommendedModel { id: "cheap/model".into(), description: None, effort: None },
         ];
         let result = curated_models(catalog, curated);
         assert_eq!(
             result.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
-            ["cheap/model", "mid/model", "unlisted/model"]
+            ["mid/model", "unlisted/model", "cheap/model"]
         );
-        assert_eq!(result[1].description.as_deref(), Some("note"));
+        assert_eq!(result[0].description.as_deref(), Some("note"));
+        assert_eq!(result[0].reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(serde_json::to_value(&result[0]).unwrap()["reasoningEffort"], "high");
+        assert!(result[1].reasoning_effort.is_none());
+    }
+
+    fn reasoning(efforts: &[&str], mandatory: bool, limit: Option<u32>) -> ModelReasoning {
+        ModelReasoning {
+            mandatory,
+            default_enabled: mandatory,
+            default_effort: Some("medium".into()),
+            supported_efforts: efforts.iter().map(|e| e.to_string()).collect(),
+            max_completion_tokens: limit,
+        }
+    }
+
+    #[test]
+    fn curated_effort_maps_to_listed_efforts() {
+        let all = ["max", "xhigh", "high", "medium", "low"];
+        assert_eq!(accepted_effort("xhigh", Some(&reasoning(&all, true, None))).as_deref(), Some("xhigh"));
+        // Gemini-style lists without xhigh fall to the nearest listed effort.
+        let gemini = ["high", "medium", "low"];
+        assert_eq!(accepted_effort("xhigh", Some(&reasoning(&gemini, true, None))).as_deref(), Some("high"));
+        // Equal distance prefers the lower effort.
+        let gap = ["max", "high", "low"];
+        assert_eq!(accepted_effort("medium", Some(&reasoning(&gap, true, None))).as_deref(), Some("low"));
+        assert_eq!(accepted_effort("high", Some(&reasoning(&gap, true, None))).as_deref(), Some("high"));
+        // `none` is never sent to a model that requires reasoning.
+        assert_eq!(accepted_effort("none", Some(&reasoning(&["none", "low"], true, None))).as_deref(), Some("low"));
+        assert_eq!(accepted_effort("none", Some(&reasoning(&[], true, None))), None);
+        // Without catalog reasoning metadata nothing is sent.
+        assert_eq!(accepted_effort("high", None), None);
+        assert_eq!(accepted_effort("turbo", Some(&reasoning(&all, true, None))), None);
+    }
+
+    #[test]
+    fn request_reasoning_budgets_curated_and_negotiated_efforts() {
+        let all = ["max", "xhigh", "high", "medium", "low"];
+        // Curated xhigh keeps 1024 visible tokens after a 95% reasoning share.
+        let (budget, effort) = request_reasoning(Some("xhigh"), Some(&reasoning(&all, false, Some(128_000))), 1024);
+        assert_eq!(effort.as_deref(), Some("xhigh"));
+        assert_eq!(budget, 20_480);
+        // Small requests still get the shared floor.
+        let (budget, effort) = request_reasoning(Some("high"), Some(&reasoning(&all, true, Some(65_536))), 48);
+        assert_eq!((budget, effort.as_deref()), (REASONING_SHARED_BUDGET, Some("high")));
+        // The provider's output limit caps the budget.
+        let (budget, _) = request_reasoning(Some("xhigh"), Some(&reasoning(&all, true, Some(16_000))), 4096);
+        assert_eq!(budget, 16_000);
+        // Unknown limits use the fallback cap.
+        let (budget, _) = request_reasoning(Some("max"), Some(&reasoning(&all, true, None)), 8192);
+        assert_eq!(budget, REASONING_BUDGET_FALLBACK_CAP);
+        // A model outside the list keeps the low negotiated effort.
+        let (budget, effort) = request_reasoning(None, Some(&reasoning(&all, true, None)), 1024);
+        assert_eq!((budget, effort.as_deref()), (REASONING_SHARED_BUDGET, Some("low")));
+        // Optional reasoning that is off by default stays off without a curated effort.
+        let (budget, effort) = request_reasoning(None, Some(&reasoning(&all, false, None)), 1024);
+        assert_eq!((budget, effort), (1024, None));
+        // No catalog metadata: the request is unchanged even for a curated model.
+        assert_eq!(request_reasoning(Some("high"), None, 1024), (1024, None));
+    }
+
+    #[test]
+    fn text_requests_send_curated_effort_and_deny_data_collection() {
+        let path =
+            std::env::temp_dir().join(format!("sonojot-ai-effort-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(path.clone())).unwrap();
+        let catalog = serde_json::json!({"data":[
+            {"id":"curated/model","reasoning":{"mandatory":false,"supported_efforts":["xhigh","high","low"]},
+             "top_provider":{"max_completion_tokens":128000}},
+            {"id":"manual/model","reasoning":{"mandatory":true,"default_enabled":true,"supported_efforts":["high","low"]}}
+        ]});
+        let curated = parse_recommendations(&serde_json::json!({"version":1,"models":[
+            {"id":"curated/model","reasoning":{"effort":"xhigh"}}
+        ]}))
+        .unwrap();
+        write_policy(&store, &catalog, Some(effort_map(&curated)));
+        let cancel = AtomicBool::new(false);
+        let body = text_request(&store, "curated/model", "system", "prompt", 1024, &cancel);
+        assert_eq!(body["reasoning"], serde_json::json!({"effort":"xhigh"}));
+        assert_eq!(body["max_tokens"], 20_480);
+        assert_eq!(body["provider"]["data_collection"], "deny");
+        // A model the user added from the full catalog keeps negotiation.
+        let body = text_request(&store, "manual/model", "system", "prompt", 1024, &cancel);
+        assert_eq!(body["reasoning"], serde_json::json!({"effort":"low"}));
+        assert_eq!(body["provider"]["data_collection"], "deny");
+        // A later catalog refresh keeps the curated efforts.
+        cache_model_policy(&store, &catalog);
+        assert_eq!(curated_effort(&store, "curated/model").as_deref(), Some("xhigh"));
+        assert_eq!(curated_effort(&store, "manual/model"), None);
+        drop(store);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn curated_effort_falls_back_to_the_bundled_list() {
+        let path =
+            std::env::temp_dir().join(format!("sonojot-ai-bundled-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(path.clone())).unwrap();
+        assert_eq!(curated_effort(&store, "openai/gpt-6-luna").as_deref(), Some("xhigh"));
+        assert_eq!(curated_effort(&store, "unknown/model"), None);
+        drop(store);
+        std::fs::remove_dir_all(path).unwrap();
     }
 
     #[test]

@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { parseResponse, previewSnapshot, updateStatusSchema } from "./protocol";
 import {
   restartBlockedReason,
+  updateAction,
+  updateActionDisabled,
+  updateNoticeMessage,
   updateButtonLabel,
   updateStatusLabel,
   updateTooltip,
@@ -34,6 +37,7 @@ test("update commands preserve backend gate and signed-release metadata", () => 
     status: { state: "ready", version: "0.23.0", notes: "<b>Local notes</b>" },
     restartBlockedReason: "Wait for meeting transcription to finish.",
     installing: false,
+    noticeDismissed: true,
   };
   for (const command of [
     "check_for_updates",
@@ -136,4 +140,150 @@ test("update status copy handles unknown download length without false completio
     }),
     "Could not check for updates.",
   );
+});
+
+test("older snapshots without the notice flag parse as not dismissed", () => {
+  const { noticeDismissed: _, ...update } = previewSnapshot.update;
+  assert.equal(
+    parseResponse("get_snapshot", { ...previewSnapshot, update }).update
+      .noticeDismissed,
+    false,
+  );
+});
+
+const available = {
+  state: "available",
+  version: "0.28.1",
+  notes: null,
+  size: null,
+} as const;
+const readyStatus = { state: "ready", version: "0.28.1", notes: null } as const;
+
+test("About and the notice offer the sidebar's next step in plain words", () => {
+  assert.equal(updateAction({ state: "idle" }, false), null);
+  assert.equal(updateAction({ state: "checking" }, false), null);
+  assert.equal(
+    updateAction(
+      { state: "error", message: "Updates are unavailable." },
+      false,
+    ),
+    null,
+  );
+  assert.deepEqual(updateAction(available, false), {
+    kind: "download",
+    label: "Download update",
+  });
+  assert.equal(
+    updateAction({ state: "downloading", percent: 42 }, false),
+    null,
+  );
+  assert.equal(
+    updateAction({ state: "downloading", percent: null }, false),
+    null,
+  );
+  assert.deepEqual(updateAction(readyStatus, false), {
+    kind: "restart",
+    label: "Restart to update",
+  });
+  assert.deepEqual(updateAction(readyStatus, true), {
+    kind: "restart",
+    label: "Restarting…",
+  });
+});
+
+test("the shared action waits for downloads, restarts, blockers and pending calls", () => {
+  const idle = () => false;
+  assert.equal(updateActionDisabled(available, false, null, true, idle), false);
+  assert.equal(updateActionDisabled(available, false, null, false, idle), true);
+  assert.equal(
+    updateActionDisabled(
+      available,
+      false,
+      null,
+      true,
+      (key) => key === "update-download",
+    ),
+    true,
+  );
+  assert.equal(
+    updateActionDisabled(
+      { state: "downloading", percent: 5 },
+      false,
+      null,
+      true,
+      idle,
+    ),
+    true,
+  );
+  assert.equal(
+    updateActionDisabled(readyStatus, false, null, true, idle),
+    false,
+  );
+  assert.equal(
+    updateActionDisabled(
+      readyStatus,
+      false,
+      "Dictation is in progress.",
+      true,
+      idle,
+    ),
+    true,
+  );
+  assert.equal(
+    updateActionDisabled(
+      readyStatus,
+      false,
+      null,
+      true,
+      (key) => key === "update-install",
+    ),
+    true,
+  );
+  assert.equal(updateActionDisabled(readyStatus, true, null, true, idle), true);
+  // A blocker for restart never blocks downloading.
+  assert.equal(
+    updateActionDisabled(
+      available,
+      false,
+      "Dictation is in progress.",
+      true,
+      idle,
+    ),
+    false,
+  );
+});
+
+test("the main-window notice covers available, downloading and ready until Later", () => {
+  const notice = (
+    status: Parameters<typeof updateNoticeMessage>[0]["status"],
+    patch = {},
+  ) =>
+    updateNoticeMessage({
+      status,
+      installing: false,
+      noticeDismissed: false,
+      ...patch,
+    });
+  assert.equal(notice({ state: "idle" }), null);
+  assert.equal(notice({ state: "checking" }), null);
+  assert.equal(
+    notice({ state: "error", message: "Updates are unavailable." }),
+    null,
+  );
+  assert.equal(notice(available), "SonoJot 0.28.1 is available.");
+  assert.equal(
+    notice({ state: "downloading", percent: 42 }),
+    "Downloading update · 42%",
+  );
+  assert.equal(notice(readyStatus), "SonoJot 0.28.1 is ready.");
+  assert.equal(
+    notice(readyStatus, { installing: true }),
+    "Restarting to update…",
+  );
+  for (const status of [
+    available,
+    readyStatus,
+    { state: "downloading", percent: 1 },
+  ] as const)
+    assert.equal(notice(status, { noticeDismissed: true }), null);
 });

@@ -12,8 +12,8 @@
   import { profiles } from "../lib/setup-profiles.svelte";
   import {
     PUNCTUATION_MODEL,
-    activePunctuation,
     defaultCleanupName,
+    defaultCleanupStatus,
     profileIncludesPunctuation,
   } from "../lib/punctuation";
   import ProfileRecommendation from "./ProfileRecommendation.svelte";
@@ -41,21 +41,10 @@
   const includePunctuation = $derived(
     profileIncludesPunctuation(app.snapshot.settings.setupProfile, selected),
   );
-  const punctuation = $derived(
-    models.find((model) => model.id === PUNCTUATION_MODEL),
-  );
   // Default Cleanup is rules, vocabulary and the punctuation model.
   const cleanupName = $derived(defaultCleanupName(models));
   const cleanupStatus = $derived(
-    punctuation && checking(punctuation)
-      ? "Checking…"
-      : activePunctuation(models)
-        ? "Installed"
-        : !punctuation?.installable
-          ? ""
-          : includePunctuation
-            ? "Download included"
-            : "Not installed",
+    defaultCleanupStatus(models, includePunctuation),
   );
   const missing = $derived(
     selection

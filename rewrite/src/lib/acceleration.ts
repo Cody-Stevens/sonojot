@@ -142,9 +142,9 @@ export function modelAcceleration(
   }
   if (modelId === "local-rules")
     return {
-      label: "CPU · no AI model",
+      label: "CPU",
       gpu: false,
-      detail: "Formatting and vocabulary rules do not need GPU acceleration.",
+      detail: "SonoJot Punctuation and your vocabulary run on the CPU.",
     };
   if (!status)
     return { label: "Checking acceleration…", detail: "", gpu: false };

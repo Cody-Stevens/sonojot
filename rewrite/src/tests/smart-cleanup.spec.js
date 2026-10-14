@@ -108,7 +108,7 @@ test("Custom offers Smart without selecting it and can return to rules", async (
   );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Cleanup model", exact: true }).click();
-  await page.getByRole("option", { name: /Local rules|Formatting and vocabulary/ }).click();
+  await page.getByRole("option", { name: /^SonoJot Punctuation v2 with your vocabulary/ }).click();
   await expect
     .poll(() =>
       page.evaluate(() => window.__testSnapshot().settings.cleanupModel),

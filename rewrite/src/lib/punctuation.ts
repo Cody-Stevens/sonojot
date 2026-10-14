@@ -47,6 +47,30 @@ export function defaultCleanupName(models: ModelEntry[]): string {
   return model ? `${model.name} with your vocabulary` : "Local rules";
 }
 
+/**
+ * Install state of the punctuation package behind default Cleanup, in the
+ * words the profile row, first-run setup and the Cleanup picker share. Empty
+ * when no package can be installed ("Local rules" needs no state).
+ */
+export function defaultCleanupStatus(
+  models: ModelEntry[],
+  downloadIncluded = false,
+): string {
+  const punctuation = models.find((model) => model.id === PUNCTUATION_MODEL);
+  if (punctuation && checking(punctuation)) return "Checking…";
+  if (activePunctuation(models)) return "Installed";
+  if (!punctuation?.installable) return "";
+  return downloadIncluded ? "Download included" : "Not installed";
+}
+
+/** Picker and library name: default Cleanup reads as the punctuation model. */
+export function modelDisplayName(
+  model: ModelEntry,
+  models: ModelEntry[],
+): string {
+  return model.id === "local-rules" ? defaultCleanupName(models) : model.name;
+}
+
 export function punctuationRecommendation(
   settings: Pick<
     Settings,

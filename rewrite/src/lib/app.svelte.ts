@@ -58,6 +58,11 @@ export class AppState {
       this.apply(await call("restart_to_update"));
     });
   }
+  async dismissUpdateNotice(): Promise<void> {
+    await this.perform("update-notice", async () => {
+      this.apply(await call("dismiss_update_notice"));
+    });
+  }
   async downloadUpdate(): Promise<void> {
     if (this.snapshot.update.status.state !== "available") return;
     await this.perform("update-download", async () => {

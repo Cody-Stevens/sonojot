@@ -123,6 +123,8 @@ export const updateSchema = z.object({
   status: updateStatusSchema,
   restartBlockedReason: z.string().nullable(),
   installing: z.boolean(),
+  /** Later was chosen on the main-window notice for the offered version. */
+  noticeDismissed: z.boolean().default(false),
 });
 
 export const snapshotSchema = z.object({
@@ -195,6 +197,7 @@ export const snapshotSchema = z.object({
     status: { state: "idle" },
     restartBlockedReason: null,
     installing: false,
+    noticeDismissed: false,
   }),
 });
 export type Snapshot = z.infer<typeof snapshotSchema>;
@@ -286,6 +289,7 @@ export const commandSchemas = {
   check_for_updates: snapshotSchema,
   download_update: snapshotSchema,
   restart_to_update: snapshotSchema,
+  dismiss_update_notice: snapshotSchema,
   test_microphone: snapshotSchema,
   get_hardware_profile: hardwareProfileSchema,
   apply_setup_profile: snapshotSchema,
@@ -384,6 +388,7 @@ export interface CommandArguments {
   check_for_updates: undefined;
   download_update: undefined;
   restart_to_update: undefined;
+  dismiss_update_notice: undefined;
   test_microphone: undefined;
   get_hardware_profile: undefined;
   apply_setup_profile: { profile: SetupProfile };
@@ -608,6 +613,7 @@ export const previewSnapshot: Snapshot = {
     status: { state: "idle" },
     restartBlockedReason: null,
     installing: false,
+    noticeDismissed: false,
   },
 };
 

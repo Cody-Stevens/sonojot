@@ -4,6 +4,11 @@
   import { priceLine, type AiModel } from "../lib/ai";
   import { SMART_CLEANUP_MODEL } from "../lib/smart-cleanup";
   import {
+    PUNCTUATION_MODEL,
+    defaultCleanupStatus,
+    modelDisplayName,
+  } from "../lib/punctuation";
+  import {
     checking,
     discoverable,
     formatBytes,
@@ -68,15 +73,72 @@
       `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()),
     ),
   );
+  // Default Cleanup is listed first, named for the punctuation model it runs.
   const candidates = $derived(
-    models.filter(
-      (m) =>
-        m.roles.includes(role) &&
-        (discoverable(m) || m.id === selectedId) &&
-        `${m.name} ${shortDeviceLabel(m)} ${m.languages.join(" ")}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-    ),
+    models
+      .filter(
+        (m) =>
+          m.roles.includes(role) &&
+          (discoverable(m) || m.id === selectedId) &&
+          `${optionName(m)} ${shortDeviceLabel(m)} ${m.languages.join(" ")}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
+      )
+      .sort(
+        (a, b) =>
+          Number(b.id === "local-rules") - Number(a.id === "local-rules"),
+      ),
+  );
+  const punctuationPackage = $derived(
+    models.find((m) => m.id === PUNCTUATION_MODEL),
+  );
+  function optionName(model: ModelEntry): string {
+    return model.id === SMART_CLEANUP_MODEL
+      ? "Smart cleanup (experimental)"
+      : modelDisplayName(model, models);
+  }
+  function optionState(model: ModelEntry): string {
+    const selectedHere = !selectedRemoteId && model.id === selectedId;
+    if (model.id === "local-rules") {
+      const status =
+        punctuationPackage && installing(punctuationPackage)
+          ? "Installing"
+          : defaultCleanupStatus(models);
+      return [
+        shortDeviceLabel(model),
+        "Recommended",
+        status,
+        selectedHere ? "Selected" : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    return `${model.id === "openrouter" ? "Remote" : shortDeviceLabel(model)} · ${
+      checking(model)
+        ? "Checking…"
+        : modelUnavailableReason(model)
+          ? "Unavailable"
+          : selectedHere
+            ? "Selected"
+            : installed(model)
+              ? "Installed"
+              : installing(model)
+                ? "Installing"
+                : model.installable
+                  ? "Not installed"
+                  : "Unavailable"
+    }`;
+  }
+  // Default Cleanup works without the package; offer it from the picker.
+  const missingPunctuation = $derived(
+    candidateId === "local-rules" &&
+      punctuationPackage &&
+      punctuationPackage.installable &&
+      !installed(punctuationPackage) &&
+      !installing(punctuationPackage) &&
+      !checking(punctuationPackage)
+      ? punctuationPackage
+      : undefined,
   );
   const candidate = $derived(candidates.find((m) => m.id === candidateId));
   const tabStop = $derived(candidate?.id ?? candidates[0]?.id);
@@ -167,9 +229,9 @@
       : ((!selectedId ? localDefaultLabel : undefined) ??
         (selectedId === SMART_CLEANUP_MODEL
           ? "Smart cleanup (experimental)"
-          : (selected?.name ??
-            selectedId ??
-            "No selection")))}{#if selectedRemoteId}<RemoteModelBadge
+          : selected
+            ? optionName(selected)
+            : (selectedId ?? "No selection")))}{#if selectedRemoteId}<RemoteModelBadge
         embedded
       />{/if}</span
   >
@@ -247,29 +309,11 @@
         }}
       >
         <span
-          >{model.id === SMART_CLEANUP_MODEL
-            ? "Smart cleanup (experimental)"
-            : model.name}{#if model.id === "openrouter"}<RemoteModelBadge
+          >{optionName(model)}{#if model.id === "openrouter"}<RemoteModelBadge
               embedded
             />{/if}</span
         >
-        <span class="meta" data-text-surface="flat"
-          >{model.id === "openrouter" ? "Remote" : shortDeviceLabel(model)} · {checking(
-            model,
-          )
-            ? "Checking…"
-            : modelUnavailableReason(model)
-              ? "Unavailable"
-              : !selectedRemoteId && model.id === selectedId
-                ? "Selected"
-                : installed(model)
-                  ? "Installed"
-                  : installing(model)
-                    ? "Installing"
-                    : model.installable
-                      ? "Not installed"
-                      : "Unavailable"}</span
-        >
+        <span class="meta" data-text-surface="flat">{optionState(model)}</span>
       </button>
     {/each}
     {#if !candidates.length && !localDefaultLabel}<p
@@ -302,7 +346,7 @@
   </div>
   {#if candidate}
     <details class="model-details">
-      <summary>Details for {candidate.name}</summary>
+      <summary>Details for {optionName(candidate)}</summary>
       <div class="meta" data-text-surface="flat">
         {#if modelUnavailableReason(candidate)}<p>
             {modelUnavailableReason(candidate)}
@@ -346,6 +390,23 @@
     <p class="meta install-help" data-text-surface="flat">
       {modelUnavailableReason(candidate) ?? "Select it after it downloads."}
     </p>
+  {/if}
+  {#if missingPunctuation}
+    <div class="candidate" aria-live="polite">
+      <span data-text-surface="flat"
+        >{missingPunctuation.name} · {formatBytes(
+          missingPunctuation.totalBytes || missingPunctuation.diskBytes,
+        )}</span
+      >
+      <button
+        class="button"
+        disabled={installDisabled}
+        onclick={async () => {
+          if (missingPunctuation) await oninstall(missingPunctuation);
+          close(true);
+        }}>Install</button
+      >
+    </div>
   {/if}
   {#if onaddonline && role !== "cleanup"}
     <p class="meta install-help" data-text-surface="flat">

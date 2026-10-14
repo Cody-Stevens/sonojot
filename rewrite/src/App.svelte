@@ -19,6 +19,7 @@
   import BrandMark from "./brand/BrandMark.svelte";
   import { paperScroll } from "./lib/paper-scroll";
   import ErrorBanner from "./components/ErrorBanner.svelte";
+  import UpdateNotice from "./components/UpdateNotice.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import { navigation, type Page, type SetupPage } from "./lib/navigation";
   import type { ErrorAction } from "./lib/errors";
@@ -351,6 +352,7 @@
                           }}><Icon name="close" size={18} /></button
                         >
                       </div>{/if}
+                    {#if page !== "about"}<UpdateNotice />{/if}
                     {#if !app.native}<div class="preview-notice">
                         <strong>Browser preview</strong><span
                           data-text-surface="flat"

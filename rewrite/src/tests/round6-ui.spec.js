@@ -158,9 +158,10 @@ test("setup removal protects selected roles and confirms unused model deletion",
   await page.goto("/?page=setup&theme=fog");
   const library = await openModelLibrary(page);
   const target = library.locator('[data-model-id="mock-cleanup-2b-cpu"]');
+  // A selected model stays removable; its confirmation names the switch.
   await expect(
     library.getByRole("button", { name: "Remove LFM 2.5", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await target.getByRole("button", { name: /^Remove / }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Remove Mock Cleanup 2B (CPU)?");
@@ -474,7 +475,7 @@ test("cleanup offers rules-only without forcing a model load", async ({
   await installDesktopFixture(page);
   await page.goto("/?page=setup&theme=fog");
   const select = page.locator("#model-cleanup");
-  await chooseInstalled(page, "cleanup", "Formatting and vocabulary");
+  await chooseInstalled(page, "cleanup", "with your vocabulary");
   expect(
     await page.evaluate(() => window.__testSnapshot().settings),
   ).toMatchObject({
@@ -484,9 +485,12 @@ test("cleanup offers rules-only without forcing a model load", async ({
   await expect(page.locator("#model-asr")).toBeEnabled();
   await expect(page.locator("#model-cleanup")).toBeEnabled();
   await expect(page.locator("#model-notes")).toBeEnabled();
-  await expect(select).toContainText("Formatting and vocabulary");
-  await expect(page.locator("#setup-cleanup")).toContainText(
-    "CPU · no AI model",
+  await expect(select).toHaveText(
+    "SonoJot Punctuation v2 with your vocabulary",
+  );
+  await expect(page.locator("#setup-cleanup")).toContainText("CPU");
+  await expect(page.locator("#setup-cleanup")).not.toContainText(
+    "Formatting and vocabulary",
   );
   await expect(
     page.getByText("Rules-only cleanup needs no model load."),
