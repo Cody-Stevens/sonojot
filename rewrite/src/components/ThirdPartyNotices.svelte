@@ -1,5 +1,6 @@
 <script lang="ts">
   import ErrorBanner from "./ErrorBanner.svelte";
+  import { scrollEdges } from "../lib/scroll-edges";
   import fontLicense from "../brand/fonts/SourceSerif-LICENSE.md?raw";
 
   let expanded = $state(false);
@@ -48,6 +49,7 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable document must be reachable for keyboard scrolling.) -->
       <div
         class="paper-well notices"
+        use:scrollEdges
         role="region"
         aria-label="Third-party notices"
         tabindex="0"

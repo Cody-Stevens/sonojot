@@ -3,7 +3,7 @@
   import { app } from "../lib/app.svelte";
   import { acceptTerms } from "../lib/terms.svelte";
   import { errorMessage } from "../lib/protocol";
-  import { paperScroll } from "../lib/paper-scroll";
+  import { scrollEdges } from "../lib/scroll-edges";
 
   let { onclose }: { onclose: () => Promise<void> } = $props();
   let agreed = $state(false);
@@ -24,7 +24,7 @@
   }
 </script>
 
-<main id="page-content" class="terms-page" use:paperScroll>
+<main id="page-content" class="terms-page" use:scrollEdges>
   <div class="terms-content">
     <h1 data-text-surface="emboss">SonoJot Terms of Use</h1>
     <p class="body-copy" data-text-surface="flat">

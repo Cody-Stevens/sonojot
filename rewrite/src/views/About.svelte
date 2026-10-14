@@ -1,6 +1,7 @@
 <script lang="ts">
   import Card from "../components/Card.svelte";
   import { app } from "../lib/app.svelte";
+  import { scrollEdges } from "../lib/scroll-edges";
   import { call } from "../lib/api";
   import { updateStatusLabel } from "../lib/updates";
   import UpdateAction from "../components/UpdateAction.svelte";
@@ -109,12 +110,15 @@
         : diagnostics
           ? "Refresh diagnostics"
           : "Show diagnostics"}</button
-    >{#if diagnostics}<textarea
-        class="paper-well diagnostics"
-        readonly
-        aria-label="Desktop diagnostics"
-        rows="9"
-        value={diagnostics}></textarea>{/if}
+    >{#if diagnostics}<div class="scroll-edges-frame">
+        <textarea
+          class="paper-well diagnostics"
+          readonly
+          aria-label="Desktop diagnostics"
+          rows="9"
+          value={diagnostics}
+          use:scrollEdges={{ frame: true }}></textarea>
+      </div>{/if}
   </details>
   <details class="license spaced">
     <summary data-text-surface="emboss">SonoJot Terms of Use</summary>

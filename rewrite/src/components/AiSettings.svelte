@@ -3,6 +3,7 @@
   import Card from "./Card.svelte";
   import SettingRow from "./SettingRow.svelte";
   import RemoteModelBadge from "./RemoteModelBadge.svelte";
+  import { scrollEdges } from "../lib/scroll-edges";
   import { app } from "../lib/app.svelte";
   import { call } from "../lib/api";
   import { ai } from "../lib/ai.svelte";
@@ -379,7 +380,11 @@
         </p>
       {/if}
       {#if results.length}
-        <ul class="catalog-models" aria-label="OpenRouter catalog results">
+        <ul
+          class="catalog-models"
+          aria-label="OpenRouter catalog results"
+          use:scrollEdges
+        >
           {#each results as { item, roles } (item.id)}
             {@const missing = missingRoles(item.id, roles)}
             <li class="model-row">

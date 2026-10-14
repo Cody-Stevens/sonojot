@@ -3,6 +3,7 @@
   import { renderLegalMarkdown, legalLink } from "../lib/legal-markdown";
   import { app } from "../lib/app.svelte";
   import { call } from "../lib/api";
+  import { scrollEdges } from "../lib/scroll-edges";
   // The "Version: N" line is a machine marker; the text shows its own version line.
   const html = renderLegalMarkdown(terms.replace(/^Version: \d+\r?\n+/m, ""));
   // `fill` grows and shrinks with its column instead of using a fixed height.
@@ -23,6 +24,7 @@
   class="paper-well terms-text"
   class:fill
   data-bounded-scroll
+  use:scrollEdges
   role="region"
   aria-label="Full SonoJot Terms of Use"
   tabindex="0"

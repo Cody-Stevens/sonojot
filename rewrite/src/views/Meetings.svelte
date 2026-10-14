@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from "svelte";
   import Card from "../components/Card.svelte";
+  import { scrollEdges } from "../lib/scroll-edges";
   import Icon from "../components/Icon.svelte";
   import Meter from "../components/Meter.svelte";
   import MeetingActivity from "../components/MeetingActivity.svelte";
@@ -1164,13 +1165,16 @@
                 ? "Your instructions"
                 : "Additional instructions"}</label
             >
-            <textarea
-              id="note-instructions"
-              bind:value={instructions}
-              rows="3"
-              placeholder="For example, decisions and action items with owners."
-              disabled={processing || notePreset === "formattedTranscript"}
-              maxlength="2000"></textarea>
+            <div class="scroll-edges-frame">
+              <textarea
+                id="note-instructions"
+                bind:value={instructions}
+                rows="3"
+                placeholder="For example, decisions and action items with owners."
+                disabled={processing || notePreset === "formattedTranscript"}
+                maxlength="2000"
+                use:scrollEdges={{ frame: true }}></textarea>
+            </div>
             {#if notePreset === "formattedTranscript"}<p
                 class="field-help"
                 data-text-surface="flat"
@@ -1424,18 +1428,21 @@
           <label class="sr-only" for="meeting-transcript"
             >Meeting transcript</label
           >
-          <textarea
-            id="meeting-transcript"
-            class="document-editor"
-            bind:value={transcript}
-            disabled={writing ||
-              recording ||
-              processing ||
-              app.busy("meeting-speakers")}
-            placeholder={processing
-              ? "Transcription is in progress…"
-              : "Transcribe the recording to put the conversation here."}
-            rows="11"></textarea>
+          <div class="scroll-edges-frame">
+            <textarea
+              id="meeting-transcript"
+              class="document-editor"
+              bind:value={transcript}
+              disabled={writing ||
+                recording ||
+                processing ||
+                app.busy("meeting-speakers")}
+              placeholder={processing
+                ? "Transcription is in progress…"
+                : "Transcribe the recording to put the conversation here."}
+              rows="11"
+              use:scrollEdges={{ frame: true }}></textarea>
+          </div>
         {/if}
         <p class="field-help" data-text-surface="flat">
           You can edit this version. Original recognition stays in the meeting
@@ -1455,12 +1462,15 @@
         aria-labelledby="meeting-tab-notes"
       >
         <label class="sr-only" for="meeting-notes">Notes</label>
-        <textarea
-          id="meeting-notes"
-          class="document-editor"
-          bind:value={notes}
-          disabled={writing || recording || processing}
-          rows="11"></textarea>
+        <div class="scroll-edges-frame">
+          <textarea
+            id="meeting-notes"
+            class="document-editor"
+            bind:value={notes}
+            disabled={writing || recording || processing}
+            rows="11"
+            use:scrollEdges={{ frame: true }}></textarea>
+        </div>
         <p class="field-help" data-text-surface="flat">
           Generated notes can miss details. Review them against the transcript.
         </p>

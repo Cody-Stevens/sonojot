@@ -3,6 +3,7 @@
   import { call, native } from "../lib/api";
   import { downloadConsent } from "../lib/download-consent.svelte";
   import { errorMessage } from "../lib/protocol";
+  import { scrollEdges } from "../lib/scroll-edges";
 
   let dialog: HTMLDialogElement;
   let agreed = $state<string[]>([]);
@@ -56,7 +57,7 @@
   <h2 id="download-terms-title" data-text-surface="emboss">
     Before downloading
   </h2>
-  <div class="license-scroll">
+  <div class="license-scroll" use:scrollEdges>
     {#each downloadConsent.groups as group (group.id)}
       <section>
         <h3 data-text-surface="emboss">{group.title}</h3>

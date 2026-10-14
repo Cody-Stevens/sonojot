@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     checking,
+    downloadPhaseLabel,
     formatBytes,
     installed,
     installing,
@@ -32,7 +33,7 @@
         : ({
             queued: "Queued",
             checking: "Checking…",
-            downloading: "Downloading",
+            downloading: downloadPhaseLabel(model),
             verifying: "Verifying",
             installing: "Installing",
             cancelling: "Cancelling",

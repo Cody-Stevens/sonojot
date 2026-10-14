@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from "../lib/app.svelte";
+  import { scrollEdges } from "../lib/scroll-edges";
   let { reviewSessionId = null }: { reviewSessionId?: number | null } =
     $props();
   const reviewingTest = $derived(
@@ -56,7 +57,7 @@
           </p>{/each}
         {#each [{ original: true, title: "As recognized", text: app.snapshot.originalText }, { original: false, title: incomplete ? "Available text" : "Finished text", text: app.snapshot.outputText }] as version}
           <h3 data-text-surface="emboss">{version.title}</h3>
-          <div class="paper-well transcript">
+          <div class="paper-well transcript" use:scrollEdges>
             {version.text || "No text was recovered."}
           </div>
           <button

@@ -3,6 +3,7 @@
   import UpdateButton from "./UpdateButton.svelte";
   import { app } from "../lib/app.svelte";
   import { navigation, type Page, type SetupPage } from "../lib/navigation";
+  import { scrollEdges } from "../lib/scroll-edges";
 
   let {
     page,
@@ -17,7 +18,7 @@
   const id = $props.id();
 </script>
 
-<aside class="paper-nav">
+<aside class="paper-nav" use:scrollEdges>
   <nav aria-label="Main navigation">
     {#snippet navItem(item: (typeof navigation)[number])}<button
         type="button"

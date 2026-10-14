@@ -45,7 +45,7 @@
     activePunctuation,
     defaultCleanupName,
   } from "../lib/punctuation";
-  import { paperScroll } from "../lib/paper-scroll";
+  import { scrollEdges } from "../lib/scroll-edges";
   import { needsTermsAcceptance } from "../lib/terms";
   import { acceptTerms } from "../lib/terms.svelte";
   import { ensureDownloadConsent } from "../lib/download-consent.svelte";
@@ -482,7 +482,7 @@
   data-step={stepId}
   aria-label={mode === "tour" ? "SonoJot tour" : "First-time setup"}
 >
-  <main id="page-content" class="onboarding-content" use:paperScroll>
+  <main id="page-content" class="onboarding-content" use:scrollEdges>
     <div class="onboarding-page">
       <div class="step-head">
         <h1 id="onboarding-title" tabindex="-1" data-text-surface="emboss">
@@ -796,11 +796,14 @@
                 ? "Hold the shortcut while speaking, then release it."
                 : "Press the shortcut again to finish."}
             </p>
-            <textarea
-              id="tour-dictation"
-              bind:value={practiceText}
-              placeholder="Your dictation"
-              spellcheck="false"></textarea>
+            <div class="scroll-edges-frame">
+              <textarea
+                id="tour-dictation"
+                bind:value={practiceText}
+                placeholder="Your dictation"
+                spellcheck="false"
+                use:scrollEdges={{ frame: true }}></textarea>
+            </div>
             {#if ["loading", "listening", "finishing", "cleaning"].includes(app.snapshot.state)}<p
                 class="field-help"
                 role="status"

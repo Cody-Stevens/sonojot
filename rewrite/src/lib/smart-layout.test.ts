@@ -40,6 +40,8 @@ function model(id: string, patch: Partial<ModelEntry> = {}): ModelEntry {
     revision: "fixture",
     quantization: "fixture",
     contextTokens: 4096,
+    supported: true,
+    stage: null,
     ...patch,
   };
 }

@@ -302,6 +302,7 @@ pub fn install_model(
     id: &str,
     cancel: &AtomicBool,
     progress: &dyn Fn(u64, u64),
+    stage: &dyn Fn(&'static str),
 ) -> Result<(), String> {
     let model = find(id).ok_or("Choose a downloadable llama.cpp speech model.")?;
     check_cancel(cancel)?;
@@ -338,6 +339,11 @@ pub fn install_model(
             }
         }
         progress(0, total);
+        // Name the shared add-on: when only it is missing, its size is the
+        // whole download and would otherwise read as the model's.
+        if runtime_bytes > 0 {
+            stage("speech detector");
+        }
         if model.runtime.needs_vad() {
             optional_asr::ensure_runtime_with_cancel(root, cancel, &|done, _| {
                 progress(done.min(runtime_bytes), total);
@@ -356,6 +362,7 @@ pub fn install_model(
             progress(total, total);
             return Ok(());
         }
+        stage("model files");
         let optional = optional_asr::optional_root(root);
         std::fs::create_dir_all(&optional)
             .map_err(|e| format!("Cannot create the optional models folder: {e}"))?;
@@ -1102,7 +1109,7 @@ mod tests {
         for model in catalog().iter().filter(|model| !model.runtime.supported_platform()) {
             let error = install_model(&root, model.id, &AtomicBool::new(false), &|_, _| {
                 panic!("unsupported package made progress")
-            }).unwrap_err();
+            }, &|_| {}).unwrap_err();
             assert_eq!(error, model.runtime.platform_requirement());
             assert!(!model_ready(&root, model.id));
         }
@@ -1209,7 +1216,7 @@ mod tests {
             std::env::temp_dir().join(format!("sonojot-llama-cancel-{}", uuid::Uuid::new_v4()));
         let result = install_model(&root, MODEL_ID, &AtomicBool::new(true), &|_, _| {
             panic!("cancelled progress")
-        });
+        }, &|_| {});
         assert!(result.unwrap_err().contains("cancelled"));
         assert!(!root.exists());
     }
@@ -1221,7 +1228,7 @@ mod tests {
             std::env::temp_dir().join(format!("sonojot-llama-missing-{}", uuid::Uuid::new_v4()));
         let error = install_model(&root, MODEL_ID, &AtomicBool::new(false), &|_, _| {
             panic!("missing runtime progress")
-        })
+        }, &|_| {})
         .unwrap_err();
         assert!(error.contains("CUDA 13.3 runtime is missing"));
         assert!(!root.exists());
@@ -1234,7 +1241,7 @@ mod tests {
         for id in [METAL_Q8_MODEL_ID, METAL_Q4_MODEL_ID] {
             let error = install_model(&root, id, &AtomicBool::new(false), &|_, _| {
                 panic!("missing runtime progress")
-            }).unwrap_err();
+            }, &|_| {}).unwrap_err();
             assert!(error.contains("b10964 Metal runtime is missing"));
         }
         assert!(!root.exists());

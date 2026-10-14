@@ -36,6 +36,10 @@ export const modelEntrySchema = z.object({
   revision: z.string(),
   quantization: z.string(),
   contextTokens: z.number().int().positive().nullable(),
+  /** False when this platform cannot run the package, even if its files exist. */
+  supported: z.boolean().default(true),
+  /** The part an install is fetching now, e.g. "speech detector". */
+  stage: z.string().nullable().default(null),
 });
 export const modelLibrarySchema = z.object({
   hardware: z.object({
@@ -199,6 +203,7 @@ export function selectable(
 /** Availability and the reason come from the native catalog, never a GPU guess. */
 export function modelUnavailableReason(model: ModelEntry): string | null {
   if (
+    !model.supported ||
     model.state === "unavailable" ||
     model.state === "unsupported" ||
     (!model.installable &&
@@ -210,6 +215,26 @@ export function modelUnavailableReason(model: ModelEntry): string | null {
       model.error || model.compatibility || "Unavailable on this computer."
     );
   return null;
+}
+
+/**
+ * Platform or hardware rules this package out here and nothing is in progress.
+ * Pickers move these out of the ordinary options; they are never replacements.
+ * A missing download that can be installed is not "unavailable here".
+ */
+export function unavailableHere(model: ModelEntry): boolean {
+  return (
+    !model.supported ||
+    (!installed(model) &&
+      !installing(model) &&
+      !checking(model) &&
+      modelUnavailableReason(model) !== null)
+  );
+}
+
+/** Install-progress label, naming the part being fetched when it is known. */
+export function downloadPhaseLabel(model: ModelEntry): string {
+  return model.stage ? `Downloading ${model.stage}` : "Downloading";
 }
 
 export function removalBlock(
@@ -238,7 +263,14 @@ export interface RemovalPlan {
   switches: RemovalSwitch[];
   /** One-line reason removal cannot go ahead right now. */
   blocked: string | null;
+  /** The role whose models to show so the user can unblock removal. */
+  needs?: ModelRole;
 }
+
+export const SPEECH_REMOVAL_BLOCKED =
+  "SonoJot needs a speech model for dictation. To remove this one, install another speech model first.";
+export const NOTES_REMOVAL_BLOCKED =
+  "Notes uses this model. Install another text model or choose an OpenRouter model first.";
 
 /**
  * Removing a selected model first moves each role that uses it to the
@@ -274,8 +306,12 @@ export function removalPlan(
       entry.id !== "speakoflow-mini-q4_k_m" &&
       entry.id !== "openrouter" &&
       (role !== "notes" || entry.id !== "local-rules") &&
-      selectable(entry, role);
-    const preferred = models.find((entry) => entry.id === recommended?.[setting]);
+      selectable(entry, role) &&
+      // Files on disk are not enough: this platform must be able to run it.
+      modelUnavailableReason(entry) === null;
+    const preferred = models.find(
+      (entry) => entry.id === recommended?.[setting],
+    );
     return usable(preferred) ? preferred : models.find(usable);
   };
   const switches: RemovalSwitch[] = [];
@@ -284,7 +320,8 @@ export function removalPlan(
     if (!next)
       return {
         switches: [],
-        blocked: "Speech uses this model. Install another speech model first.",
+        blocked: SPEECH_REMOVAL_BLOCKED,
+        needs: "asr",
       };
     switches.push({
       setting: "asrModel",
@@ -311,8 +348,8 @@ export function removalPlan(
       if (!next)
         return {
           switches: [],
-          blocked:
-            "Notes uses this model. Install another text model or choose an OpenRouter model first.",
+          blocked: NOTES_REMOVAL_BLOCKED,
+          needs: "notes",
         };
       switches.push({
         setting: "notesModel",

@@ -62,6 +62,10 @@ pub struct ModelEntry {
     pub revision: String,
     pub quantization: String,
     pub context_tokens: Option<u32>,
+    /// False when this platform cannot run the package, even if its files exist.
+    pub supported: bool,
+    /// The part an install is fetching now, such as "speech detector".
+    pub stage: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -122,12 +126,36 @@ fn set_job_progress(id: &str, downloaded: u64, total: u64) {
 
 fn set_job_phase(id: &str, phase: Phase, error: Option<String>) {
     invalidate_sizes();
+    if matches!(phase, Phase::Done | Phase::Failed) {
+        set_job_stage(id, None);
+    }
     if let Ok(mut jobs) = install_jobs().lock() {
         if let Some(job) = jobs.get_mut(id) {
             job.phase = phase;
             job.error = error;
         }
     }
+}
+
+/// The part of an install being fetched now ("speech detector", "model
+/// files"). A shared add-on can be most of a repair download, so the progress
+/// label names it; otherwise its size reads as the whole model.
+fn install_stages() -> &'static Mutex<HashMap<String, &'static str>> {
+    static STAGES: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
+    STAGES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn set_job_stage(id: &str, stage: Option<&'static str>) {
+    if let Ok(mut stages) = install_stages().lock() {
+        match stage {
+            Some(stage) => stages.insert(id.to_owned(), stage),
+            None => stages.remove(id),
+        };
+    }
+}
+
+fn job_stage(id: &str) -> Option<&'static str> {
+    install_stages().lock().ok().and_then(|stages| stages.get(id).copied())
 }
 
 /// Clamp a GPU progress report to the combined download total. `gpu_asr`
@@ -417,7 +445,7 @@ fn moonshine_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEntry>
             used_by: used_by(settings, id),
             revision: if bundled { "bundled" } else { MOONSHINE_REVISION }.into(),
             quantization: "bundled-ort".into(),
-            context_tokens: None,
+            context_tokens: None, supported: true, stage: None,
         });
     }
     out
@@ -480,7 +508,7 @@ fn optional_asr_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
             used_by: used_by(settings, model.id),
             revision: model.revision.into(),
             quantization: "int8".into(),
-            context_tokens: None,
+            context_tokens: None, supported: true, stage: None,
         });
     }
     out
@@ -544,7 +572,7 @@ fn llama_asr_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEntry>
             used_by: used_by(settings, model.id),
             revision: model.revision.into(),
             quantization: model.quantization.into(),
-            context_tokens: None,
+            context_tokens: None, supported: true, stage: None,
         }
     }).collect()
 }
@@ -585,7 +613,7 @@ fn granite_entry_with_availability(models_root: &Path, settings: &Settings, reas
         state, downloaded_bytes: downloaded, total_bytes: total, error,
         installable: available, removable: granite_model::path(models_root).exists(),
         used_by: used_by(settings, id), revision: granite_model::REVISION.into(),
-        quantization: "Q8_0".into(), context_tokens: Some(4096),
+        quantization: "Q8_0".into(), context_tokens: Some(4096), supported: true, stage: None,
     }]
 }
 
@@ -643,7 +671,7 @@ fn diarization_entries(models_root: &Path) -> Vec<ModelEntry> {
         used_by: Vec::new(),
         revision: diarization_model::REVISION.into(),
         quantization: "int8".into(),
-        context_tokens: None,
+        context_tokens: None, supported: true, stage: None,
     }]
 }
 
@@ -720,7 +748,7 @@ fn punctuation_entry_with_status(models_root: &Path, model: crate::punctuation_m
         used_by: Vec::new(),
         revision: model.revision().unwrap_or_default().into(),
         quantization: "embedding-only int8".into(),
-        context_tokens: None,
+        context_tokens: None, supported: true, stage: None,
     }
 }
 
@@ -802,7 +830,7 @@ fn optional_llm_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
             used_by: used_by(settings, model.id),
             revision: model.revision.into(),
             quantization: crate::optional_llm::quantization_of(model.id).into(),
-            context_tokens: context,
+            context_tokens: context, supported: true, stage: None,
         });
     }
     // Rules-only path: always present, no download.
@@ -836,7 +864,7 @@ fn optional_llm_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
         used_by: used_by(settings, "local-rules"),
         revision: "host-rules-v4".into(),
         quantization: "none".into(),
-        context_tokens: None,
+        context_tokens: None, supported: true, stage: None,
     });
     out
 }
@@ -905,7 +933,7 @@ fn whisper_real_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
             used_by: used_by(settings, entry.id),
             revision: entry.revision.into(),
             quantization: entry.quantization.into(),
-            context_tokens: None,
+            context_tokens: None, supported: true, stage: None,
         });
     }
     // Real GPU catalog (gpu_asr worker, verified 2026-09-16 on RTX 5070).
@@ -994,7 +1022,7 @@ fn whisper_real_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
             used_by: used_by(settings, entry.id),
             revision: entry.revision.into(),
             quantization: entry.quantization.into(),
-            context_tokens: None,
+            context_tokens: None, supported: true, stage: None,
         });
     }
     out
@@ -1038,7 +1066,7 @@ fn mac_entries(root: &Path, settings: &Settings) -> Vec<ModelEntry> {
             backend: "whisper.cpp · Apple Metal".into(), compatibility: "Apple Silicon Mac · Metal GPU".into(),
             state, downloaded_bytes: downloaded, total_bytes: if total == 0 { model.bytes } else { total },
             error, installable: true, removable: ready, used_by: used_by(settings, model.id),
-            revision: model.revision.into(), quantization: "F16".into(), context_tokens: None,
+            revision: model.revision.into(), quantization: "F16".into(), context_tokens: None, supported: true, stage: None,
         }
     }).collect()
 }
@@ -1098,6 +1126,8 @@ pub fn build_library(models_root: &Path, settings: &Settings) -> ModelLibrary {
         models.splice(0..0, mac_entries(models_root, settings));
         for model in &mut models {
             if !mac_supported(&model.id) {
+                // Files may exist (removable), but this Mac cannot run them.
+                model.supported = false;
                 model.installable = false;
                 model.compatibility =
                     "This package requires Windows; choose a Metal model on this Mac.".into();
@@ -1125,6 +1155,14 @@ pub fn build_library(models_root: &Path, settings: &Settings) -> ModelLibrary {
                 2
             }
         });
+    }
+    for model in &mut models {
+        if matches!(model.state.as_str(), "unavailable" | "unsupported") {
+            model.supported = false;
+        }
+        if matches!(model.state.as_str(), "downloading" | "verifying") {
+            model.stage = job_stage(&model.id).map(str::to_owned);
+        }
     }
     let plan = resource_manager::plan_range(
         &settings.asr_model,
@@ -1524,6 +1562,7 @@ fn download_cancellable(
 }
 
 fn install_blocking(models_root: PathBuf, id: String, cancel: Arc<AtomicBool>) {
+    set_job_stage(&id, None);
     let result = install_inner(&models_root, &id, &cancel);
     match result {
         Ok(()) => {
@@ -1592,7 +1631,7 @@ fn install_inner(models_root: &Path, id: &str, cancel: &AtomicBool) -> Result<()
         let result = crate::llama_asr::install_model(models_root, id, cancel, &|done, _| {
             let (done, total) = clamp_gpu_progress(runtime_done + done, total);
             set_job_progress(id, done, total);
-        });
+        }, &|stage| set_job_stage(id, Some(stage)));
         if result.is_ok() {
             set_job_progress(id, total, total);
         }
@@ -1711,9 +1750,11 @@ fn install_inner(models_root: &Path, id: &str, cancel: &AtomicBool) -> Result<()
         let runtime_bytes = target.total_bytes - diarization_model::package_bytes();
         set_job_phase(id, Phase::Downloading, None);
         set_download_progress(id, 0, target.total_bytes);
+        set_job_stage(id, Some("speech runtime"));
         crate::optional_asr::ensure_runtime_with_cancel(models_root, cancel, &|done, _| {
             set_download_progress(id, done.min(runtime_bytes), target.total_bytes);
         })?;
+        set_job_stage(id, Some("model files"));
         check_cancel(cancel)?;
         // If only the runtime was missing, the existing verified model wins.
         if diarization_model::installed(models_root) {
@@ -1918,6 +1959,7 @@ fn install_mac_runtime(
     crate::optional_asr::ensure_within(root, &parent)?;
     let staging = parent.join(format!(".install-metal-{}", crate::store::new_id()));
     fs::create_dir(&staging).map_err(|e| e.to_string())?;
+    set_job_stage(id, Some("Metal runtime"));
     let result = (|| {
         let archive_path = staging.join("runtime.tar.gz");
         set_job_phase(id, Phase::Downloading, None);
@@ -1958,6 +2000,8 @@ fn install_mac_runtime(
         Ok(())
     })();
     let _ = fs::remove_dir_all(staging);
+    // Whatever downloads next for this job is the model's own files.
+    set_job_stage(id, Some("model files"));
     result
 }
 
@@ -3652,6 +3696,52 @@ mod tests {
         install_jobs().lock().unwrap().remove(id);
         assert_eq!(entry_state(id, true, true).0, "installed");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn library_names_the_part_being_downloaded_and_platform_impossible_packages() {
+        let _gate = test_gate();
+        let root = isolated_root("install-stage");
+        let id = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            crate::llama_asr::METAL_Q8_MODEL_ID
+        } else {
+            crate::llama_asr::MODEL_ID
+        };
+        let stage_of = |root: &Path| {
+            build_library(root, &Settings::default())
+                .models
+                .into_iter()
+                .find(|entry| entry.id == id)
+                .unwrap()
+        };
+        if crate::llama_asr::find(id).unwrap().runtime.supported_platform() {
+            install_jobs().lock().unwrap().insert(id.into(), JobState {
+                phase: Phase::Downloading,
+                downloaded_bytes: 29_000_000,
+                total_bytes: 33_000_000,
+                error: None,
+                cancel: Arc::new(AtomicBool::new(false)),
+            });
+            set_job_stage(id, Some("speech detector"));
+            let entry = stage_of(&root);
+            assert_eq!(entry.state, "downloading");
+            assert_eq!(entry.stage.as_deref(), Some("speech detector"));
+            assert!(entry.supported);
+            set_job_stage(id, Some("model files"));
+            assert_eq!(stage_of(&root).stage.as_deref(), Some("model files"));
+            // Finishing or failing clears the label with the job.
+            set_job_phase(id, Phase::Failed, Some("Install cancelled.".into()));
+            assert_eq!(job_stage(id), None);
+            assert_eq!(stage_of(&root).stage, None);
+            install_jobs().lock().unwrap().remove(id);
+        }
+        // Every package this platform reports as unavailable is unsupported.
+        for entry in build_library(&root, &Settings::default()).models {
+            if entry.state == "unavailable" {
+                assert!(!entry.supported, "{}", entry.id);
+            }
+        }
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

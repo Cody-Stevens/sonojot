@@ -53,6 +53,8 @@ function model(
     revision: "fixture",
     quantization: "fixture",
     contextTokens: null,
+    supported: true,
+    stage: null,
     ...patch,
   };
 }

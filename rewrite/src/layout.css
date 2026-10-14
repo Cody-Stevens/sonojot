@@ -37,6 +37,7 @@ body,
 .paper-nav {
   padding: var(--space-3) var(--space-2);
   gap: var(--space-2);
+  --edge-gap: var(--space-2);
   scroll-padding-block: var(--space-2);
 }
 
@@ -97,36 +98,19 @@ body,
   display: flow-root;
   min-width: 0;
 }
+/* The page lips use the shared scroll-edge paint (styles.css); only their
+   place in the frame is set here, clear of the scrollbar channel. */
 .page-frame::before,
 .page-frame::after {
-  content: "";
   position: absolute;
-  z-index: 3;
-  pointer-events: none;
   left: var(--pocket-inset);
   right: calc(var(--pocket-inset) + 12px);
-  height: 5px;
-  border-radius: 50% / 1px;
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    black 12px,
-    black calc(100% - 12px),
-    transparent
-  );
-  transition: opacity var(--motion-control) linear;
 }
 .page-frame::before {
   top: var(--pocket-start);
-  opacity: var(--pocket-top, 0);
-  background: linear-gradient(to bottom, var(--contact), transparent 90%);
-  border-top: 1px solid var(--surface-highlight-color);
 }
 .page-frame::after {
   bottom: var(--pocket-end);
-  opacity: var(--pocket-bottom, 0);
-  background: linear-gradient(to top, var(--contact), transparent 90%);
-  border-bottom: 1px solid var(--surface-highlight-color);
 }
 .dictation-guide > p {
   font-size: 1rem;

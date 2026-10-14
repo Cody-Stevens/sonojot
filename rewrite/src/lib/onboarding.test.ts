@@ -145,6 +145,8 @@ function model(id: string, state = "installed"): ModelEntry {
     revision: "",
     quantization: "",
     contextTokens: null,
+    supported: true,
+    stage: null,
   };
 }
 const models = [

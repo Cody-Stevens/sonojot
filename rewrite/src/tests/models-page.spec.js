@@ -45,7 +45,9 @@ test("Custom Cleanup lists the punctuation model first with its install state", 
   await expect(options.first()).toContainText(cleanupName);
   await expect(options.first()).toContainText("CPU · Recommended · Installed · Selected");
   await expect(picker).not.toContainText("Formatting and vocabulary");
-  await expect(picker.getByText(`Details for ${cleanupName}`)).toBeVisible();
+  await expect(
+    picker.getByRole("region", { name: `Details for ${cleanupName}` }),
+  ).toBeVisible();
   await screenshot(page, "cleanup-picker-installed");
   await page.keyboard.press("Escape");
   // The profile summary and the Models summary use the same words.

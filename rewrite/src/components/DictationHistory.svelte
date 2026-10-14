@@ -2,6 +2,7 @@
   import { onMount, onDestroy, untrack } from "svelte";
   import Card from "./Card.svelte";
   import Icon from "./Icon.svelte";
+  import { scrollEdges } from "../lib/scroll-edges";
   import SettingRow from "./SettingRow.svelte";
   import Toggle from "./Toggle.svelte";
   import { app } from "../lib/app.svelte";
@@ -269,7 +270,7 @@
         Recognition was incomplete. Review any available text before copying.
       </p>
     {/if}
-    <div class="paper-well transcript">
+    <div class="paper-well transcript" use:scrollEdges>
       {selected.published ||
         (selected.recognitionCompleteness === "incomplete"
           ? "No text was recovered."
@@ -346,12 +347,15 @@
         </p>
         <label class="field-label" for="history-corrected">Corrected text</label
         >
-        <textarea
-          id="history-corrected"
-          bind:value={corrected}
-          rows="4"
-          maxlength="2000"
-          disabled={app.busy("history-correct")}></textarea>
+        <div class="scroll-edges-frame">
+          <textarea
+            id="history-corrected"
+            bind:value={corrected}
+            rows="4"
+            maxlength="2000"
+            disabled={app.busy("history-correct")}
+            use:scrollEdges={{ frame: true }}></textarea>
+        </div>
         <details class="license scope-fold">
           <summary>Project or topic (optional)</summary>
           <label class="field-label" for="history-scope">Project or topic</label
@@ -413,7 +417,7 @@
                 }}><Icon name="copy" size={16} />Copy</button
               >
             </div>
-            <div class="paper-well transcript">
+            <div class="paper-well transcript" use:scrollEdges>
               {version.text ||
                 (selected.recognitionCompleteness === "incomplete"
                   ? "No text was recovered."
@@ -598,7 +602,11 @@
           : "Your completed dictations will appear here."}
       </p>
     {:else}
-      <ul class="history-list" aria-label="Recent dictations">
+      <ul
+        class="history-list"
+        aria-label="Recent dictations"
+        use:scrollEdges
+      >
         {#each records as record (record.id)}
           <li class="history-row" class:latest-row={record.id === newestId}>
             <button

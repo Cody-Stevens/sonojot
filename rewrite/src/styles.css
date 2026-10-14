@@ -2303,3 +2303,123 @@ kbd {
 .studio[data-material="off"] .text-tabs button {
   background-image: none;
 }
+
+/* Scroll edges: one paper-pocket lip for every scrolling region. A lip shows
+   at the top while content is above and at the bottom while content is below
+   (scroll-edges.ts writes --edge-start/--edge-end). It never takes input and
+   stays fixed while the content moves under it. */
+.studio {
+  --edge-size: 18px;
+}
+[data-scroll-edges="inside"]::before,
+[data-scroll-edges="inside"]::after,
+.scroll-edges-frame::before,
+.scroll-edges-frame::after,
+.page-frame::before,
+.page-frame::after {
+  content: "";
+  display: block;
+  z-index: 3;
+  box-sizing: border-box;
+  height: var(--edge-size);
+  pointer-events: none;
+  border-radius: 50% / 1px;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 12px,
+    black calc(100% - 12px),
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 12px,
+    black calc(100% - 12px),
+    transparent
+  );
+  transition: opacity var(--motion-control) linear;
+  /* A tight contact core at the lip, then a short soft falloff. Two layers so
+     the core reads on light Fog stock as well as on Slate. */
+  --edge-core: linear-gradient(
+    var(--edge-direction),
+    var(--contact),
+    transparent 4px
+  );
+  --edge-falloff: linear-gradient(
+    var(--edge-direction),
+    color-mix(in srgb, var(--contact) 85%, transparent),
+    color-mix(in srgb, var(--contact) 30%, transparent) 7px,
+    transparent
+  );
+}
+[data-scroll-edges="inside"]::before,
+.scroll-edges-frame::before,
+.page-frame::before {
+  --edge-direction: to bottom;
+  opacity: var(--edge-start, 0);
+  border-top: 1px solid var(--surface-highlight-color);
+  background: var(--edge-core), var(--edge-falloff);
+}
+[data-scroll-edges="inside"]::after,
+.scroll-edges-frame::after,
+.page-frame::after {
+  --edge-direction: to top;
+  opacity: var(--edge-end, 0);
+  border-bottom: 1px solid var(--surface-highlight-color);
+  background: var(--edge-core), var(--edge-falloff);
+}
+[data-edge-instant]::before,
+[data-edge-instant]::after {
+  transition: none;
+}
+/* Inside a scroller the lips are sticky and take no space. Sticky offsets
+   count from the padding edge, so the action supplies the padding to reach the
+   visible edge. A flex or grid scroller with a gap sets --edge-gap to it. */
+[data-scroll-edges="inside"]::before,
+[data-scroll-edges="inside"]::after {
+  position: sticky;
+  left: 0;
+  flex: none;
+}
+[data-scroll-edges="inside"]::before {
+  top: var(--edge-stick-top, 0px);
+  margin-bottom: calc(-1 * var(--edge-size) - var(--edge-gap, 0px));
+}
+[data-scroll-edges="inside"]::after {
+  bottom: var(--edge-stick-bottom, 0px);
+  margin-top: calc(-1 * var(--edge-size) - var(--edge-gap, 0px));
+}
+/* A wrapper draws the lips for a textarea, inside its border and clear of
+   its scrollbar. */
+.scroll-edges-frame {
+  position: relative;
+}
+.scroll-edges-frame::before,
+.scroll-edges-frame::after {
+  position: absolute;
+  left: calc(var(--edge-frame-left, 0px) + 1px);
+  right: calc(var(--edge-frame-right, 0px) + var(--edge-inset-end, 13px));
+}
+.scroll-edges-frame::before {
+  top: calc(var(--edge-frame-top, 0px) + 1px);
+}
+.scroll-edges-frame::after {
+  bottom: calc(var(--edge-frame-bottom, 0px) + 1px);
+}
+/* Paper and print off: a flat ink falloff without the paper lip. */
+.studio[data-material="off"] [data-scroll-edges="inside"]::before,
+.studio[data-material="off"] [data-scroll-edges="inside"]::after,
+.studio[data-material="off"] .scroll-edges-frame::before,
+.studio[data-material="off"] .scroll-edges-frame::after,
+.studio[data-material="off"] .page-frame::before,
+.studio[data-material="off"] .page-frame::after {
+  border-color: transparent;
+  border-radius: 0;
+  background: linear-gradient(
+    var(--edge-direction),
+    color-mix(in srgb, var(--ink) 28%, transparent),
+    color-mix(in srgb, var(--ink) 8%, transparent) 5px,
+    transparent
+  );
+}

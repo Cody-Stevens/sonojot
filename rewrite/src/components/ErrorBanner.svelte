@@ -1,5 +1,6 @@
 <script lang="ts">
   import { presentError, type ErrorAction } from "../lib/errors";
+  import { scrollEdges } from "../lib/scroll-edges";
   let {
     error,
     onaction,
@@ -46,7 +47,7 @@
     </div>{/if}
   <details data-text-surface="flat">
     <summary>Details</summary>
-    <pre>{message.details}</pre>
+    <pre use:scrollEdges>{message.details}</pre>
   </details>
 </div>
 

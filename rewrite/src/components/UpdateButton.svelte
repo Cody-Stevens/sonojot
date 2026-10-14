@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { scrollEdges } from "../lib/scroll-edges";
   import { app } from "../lib/app.svelte";
   import {
     updateActionDisabled,
@@ -105,6 +106,7 @@
       bind:this={tip}
       id={uid}
       class="update-tooltip stock paper-popover"
+      use:scrollEdges
       role="tooltip"
       popover="manual"
       data-text-surface="flat">{description}</span

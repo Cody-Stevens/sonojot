@@ -1,6 +1,11 @@
-/** Fixed paper lips show only the content that remains beyond the scrollport. */
+import { edgeState, paintEdges, watchScroll } from "./scroll-edges";
+
+/**
+ * Whole-page scrollport: the shared scroll-edge lips, painted by the parent
+ * frame, plus trailing pocket clearance that never scrolls into blank margin.
+ */
 export function paperScroll(node: HTMLElement): { destroy(): void } {
-  const frame = node.parentElement;
+  const frame = node.parentElement ?? node;
   const flow = node.firstElementChild as HTMLElement | null;
   /* The scrollport's trailing padding is pocket clearance, not content. When
      the real content end plus a few pixels of contour/focus room fits inside
@@ -11,9 +16,8 @@ export function paperScroll(node: HTMLElement): { destroy(): void } {
   const MIN_CLEARANCE = 6;
   const priorPad = node.style.getPropertyValue("--pocket-pad");
   const fullPad = parseFloat(getComputedStyle(node).paddingBlockEnd) || 0;
-  let pending = 0;
+  node.dataset.scrollEdges = "frame";
   const measure = () => {
-    pending = 0;
     /* The flow child's box bottom is the true end of content, independent of
        scroll position and of the current trailing padding. */
     const contentEnd = flow
@@ -31,29 +35,13 @@ export function paperScroll(node: HTMLElement): { destroy(): void } {
     } else {
       node.style.removeProperty("--pocket-pad");
     }
-    const remaining = Math.max(0, node.scrollHeight - node.clientHeight);
-    frame?.style.setProperty(
-      "--pocket-top",
-      String(Math.min(1, Math.max(0, node.scrollTop) / 28)),
-    );
-    frame?.style.setProperty(
-      "--pocket-bottom",
-      String(Math.min(1, Math.max(0, remaining - node.scrollTop) / 28)),
-    );
+    paintEdges(node, frame, edgeState(node));
   };
-  const schedule = () => {
-    if (!pending) pending = requestAnimationFrame(measure);
-  };
-  const observer = new ResizeObserver(schedule);
-  observer.observe(node);
-  if (flow) observer.observe(flow);
-  node.addEventListener("scroll", schedule, { passive: true });
-  schedule();
+  const stop = watchScroll(node, measure);
   return {
     destroy() {
-      observer.disconnect();
-      node.removeEventListener("scroll", schedule);
-      cancelAnimationFrame(pending);
+      stop();
+      delete node.dataset.scrollEdges;
       if (priorPad) node.style.setProperty("--pocket-pad", priorPad);
       else node.style.removeProperty("--pocket-pad");
     },

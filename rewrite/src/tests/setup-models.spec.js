@@ -187,12 +187,18 @@ test("keyboard browsing, unavailable models and failed saves preserve current se
   });
   await expect(picker.getByRole("searchbox")).toBeFocused();
   await picker.getByRole("searchbox").fill("older");
-  await page.keyboard.press("ArrowUp");
-  await expect(picker.getByRole("option")).toBeFocused();
-  await page.keyboard.press("Enter");
+  // A package this computer cannot run is not an ordinary choice: it waits,
+  // with its reason, in a collapsed group after the options.
+  await expect(picker.getByRole("option")).toHaveCount(0);
+  const unavailable = picker.locator("details.unavailable");
+  await expect(unavailable.locator("summary")).toContainText(
+    "Not available on this PC",
+  );
+  await unavailable.locator("summary").click();
   await expect(
-    picker.getByRole("button", { name: "Unavailable", exact: true }),
-  ).toBeDisabled();
+    unavailable.getByRole("list", { name: "Not available on this PC" }),
+  ).toContainText("Mock Cleanup 1B (older)");
+  await picker.getByRole("searchbox").focus();
   expect(await settings(page)).toEqual(before);
   await page.keyboard.press("Escape");
   await expect(trigger).toBeFocused();

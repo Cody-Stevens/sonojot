@@ -11,6 +11,7 @@
     modelRoles,
     modelUnavailableReason,
     shortDeviceLabel,
+    unavailableHere,
     type ModelEntry,
     type RemovalPlan,
   } from "../lib/model-library";
@@ -44,17 +45,22 @@
   let filter = $state("all");
   let page = $state(0);
   const pageSize = 5;
+  // Packages this computer cannot run follow the ones it can install.
   const filtered = $derived(
-    models.filter(
-      (model) =>
-        (tab === "installed"
-          ? installed(model) || checking(model)
-          : !model.deprecated && !installed(model) && !checking(model)) &&
-        (filter === "all" || model.roles.includes(filter)) &&
-        `${modelDisplayName(model, models)} ${shortDeviceLabel(model)} ${model.languages.join(" ")}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-    ),
+    models
+      .filter(
+        (model) =>
+          (tab === "installed"
+            ? installed(model) || checking(model)
+            : !model.deprecated && !installed(model) && !checking(model)) &&
+          (filter === "all" || model.roles.includes(filter)) &&
+          `${modelDisplayName(model, models)} ${shortDeviceLabel(model)} ${model.languages.join(" ")}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
+      )
+      .sort(
+        (a, b) => Number(unavailableHere(a)) - Number(unavailableHere(b)),
+      ),
   );
   const pageCount = $derived(
     Math.max(1, Math.ceil(filtered.length / pageSize)),
@@ -67,6 +73,17 @@
     tab = value;
     page = 0;
   }
+  /** Removal is blocked until another model for this role is installed. */
+  function showModelsFor(role: string): void {
+    query = "";
+    filter = role;
+    switchTab("browse");
+    document.getElementById(`${uid}-browse`)?.focus();
+  }
+  const roleModels: Record<string, string> = {
+    asr: "Show speech models",
+    notes: "Show text models",
+  };
   function detail(model: ModelEntry): string {
     const memory = /metal/i.test(model.backend)
       ? `Estimated unified memory ${memoryRange(model.ramMinBytes, model.ramMaxBytes)}`
@@ -171,9 +188,7 @@
               ? formatBytes(model.diskBytes)
               : model.id === "local-rules"
                 ? "No download"
-                : "Size unknown"}{#if roles(model)}
-              · {roles(model)}{/if}{#if model.older}
-              · Older{/if}</span
+                : "Size unknown"}{#if roles(model)}{` · ${roles(model)}`}{/if}{#if model.older}{" · Older"}{/if}</span
           >
           {#if model.roles.includes("meetingSpeech")}<span
               class="meta"
@@ -188,7 +203,11 @@
               class="meta removal-reason"
               data-text-surface="flat"
               role="status">{reason}</span
-            >{/if}
+            >{#if plan?.needs && roleModels[plan.needs]}<button
+                class="button quiet removal-fix"
+                onclick={() => plan?.needs && showModelsFor(plan.needs)}
+                >{roleModels[plan.needs]}</button
+              >{/if}{/if}
           {#if model.kind === "punctuation"}
             {#if !installed(model) && model.totalBytes > 0}<span
                 class="meta"
@@ -323,6 +342,9 @@
     margin: 9px 0 0;
   }
   .removal-reason {
+    margin-top: 9px;
+  }
+  .removal-fix {
     margin-top: 9px;
   }
   .pagination {

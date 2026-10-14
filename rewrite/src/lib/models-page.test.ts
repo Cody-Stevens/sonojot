@@ -10,8 +10,13 @@ import {
   type AiModel,
 } from "./ai";
 import {
+  SPEECH_REMOVAL_BLOCKED,
+  downloadPhaseLabel,
+  modelEntrySchema,
+  modelUnavailableReason,
   removalDetail,
   removalPlan,
+  unavailableHere,
   type ModelEntry,
   type RemovalSelection,
 } from "./model-library";
@@ -53,6 +58,8 @@ function entry(id: string, patch: Partial<ModelEntry> = {}): ModelEntry {
     revision: "fixture",
     quantization: "fixture",
     contextTokens: null,
+    supported: true,
+    stage: null,
     ...patch,
   };
 }
@@ -73,7 +80,9 @@ const punctuation = (state: string, installable = true) =>
     installable,
   });
 const lfm = entry("lfm2.5-1.2b", { name: "LFM2.5-1.2B Instruct" });
-const qwen = entry("qwen3-4b-instruct-2507", { name: "Qwen3-4B-Instruct-2507" });
+const qwen = entry("qwen3-4b-instruct-2507", {
+  name: "Qwen3-4B-Instruct-2507",
+});
 const speech = entry("qwen3-asr", {
   name: "Qwen3-ASR",
   kind: "asr",
@@ -99,7 +108,10 @@ test("default Cleanup is named for the punctuation model in every state", () => 
   );
   assert.equal(defaultCleanupStatus(missing), "Not installed");
   assert.equal(defaultCleanupStatus(missing, true), "Download included");
-  assert.equal(defaultCleanupStatus([rules, punctuation("checking")]), "Checking…");
+  assert.equal(
+    defaultCleanupStatus([rules, punctuation("checking")]),
+    "Checking…",
+  );
   // Without an installable package the shared fallback stays "Local rules".
   const none = [rules, punctuation("available", false)];
   assert.equal(modelDisplayName(rules, none), "Local rules");
@@ -109,14 +121,23 @@ test("default Cleanup is named for the punctuation model in every state", () => 
   assert.equal(modelDisplayName(lfm, installed), "LFM2.5-1.2B Instruct");
 });
 
-const selection = (patch: Partial<RemovalSelection> = {}): RemovalSelection => ({
+const selection = (
+  patch: Partial<RemovalSelection> = {},
+): RemovalSelection => ({
   asrModel: speech.id,
   cleanupModel: "local-rules",
   notesModel: qwen.id,
   meetingAsrModel: "",
   ...patch,
 });
-const models = [rules, punctuation("installed"), speech, otherSpeech, lfm, qwen];
+const models = [
+  rules,
+  punctuation("installed"),
+  speech,
+  otherSpeech,
+  lfm,
+  qwen,
+];
 const nameOf = (id: string) => {
   const model = models.find((item) => item.id === id);
   return model ? modelDisplayName(model, models) : id;
@@ -224,7 +245,10 @@ test("Speech prefers the recommended replacement and blocks without one", () => 
     recommended: { asrModel: otherSpeech.id },
     nameOf,
   });
-  assert.deepEqual(plan.switches.map((item) => item.to), [otherSpeech.id]);
+  assert.deepEqual(
+    plan.switches.map((item) => item.to),
+    [otherSpeech.id],
+  );
   const blocked = removalPlan(speech, {
     selection: selection(),
     models: [rules, speech, qwen],
@@ -234,7 +258,147 @@ test("Speech prefers the recommended replacement and blocks without one", () => 
   assert.deepEqual(blocked.switches, []);
   assert.equal(
     blocked.blocked,
-    "Speech uses this model. Install another speech model first.",
+    "SonoJot needs a speech model for dictation. To remove this one, install another speech model first.",
+  );
+  assert.equal(blocked.needs, "asr");
+});
+
+// Owner on the Mac: the only speech model's Remove explains itself and offers
+// the fix; any other installed, runnable speech model unblocks it.
+const qwenMetal = entry("qwen3-asr-1.7b-q4-metal", {
+  name: "Qwen3-ASR 1.7B (Q4 Metal)",
+  kind: "asr",
+  roles: ["asr"],
+  backend: "llama.cpp b10964 Metal",
+});
+const whisperMetal = entry("whisper-small-metal", {
+  name: "Whisper Small · Metal",
+  kind: "asr",
+  roles: ["asr"],
+  backend: "whisper.cpp · Apple Metal",
+});
+const moonshine = entry("moonshine-medium", {
+  name: "Moonshine Medium Streaming",
+  kind: "asr",
+  roles: ["asr"],
+  backend: "moonshine-ort-cpu",
+});
+const macSelection = selection({ asrModel: qwenMetal.id });
+
+test("the only speech model stays, says why, and points to speech models", () => {
+  const plan = removalPlan(qwenMetal, {
+    selection: macSelection,
+    models: [rules, qwenMetal, { ...whisperMetal, state: "available" }, qwen],
+    remoteNotes: false,
+    nameOf,
+  });
+  assert.deepEqual(plan, {
+    switches: [],
+    blocked:
+      "SonoJot needs a speech model for dictation. To remove this one, install another speech model first.",
+    needs: "asr",
+  });
+});
+
+test("another installed speech model unblocks Remove and takes over Speech", () => {
+  const plan = removalPlan(qwenMetal, {
+    selection: macSelection,
+    models: [rules, qwenMetal, whisperMetal, qwen],
+    remoteNotes: false,
+    // The saved profile recommends the model being removed; fall through.
+    recommended: { asrModel: qwenMetal.id },
+    nameOf: (id) => (id === whisperMetal.id ? whisperMetal.name : id),
+  });
+  assert.equal(plan.blocked, null);
+  assert.equal(plan.needs, undefined);
+  assert.deepEqual(plan.switches, [
+    {
+      setting: "asrModel",
+      to: whisperMetal.id,
+      sentence: "Speech will switch to Whisper Small · Metal.",
+    },
+  ]);
+});
+
+test("models this platform cannot run are never Speech replacements", () => {
+  for (const impossible of [
+    // Files left on disk, but the Mac cannot run the package.
+    { ...moonshine, supported: false },
+    // The catalog marks it unavailable outright.
+    { ...moonshine, state: "unavailable", installable: false },
+  ]) {
+    const plan = removalPlan(qwenMetal, {
+      selection: macSelection,
+      models: [rules, impossible, qwenMetal, qwen],
+      remoteNotes: false,
+      recommended: { asrModel: moonshine.id },
+      nameOf,
+    });
+    assert.equal(plan.blocked, SPEECH_REMOVAL_BLOCKED);
+    assert.deepEqual(plan.switches, []);
+  }
+  // A runnable model after the impossible one is still found.
+  const plan = removalPlan(qwenMetal, {
+    selection: macSelection,
+    models: [
+      rules,
+      { ...moonshine, supported: false },
+      qwenMetal,
+      whisperMetal,
+    ],
+    remoteNotes: false,
+    nameOf,
+  });
+  assert.deepEqual(
+    plan.switches.map((item) => item.to),
+    [whisperMetal.id],
+  );
+});
+
+test("pickers set aside models that cannot run here, not missing downloads", () => {
+  assert.equal(unavailableHere({ ...moonshine, supported: false }), true);
+  assert.equal(
+    unavailableHere({ ...moonshine, state: "unavailable", installable: false }),
+    true,
+  );
+  // Needs a download: still an ordinary choice.
+  assert.equal(unavailableHere({ ...whisperMetal, state: "available" }), false);
+  assert.equal(
+    unavailableHere({ ...whisperMetal, state: "downloading" }),
+    false,
+  );
+  assert.equal(unavailableHere(whisperMetal), false);
+  assert.equal(
+    modelUnavailableReason({
+      ...moonshine,
+      supported: false,
+      compatibility:
+        "This package requires Windows; choose a Metal model on this Mac.",
+    }),
+    "This package requires Windows; choose a Metal model on this Mac.",
+  );
+});
+
+test("a download names the shared add-on it is fetching", () => {
+  assert.equal(
+    downloadPhaseLabel({ ...qwenMetal, state: "downloading" }),
+    "Downloading",
+  );
+  assert.equal(
+    downloadPhaseLabel({
+      ...qwenMetal,
+      state: "downloading",
+      stage: "speech detector",
+    }),
+    "Downloading speech detector",
+  );
+  assert.equal(
+    downloadPhaseLabel({
+      ...qwenMetal,
+      state: "downloading",
+      stage: "model files",
+    }),
+    "Downloading model files",
   );
 });
 
@@ -251,6 +415,16 @@ test("Notes without another text model gives a one-line reason", () => {
     plan.blocked,
     "Notes uses this model. Install another text model or choose an OpenRouter model first.",
   );
+  assert.equal(plan.needs, "notes");
+});
+
+test("older native catalogs without the new fields parse as supported", () => {
+  const { supported, stage, ...legacy } = entry("legacy");
+  void supported;
+  void stage;
+  const parsed = modelEntrySchema.parse(legacy);
+  assert.equal(parsed.supported, true);
+  assert.equal(parsed.stage, null);
 });
 
 test("running, checking and installing models explain the wait", () => {
@@ -264,7 +438,10 @@ test("running, checking and installing models explain the wait", () => {
     removalPlan({ ...lfm, state: "busy" }, context).blocked,
     "Running now. Remove it after dictation or notes finish.",
   );
-  assert.equal(removalPlan({ ...lfm, state: "checking" }, context).blocked, "Checking…");
+  assert.equal(
+    removalPlan({ ...lfm, state: "checking" }, context).blocked,
+    "Checking…",
+  );
   assert.equal(
     removalPlan({ ...lfm, state: "downloading" }, context).blocked,
     "Installation in progress.",
@@ -309,8 +486,10 @@ test("catalog rows list each model once with all of its roles", () => {
     "Text and notes, meeting transcription",
   );
   assert.deepEqual(
-    catalogRows([catalogModel("google/gemini-3.8-flash", ["text", "audio"])], "meeting")
-      .map((row) => row.item.id),
+    catalogRows(
+      [catalogModel("google/gemini-3.8-flash", ["text", "audio"])],
+      "meeting",
+    ).map((row) => row.item.id),
     ["google/gemini-3.8-flash"],
   );
 });
@@ -333,11 +512,14 @@ test("saved per-role entries group into one row and remove together", () => {
     { id: "google/gemini-3.8-flash", roles: ["text", "speech"] },
     { id: "z-ai/glm-5.3-flash", roles: ["text"] },
   ]);
-  assert.deepEqual(quickModelGroupRemoval(settings, "google/gemini-3.8-flash"), {
-    quickModels: [{ id: "z-ai/glm-5.3-flash", role: "text" }],
-    backend: "local",
-    speechModel: "",
-  });
+  assert.deepEqual(
+    quickModelGroupRemoval(settings, "google/gemini-3.8-flash"),
+    {
+      quickModels: [{ id: "z-ai/glm-5.3-flash", role: "text" }],
+      backend: "local",
+      speechModel: "",
+    },
+  );
   assert.deepEqual(quickModelGroupRemoval(settings, "z-ai/glm-5.3-flash"), {
     quickModels: [
       { id: "google/gemini-3.8-flash", role: "text" },
