@@ -40,6 +40,12 @@ body,
   --edge-gap: var(--space-2);
   scroll-padding-block: var(--space-2);
 }
+/* The gap belongs to the nav's own lips. Custom properties inherit, so a
+   scroller inside the nav (the update tooltip) would otherwise pull its lips
+   in by the nav's gap too and collapse to a sliver. */
+.paper-nav * {
+  --edge-gap: 0px;
+}
 
 .paper-nav nav {
   flex: 1 0 auto;

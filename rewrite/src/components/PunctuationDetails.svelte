@@ -7,7 +7,9 @@
     punctuationModelPage,
   } from "../lib/punctuation";
 
-  let { id = PUNCTUATION_MODEL }: { id?: string } = $props();
+  /** `inline` prints the text directly, for a row that has its own Details. */
+  let { id = PUNCTUATION_MODEL, inline = false }: { id?: string; inline?: boolean } =
+    $props();
   const help = $derived(
     id === "sonojot-punct-v1"
       ? "Fixes sentence breaks and commas in dictation; runs on CPU"
@@ -23,9 +25,7 @@
   }
 </script>
 
-<p data-text-surface="flat">{help}</p>
-<details data-text-surface="flat">
-  <summary>Details</summary>
+{#snippet source()}
   <p>
     SonoJot Punctuation {id === "sonojot-punct-v1" ? "v1" : "v2"}, derived from
     Horizon-Labs/punctuation-restoration-small and jhu-clsp/mmBERT-small.
@@ -46,7 +46,17 @@
       rel="noopener noreferrer">Model page ↗</a
     >
   </p>
-</details>
+{/snippet}
+
+<p data-text-surface="flat">{help}</p>
+{#if inline}
+  <div data-text-surface="flat">{@render source()}</div>
+{:else}
+  <details data-text-surface="flat">
+    <summary>Details</summary>
+    {@render source()}
+  </details>
+{/if}
 
 <style>
   p {
@@ -58,6 +68,7 @@
   }
   summary {
     cursor: pointer;
+    width: fit-content;
   }
   a {
     color: inherit;

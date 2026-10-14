@@ -316,3 +316,20 @@ for (const theme of ["fog", "slate"]) {
     await capture(page, "update-review", `notice-ready-${theme}.png`);
   });
 }
+
+test("sidebar update tooltip shows its whole message", async ({ page }) => {
+  await installDesktopFixture(page, { update: { status: available } });
+  await page.goto("/");
+  await sidebar(page).getByRole("button").hover();
+  await pushUpdate(page, { status: { state: "downloading", percent: 42 } });
+  const tip = page.locator(".update-tooltip");
+  await expect(tip).toContainText("Keep working.");
+  // The nav's --edge-gap once leaked into the tooltip's own scroll lips and
+  // collapsed it to a clipped sliver.
+  const { height, content } = await tip.evaluate((el) => ({
+    height: el.clientHeight,
+    content: el.scrollHeight,
+  }));
+  expect(content - height).toBeLessThanOrEqual(1);
+  expect(height).toBeGreaterThan(40);
+});

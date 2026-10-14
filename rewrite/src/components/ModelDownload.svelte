@@ -66,7 +66,14 @@
             100,
             Math.floor((model.downloadedBytes / model.totalBytes) * 100),
           )}%{/if}</span
-      >
+      >{#if installing(model)}<span
+          class="bytes"
+          class:sr-only={compact}
+          data-text-surface="flat"
+          >{formatBytes(model.downloadedBytes)} / {model.totalBytes
+            ? formatBytes(model.totalBytes)
+            : "size unknown"}</span
+        >{/if}
     </div>
     {#if installing(model)}
       <!-- Compact rows leave Cancel to the Models page. -->
@@ -83,11 +90,6 @@
           ? Math.min(model.downloadedBytes, model.totalBytes)
           : undefined}
       ></progress>
-      <span class="bytes" class:sr-only={compact} data-text-surface="flat"
-        >{formatBytes(model.downloadedBytes)} / {model.totalBytes
-          ? formatBytes(model.totalBytes)
-          : "size unknown"}</span
-      >
     {:else if !installed(model) && !checking(model) && model.installable}
       <button
         class="button"
@@ -111,15 +113,20 @@
     align-items: center;
     gap: 9px 18px;
     margin-top: 27px;
-    padding-top: 18px;
-    border-top: 1px solid var(--line);
     font-size: 1rem;
   }
+  /* Name, then state and bytes in the secondary size, on one line. */
   .download-copy {
     display: flex;
     flex-wrap: wrap;
+    align-items: baseline;
     gap: 0 18px;
     overflow-wrap: anywhere;
+  }
+  .download:not(.compact) .phase,
+  .download:not(.compact) .bytes,
+  .download:not(.compact) p {
+    font-size: 15px;
   }
   .phase,
   .bytes,
@@ -132,7 +139,7 @@
   progress {
     grid-column: 1 / -1;
     width: 100%;
-    height: 9px;
+    height: 6px;
     accent-color: var(--ink);
     background: var(--sheet);
     background-image: var(--paper-image);
@@ -155,7 +162,6 @@
     background: var(--ink);
     border-radius: 5px;
   }
-  .bytes,
   p {
     grid-column: 1 / -1;
     margin: 0;

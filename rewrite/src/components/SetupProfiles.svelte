@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, type Snippet } from "svelte";
+  import Icon from "./Icon.svelte";
   import { app } from "../lib/app.svelte";
   import { ai } from "../lib/ai.svelte";
   import { library } from "../lib/model-library.svelte";
@@ -27,6 +28,8 @@
     setupProfiles,
   } from "../lib/setup-profiles";
 
+  /** Custom's role pickers, shown where the automatic profiles list models. */
+  let { custom }: { custom?: Snippet } = $props();
   const models = $derived(library.data?.models ?? []);
   const selected = $derived(profiles.selected);
   const recommendation = $derived(
@@ -148,44 +151,54 @@
   <p class="profile-description" data-text-surface="flat">{description}</p>
   {#if selected !== "custom"}
     {#if selection}
-      {#each modelRoles as role}
-        {@const id = selection[role.setting]}
-        {@const model = models.find((item) => item.id === id)}
-        <!-- Every row states its install state, so a recommended model that
-             is missing never reads as the one in use. -->
-        {@const status =
-          id === "local-rules" ? cleanupStatus : modelInstallStatus(model)}
-        <p
-          id={`setup-${role.id}`}
-          class="profile-summary"
-          tabindex="-1"
-          role="group"
-          aria-label={role.title}
-          data-text-surface="flat"
-        >
-          {role.title}: {id === "local-rules"
-            ? cleanupName
-            : (model?.name ??
-              app.snapshot.models.find((item) => item.id === id)?.name ??
-              (library.data
-                ? id || "No model selected"
-                : "Reading model details…"))}
-          {#if status}· {status}{/if}
-        </p>
-      {/each}
-    {:else}<p class="field-help" data-text-surface="flat">
+      <!-- One row per role: label, model, install state. The same columns as
+           Custom's pickers, so switching tabs never reflows the layout. -->
+      <div class="role-list">
+        {#each modelRoles as role}
+          {@const id = selection[role.setting]}
+          {@const model = models.find((item) => item.id === id)}
+          <!-- Every row states its install state, so a recommended model that
+               is missing never reads as the one in use. -->
+          {@const status =
+            id === "local-rules" ? cleanupStatus : modelInstallStatus(model)}
+          <p
+            id={`setup-${role.id}`}
+            class="profile-summary"
+            tabindex="-1"
+            role="group"
+            aria-label={role.title}
+          >
+            <span class="role" data-text-surface="flat"
+              >{role.title}<span class="sr-only">:</span></span
+            >{" "}<span class="name"
+              >{id === "local-rules"
+                ? cleanupName
+                : (model?.name ??
+                  app.snapshot.models.find((item) => item.id === id)?.name ??
+                  (library.data
+                    ? id || "No model selected"
+                    : "Reading model details…"))}</span
+            >{#if status}{" "}<span class="state" data-text-surface="flat"
+                ><span class="sr-only">{"· "}</span>{status}</span
+              >{/if}
+          </p>
+        {/each}
+      </div>
+    {:else}<p class="meta" data-text-surface="flat">
         Reading model choices…
       </p>{/if}
-  {/if}
+  {:else}{@render custom?.()}{/if}
 </div>
 
 {#if card.kind === "in-use"}
-  <p class="profile-action">
-    <span class="in-use" data-text-surface="flat">In use</span>
+  <p class="profile-action in-use-line">
+    <Icon name="check" size={18} /><span class="in-use" data-text-surface="flat"
+      >In use</span
+    >
   </p>
 {:else if card.kind === "unknown"}
   {#if profiles.checking || !ai.data}<p
-      class="profile-action field-help"
+      class="profile-action meta"
       data-text-surface="flat"
     >
       Checking…
@@ -207,7 +220,7 @@
               missing ? ` · ${formatBytes(missing)} download` : ""
             }`}
       </button>
-      {#if checkingSelection}<span class="field-help" data-text-surface="flat"
+      {#if checkingSelection}<span class="meta" data-text-surface="flat"
           >Checking…</span
         >{/if}
     </div>
@@ -225,7 +238,7 @@
           ? "Finish setup"
           : `Use ${profileLabel(selected)}`}
     </button>
-    <span class="field-help" data-text-surface="flat">
+    <span class="meta" data-text-surface="flat">
       {#if selected !== "custom" && selection}
         {checkingSelection
           ? "Checking…"
@@ -237,7 +250,7 @@
       {:else if selected === "custom" && speechChecking}
         Checking…
       {:else if selected === "custom" && !speechReady}
-        Choose and install a speech model below.
+        Choose and install a speech model above.
       {/if}
     </span>
   </div>
@@ -250,7 +263,7 @@
     {failure}
   </p>{/if}
 
-<details class="profile-memory">
+<details class="profile-memory fold">
   <summary data-text-surface="flat"
     >Why we recommend {profileLabel(
       selected === "custom" ? "balanced" : selected,
@@ -272,29 +285,56 @@
     overflow-wrap: anywhere;
   }
   .profile-choices small {
-    font-size: 0.8rem;
+    font-size: 15px;
     line-height: 1.25;
     margin-top: 4px;
   }
   .profile-details p {
-    margin: 9px 0 0;
+    margin: 0;
     overflow-wrap: anywhere;
   }
   .profile-details .profile-description {
     margin-bottom: 18px;
   }
-  .profile-summary,
+  /* Label, model, state: the shared row anatomy of the Models card. */
+  .role-list {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .profile-summary {
+    display: grid;
+    grid-template-columns: var(--role-label, 108px) minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 0 18px;
+    scroll-margin-top: 18px;
+  }
+  .profile-summary .role,
+  .profile-summary .state,
+  .meta,
   .profile-memory {
     color: var(--soft-ink);
   }
-  .profile-summary {
-    scroll-margin-top: 18px;
+  .profile-summary .state,
+  .meta {
+    font-size: 15px;
+  }
+  .profile-summary .state {
+    text-align: right;
+    white-space: nowrap;
   }
   .profile-memory {
     margin-top: 18px;
   }
   .profile-memory summary {
     cursor: pointer;
+    font-size: 15px;
+    width: fit-content;
+  }
+  .profile-memory :global(.recommendation) {
+    margin-top: 9px;
+    padding-left: 18px;
+    font-size: 15px;
   }
   .profile-summary:focus-visible,
   .profile-memory summary:focus-visible {
@@ -302,21 +342,32 @@
     outline-offset: 3px;
   }
   .profile-action {
-    margin-top: 18px;
+    margin-top: 27px;
   }
   .profile-change p,
   .profile-failure {
-    margin: 0 0 9px;
+    margin: 0 0 18px;
     overflow-wrap: anywhere;
   }
   .profile-failure {
     margin: 9px 0 0;
   }
+  .in-use-line {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--dye);
+    margin-bottom: 0;
+  }
   .in-use {
-    display: inline-block;
-    padding: 3px 9px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    color: var(--soft-ink);
+    color: var(--ink);
+  }
+  @media (max-width: 550px) {
+    .profile-summary {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .profile-summary .role {
+      grid-column: 1 / -1;
+    }
   }
 </style>

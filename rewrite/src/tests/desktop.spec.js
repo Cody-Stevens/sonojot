@@ -145,7 +145,7 @@ test("choosing an online meeting speech model keeps the separate text choice", a
   await expect(trigger).toContainText("Mock speech model");
   await expect(trigger).toHaveAccessibleDescription(warning);
   await expect(page.locator("#setup-meeting")).toContainText(
-    "Meeting audio goes to OpenRouter and is billed there.",
+    "Sent to OpenRouter and billed there · $1 input, $2 output per 1M tokens",
   );
   expect(await page.evaluate(() => window.__testAiSettings())).toMatchObject({
     model: "mock/text",
@@ -195,7 +195,7 @@ test("remote Notes choices and the Notes summary expose privacy without nested c
   await expect(notes).toContainText("Mock text model");
   await expect(notes).toHaveAccessibleDescription(warning);
   await expect(page.locator("#setup-notes")).toContainText(
-    "Text goes to OpenRouter and is billed there.",
+    "Sent to OpenRouter and billed there · $1 input, $2 output per 1M tokens",
   );
   await goToPage(page, "Dictation");
   const models = await openMoreOptions(page);

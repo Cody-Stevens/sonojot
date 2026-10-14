@@ -268,6 +268,8 @@ test("GPU budget preserves proposed demand after CPU fallback and marks unknown 
   });
   const picker = await openPicker(page, "Speech", "FP16");
   await picker.getByRole("option").click();
+  // The memory budget sits at the top of Performance and storage.
+  await openPerformance(page);
   const gpu = page.locator('[data-budget="GPU VRAM"]');
   await expect(gpu).toContainText("exceeds capacity");
   await expect(gpu).toHaveAttribute("data-unknown", "false");
@@ -333,9 +335,11 @@ for (const [theme, width] of [
       theme === "slate" ? "rgb(59, 68, 58)" : "rgb(255, 253, 247)",
     );
     await expect(trigger).toHaveCSS("opacity", "1");
+    // The memory budget is folded into Performance and storage.
+    await expect(models.locator('[data-budget="HOST RAM"]')).toBeHidden();
+    await openPerformance(page);
     await expect(models.locator('[data-budget="HOST RAM"]')).toBeVisible();
     await expect(models.locator('[data-budget="GPU VRAM"]')).toBeVisible();
-    await openPerformance(page);
     expect(
       await changeFolder(page).evaluate(
         (element) => getComputedStyle(element).fontSize,

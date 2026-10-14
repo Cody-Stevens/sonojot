@@ -155,6 +155,18 @@
       : undefined,
   );
   const candidate = $derived(candidates.find((m) => m.id === candidateId));
+  const showOnline = $derived(allowOnline && onlineConnected);
+  /** One line under the name: languages and memory, never the device again. */
+  function detailLine(model: ModelEntry): string {
+    const graphics =
+      model.vramMinBytes || model.vramMaxBytes
+        ? ` · ${memoryRange(model.vramMinBytes, model.vramMaxBytes)} graphics memory`
+        : "";
+    return `${model.languages.join(", ") || "Language details unavailable"} · Memory: ${memoryRange(
+      model.ramMinBytes,
+      model.ramMaxBytes,
+    )} RAM${graphics}`;
+  }
   const tabStop = $derived(candidate?.id ?? candidates[0]?.id);
 
   async function show(): Promise<void> {
@@ -313,7 +325,9 @@
   <!-- The well bounds the list; its edges show when more is above or below. -->
   <div class="paper-well option-well" use:scrollEdges>
     <div class="options" role="listbox" aria-label={`${title} choices`}>
-      <p class="group-label" data-text-surface="flat">On this computer</p>
+      {#if showOnline}<p class="group-label" data-text-surface="flat">
+          On this computer
+        </p>{/if}
       {#if localDefaultLabel}
         <button
           class="option"
@@ -360,7 +374,7 @@
         >
           No matching models.
         </p>{/if}
-      {#if allowOnline && onlineConnected}
+      {#if showOnline}
         <p class="group-label" data-text-surface="flat">OpenRouter</p>
         {#each remoteCandidates as model (model.id)}
           <button
@@ -417,20 +431,16 @@
         {#if modelUnavailableReason(candidate)}<p>
             {modelUnavailableReason(candidate)}
           </p>{/if}
-        <p>
-          {shortDeviceLabel(candidate)} · {candidate.languages.join(", ") ||
-            "Language details unavailable"}
-        </p>
-        <p>
-          Memory: {memoryRange(candidate.ramMinBytes, candidate.ramMaxBytes)} RAM
-          · {memoryRange(candidate.vramMinBytes, candidate.vramMaxBytes)} graphics
-          memory
-        </p>
+        <p>{detailLine(candidate)}</p>
       </div>
       {#if !installed(candidate)}
         <div class="candidate" aria-live="polite">
-          <span data-text-surface="flat"
-            >{candidate.name} · {formatBytes(candidate.diskBytes)}</span
+          <span class="meta" data-text-surface="flat"
+            >{formatBytes(candidate.diskBytes)} download. {modelUnavailableReason(
+              candidate,
+            )
+              ? ""
+              : "Select it after it downloads."}</span
           >
           <button
             class="button"
@@ -451,13 +461,10 @@
                   : "Unavailable"}</button
           >
         </div>
-        <p class="meta help" data-text-surface="flat">
-          {modelUnavailableReason(candidate) ?? "Select it after it downloads."}
-        </p>
       {/if}
       {#if missingPunctuation}
         <div class="candidate" aria-live="polite">
-          <span data-text-surface="flat"
+          <span class="meta" data-text-surface="flat"
             >{missingPunctuation.name} · {formatBytes(
               missingPunctuation.totalBytes || missingPunctuation.diskBytes,
             )}</span
@@ -478,8 +485,8 @@
     <footer class="online">
       <p class="meta help" data-text-surface="flat">
         {allowOnline
-          ? `Online choices send ${role === "asr" || role === "meetingSpeech" ? "meeting audio" : "text"} to OpenRouter and are billed there.`
-          : "Dictation speech stays on this computer. Online speech is available for meeting transcription."}
+          ? `Online models send ${role === "asr" || role === "meetingSpeech" ? "meeting audio" : "text"} to OpenRouter.`
+          : "Online speech is for meetings only."}
       </p>
       <button
         class="button quiet"
@@ -488,9 +495,7 @@
           onaddonline?.();
         }}
       >
-        {onlineConnected
-          ? "Add OpenRouter models…"
-          : "Connect OpenRouter to add online models…"}
+        {onlineConnected ? "Add OpenRouter models…" : "Connect OpenRouter…"}
       </button>
     </footer>
   {/if}
@@ -553,10 +558,11 @@
     padding: 9px;
     border-radius: 12px;
   }
+  /* No dead gaps between options: a clear border spaces the slips, so every
+     point of the list belongs to an option. */
   .options {
     display: flex;
     flex-direction: column;
-    gap: 3px;
   }
   .option {
     display: flex;
@@ -570,6 +576,8 @@
     border: 1px solid transparent;
     border-radius: 9px;
     background: transparent;
+    background-clip: padding-box;
+    outline-offset: -1px;
     text-align: left;
     font-size: 1rem;
     line-height: 1.4;
@@ -602,13 +610,18 @@
   .option[aria-selected="true"] .check {
     visibility: visible;
   }
+  /* Two sizes: 18px names, 15px for every secondary line. */
   .meta,
   .empty {
     color: var(--soft-ink);
+    font-size: 15px;
+  }
+  .option .meta {
+    line-height: 1.35;
   }
   .group-label {
     margin: 9px 12px 3px;
-    font-size: 0.9rem;
+    font-size: 15px;
     color: var(--soft-ink);
   }
   .group-label:first-child {
@@ -625,7 +638,7 @@
   .unavailable summary {
     cursor: pointer;
     color: var(--soft-ink);
-    font-size: 0.9rem;
+    font-size: 15px;
   }
   .unavailable ul {
     list-style: none;
@@ -639,14 +652,12 @@
   .unavailable li span {
     display: block;
   }
-  .unavailable li .meta {
-    font-size: 0.9rem;
-  }
   .details {
     flex: none;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 4px;
+    padding: 0 12px;
   }
   .details-name {
     margin: 0;
@@ -659,19 +670,16 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 0.9rem;
   }
   .help {
     margin: 0;
-    font-size: 0.9rem;
   }
   .candidate {
     display: flex;
     align-items: center;
     gap: 18px;
     justify-content: space-between;
-    border-top: 1px solid var(--line);
-    padding-top: 9px;
+    margin-top: 5px;
   }
   .candidate span {
     min-width: 0;
@@ -680,14 +688,22 @@
   .candidate .button {
     flex: none;
   }
-  /* Online choices sit apart from the local list: the note, then its action. */
+  /* Online choices sit apart from the local list: the note and its action on
+     one line below a rule. */
   .online {
     flex: none;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 9px;
-    padding-top: 18px;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 9px 18px;
+    padding: 12px 12px 0;
     border-top: 1px solid var(--line);
+  }
+  .online .help {
+    flex: 1 1 220px;
+  }
+  .online .button {
+    flex: none;
   }
 </style>

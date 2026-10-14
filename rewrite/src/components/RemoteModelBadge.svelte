@@ -27,6 +27,8 @@
     }
     function show(): void {
       clearTimeout(hideTimer);
+      // An open picker covers its trigger; the note must not sit on top.
+      if (target?.getAttribute("aria-expanded") === "true") return hide();
       tooltip.showPopover();
       const anchor = marker.getBoundingClientRect();
       const rect = tooltip.getBoundingClientRect();
@@ -48,6 +50,7 @@
     target.addEventListener("focus", show);
     target.addEventListener("blur", hide);
     target.addEventListener("keydown", key);
+    target.addEventListener("click", hide);
     tooltip.addEventListener("mouseenter", show);
     tooltip.addEventListener("mouseleave", leave);
     window.addEventListener("resize", reposition);
@@ -59,6 +62,7 @@
       target.removeEventListener("focus", show);
       target.removeEventListener("blur", hide);
       target.removeEventListener("keydown", key);
+      target.removeEventListener("click", hide);
       tooltip.removeEventListener("mouseenter", show);
       tooltip.removeEventListener("mouseleave", leave);
       window.removeEventListener("resize", reposition);

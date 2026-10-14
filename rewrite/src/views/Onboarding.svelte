@@ -646,16 +646,17 @@
         <div class="model-columns">
           <Card class="tour-card model-summary">
             <dl data-text-surface="flat">
+              <!-- Same role order as the Models page. -->
               <dt>Speech</dt>
               <dd>{modelDetails.speech ?? missingDetails}</dd>
+              <dt>Cleanup</dt>
+              <dd>{cleanupLine}</dd>
               <dt>Notes</dt>
               <dd>
                 {modelDetails.notes ?? missingDetails}
                 {#if selected === "custom" && (aiSettings?.backend === "openrouter" || selection?.notesModel === "openrouter")}<RemoteModelBadge
                   />{/if}
               </dd>
-              <dt>Cleanup</dt>
-              <dd>{cleanupLine}</dd>
             </dl>
             <p data-text-surface="flat">
               {modelDetails.downloadBytes === null

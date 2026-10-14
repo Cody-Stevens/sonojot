@@ -26,6 +26,11 @@
         : resource === "ram"
           ? "HOST RAM"
           : "GPU VRAM",
+      name: hardware?.unifiedMemory
+        ? "Unified memory"
+        : resource === "ram"
+          ? "RAM"
+          : "Graphics memory",
       ...modelBudget({ selected, hardware, sequential, cpu, resource }),
     })),
   );
@@ -44,7 +49,7 @@
       data-unknown={budget.unknown}
     >
       <div class="caption">
-        <span>{budget.label}</span><span data-text-surface="flat"
+        <span>{budget.name}</span><span data-text-surface="flat"
           >{budget.total === null
             ? "Capacity unknown"
             : hardware?.unifiedMemory
@@ -55,7 +60,7 @@
       <div
         class="bar"
         role="img"
-        aria-label={`${budget.label}: ${budget.estimate}; ${budget.unknown ? "headroom unknown" : `${formatBytes(budget.headroom)} planned headroom`}.`}
+        aria-label={`${budget.name}: ${budget.estimate}; ${budget.unknown ? "headroom unknown" : `${formatBytes(budget.headroom)} planned headroom`}.`}
       >
         {#each budget.segments.filter((segment) => segment.bytes > 0) as segment}
           <span
@@ -105,10 +110,8 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 18px 27px;
-    margin-top: 27px;
-    padding-top: 18px;
-    border-top: 1px solid var(--line);
-    font-size: 1rem;
+    margin-bottom: 9px;
+    font-size: 15px;
   }
   .budgets.unified {
     grid-template-columns: minmax(0, 1fr);
@@ -124,7 +127,7 @@
   }
   .bar {
     display: flex;
-    height: 18px;
+    height: 12px;
     overflow: hidden;
     margin: 9px 0;
     border: 1px solid var(--line);

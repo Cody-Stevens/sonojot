@@ -90,6 +90,25 @@
       : `Estimated RAM ${memoryRange(model.ramMinBytes, model.ramMaxBytes)}; GPU VRAM ${memoryRange(model.vramMinBytes, model.vramMaxBytes)}`;
     return `${model.family}. ${model.languages.join(", ")}. ${memory}.`;
   }
+  /** Device · size · in-use roles · Older: the one meta line of a row. */
+  function metaLine(model: ModelEntry): string {
+    const size = model.diskBytes
+      ? formatBytes(model.diskBytes)
+      : model.id === "local-rules"
+        ? "No download"
+        : "Size unknown";
+    return [
+      shortDeviceLabel(model),
+      size,
+      model.roles.includes("meetingSpeech") && !model.roles.includes("asr")
+        ? "Meetings only"
+        : "",
+      roles(model),
+      model.older ? "Older" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
   function roles(model: ModelEntry): string {
     const selected: string[] = modelRoles
       .filter(
@@ -108,36 +127,37 @@
 </script>
 
 <div class="library">
-  <div class="tabs" role="tablist" aria-label="Model library views">
-    {#each ["installed", "browse"] as value, index}
-      <button
-        id={`${uid}-${value}`}
-        class="button"
-        role="tab"
-        aria-selected={tab === value}
-        aria-controls={`${uid}-rows`}
-        tabindex={tab === value ? 0 : -1}
-        onclick={() => switchTab(value)}
-        onkeydown={(event) => {
-          if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
-            event.preventDefault();
-            const next =
-              event.key === "Home"
-                ? "installed"
-                : event.key === "End"
-                  ? "browse"
-                  : index === 0
+  <!-- One toolbar row: view, search and role filter. -->
+  <div class="toolbar">
+    <div class="tabs" role="tablist" aria-label="Model library views">
+      {#each ["installed", "browse"] as value, index}
+        <button
+          id={`${uid}-${value}`}
+          role="tab"
+          aria-selected={tab === value}
+          aria-controls={`${uid}-rows`}
+          tabindex={tab === value ? 0 : -1}
+          onclick={() => switchTab(value)}
+          onkeydown={(event) => {
+            if (
+              ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+            ) {
+              event.preventDefault();
+              const next =
+                event.key === "Home"
+                  ? "installed"
+                  : event.key === "End"
                     ? "browse"
-                    : "installed";
-            switchTab(next);
-            document.getElementById(`${uid}-${next}`)?.focus();
-          }
-        }}>{value === "installed" ? "Installed" : "Get more"}</button
-      >
-    {/each}
-  </div>
-  {#if tab === "browse"}<ModelPareto />{/if}
-  <div class="filters">
+                    : index === 0
+                      ? "browse"
+                      : "installed";
+              switchTab(next);
+              document.getElementById(`${uid}-${next}`)?.focus();
+            }
+          }}>{value === "installed" ? "Installed" : "Get more"}</button
+        >
+      {/each}
+    </div>
     <input
       type="search"
       placeholder="Search models"
@@ -160,6 +180,7 @@
       ></select
     >
   </div>
+  {#if tab === "browse"}<ModelPareto />{/if}
   <div
     id={`${uid}-rows`}
     role="tabpanel"
@@ -177,24 +198,12 @@
       {@const plan =
         installed(model) && model.removable ? removal(model) : null}
       {@const reason = plan?.blocked ?? ""}
+      <!-- Row anatomy: name, one meta line, the action; everything else is
+           behind Details. Only a reason that blocks the action stays out. -->
       <div class="entry" data-model-id={model.id}>
         <div class="copy">
-          <span>{modelDisplayName(model, models)}</span><span
-            class="meta"
-            data-text-surface="flat"
-            >{model.roles.includes("meetingSpeech")
-              ? "meetings · "
-              : ""}{shortDeviceLabel(model)} · {model.diskBytes
-              ? formatBytes(model.diskBytes)
-              : model.id === "local-rules"
-                ? "No download"
-                : "Size unknown"}{#if roles(model)}{` · ${roles(model)}`}{/if}{#if model.older}{" · Older"}{/if}</span
-          >
-          {#if model.roles.includes("meetingSpeech")}<span
-              class="meta"
-              data-text-surface="flat">{model.guidance}</span
-            >{/if}
-          <ModelLicense id={model.id} />
+          <span class="name">{modelDisplayName(model, models)}</span>
+          <span class="meta" data-text-surface="flat">{metaLine(model)}</span>
           {#if modelUnavailableReason(model)}<span
               class="meta"
               data-text-surface="flat">{modelUnavailableReason(model)}</span
@@ -208,47 +217,55 @@
                 onclick={() => plan?.needs && showModelsFor(plan.needs)}
                 >{roleModels[plan.needs]}</button
               >{/if}{/if}
-          {#if model.kind === "punctuation"}
-            {#if !installed(model) && model.totalBytes > 0}<span
-                class="meta"
-                data-text-surface="flat"
-                >{formatBytes(model.totalBytes)} to download</span
-              >{/if}
-            <PunctuationDetails id={model.id} />
-          {:else}
-            <details class="meta" data-text-surface="flat">
-              <summary>Details</summary>
-              <p>{detail(model)}</p>
-            </details>
-          {/if}
+          <details class="meta row-details" data-text-surface="flat">
+            <summary>Details</summary>
+            <div class="details-body">
+              {#if model.kind === "punctuation"}
+                {#if !installed(model) && model.totalBytes > 0}<p>
+                    {formatBytes(model.totalBytes)} to download
+                  </p>{/if}
+                <PunctuationDetails id={model.id} inline />
+              {:else}
+                {#if model.roles.includes("meetingSpeech")}<p>
+                    {model.guidance}
+                  </p>{/if}
+                <p>{detail(model)}</p>
+              {/if}
+              <ModelLicense id={model.id} />
+            </div>
+          </details>
         </div>
-        {#if checking(model)}<span class="meta" data-text-surface="flat"
-            >Checking…</span
-          >
-        {:else if installing(model)}<span class="meta" data-text-surface="flat"
-            >Installing</span
-          >
-        {:else if installed(model)}
-          {#if model.removable}<button
-              class="button quiet"
-              disabled={locked || !!plan?.blocked}
-              title={reason || `Remove ${model.name}`}
-              aria-label={`Remove ${model.name}`}
-              onclick={() => onremove(model)}>Remove</button
-            >{:else}<span class="meta" data-text-surface="flat">Included</span
+        <div class="action">
+          {#if checking(model)}<span class="meta" data-text-surface="flat"
+              >Checking…</span
+            >
+          {:else if installing(model)}<span
+              class="meta"
+              data-text-surface="flat">Installing</span
+            >
+          {:else if installed(model)}
+            {#if model.removable}<button
+                class="button quiet"
+                disabled={locked || !!plan?.blocked}
+                title={reason || `Remove ${model.name}`}
+                aria-label={`Remove ${model.name}`}
+                onclick={() => onremove(model)}>Remove</button
+              >{:else}<span class="meta" data-text-surface="flat"
+                >Included</span
+              >{/if}
+          {:else if model.installable}<button
+              class="button"
+              disabled={installDisabled}
+              aria-label={`${model.error ? "Retry" : "Install"} ${model.name}`}
+              onclick={() => oninstall(model)}
+              >{model.error ? "Retry" : "Install"}</button
+            >
+          {:else}<span class="meta" data-text-surface="flat">Unavailable</span
             >{/if}
-        {:else if model.installable}<button
-            class="button"
-            disabled={installDisabled}
-            aria-label={`${model.error ? "Retry" : "Install"} ${model.name}`}
-            onclick={() => oninstall(model)}
-            >{model.error ? "Retry" : "Install"}</button
-          >
-        {:else}<span class="meta" data-text-surface="flat">Unavailable</span
-          >{/if}
+        </div>
       </div>
     {/each}
-    {#if !rows.length}<p class="empty" data-text-surface="flat">
+    {#if !rows.length}<p class="meta empty" data-text-surface="flat">
         {query || filter !== "all"
           ? "No matching models."
           : tab === "installed"
@@ -264,7 +281,7 @@
         onclick={() => {
           page = currentPage - 1;
         }}>Previous</button
-      ><span data-text-surface="flat" aria-live="polite"
+      ><span class="meta" data-text-surface="flat" aria-live="polite"
         >{currentPage + 1} / {pageCount}</span
       ><button
         class="button quiet"
@@ -281,20 +298,44 @@
   .library {
     font-size: 1rem;
   }
+  .toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(135px, 200px);
+    align-items: center;
+    gap: 9px 18px;
+    margin-bottom: 9px;
+  }
+  /* View tabs: a small recessed track, the chosen view a lifted slip. */
   .tabs {
     display: flex;
-    gap: 9px;
-    margin-bottom: 18px;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 12px;
+    background-color: var(--well);
+    box-shadow: inset 0 1.5px 2px var(--contact);
+  }
+  .tabs button {
+    border: 0;
+    border-radius: 9px;
+    padding: 6px 14px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 1rem;
+    line-height: 1.3;
+    white-space: nowrap;
   }
   .tabs [aria-selected="true"] {
-    background-color: var(--dye);
-    color: var(--dye-ink);
+    background-color: var(--card);
+    box-shadow:
+      0 1px 2px var(--contact),
+      inset 0 1px 0 var(--surface-highlight-color);
   }
-  .filters {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(135px, 1fr);
-    gap: 18px;
-    margin-bottom: 9px;
+  .tabs button:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
+  }
+  :global(.studio[data-material="off"]) .tabs [aria-selected="true"] {
+    outline: 1px solid var(--line);
   }
   input,
   select,
@@ -302,38 +343,55 @@
     font-size: 1rem;
   }
   .entry {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
     gap: 18px;
-    padding: 18px 0;
+    padding: 14px 0;
     border-bottom: 1px solid var(--line);
   }
   .entry:last-child {
     border: 0;
   }
-  .entry .button {
+  .action {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .action .button {
     flex: none;
   }
   .copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     min-width: 0;
     overflow-wrap: anywhere;
   }
-  .copy span {
-    display: block;
+  .meta {
+    color: var(--soft-ink);
+    font-size: 15px;
+    line-height: 1.45;
   }
-  details {
-    margin-top: 9px;
+  .row-details {
+    margin-top: 2px;
+    align-self: stretch;
   }
   summary {
     cursor: pointer;
+    width: fit-content;
   }
-  details p {
-    margin: 9px 0 0;
+  summary:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
   }
-  .meta,
-  .empty {
-    color: var(--soft-ink);
+  .details-body {
+    padding: 4px 0 0 18px;
+  }
+  .details-body :global(p) {
+    margin: 4px 0 0;
+    font-size: 15px;
   }
   .empty {
     margin: 18px 0;
@@ -342,10 +400,10 @@
     margin: 9px 0 0;
   }
   .removal-reason {
-    margin-top: 9px;
+    margin-top: 4px;
   }
   .removal-fix {
-    margin-top: 9px;
+    margin: 9px 0 4px;
   }
   .pagination {
     display: flex;
@@ -354,17 +412,22 @@
     gap: 18px;
     margin-top: 18px;
   }
+  @media (max-width: 760px) {
+    .toolbar {
+      grid-template-columns: minmax(0, 1fr) minmax(135px, 1fr);
+    }
+    .tabs {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+  }
   @media (max-width: 550px) {
-    .filters {
+    .toolbar {
       grid-template-columns: minmax(0, 1fr);
-      gap: 9px;
     }
     .entry {
-      flex-wrap: wrap;
+      grid-template-columns: minmax(0, 1fr);
       gap: 9px;
-    }
-    .copy {
-      flex: 1 1 100%;
     }
   }
 </style>
