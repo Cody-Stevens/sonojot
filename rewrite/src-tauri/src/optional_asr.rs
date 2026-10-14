@@ -266,17 +266,21 @@ pub(crate) fn ensure_mac_speech_runtime(
     let total = crate::diarization_model::MAC_RUNTIME_ARCHIVE_BYTES + VAD_BYTES;
     let result = (|| {
         let archive = staging.join("onnxruntime.tgz");
-        crate::whisper_catalog::download_with_progress(
+        // Both files are GitHub release assets; the Hugging Face downloader
+        // refuses GitHub's redirect and reads the redirect's size instead.
+        download_with_cancel_progress(
             crate::diarization_model::MAC_RUNTIME_URL, &archive,
             crate::diarization_model::MAC_RUNTIME_ARCHIVE_BYTES,
-            crate::diarization_model::MAC_RUNTIME_ARCHIVE_SHA256, cancel,
+            crate::diarization_model::MAC_RUNTIME_ARCHIVE_SHA256,
+            HostClass::GitHub, "ONNX Runtime", cancel,
             &|done, _| progress(done.min(total - 1), total),
         )?;
         check_cancel()?;
         crate::diarization_model::extract_mac_runtime(&archive, &staging, cancel)?;
         fs::remove_file(&archive).map_err(|e| format!("Cannot remove staged runtime archive: {e}"))?;
-        crate::whisper_catalog::download_with_progress(
-            VAD_URL, &staging.join(SILERO_PIN.relative), VAD_BYTES, VAD_SHA256, cancel,
+        download_with_cancel_progress(
+            VAD_URL, &staging.join(SILERO_PIN.relative), VAD_BYTES, VAD_SHA256,
+            HostClass::GitHub, "speech detector", cancel,
             &|done, _| progress((crate::diarization_model::MAC_RUNTIME_ARCHIVE_BYTES + done).min(total - 1), total),
         )?;
         check_cancel()?;
@@ -589,6 +593,10 @@ pub(crate) fn download_with_cancel_progress(
         .map_err(|e| format!("The {what} download could not start: {e}"))?
         .error_for_status()
         .map_err(|e| format!("The {what} download was refused: {e}"))?;
+    // A refused redirect leaves a 3xx whose size is the redirect page's.
+    if response.status().is_redirection() {
+        return Err("The download was redirected to a host SonoJot does not trust. Nothing was installed.".into());
+    }
     if let Some(length) = response
         .headers()
         .get(reqwest::header::CONTENT_LENGTH)
@@ -1022,6 +1030,10 @@ pub(crate) fn download(
         .map_err(|e| format!("The {what} download could not start: {e}"))?
         .error_for_status()
         .map_err(|e| format!("The {what} download was refused: {e}"))?;
+    // A refused redirect leaves a 3xx whose size is the redirect page's.
+    if response.status().is_redirection() {
+        return Err("The download was redirected to a host SonoJot does not trust. Nothing was installed.".into());
+    }
     if let Some(length) = response
         .headers()
         .get(reqwest::header::CONTENT_LENGTH)

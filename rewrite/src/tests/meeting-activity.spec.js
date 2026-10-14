@@ -1,12 +1,14 @@
 import { expect, test } from "@playwright/test";
+import { structuredMeetingTranscript } from "./desktop-fixture.js";
 import {
-  installDesktopFixture,
-  structuredMeetingTranscript,
-} from "./desktop-fixture.js";
+  meetingActivity,
+  openApp,
+  openMeeting,
+  openTranscribeAgain,
+} from "./app-helpers.js";
 
-async function openMeetings(page, theme = "fog") {
-  await installDesktopFixture(page);
-  await page.goto(`/?page=meetings&theme=${theme}`);
+async function openMeetings(page, theme = "fog", options = {}) {
+  await openApp(page, options, `/?page=meetings&theme=${theme}`);
   await page.evaluate((theme) => {
     const snapshot = window.__testSnapshot();
     window.__testPushSnapshot({ settings: { ...snapshot.settings, theme } });
@@ -22,19 +24,25 @@ async function updateMeeting(page, patch) {
   await page.evaluate((patch) => window.__testUpdateMeeting(patch), patch);
 }
 
+const notesTab = (page) =>
+  page.getByRole("tab", { name: "Notes", exact: true });
+
 for (const theme of ["fog", "slate"]) {
   test(`${theme}: structured transcripts keep speaker alignment and timecodes through edits`, async ({
     page,
   }, testInfo) => {
-    await installDesktopFixture(page, {
-      meeting: {
-        transcript: structuredMeetingTranscript,
-        source: "both",
-        transcriptionModel: "moonshine-medium",
+    await openApp(
+      page,
+      {
+        meeting: {
+          transcript: structuredMeetingTranscript,
+          source: "both",
+          transcriptionModel: "moonshine-medium",
+        },
       },
-    });
-    await page.goto(`/?page=meetings&theme=${theme}`);
-    await page.getByRole("button", { name: /Design review/ }).click();
+      `/?page=meetings&theme=${theme}`,
+    );
+    await openMeeting(page, /Design review/);
     await expect(page.locator("#meeting-transcript")).toHaveCount(0);
     const blocks = page.locator(".transcript-block");
     await expect(blocks).toHaveCount(3);
@@ -56,9 +64,11 @@ for (const theme of ["fog", "slate"]) {
     await page
       .getByRole("button", { name: "Save changes", exact: true })
       .click();
+    // Save changes is shown only while there is something to save.
     await expect(
       page.getByRole("button", { name: "Save changes", exact: true }),
-    ).toBeDisabled();
+    ).toHaveCount(0);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
     expect(
       await page.evaluate(
         () =>
@@ -93,50 +103,44 @@ for (const config of [
   test(`meeting remote speech is absent when ${config.label}`, async ({
     page,
   }) => {
-    await installDesktopFixture(page, {
-      aiSettings: { ...config, backend: "openrouter", model: "mock/text" },
-    });
-    await page.goto("/?page=meetings");
-    await page.getByRole("button", { name: /Design review/ }).click();
-    await page
-      .getByRole("button", { name: "Transcribe again", exact: true })
-      .click();
+    await openApp(
+      page,
+      { aiSettings: { ...config, backend: "openrouter", model: "mock/text" } },
+      "/?page=meetings",
+    );
+    await openMeeting(page, /Design review/);
+    const card = await openTranscribeAgain(page);
     await expect(
       page.locator('#transcription-model option[value="openrouter"]'),
     ).toHaveCount(0);
     await expect(page.getByLabel("Speech model", { exact: true })).toHaveValue(
       "moonshine-medium",
     );
-    await expect(
-      page.locator(".transcribe-again .remote-model-badge"),
-    ).toHaveCount(0);
+    await expect(card.locator(".remote-model-badge")).toHaveCount(0);
   });
 }
 
 test("losing the OpenRouter connection disables the selected route without a local fallback", async ({
   page,
 }) => {
-  await installDesktopFixture(page, {
-    aiSettings: { connected: true, speechModel: "mock/audio" },
-  });
-  await page.goto("/?page=meetings");
-  await page.getByRole("button", { name: /Design review/ }).click();
-  await page
-    .getByRole("button", { name: "Transcribe again", exact: true })
-    .click();
+  await openApp(
+    page,
+    { aiSettings: { connected: true, speechModel: "mock/audio" } },
+    "/?page=meetings",
+  );
+  await openMeeting(page, /Design review/);
+  let card = await openTranscribeAgain(page);
   await page
     .getByLabel("Speech model", { exact: true })
     .selectOption("openrouter");
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.evaluate(() => window.__testPatchAiSettings({ connected: false }));
-  await page
-    .getByRole("button", { name: "Transcribe again", exact: true })
-    .click();
+  card = await openTranscribeAgain(page);
   await expect(
     page.locator('#transcription-model option[value="openrouter"]'),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Start", exact: true }),
+    card.getByRole("button", { name: "Start", exact: true }),
   ).toBeDisabled();
   expect(
     await page.evaluate(() =>
@@ -145,21 +149,19 @@ test("losing the OpenRouter connection disables the selected route without a loc
       ),
     ),
   ).toEqual([]);
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Transcribe again", exact: true })
-    .click();
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+  card = await openTranscribeAgain(page);
   await expect(page.getByLabel("Speech model", { exact: true })).toHaveValue(
     "",
   );
   await expect(
-    page.getByRole("button", { name: "Start", exact: true }),
+    card.getByRole("button", { name: "Start", exact: true }),
   ).toBeDisabled();
   await page
     .getByLabel("Speech model", { exact: true })
     .selectOption("moonshine-medium");
   await expect(
-    page.getByRole("button", { name: "Start", exact: true }),
+    card.getByRole("button", { name: "Start", exact: true }),
   ).toBeEnabled();
 });
 
@@ -168,30 +170,34 @@ test("meeting remote speech works with local text settings and retains the model
 }, testInfo) => {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await installDesktopFixture(page, {
-    aiSettings: {
-      backend: "local",
-      connected: true,
-      model: "",
-      speechModel: "mock/audio",
+  await openApp(
+    page,
+    {
+      aiSettings: {
+        backend: "local",
+        connected: true,
+        model: "",
+        speechModel: "mock/audio",
+      },
     },
-  });
-  await page.goto("/?page=meetings");
-  await page.getByRole("button", { name: /Design review/ }).click();
-  await page
-    .getByRole("button", { name: "Transcribe again", exact: true })
-    .click();
+    "/?page=meetings",
+  );
+  await openMeeting(page, /Design review/);
+  const card = await openTranscribeAgain(page);
   const select = page.getByLabel("Speech model", { exact: true });
   await expect(
     page.locator('#transcription-model option[value="openrouter"]'),
   ).toHaveText("OpenRouter · Mock speech model");
-  await expect(select).toHaveValue("moonshine-medium");
+  // A connected online speech model is the meeting default (meeting-models.ts).
+  await expect(select).toHaveValue("openrouter");
+  await select.selectOption("moonshine-medium");
   await select.selectOption("openrouter");
   await select.focus();
   await page.keyboard.press("Tab");
-  const badge = page
-    .locator(".transcribe-again")
-    .getByRole("button", { name: "Remote model privacy", exact: true });
+  const badge = card.getByRole("button", {
+    name: "Remote model privacy",
+    exact: true,
+  });
   await expect(badge).toBeFocused();
   const tooltip = page.getByRole("tooltip");
   const warning =
@@ -205,10 +211,8 @@ test("meeting remote speech works with local text settings and retains the model
   await expect(tooltip).toHaveCount(0);
   await badge.hover();
   await expect(tooltip).toHaveText(warning);
-  await page.getByRole("button", { name: "Start", exact: true }).click();
-  await expect(page.locator(".meeting-heading").getByRole("status")).toHaveText(
-    "Transcribing",
-  );
+  await card.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(meetingActivity(page)).toHaveText("Transcribing");
   expect(
     await page.evaluate(() =>
       window.__testCalls.filter(
@@ -225,14 +229,11 @@ test("meeting remote speech works with local text settings and retains the model
     window.__testPatchAiSettings({ speechModel: "mock/changed" });
     window.__testCompleteTranscription();
   });
-  await expect(page.locator(".transcribe-model")).toContainText(
+  // The model that ran is named where transcription is set up again.
+  const again = await openTranscribeAgain(page);
+  await expect(again).toContainText(
     "Last transcribed with OpenRouter · Mock speech model",
   );
-  await page
-    .locator(".transcribe-model")
-    .getByRole("button", { name: "Remote model privacy" })
-    .focus();
-  await expect(tooltip).toHaveText(warning);
   expect(
     await page.evaluate(() => window.__testSnapshot().settings.asrModel),
   ).toBe("moonshine-medium");
@@ -260,13 +261,22 @@ async function expectActive(badge, label, reduced = false) {
   await expect(badge).not.toContainText("%");
 }
 
+// Calm pages: the list names each meeting's state in plain text; only the open
+// meeting animates its activity, beside the document tabs.
+async function expectPlain(badge, label) {
+  await expect(badge).toHaveText(label);
+  await expect(badge).toHaveAttribute("title", label);
+  await expect(badge).not.toHaveClass(/\bactive\b/);
+  await expect(badge.locator("svg")).toHaveCount(0);
+}
+
 for (const theme of ["fog", "slate"]) {
-  test(`${theme}: transcription and notes animate in the list and heading`, async ({
+  test(`${theme}: transcription and notes animate beside the open meeting's tabs`, async ({
     page,
   }, testInfo) => {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await openMeetings(page, theme);
+    await openMeetings(page, theme, { meeting: { notes: "- Earlier notes." } });
     // A completed sibling must never inherit another meeting's activity.
     await page.evaluate(() => {
       const invoke = window.__TAURI_INTERNALS__.invoke;
@@ -287,20 +297,16 @@ for (const theme of ["fog", "slate"]) {
     });
     await updateMeeting(page, { status: "transcribing" });
     const row = page.getByRole("button", { name: /Design review/ });
-    await expectActive(row.locator(".meeting-activity"), "Transcribing");
+    await expectPlain(row.locator(".meeting-activity"), "Transcribing");
     await expect(row).toHaveAccessibleName(/Design review.*Transcribing/);
     const finished = page.getByRole("button", { name: /Finished planning/ });
-    await expect(finished.locator(".meeting-activity")).toHaveText(
-      "Notes ready",
-    );
-    await expect(finished.locator(".writing-mark")).toHaveCount(0);
+    await expectPlain(finished.locator(".meeting-activity"), "Notes ready");
     await page.screenshot({
       path: testInfo.outputPath(`list-transcribing-${theme}.png`),
     });
 
     await row.click();
-    const heading = page.locator(".meeting-heading");
-    const badge = heading.getByRole("status");
+    const badge = meetingActivity(page);
     await expectActive(badge, "Transcribing");
     await expect(badge).toHaveAttribute("aria-live", "polite");
     await expect(badge).toHaveAttribute("aria-atomic", "true");
@@ -319,14 +325,10 @@ for (const theme of ["fog", "slate"]) {
       path: testInfo.outputPath(`heading-transcribing-${theme}.png`),
     });
 
-    await page
-      .getByRole("tab", { name: "Processed notes", exact: true })
-      .click();
+    await notesTab(page).click();
     await updateMeeting(page, { status: "processingNotes" });
     await expectActive(badge, "Writing notes");
-    await expect(
-      page.getByRole("tab", { name: "Processed notes", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+    await expect(notesTab(page)).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#meeting-notes")).toBeDisabled();
     await expect(
       page.getByRole("button", { name: "Cancel processing", exact: true }),
@@ -337,7 +339,7 @@ for (const theme of ["fog", "slate"]) {
     await page
       .getByRole("button", { name: "All meetings", exact: true })
       .click();
-    await expectActive(row.locator(".meeting-activity"), "Writing notes");
+    await expectPlain(row.locator(".meeting-activity"), "Writing notes");
     await page.screenshot({
       path: testInfo.outputPath(`list-notes-${theme}.png`),
     });
@@ -360,12 +362,9 @@ test("processing aliases retain their full labels on both surfaces", async ({
     await test.step(status, async () => {
       await updateMeeting(page, { status });
       const row = page.getByRole("button", { name: /Design review/ });
-      await expectActive(row.locator(".meeting-activity"), label);
+      await expectPlain(row.locator(".meeting-activity"), label);
       await row.click();
-      await expectActive(
-        page.locator(".meeting-heading").getByRole("status"),
-        label,
-      );
+      await expectActive(meetingActivity(page), label);
       await page
         .getByRole("button", { name: "All meetings", exact: true })
         .click();
@@ -378,10 +377,10 @@ test("completion, errors and cancellation remove activity; recording stays red",
 }) => {
   await openMeetings(page);
   await updateMeeting(page, { status: "transcribing" });
-  await expectActive(
-    page.locator(".meeting-item .meeting-activity"),
-    "Transcribing",
-  );
+  const row = page.getByRole("button", { name: /Design review/ });
+  await row.click();
+  await expectActive(meetingActivity(page), "Transcribing");
+  await page.getByRole("button", { name: "All meetings", exact: true }).click();
   const statuses = [
     ["transcribed", "Transcribed"],
     ["processed", "Notes ready"],
@@ -390,7 +389,7 @@ test("completion, errors and cancellation remove activity; recording stays red",
     ["completed", "Ready"],
     ["error", "Needs attention"],
     ["failed", "Needs attention"],
-    ["interrupted", "Interrupted"],
+    ["interrupted", "Transcription stopped"],
     ["cancelled", "Cancelled"],
     ["canceled", "Cancelled"],
     ["recorded", "Recorded"],
@@ -400,24 +399,17 @@ test("completion, errors and cancellation remove activity; recording stays red",
   for (const [status, label] of statuses) {
     await test.step(status, async () => {
       await updateMeeting(page, { status });
-      const row = page.getByRole("button", { name: /Design review/ });
       const listBadge = row.locator(".meeting-activity");
-      await expect(listBadge).toHaveText(label);
-      await expect(listBadge).not.toHaveClass(/\bactive\b/);
-      await expect(listBadge.locator("svg")).toHaveCount(0);
-      await row.click();
-      const headingBadge = page.locator(".meeting-heading").getByRole("status");
-      await expect(headingBadge).toHaveText(label);
-      await expect(headingBadge.locator("svg")).toHaveCount(0);
+      await expectPlain(listBadge, label);
       expect(
-        await headingBadge.evaluate(
+        await listBadge.evaluate(
           (element) => element.getAnimations({ subtree: true }).length,
         ),
       ).toBe(0);
       if (status === "recording") {
-        await expect(headingBadge).toHaveClass(/\brecording\b/);
+        await expect(listBadge).toHaveClass(/\brecording\b/);
         expect(
-          await headingBadge.evaluate((element) => {
+          await listBadge.evaluate((element) => {
             const probe = document.createElement("span");
             probe.style.color = "var(--danger)";
             element.append(probe);
@@ -428,6 +420,16 @@ test("completion, errors and cancellation remove activity; recording stays red",
           }),
         ).toBe(true);
       }
+      await row.click();
+      // Finished meetings carry no activity badge or cancel action.
+      await expect(meetingActivity(page)).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "Cancel processing", exact: true }),
+      ).toHaveCount(0);
+      if (status === "recording")
+        await expect(
+          page.getByRole("region", { name: "Recording this meeting" }),
+        ).toBeVisible();
       await page
         .getByRole("button", { name: "All meetings", exact: true })
         .click();
@@ -447,7 +449,7 @@ test("reduced motion keeps a clear static badge and long titles fit a narrow lis
   });
   const row = page.getByRole("button", { name: /Design review/ });
   const badge = row.locator(".meeting-activity");
-  await expectActive(badge, "Writing notes", true);
+  await expectPlain(badge, "Writing notes");
   const rowBox = await row.boundingBox();
   const badgeBox = await badge.boundingBox();
   const titleBox = await row.locator("strong").boundingBox();
@@ -463,15 +465,15 @@ test("reduced motion keeps a clear static badge and long titles fit a narrow lis
     path: testInfo.outputPath("list-reduced-motion-narrow.png"),
   });
   await row.click();
-  const headingBadge = page.locator(".meeting-heading").getByRole("status");
-  await expectActive(headingBadge, "Writing notes", true);
+  const activity = meetingActivity(page);
+  await expectActive(activity, "Writing notes", true);
   expect(
-    await headingBadge
+    await activity
       .locator(".writing-pen")
       .evaluate((element) => getComputedStyle(element).transform),
   ).toBe("none");
   expect(
-    await headingBadge.evaluate(
+    await activity.evaluate(
       (element) => element.getAnimations({ subtree: true }).length,
     ),
   ).toBe(0);
@@ -483,53 +485,40 @@ test("reduced motion keeps a clear static badge and long titles fit a narrow lis
 test("activity updates preserve drafts, tabs and the cancel command", async ({
   page,
 }) => {
-  await openMeetings(page);
-  await page.getByRole("button", { name: /Design review/ }).click();
+  await openMeetings(page, "fog", { meeting: { notes: "- Earlier notes." } });
+  await openMeeting(page, /Design review/);
   await page
     .locator("#meeting-transcript")
     .fill("My unsaved transcript correction.");
-  await page.getByRole("tab", { name: "Processed notes", exact: true }).click();
+  await notesTab(page).click();
   await updateMeeting(page, {
     status: "processingNotes",
     transcript: "Background transcript.",
   });
-  await expectActive(
-    page.locator(".meeting-heading").getByRole("status"),
-    "Writing notes",
-  );
+  await expectActive(meetingActivity(page), "Writing notes");
+  await expect(notesTab(page)).toHaveAttribute("aria-selected", "true");
+  // The unsaved draft keeps its Save changes action through the update.
   await expect(
-    page.getByRole("tab", { name: "Processed notes", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
-  await expect(
-    page.getByText("Unsaved changes", { exact: true }),
+    page.getByRole("button", { name: "Save changes", exact: true }),
   ).toBeVisible();
   await updateMeeting(page, { status: "processed" });
-  await expect(page.locator(".meeting-heading").getByRole("status")).toHaveText(
-    "Notes ready",
-  );
-  await page.getByRole("tab", { name: "Full transcript", exact: true }).click();
+  await expect(meetingActivity(page)).toHaveCount(0);
+  await page.getByRole("tab", { name: "Transcript", exact: true }).click();
   await expect(page.locator("#meeting-transcript")).toHaveValue(
     "My unsaved transcript correction.",
   );
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await page.getByRole("tab", { name: "Full transcript", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Transcribe again", exact: true })
-    .click();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  const card = await openTranscribeAgain(page);
   await page
     .getByLabel("Speech model", { exact: true })
     .selectOption("mock-whisper-small-cpu");
-  await page.getByRole("button", { name: "Start", exact: true }).click();
-  await expectActive(
-    page.locator(".meeting-heading").getByRole("status"),
-    "Transcribing",
-  );
+  await card.getByRole("button", { name: "Start", exact: true }).click();
+  await expectActive(meetingActivity(page), "Transcribing");
   await page
     .getByRole("button", { name: "Cancel processing", exact: true })
     .click();
-  await expect(page.locator(".meeting-heading").getByRole("status")).toHaveText(
-    "Cancelled",
-  );
+  await expect(meetingActivity(page)).toHaveCount(0);
   await expect(page.locator(".meeting-activity.active")).toHaveCount(0);
   expect(
     await page.evaluate(
@@ -538,4 +527,11 @@ test("activity updates preserve drafts, tabs and the cancel command", async ({
           ?.args,
     ),
   ).toEqual({ id: "meeting-one" });
+  await page.getByRole("button", { name: "All meetings", exact: true }).click();
+  await expectPlain(
+    page
+      .getByRole("button", { name: /Design review/ })
+      .locator(".meeting-activity"),
+    "Cancelled",
+  );
 });

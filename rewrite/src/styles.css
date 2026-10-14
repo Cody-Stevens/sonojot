@@ -2259,14 +2259,18 @@ kbd {
   /* WebKit clips each background layer of a rounded box on its own, so the
      soft-light grain leaked a pale rim around the curves. Any border makes it
      paint the whole background as one layer and clip it once. The hairline
-     sits in negative margin, so the content box and the flow do not move. */
-  .studio[data-theme="slate"][data-material="on"]
-    :is(.sheet, .page-frame, .paper-card) {
+     sits in negative margin. Chromium snaps a 0.5px border to a whole device
+     pixel but not the margin, so the content can move by a fraction of a
+     pixel. The sheet and page frame therefore keep the hairline whether Paper
+     and print is on or off, and toggling it never moves the page. Cards
+     already trade it for their 1px line when Paper and print is off. */
+  .studio[data-theme="slate"] :is(.sheet, .page-frame),
+  .studio[data-theme="slate"][data-material="on"] .paper-card {
     border-inline: 0.5px solid transparent;
     margin-inline: -0.5px;
     background-origin: border-box;
   }
-  .studio[data-theme="slate"][data-material="on"] .sheet {
+  .studio[data-theme="slate"] .sheet {
     width: calc(100% + 1px);
   }
   .studio[data-theme="slate"][data-material="on"] .sheet,

@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { installDesktopFixture } from "./desktop-fixture.js";
+import { openApp, openMoreOptions } from "./app-helpers.js";
 
 test("Written form saves its choice and applies only to Clean", async ({
   page,
 }) => {
-  await installDesktopFixture(page);
-  await page.goto("/?page=dictation");
+  await openApp(page, {}, "/?page=dictation");
+  await openMoreOptions(page);
   const toggle = page.getByRole("switch", {
     name: "Written form",
     exact: true,

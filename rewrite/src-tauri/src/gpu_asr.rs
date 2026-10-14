@@ -856,6 +856,10 @@ fn download_with_progress(
         .map_err(|e| format!("The GPU model download could not start: {e}"))?
         .error_for_status()
         .map_err(|e| format!("The GPU model download was refused: {e}"))?;
+    // A refused redirect leaves a 3xx whose size is the redirect page's.
+    if response.status().is_redirection() {
+        return Err("The download was redirected to a host SonoJot does not trust. Nothing was installed.".into());
+    }
     if let Some(length) = response
         .headers()
         .get(reqwest::header::CONTENT_LENGTH)

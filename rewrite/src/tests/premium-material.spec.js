@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
+import { openFold } from "./app-helpers.js";
 
 const fixture = "/src/tests/premium-fixture/index.html";
 const pages = [
@@ -40,12 +41,15 @@ test("brand font, stock and license load from the source graph without fallback 
     ),
   ).toBe(true);
   expect(
-    loaded.some((url) => url.includes("/src/brand/material/paper-stock.jpg")),
+    loaded.some((url) =>
+      url.includes("/src/brand/material/paper-stock-seamless.png"),
+    ),
   ).toBe(true);
   await page.goto("/?page=about");
   await ready(page);
-  await page.getByText("Read the Source Serif font license").click();
-  await expect(page.locator(".license pre")).toContainText(
+  await openFold(page, "Credits and licenses");
+  const fontLicense = await openFold(page, "Read the Source Serif font license");
+  await expect(fontLicense.locator("pre")).toContainText(
     "SIL OPEN FONT LICENSE",
   );
   expect(failed).toEqual([]);
@@ -106,8 +110,9 @@ test("the shared fixture has measured clearance around rules, selection and corn
   expect(geometry.footerGap).toBeGreaterThanOrEqual(9);
   expect(geometry.footerIsOutsideScrollport).toBe(true);
   expect(geometry.thumbBorder).toBe("2px");
-  expect(geometry.trackBackground).toBe("rgba(0, 0, 0, 0)");
-  expect(geometry.trackShadow).toBe("none");
+  // The scrollbar is a recessed paper channel (design bible, approved direction).
+  expect(geometry.trackBackground).not.toBe("rgba(0, 0, 0, 0)");
+  expect(geometry.trackShadow).toContain("inset");
   const measurementPath = testInfo.outputPath("geometry.json");
   await writeFile(measurementPath, JSON.stringify(geometry, null, 2));
   await testInfo.attach("geometry", {
@@ -148,8 +153,9 @@ test("switch, buttons and confirmation respond with short motion and restore foc
   await open.click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
+  // A destructive confirmation offers Cancel and focuses it first.
   await expect(
-    page.getByRole("button", { name: "Keep working", exact: true }),
+    page.getByRole("button", { name: "Cancel", exact: true }),
   ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -210,9 +216,11 @@ test("reduced motion is static and history focus reveals the full sentence", asy
   ).not.toBe("none");
 });
 
+// The app's paper footer was removed on September 19 (cab43cd); each view now
+// scrolls inside the mounted page frame alone.
 for (const theme of ["fog", "slate"]) {
   for (const material of ["on", "off"]) {
-    test(`all seven views share bounded scroll and footer geometry: ${theme}, material ${material}`, async ({
+    test(`every view keeps bounded scroll inside the page frame: ${theme}, material ${material}`, async ({
       page,
     }, testInfo) => {
       for (const name of pages) {
@@ -221,7 +229,8 @@ for (const theme of ["fog", "slate"]) {
         const geometry = await page.evaluate(() => {
           const scroll = document.querySelector(".page-content");
           const frame = document.querySelector(".page-frame");
-          const footer = document.querySelector(".paper-footer");
+          const scrollBox = scroll.getBoundingClientRect();
+          const frameBox = frame.getBoundingClientRect();
           return {
             page: {
               width: scroll.clientWidth,
@@ -230,11 +239,11 @@ for (const theme of ["fog", "slate"]) {
               scrollHeight: scroll.scrollHeight,
             },
             bodyOverflows: document.body.scrollHeight > innerHeight,
-            footerBottom: footer.getBoundingClientRect().bottom,
-            scrollBottom: scroll.getBoundingClientRect().bottom,
-            frameBottom: frame.getBoundingClientRect().bottom,
-            footerTop: footer.getBoundingClientRect().top,
-            footerOutside: !scroll.contains(footer),
+            scrollInsideFrame:
+              scrollBox.top >= frameBox.top - 0.5 &&
+              scrollBox.bottom <= frameBox.bottom + 0.5,
+            frameBottom: frameBox.bottom,
+            frameInWindow: frameBox.bottom <= innerHeight,
             theme: document.querySelector(".studio").dataset.theme,
             material: document.querySelector(".studio").dataset.material,
           };
@@ -243,15 +252,8 @@ for (const theme of ["fog", "slate"]) {
           geometry.page.width + 1,
         );
         expect(geometry.bodyOverflows, name).toBe(false);
-        expect(geometry.footerOutside, name).toBe(true);
-        expect(
-          geometry.footerTop - geometry.scrollBottom,
-          name,
-        ).toBeGreaterThanOrEqual(9);
-        expect(
-          geometry.frameBottom - geometry.footerBottom,
-          name,
-        ).toBeGreaterThanOrEqual(9);
+        expect(geometry.scrollInsideFrame, name).toBe(true);
+        expect(geometry.frameInWindow, name).toBe(true);
         expect(geometry.theme).toBe(theme);
         expect(geometry.material).toBe(material);
         if (geometry.page.scrollHeight > geometry.page.height) {
@@ -261,10 +263,11 @@ for (const theme of ["fog", "slate"]) {
           await expect
             .poll(() => scroll.evaluate((element) => element.scrollTop))
             .toBeGreaterThan(0);
-          const footerBottom = await page
-            .locator(".paper-footer")
+          // The frame stays put while its content scrolls.
+          const frameBottom = await page
+            .locator(".page-frame")
             .evaluate((element) => element.getBoundingClientRect().bottom);
-          expect(footerBottom).toBe(geometry.footerBottom);
+          expect(frameBottom).toBe(geometry.frameBottom);
           await scroll.evaluate((element) => {
             element.scrollTop = 0;
           });

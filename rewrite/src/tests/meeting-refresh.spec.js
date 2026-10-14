@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { installDesktopFixture } from "./desktop-fixture.js";
+import { goToPage, openApp, openMeeting } from "./app-helpers.js";
 
 test.beforeEach(async ({ page }) => {
-  await installDesktopFixture(page);
-  await page.goto("/");
-  await page.getByRole("button", { name: "Meetings", exact: true }).click();
-  await page.getByRole("button", { name: /Design review/ }).click();
+  await openApp(page);
+  await goToPage(page, "Meetings");
+  await openMeeting(page, /Design review/);
   await expect(page.locator("#meeting-transcript")).toBeEnabled();
 });
 
@@ -56,9 +55,9 @@ test("active meeting polling recovers a missed completion event", async ({ page 
 test("background refresh preserves unsaved edits", async ({ page }) => {
   await page.locator("#meeting-transcript").fill("My unsaved correction.");
   await page.evaluate(() => window.__testUpdateMeeting({ notes: "New saved notes." }));
-  await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Processed notes", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save changes", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Notes", exact: true }).click();
   await expect(page.locator("#meeting-notes")).not.toHaveValue("New saved notes.");
-  await page.getByRole("tab", { name: "Full transcript", exact: true }).click();
+  await page.getByRole("tab", { name: "Transcript", exact: true }).click();
   await expect(page.locator("#meeting-transcript")).toHaveValue("My unsaved correction.");
 });

@@ -716,13 +716,25 @@
                     call("show_page", { page: "dictation" }),
                   )}><Icon name="app" size={14} />Open app</button
               >
+              <!-- The recovery link needs the room, so Keep and Hide drop their
+                   labels while it shows, as they do in the recording strip. -->
               {#if temporary}<button
                   type="button"
+                  class:icon-only={recoverySession !== null}
+                  aria-label={recoverySession !== null
+                    ? "Keep visible"
+                    : undefined}
                   title="Keep visible"
-                  onclick={keep}>{@render pinIcon()}Keep</button
+                  onclick={keep}
+                  >{@render pinIcon()}{#if recoverySession === null}Keep{/if}</button
                 >{/if}
-              <button type="button" onclick={hide}
-                >{@render hideIcon()}Hide</button
+              <button
+                type="button"
+                class:icon-only={recoverySession !== null}
+                aria-label={recoverySession !== null ? "Hide" : undefined}
+                title={recoverySession !== null ? "Hide" : undefined}
+                onclick={hide}
+                >{@render hideIcon()}{#if recoverySession === null}Hide{/if}</button
               >
             </div>
           {/if}
@@ -1055,6 +1067,10 @@
     font-size: 12px;
     white-space: nowrap;
     border-radius: 4px;
+  }
+  .tab-actions button.icon-only {
+    width: 28px;
+    padding: 0;
   }
   .tab-actions button:hover:not(:disabled),
   .tab-hide:hover,

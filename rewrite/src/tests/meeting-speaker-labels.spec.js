@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { installDesktopFixture } from "./desktop-fixture.js";
+import {
+  goToPage,
+  openApp,
+  openFold,
+  openMeeting,
+  openMeetingMenu,
+  openModelLibrary,
+} from "./app-helpers.js";
 
 const diarizationId = "nemotron-3-diarization";
 const settingRow = (page) =>
@@ -12,15 +19,20 @@ const calls = (page, command) =>
     command,
   );
 
-async function startPage(page, options = {}, theme = "fog") {
-  await installDesktopFixture(page, options);
-  await page.goto(`/?page=meetings&theme=${theme}`);
+const titlesLabel = "Name meetings automatically";
+// Meeting defaults sit in a fold on the Start a meeting page.
+async function openDefaults(page) {
   await page
+    .getByRole("group", { name: "Meetings" })
     .getByRole("button", { name: "Start a meeting", exact: true })
     .click();
-  await expect(
-    page.getByRole("switch", { name: "Generate meeting titles" }),
-  ).toBeEnabled();
+  return openFold(page, "Meeting defaults");
+}
+
+async function startPage(page, options = {}, theme = "fog") {
+  await openApp(page, options, `/?page=meetings&theme=${theme}`);
+  await openDefaults(page);
+  await expect(page.getByRole("switch", { name: titlesLabel })).toBeEnabled();
   await expect
     .poll(async () => (await calls(page, "get_model_library")).length)
     .toBeGreaterThan(0);
@@ -34,15 +46,15 @@ for (const theme of ["fog", "slate"]) {
     const row = settingRow(page);
     const before = await settings(page);
     await expect(row).toHaveAccessibleDescription(
-      "Separates voices on this computer after transcription. Downloads Nemotron 3 Diarization (104 MB).",
+      "Downloads Nemotron 3 Diarization (104 MB).",
     );
     expect(
       await row.evaluate(
         (element) => element.previousElementSibling?.textContent,
       ),
-    ).toContain("Generate meeting titles");
+    ).toContain(titlesLabel);
     await expect(row.getByRole("switch")).toHaveCount(0);
-    await page.getByRole("region", { name: "Start a meeting" }).screenshot({
+    await page.locator(".meeting-fold").screenshot({
       path: testInfo.outputPath(`speakers-install-${theme}.png`),
     });
     await row.getByRole("button", { name: "Install", exact: true }).click();
@@ -74,7 +86,7 @@ for (const theme of ["fog", "slate"]) {
       "Separates voices on this computer after transcription.",
     );
     expect(await settings(page)).toEqual(before);
-    await page.getByRole("region", { name: "Start a meeting" }).screenshot({
+    await page.locator(".meeting-fold").screenshot({
       path: testInfo.outputPath(`speakers-installed-${theme}.png`),
     });
     await toggle.click();
@@ -86,9 +98,7 @@ for (const theme of ["fog", "slate"]) {
     await page
       .getByRole("button", { name: "View meetings", exact: true })
       .click();
-    await page
-      .getByRole("button", { name: "Start a meeting", exact: true })
-      .click();
+    await openDefaults(page);
     await expect(toggle).not.toBeChecked();
     await toggle.click();
     await expect(toggle).toBeChecked();
@@ -186,7 +196,7 @@ test("background speaker-model verification waits without disabling other meetin
   const row = settingRow(page);
   await expect(row.getByRole("button", { name: "Checking…", exact: true })).toBeDisabled();
   await expect(row).not.toContainText("Downloads");
-  const titles = page.getByRole("switch", { name: "Generate meeting titles", exact: true });
+  const titles = page.getByRole("switch", { name: titlesLabel, exact: true });
   await titles.click();
   await expect.poll(async () => (await settings(page)).autoMeetingTitles).toBe(false);
   expect(await calls(page, "start_model_install")).toHaveLength(0);
@@ -198,12 +208,13 @@ test("background speaker-model verification waits without disabling other meetin
 test("diarization installs and removes in All roles and stays out of speech/text pickers", async ({
   page,
 }) => {
-  await installDesktopFixture(page);
-  await page.goto("/?page=setup");
-  const library = page.getByRole("region", { name: "Model library" });
+  await openApp(page, {}, "/?page=setup");
+  const library = await openModelLibrary(page);
   const before = await settings(page);
-  await expect(library.getByRole("combobox")).toHaveValue("all");
-  await library.getByRole("tab", { name: "Browse", exact: true }).click();
+  await expect(
+    library.getByRole("combobox", { name: "Filter model library" }),
+  ).toHaveValue("all");
+  await library.getByRole("tab", { name: "Get more", exact: true }).click();
   await library.getByRole("searchbox").fill("Nemotron");
   await library
     .getByRole("button", {
@@ -249,10 +260,8 @@ test("diarization installs and removes in All roles and stays out of speech/text
     { id: diarizationId, confirmed: true },
   ]);
   expect(await settings(page)).toEqual(before);
-  await page.getByRole("button", { name: "Meetings", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Start a meeting", exact: true })
-    .click();
+  await goToPage(page, "Meetings");
+  await openDefaults(page);
   await expect(
     settingRow(page).getByRole("button", { name: "Install", exact: true }),
   ).toBeEnabled();
@@ -263,24 +272,25 @@ test("a meeting with several voices can switch its speaker labels", async ({
 }, testInfo) => {
   const labeled =
     "[0:01] Speaker 1: Theirs.\n\n[0:02] You: Mine.\n\n[0:04] Speaker 2: Reply.";
-  await installDesktopFixture(page, {
-    meeting: { transcript: labeled, speakerCount: 2, speakerLabels: true },
-  });
-  await page.goto("/?page=meetings");
-  await page.getByRole("button", { name: /Design review/ }).click();
-  await page.getByRole("tab", { name: "Options", exact: true }).click();
-  const row = page.getByRole("group", { name: "Speaker labels", exact: true });
-  await expect(row).toHaveAccessibleDescription(
-    "2 voices detected. Applies to the transcript, saved copies and new notes.",
+  await openApp(
+    page,
+    { meeting: { transcript: labeled, speakerCount: 2, speakerLabels: true } },
+    "/?page=meetings",
   );
-  await page.locator("#meeting-panel-options").screenshot({
+  await openMeeting(page, /Design review/);
+  await expect(page.locator(".meeting-metadata")).toContainText("2 speakers");
+  const menu = await openMeetingMenu(page);
+  const row = menu.getByRole("group", { name: "Speaker labels", exact: true });
+  await expect(row).toHaveAccessibleDescription(
+    "Applies to the transcript, saved copies and new notes.",
+  );
+  await menu.screenshot({
     path: testInfo.outputPath("meeting-speaker-labels-option.png"),
   });
   const toggle = row.getByRole("switch", { name: "Speaker labels" });
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "false");
-  await page.getByRole("tab", { name: "Full transcript", exact: true }).click();
   await expect(page.getByText("Other speakers").first()).toBeVisible();
   expect(
     (await calls(page, "set_meeting_speaker_labels")).map((call) => call.args),
@@ -295,7 +305,7 @@ test("a meeting with several voices can switch its speaker labels", async ({
       notes: "",
     }),
   );
-  await page.getByRole("tab", { name: "Options", exact: true }).click();
+  await openMeetingMenu(page);
   await toggle.click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Replace your transcript edits?");
@@ -315,11 +325,12 @@ test("a meeting with several voices can switch its speaker labels", async ({
 });
 
 test("single-voice meetings do not offer speaker labels", async ({ page }) => {
-  await installDesktopFixture(page, { meeting: { speakerCount: 1 } });
-  await page.goto("/?page=meetings");
-  await page.getByRole("button", { name: /Design review/ }).click();
-  await page.getByRole("tab", { name: "Options", exact: true }).click();
-  await expect(page.locator("#note-preset")).toBeVisible();
+  await openApp(page, { meeting: { speakerCount: 1 } }, "/?page=meetings");
+  await openMeeting(page, /Design review/);
+  const menu = await openMeetingMenu(page);
+  await expect(
+    menu.getByRole("button", { name: "Rename", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("group", { name: "Speaker labels", exact: true }),
   ).toHaveCount(0);

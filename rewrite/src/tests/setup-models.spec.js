@@ -1,9 +1,19 @@
 import { expect, test } from "@playwright/test";
-import { installDesktopFixture } from "./desktop-fixture.js";
+import {
+  goToPage,
+  openApp,
+  openModelLibrary,
+  openPerformance,
+} from "./app-helpers.js";
+
+// The models folder's Change… button, in the Performance and storage fold.
+const changeFolder = (page) =>
+  page
+    .getByRole("group", { name: "Models folder" })
+    .getByRole("button", { name: "Change…", exact: true });
 
 test.beforeEach(async ({ page }) => {
-  await installDesktopFixture(page);
-  await page.goto("/?page=setup&theme=fog");
+  await openApp(page, {}, "/?page=setup&theme=fog");
   await expect(
     page.getByRole("button", { name: "Cleanup model", exact: true }),
   ).toBeEnabled();
@@ -52,14 +62,11 @@ test("missing choice installs independently and completion requires explicit sel
   await expect(
     page.getByRole("button", { name: "Cleanup model", exact: true }),
   ).toBeDisabled();
+  await openPerformance(page);
   await expect(
     page.getByRole("combobox", { name: "Text model processing" }),
   ).toBeDisabled();
-  await expect(
-    page
-      .getByRole("region", { name: "Storage and import" })
-      .getByRole("button", { name: "Change" }),
-  ).toBeDisabled();
+  await expect(changeFolder(page)).toBeDisabled();
   await page.evaluate(() => {
     window.__testLibraryProgress(
       "mock-cleanup-2b-cuda",
@@ -69,7 +76,7 @@ test("missing choice installs independently and completion requires explicit sel
     window.dispatchEvent(new Event("focus"));
   });
   await expect(download).toContainText("Verifying");
-  await page.getByRole("button", { name: "Dictation", exact: true }).click();
+  await goToPage(page, "Dictation");
   await page.evaluate(() =>
     window.__testLibraryProgress(
       "mock-cleanup-2b-cuda",
@@ -77,7 +84,7 @@ test("missing choice installs independently and completion requires explicit sel
       "installed",
     ),
   );
-  await page.getByRole("button", { name: "Setup", exact: true }).click();
+  await goToPage(page, "Models");
   await expect(download).toContainText("Installed");
   expect(await settings(page)).toEqual(before);
   const completed = await openPicker(
@@ -99,7 +106,7 @@ test("missing choice installs independently and completion requires explicit sel
 test("library removal is independent, protects selected models and rechecks after confirmation", async ({
   page,
 }) => {
-  const library = page.getByRole("region", { name: "Model library" });
+  const library = await openModelLibrary(page);
   const before = await settings(page);
   await expect(
     library.getByRole("button", { name: "Remove LFM 2.5", exact: true }),
@@ -123,7 +130,7 @@ test("library removal is independent, protects selected models and rechecks afte
   await expect(remove).toHaveCount(0);
   expect(await settings(page)).toEqual(before);
   expect(await saves(page)).toHaveLength(0);
-  await library.getByRole("tab", { name: "Browse", exact: true }).click();
+  await library.getByRole("tab", { name: "Get more", exact: true }).click();
   await expect(
     library.getByRole("button", {
       name: "Install Mock Cleanup 2B (CPU)",
@@ -209,16 +216,18 @@ test("keyboard browsing, unavailable models and failed saves preserve current se
 test("active processing locks model changes, while library tabs, filtering and paging work", async ({
   page,
 }) => {
-  const library = page.getByRole("region", { name: "Model library" });
+  const library = await openModelLibrary(page);
   await expect(library.locator(".entry")).toHaveCount(5);
   await library.getByRole("button", { name: "Next models" }).click();
   await expect(library.locator(".entry")).toHaveCount(2);
   await library.getByRole("tab", { name: "Installed", exact: true }).focus();
   await page.keyboard.press("ArrowRight");
   await expect(
-    library.getByRole("tab", { name: "Browse", exact: true }),
+    library.getByRole("tab", { name: "Get more", exact: true }),
   ).toBeFocused();
-  await library.getByRole("combobox").selectOption("notes");
+  await library
+    .getByRole("combobox", { name: "Filter model library" })
+    .selectOption("notes");
   await expect(library.locator(".entry")).toHaveCount(1);
   await page.evaluate(() => {
     window.__testPatchModel("lfm2.5-1.2b", { state: "busy" });
@@ -230,6 +239,7 @@ test("active processing locks model changes, while library tabs, filtering and p
   await expect(
     library.getByRole("button", { name: /^Install / }),
   ).toBeDisabled();
+  await openPerformance(page);
   await expect(
     page.getByRole("combobox", { name: "Memory use" }),
   ).toBeDisabled();
@@ -305,7 +315,7 @@ for (const [theme, width] of [
     await expect(
       page.getByRole("button", { name: "Cleanup model", exact: true }),
     ).toBeEnabled();
-    const models = page.getByRole("region", { name: "Models" });
+    const models = page.getByRole("region", { name: "Speech and text models" });
     const trigger = page.getByRole("button", {
       name: "Cleanup model",
       exact: true,
@@ -317,11 +327,11 @@ for (const [theme, width] of [
     await expect(trigger).toHaveCSS("opacity", "1");
     await expect(models.locator('[data-budget="HOST RAM"]')).toBeVisible();
     await expect(models.locator('[data-budget="GPU VRAM"]')).toBeVisible();
+    await openPerformance(page);
     expect(
-      await page
-        .getByRole("region", { name: "Storage and import" })
-        .getByRole("button", { name: "Change", exact: true })
-        .evaluate((element) => getComputedStyle(element).fontSize),
+      await changeFolder(page).evaluate(
+        (element) => getComputedStyle(element).fontSize,
+      ),
     ).toBe("18px");
     await page.screenshot({
       path: testInfo.outputPath(`setup-${theme}-${width}.png`),

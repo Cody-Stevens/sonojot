@@ -2,6 +2,15 @@
 // mock host in desktop-fixture.js: no audio is recorded and no files change.
 import { expect, test } from "@playwright/test";
 import { installDesktopFixture } from "./desktop-fixture.js";
+import {
+  openFold,
+  openMeeting,
+  openModelLibrary,
+  openMoreOptions,
+  openPerformance,
+  openVocabularyView,
+  showRecentDictations,
+} from "./app-helpers.js";
 
 async function chooseInstalled(page, role, name) {
   await page.locator(`#model-${role}`).click();
@@ -15,7 +24,7 @@ test("setup keeps models, performance, library, and storage concise", async ({
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=setup&theme=fog");
-  const setup = page.getByRole("region", { name: "Models" });
+  const setup = page.getByRole("region", { name: "Speech and text models" });
   await expect(setup.locator('[data-budget="HOST RAM"]')).toContainText(
     "free now",
   );
@@ -31,7 +40,7 @@ test("setup keeps models, performance, library, and storage concise", async ({
   await expect(setup).toContainText("Speech");
   await expect(setup).toContainText("Cleanup");
   await expect(setup).toContainText("Notes");
-  const performance = page.getByRole("region", { name: "Performance" });
+  const performance = await openPerformance(page);
   await expect(
     performance.getByRole("combobox", { name: "Memory use" }),
   ).toBeVisible();
@@ -39,21 +48,24 @@ test("setup keeps models, performance, library, and storage concise", async ({
     performance.getByRole("combobox", { name: "Release unused models" }),
   ).toBeVisible();
   // Text weights support both devices; CUDA speech remains a separate package.
-  const library = page.getByRole("region", { name: "Model library" });
+  const library = await openModelLibrary(page);
   await expect(
     library.locator('[data-model-id="mock-cleanup-2b-cpu"]'),
   ).toContainText("CPU");
-  await library.getByRole("tab", { name: "Browse", exact: true }).click();
+  await library.getByRole("tab", { name: "Get more", exact: true }).click();
   await expect(
     library.locator('[data-model-id="mock-whisper-small-cuda"]'),
   ).toContainText("NVIDIA CUDA");
   await expect(library).not.toContainText(
     /AMD.*(?:unsupported|not supported)/i,
   );
-  const storage = page.getByRole("region", { name: "Storage and import" });
-  await expect(storage.getByRole("button", { name: "Change" })).toBeVisible();
-  await expect(storage.getByRole("button", { name: "Open" })).toBeVisible();
-  await expect(storage).toContainText("Needed to import recordings.");
+  // Storage rows sit at the end of the Performance and storage fold.
+  const folder = performance.getByRole("group", { name: "Models folder" });
+  await expect(folder.getByRole("button", { name: "Change…" })).toBeVisible();
+  await expect(folder.getByRole("button", { name: "Open" })).toBeVisible();
+  await expect(
+    performance.getByRole("group", { name: "Audio and video import" }),
+  ).toContainText("Needed to import recordings.");
   // Only Setup owns the text-acceleration control.
   await expect(
     page.getByRole("combobox", { name: "Text model processing" }),
@@ -63,9 +75,7 @@ test("setup keeps models, performance, library, and storage concise", async ({
 test("setup polls only while model state is changing", async ({ page }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=setup&theme=fog");
-  await expect(
-    page.getByRole("region", { name: "Model library" }),
-  ).toBeVisible();
+  const library = await openModelLibrary(page);
   const commandCount = (command) =>
     page.evaluate(
       (name) =>
@@ -92,8 +102,7 @@ test("setup polls only while model state is changing", async ({ page }) => {
     .poll(() => commandCount("get_model_acceleration"))
     .toBeGreaterThan(settledAcceleration);
 
-  const library = page.getByRole("region", { name: "Model library" });
-  await library.getByRole("tab", { name: "Browse", exact: true }).click();
+  await library.getByRole("tab", { name: "Get more", exact: true }).click();
   const target = library.locator('[data-model-id="mock-cleanup-2b-cuda"]');
   await target.getByRole("button", { name: /^Install / }).click();
   const beforeTransientPoll = await commandCount("get_model_library");
@@ -114,8 +123,8 @@ test("setup install shows progress with cancel, and retry recovers a failed entr
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=setup&theme=fog");
-  const library = page.getByRole("region", { name: "Model library" });
-  await library.getByRole("tab", { name: "Browse", exact: true }).click();
+  const library = await openModelLibrary(page);
+  await library.getByRole("tab", { name: "Get more", exact: true }).click();
   const target = library.locator('[data-model-id="mock-cleanup-2b-cuda"]');
   await target.getByRole("button", { name: /^Install / }).click();
   const download = page.getByRole("region", { name: "Model download" });
@@ -147,7 +156,7 @@ test("setup removal protects selected roles and confirms unused model deletion",
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=setup&theme=fog");
-  const library = page.getByRole("region", { name: "Model library" });
+  const library = await openModelLibrary(page);
   const target = library.locator('[data-model-id="mock-cleanup-2b-cpu"]');
   await expect(
     library.getByRole("button", { name: "Remove LFM 2.5", exact: true }),
@@ -159,27 +168,33 @@ test("setup removal protects selected roles and confirms unused model deletion",
     dialog.getByRole("button", { name: "Cancel", exact: true }),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "Remove", exact: true }).click();
-  await library.getByRole("tab", { name: "Browse", exact: true }).click();
+  await library.getByRole("tab", { name: "Get more", exact: true }).click();
   await expect(target.getByRole("button", { name: /^Install / })).toBeVisible();
 });
 
-test("dictation keeps one-line summaries with one deep link and no duplicate controls", async ({
+test("dictation keeps one-line summaries with one deep link per role and no duplicate controls", async ({
   page,
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=dictation&theme=fog");
-  const models = page.getByRole("region", { name: "Models" });
+  // "Models in use" sits in the Dictation page's More options fold.
+  const models = await openMoreOptions(page);
   await expect(models).toContainText("Speech · Moonshine Medium · CPU");
-  await expect(page.getByLabel("Cleanup model")).toHaveCount(0);
-  await expect(page.getByLabel("Notes model")).toHaveCount(0);
+  await expect(page.getByLabel("Cleanup model", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Notes model", { exact: true })).toHaveCount(0);
   await expect(
     page.getByRole("region", { name: "Latest dictation" }),
   ).toHaveCount(0);
+  for (const role of ["Speech", "Cleanup", "Notes"])
+    await expect(
+      models.getByRole("button", { name: `Change ${role} model`, exact: true }),
+    ).toHaveCount(1);
+  await models
+    .getByRole("button", { name: "Change Speech model", exact: true })
+    .click();
   await expect(
-    models.getByRole("button", { name: "Manage in Setup" }),
-  ).toHaveCount(1);
-  await models.getByRole("button", { name: "Manage in Setup" }).click();
-  await expect(page.getByRole("region", { name: "Models" })).toBeVisible();
+    page.getByRole("region", { name: "Speech and text models" }),
+  ).toBeVisible();
   await expect(page.locator("#setup-asr")).toBeFocused();
 });
 
@@ -222,16 +237,25 @@ test("recent dictations marks the newest row, copies it and confirms every delet
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=dictation&theme=fog");
-  const history = page.getByRole("region", { name: "Recent Dictations" });
-  await expect(history).toContainText(
-    "Select a dictation to see the original text and learning options.",
-  );
+  const history = await showRecentDictations(page);
+  await expect(history).toContainText("Newest first · Last 100 dictations");
   await expect(history.getByText("Latest", { exact: true })).toBeVisible();
-  await history.getByRole("button", { name: /Copy newest dictation/ }).click();
+  // The newest dictation is incomplete, so Copy latest opens it for review.
+  await history.getByRole("button", { name: "Copy latest" }).click();
+  await expect(history.getByRole("status")).toContainText(
+    "Recognition was incomplete",
+  );
+  expect(
+    (await page.evaluate(() => window.__testCalls)).filter(
+      (call) => call.command === "copy_history",
+    ),
+  ).toEqual([]);
+  await history.getByRole("button", { name: "Copy", exact: true }).click();
   expect(await page.evaluate(() => window.__testCalls)).toContainEqual({
     command: "copy_history",
     args: { id: "dictation-incomplete", original: false },
   });
+  await history.getByRole("button", { name: "All recent dictations" }).click();
   // Opening a row keeps working while a newer result arrives.
   await history.getByRole("button", { name: /First, keep Grok/ }).click();
   await expect(
@@ -251,11 +275,10 @@ test("recent dictations marks the newest row, copies it and confirms every delet
   await expect(
     history.getByRole("button", { name: "All recent dictations" }),
   ).toBeVisible();
-  await history.getByRole("button", { name: "All recent dictations" }).click();
-  // Every row has its own confirmed delete with a stable accessible name.
+  // Every dictation has its own confirmed delete under More.
+  await openFold(history, "More");
   await history
-    .getByRole("button", { name: /Delete dictation from/ })
-    .first()
+    .getByRole("button", { name: "Delete this dictation", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Delete this dictation?");
@@ -271,9 +294,10 @@ test("do-not-save toggle never deletes by itself and delete-all names its scope"
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=dictation&theme=fog");
-  const history = page.getByRole("region", { name: "Recent Dictations" });
+  const history = await showRecentDictations(page);
+  await openFold(history, "History options");
   await history
-    .getByRole("switch", { name: "Do not save dictations", exact: true })
+    .getByRole("switch", { name: "Save dictation history", exact: true })
     .click();
   expect(
     await page.evaluate(() => window.__testSnapshot().settings),
@@ -281,7 +305,7 @@ test("do-not-save toggle never deletes by itself and delete-all names its scope"
   // Turning the toggle on keeps the existing rows.
   await expect(history.getByText("Latest", { exact: true })).toBeVisible();
   await history
-    .getByRole("button", { name: "Delete existing dictations…", exact: true })
+    .getByRole("button", { name: "Delete all dictations…", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Delete all 2 dictations?");
@@ -295,7 +319,7 @@ test("vocabulary learning stays opt-in, inspectable and resettable", async ({
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=vocabulary&theme=fog");
-  const learning = page.getByRole("region", { name: "Local learning" });
+  const learning = await openVocabularyView(page, "Learning from your fixes");
   await learning
     .getByRole("switch", {
       name: "Learn from my corrections on this device",
@@ -306,11 +330,13 @@ test("vocabulary learning stays opt-in, inspectable and resettable", async ({
     await page.evaluate(() => window.__testSnapshot().settings),
   ).toMatchObject({ learnFromCorrections: true });
   // The view loads learning on mount; the button covers the slow path only.
-  await expect(
-    learning.locator('[data-learning-id="mock-learned-one"]'),
-  ).toContainText("dictation-correction");
+  const entry = learning.locator('[data-learning-id="mock-learned-one"]');
+  await entry.getByRole("button", { name: /grock/ }).click();
+  await openFold(entry, "Source references");
+  await expect(entry).toContainText("dictation-correction");
+  await openFold(learning, "More learning options");
   await learning
-    .getByRole("button", { name: "Reset local learning…", exact: true })
+    .getByRole("button", { name: "Reset learning…", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Reset local learning?");
@@ -320,14 +346,14 @@ test("vocabulary learning stays opt-in, inspectable and resettable", async ({
   await expect(learning).toContainText("No learned entries.");
 });
 
-test("meetings options uses a one-line model summary without duplicate controls", async ({
+test("meeting notes use a one-line model summary without duplicate controls", async ({
   page,
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=meetings&theme=fog");
-  await page.getByRole("button", { name: /Design review/ }).click();
-  await page.getByRole("tab", { name: "Options", exact: true }).click();
-  await expect(page.getByLabel("Notes model")).toHaveCount(0);
+  await openMeeting(page, /Design review/);
+  await page.getByRole("button", { name: "Process notes", exact: true }).click();
+  await expect(page.getByLabel("Notes model", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Notes · Qwen 3 4B · CPU")).toBeVisible();
   await expect(
     page.getByRole("button", { name: /Manage .* in Setup/ }),
@@ -341,23 +367,19 @@ for (const theme of ["fog", "slate"]) {
     await installDesktopFixture(page);
     await page.goto(`/?page=setup&theme=${theme}`);
     await expect(page.locator(".studio")).toHaveAttribute("data-theme", theme);
-    await expect(
-      page.getByRole("region", { name: "Model library" }),
-    ).toBeVisible();
+    const library = await openModelLibrary(page);
     const setupPath = `../artifacts/round6/ui-shots-mock/round6-setup-${theme}.png`;
     await page.screenshot({ path: setupPath });
     await testInfo.attach(`round6-setup-${theme} (mock host)`, {
       path: setupPath,
       contentType: "image/png",
     });
-    // Compact installed library, with estimates available in tooltips.
-    const library = page.getByRole("region", { name: "Model library" });
+    // Compact installed library, with estimates behind each row's Details.
     const detailsTarget = library.locator(
       '[data-model-id="mock-cleanup-2b-cpu"]',
     );
     await detailsTarget.scrollIntoViewIfNeeded();
-    await expect(detailsTarget.locator(".copy")).toHaveAttribute(
-      "title",
+    await expect(await openFold(detailsTarget, "Details")).toContainText(
       /Estimated RAM/,
     );
     await expect(detailsTarget).not.toContainText(
@@ -371,9 +393,8 @@ for (const theme of ["fog", "slate"]) {
     });
     await page.goto(`/?page=dictation&theme=${theme}`);
     await expect(page.locator(".studio")).toHaveAttribute("data-theme", theme);
-    await expect(
-      page.getByRole("region", { name: "Recent Dictations" }),
-    ).toBeVisible();
+    const history = await showRecentDictations(page);
+    await expect(history.getByText("Latest", { exact: true })).toBeVisible();
     const dictationPath = `../artifacts/round6/ui-shots-mock/round6-dictation-${theme}.png`;
     await page.screenshot({ path: dictationPath });
     await testInfo.attach(`round6-dictation-${theme} (mock host)`, {
@@ -381,10 +402,10 @@ for (const theme of ["fog", "slate"]) {
       contentType: "image/png",
     });
     // Recent dictations delete dialog (mock host, counted scope).
-    const history = page.getByRole("region", { name: "Recent Dictations" });
+    await history.getByRole("button", { name: /First, keep Grok/ }).click();
+    await openFold(history, "More");
     await history
-      .getByRole("button", { name: /Delete dictation from/ })
-      .first()
+      .getByRole("button", { name: "Delete this dictation", exact: true })
       .click();
     const deleteDialog = page.getByRole("dialog");
     await expect(deleteDialog).toContainText("Delete this dictation?");
@@ -398,8 +419,10 @@ for (const theme of ["fog", "slate"]) {
       .getByRole("button", { name: "Cancel", exact: true })
       .click();
     // No-history delete-all scope dialog (mock host).
+    await history.getByRole("button", { name: "All recent dictations" }).click();
+    await openFold(history, "History options");
     await history
-      .getByRole("button", { name: "Delete existing dictations…", exact: true })
+      .getByRole("button", { name: "Delete all dictations…", exact: true })
       .click();
     const deleteAll = page.getByRole("dialog");
     await expect(deleteAll).toContainText(/Delete all \d+ dictations\?/);
@@ -415,9 +438,7 @@ for (const theme of ["fog", "slate"]) {
     // Vocabulary learning (mock host).
     await page.goto(`/?page=vocabulary&theme=${theme}`);
     await expect(page.locator(".studio")).toHaveAttribute("data-theme", theme);
-    await expect(
-      page.getByRole("region", { name: "Local learning" }),
-    ).toBeVisible();
+    await openVocabularyView(page, "Learning from your fixes");
     const learningPath = `../artifacts/round6/ui-shots-mock/round6-learning-${theme}.png`;
     await page.screenshot({ path: learningPath });
     await testInfo.attach(`round6-learning-${theme} (mock host)`, {
@@ -505,12 +526,16 @@ test("vocabulary retention distinguishes learning from review routing", async ({
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=vocabulary&theme=fog");
-  const learning = page.getByRole("region", { name: "Local learning" });
+  const learning = await openVocabularyView(page, "Learning from your fixes");
   await expect(learning).toContainText("Learned entries stay on this device.");
-  await expect(learning).toContainText(
-    "Review text routing follows the AI choice",
+  await expect(await openFold(learning, "More learning options")).toContainText(
+    "Reviewing recent dictations uses the AI selected in Models and may send review text to OpenRouter.",
   );
-  const suggestions = page.getByRole("region", { name: "Suggestions" });
+  await page.getByRole("button", { name: "Your words" }).click();
+  const suggestions = await openVocabularyView(
+    page,
+    "Suggestions from recent dictations",
+  );
   // Local backend: review stays local with explicit provider choice.
   await expect(suggestions).toContainText(
     "Review text stays on this computer.",
@@ -522,8 +547,11 @@ test("full-text correction uses the canonical command with no silent fallback", 
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=dictation&theme=fog");
-  const history = page.getByRole("region", { name: "Recent Dictations" });
+  const history = await showRecentDictations(page);
   await history.getByRole("button", { name: /First, keep Grok/ }).click();
+  await history
+    .getByRole("button", { name: "Fix a mistake", exact: true })
+    .click();
   await page
     .getByLabel("Corrected text", { exact: true })
     .fill("First, keep Grok 4.6 revised.");

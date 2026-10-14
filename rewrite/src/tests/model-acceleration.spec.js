@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { installDesktopFixture } from "./desktop-fixture.js";
+import {
+  openMeeting,
+  openModelLibrary,
+  openPerformance,
+} from "./app-helpers.js";
 
 test("llama Qwen Q8 CUDA appears in existing controls without changing selection", async ({
   page,
@@ -24,7 +29,7 @@ test("llama Qwen Q8 CUDA appears in existing controls without changing selection
     window.dispatchEvent(new Event("focus"));
   });
   const before = await page.evaluate(() => window.__testSnapshot().settings);
-  const library = page.getByRole("region", { name: "Model library" });
+  const library = await openModelLibrary(page);
   await library.getByRole("searchbox").fill("Q8 CUDA");
   const row = library.locator('[data-model-id="qwen3-asr-1.7b-q8-cuda"]');
   await expect(row).toContainText("Qwen3-ASR 1.7B (Q8 CUDA)");
@@ -107,7 +112,7 @@ test("model controls show capability, preserve settings, and report live GPU or 
   await page.goto("/?page=setup&theme=fog");
   // Speech options stay explicit about CPU execution.
   await expect(page.locator("#setup-asr")).toContainText("CPU only");
-  const performance = page.getByRole("region", { name: "Performance" });
+  const performance = await openPerformance(page);
   const control = performance.getByRole("combobox", {
     name: "Text model processing",
   });
@@ -173,7 +178,7 @@ test("text acceleration preserves metal wording on mac instead of all-platform c
       },
     }),
   );
-  const performance = page.getByRole("region", { name: "Performance" });
+  const performance = await openPerformance(page);
   await expect(
     performance.getByRole("combobox", { name: "Text model processing" }),
   ).toContainText("Metal when available");
@@ -229,9 +234,12 @@ test("notes model summary is one line without duplicate controls", async ({
 }) => {
   await installDesktopFixture(page);
   await page.goto("/?page=meetings&theme=slate");
-  await page.getByRole("button", { name: /Design review/ }).click();
-  await page.getByRole("tab", { name: "Options", exact: true }).click();
-  await expect(page.getByLabel("Notes model")).toHaveCount(0);
+  await openMeeting(page, /Design review/);
+  await page.getByRole("button", { name: "Process notes", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "Process notes" }).getByLabel("Format"),
+  ).toBeVisible();
+  await expect(page.getByLabel("Notes model", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Text model processing")).toHaveCount(0);
   await expect(page.getByText("Notes · Qwen 3 4B · CPU")).toBeVisible();
   await expect(

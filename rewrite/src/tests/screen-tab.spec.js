@@ -896,10 +896,13 @@ test("compact errors open their repair page and leave Stop available", async ({
     .boundingBox();
   expect(alert.y).toBeGreaterThanOrEqual(stop.y + stop.height);
   expect(alert.y + alert.height).toBeLessThanOrEqual(78);
-  await page.getByRole("button", { name: "Open Setup", exact: true }).click();
+  // A microphone failure repairs on the Microphone page.
+  await page
+    .getByRole("button", { name: "Check microphone", exact: true })
+    .click();
   expect(await page.evaluate(() => window.__tabCalls)).toContainEqual({
     command: "show_page",
-    args: { page: "setup" },
+    args: { page: "microphone" },
   });
   await page
     .getByRole("button", { name: "Stop dictation", exact: true })

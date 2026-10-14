@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { installDesktopFixture } from "./desktop-fixture.js";
+import { goToPage, openApp, openMoreOptions } from "./app-helpers.js";
 
 const label = "Shape by type (experimental)";
 const help =
@@ -18,8 +19,8 @@ const savedSettings = (page) =>
 test("Shape by type saves, survives navigation and keeps its choice in As heard", async ({
   page,
 }) => {
-  await installDesktopFixture(page);
-  await page.goto("/?page=dictation");
+  await openApp(page, {}, "/?page=dictation");
+  await openMoreOptions(page);
   const toggle = page.getByRole("switch", { name: label, exact: true });
   await expect(toggle).toBeEnabled();
   await expect(toggle).not.toBeChecked();
@@ -36,8 +37,9 @@ test("Shape by type saves, survives navigation and keeps its choice in As heard"
     }),
   ]);
 
-  await page.getByRole("button", { name: "Setup", exact: true }).click();
-  await page.getByRole("button", { name: "Dictation", exact: true }).click();
+  await goToPage(page, "Models");
+  await goToPage(page, "Dictation");
+  await openMoreOptions(page);
   await expect(toggle).toBeChecked();
   const modes = page.getByRole("group", { name: "Dictation cleanup mode" });
   await modes.getByRole("button", { name: /^Format only/ }).click();
@@ -61,8 +63,8 @@ test("Shape by type saves, survives navigation and keeps its choice in As heard"
 test("Shape by type waits for a settings save and disables during dictation", async ({
   page,
 }) => {
-  await installDesktopFixture(page, { holdCommands: ["save_settings"] });
-  await page.goto("/?page=dictation");
+  await openApp(page, { holdCommands: ["save_settings"] }, "/?page=dictation");
+  await openMoreOptions(page);
   const toggle = page.getByRole("switch", { name: label, exact: true });
   await expect(toggle).toBeEnabled();
   await toggle.click();
@@ -94,13 +96,14 @@ for (const modelState of ["checking", "not-installed"]) {
       },
     });
     await page.goto("/?page=dictation");
+    await openMoreOptions(page);
     const toggle = page.getByRole("switch", { name: label, exact: true });
     await expect(toggle).toBeDisabled();
     await expect(toggle).toBeChecked();
     await expect(
       page.getByRole("group", { name: label, exact: true }),
     ).toContainText(
-      "Select an installed local text model for Cleanup or Notes in Setup.",
+      "Select an installed local text model for Cleanup or Notes in Models.",
     );
     expect(await savedSettings(page)).toHaveLength(0);
 
@@ -130,6 +133,7 @@ test("Shape by type uses selected Notes with rules or Smart cleanup and excludes
     },
   });
   await page.goto("/?page=dictation");
+  await openMoreOptions(page);
   const toggle = page.getByRole("switch", { name: label, exact: true });
   await expect(toggle).toBeEnabled();
   await page.evaluate(() =>
@@ -163,8 +167,8 @@ for (const theme of ["fog", "slate"]) {
       import.meta.url,
     );
     await mkdir(directory, { recursive: true });
-    await installDesktopFixture(page, { settings: { smartLayout: true } });
-    await page.goto(`/?page=dictation&theme=${theme}`);
+    await openApp(page, { settings: { smartLayout: true } }, `/?page=dictation&theme=${theme}`);
+    await openMoreOptions(page);
     await expect(
       page.getByRole("switch", { name: label, exact: true }),
     ).toBeChecked();
@@ -233,7 +237,7 @@ test("a shaped result keeps session-checked copy-only recovery", async ({
     }),
   );
   const recovery = page.getByRole("button", {
-    name: "Use original",
+    name: "Copy before AI changes",
     exact: true,
   });
   await expect(recovery).toBeVisible();
@@ -247,9 +251,7 @@ test("a shaped result keeps session-checked copy-only recovery", async ({
       ),
     )
     .toEqual([{ resultSessionId: 42 }]);
-  await expect(
-    page.getByText("Original copied", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Copied", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__testClipboard)).toBe(
     "Hi Alex please send the draft thanks Sam.",
   );

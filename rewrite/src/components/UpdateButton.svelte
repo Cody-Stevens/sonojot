@@ -115,6 +115,7 @@
       class:primary={status.state === "ready"}
       class:quiet={status.state !== "ready"}
       class:installing
+      aria-label={label}
       aria-disabled={disabled}
       aria-describedby={uid}
       onclick={activate}

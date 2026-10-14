@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installDesktopFixture } from "./desktop-fixture.js";
+import { acceptDownloadTerms, goToPage, openModelLibrary } from "./app-helpers.js";
 
 const id = "sonojot-punct-v2";
 const modelPage = "https://huggingface.co/SonoJot/sonojot-punct-v2";
@@ -21,8 +22,8 @@ function legacyPunctuation(state = "installed") {
 
 test("published v2 and v1 expose separate downloads, licenses and model pages", async ({ page }) => {
   await openSetup(page, { libraryModels: [legacyPunctuation("available")] });
-  const library = page.getByRole("region", { name: "Model library", exact: true });
-  await library.getByRole("tab", { name: "Browse", exact: true }).click();
+  const library = await openModelLibrary(page);
+  await library.getByRole("tab", { name: "Get more", exact: true }).click();
   await library.getByRole("combobox", { name: "Filter model library" }).selectOption("punctuation");
   for (const [version, name] of [["v1", "SonoJot Punctuation"], ["v2", "SonoJot Punctuation v2"]]) {
     const row = library.locator(`[data-model-id="sonojot-punct-${version}"]`);
@@ -30,7 +31,7 @@ test("published v2 and v1 expose separate downloads, licenses and model pages", 
     await expect(row.getByRole("button", { name: `Install ${name}`, exact: true })).toBeEnabled();
     await row.locator("summary").click();
     await expect(row).toContainText("CC BY-SA 4.0");
-    await expect(row.getByRole("link")).toHaveAttribute("href", `https://huggingface.co/SonoJot/sonojot-punct-${version}`);
+    await expect(row.getByRole("link", { name: "Model page ↗" })).toHaveAttribute("href", `https://huggingface.co/SonoJot/sonojot-punct-${version}`);
   }
   expect(await installs(page)).toHaveLength(0);
   await library.scrollIntoViewIfNeeded();
@@ -94,50 +95,12 @@ async function finishPunctuation(page) {
   }, id);
 }
 
-for (const chosen of ["Accurate", "Balanced", "Light"]) {
-  test(`first-run ${chosen} includes CPU punctuation in the download and saves only after it installs`, async ({
-    page,
-  }) => {
-    await openSetup(page, {
-      settings: { setupProfile: null },
-      modelPatches: {
-        "qwen3-asr-1.7b-fp16-cuda": { state: "installed" },
-        "mock-whisper-small-cuda": { state: "installed" },
-        "mock-cleanup-2b-cuda": { state: "installed" },
-      },
-    });
-    await page
-      .getByRole("group", { name: "Setup profile", exact: true })
-      .getByRole("button", { name: new RegExp(`^${chosen}`) })
-      .click();
-    // Punctuation is the default Cleanup, shown on the Cleanup line.
-    const row = page.getByRole("group", { name: "Cleanup", exact: true });
-    await expect(row).toContainText(
-      "Cleanup: SonoJot Punctuation v2 with your vocabulary · Download included",
-    );
-    await expect(page.locator(".profile-action")).toContainText(
-      "303 MB to download",
-    );
-    expect(await installs(page)).toHaveLength(0);
-    await page
-      .getByRole("button", { name: "Finish setup", exact: true })
-      .click();
-    await expect(download(page)).toHaveAttribute("data-model-id", id);
-    await expect(download(page)).toContainText("Downloading");
-    expect((await settings(page)).setupProfile).toBeNull();
-    await finishPunctuation(page);
-    await expect
-      .poll(async () => (await settings(page)).setupProfile)
-      .toBe(chosen.toLowerCase());
-    expect((await settings(page)).punctuationV2RecommendationAcknowledged).toBe(
-      true,
-    );
-    expect(await installs(page)).toEqual([
-      { command: "start_model_install", args: { id } },
-    ]);
-    await expect(recommendation(page)).toHaveCount(0);
-  });
-}
+// Removed (October 13): the "first-run <profile> includes CPU punctuation"
+// and "failed first-run punctuation offers Retry" cases drove Finish setup on
+// the Models page with no saved profile. Since 0.25.0 a missing profile always
+// opens first-run setup instead (onboarding.rs `required`), so that path is
+// unreachable. onboarding-profiles.spec.js covers punctuation joining the
+// first-run download queue for every profile.
 
 for (const saved of ["custom", "accurate", "balanced", "light"]) {
   test(`existing ${saved} offers punctuation without downloading or changing choices`, async ({
@@ -150,8 +113,8 @@ for (const saved of ["custom", "accurate", "balanced", "light"]) {
     );
     await expect(recommendation(page)).toContainText(help);
     expect(await installs(page)).toHaveLength(0);
-    await page.getByRole("button", { name: "Dictation", exact: true }).click();
-    await page.getByRole("button", { name: "Setup", exact: true }).click();
+    await goToPage(page, "Dictation");
+    await goToPage(page, "Models");
     await expect(recommendation(page)).toBeVisible();
     expect(await settings(page)).toEqual(before);
     expect(await installs(page)).toHaveLength(0);
@@ -166,7 +129,7 @@ test("applying a different completed profile still requires a separate punctuati
     .getByRole("group", { name: "Setup profile", exact: true })
     .getByRole("button", { name: "Light", exact: true })
     .click();
-  await page.getByRole("button", { name: "Use this", exact: true }).click();
+  await page.getByRole("button", { name: "Use Light", exact: true }).click();
   await expect
     .poll(async () => (await settings(page)).setupProfile)
     .toBe("light");
@@ -186,7 +149,9 @@ test("recommended punctuation does not resume a cancelled profile change", async
     .getByRole("group", { name: "Setup profile", exact: true })
     .getByRole("button", { name: "Accurate", exact: true })
     .click();
-  await page.getByRole("button", { name: "Use this", exact: true }).click();
+  await page.getByRole("button", { name: "Use Accurate", exact: true }).click();
+  // Accurate's CUDA speech model asks for NVIDIA's license terms first.
+  await acceptDownloadTerms(page);
   await expect(download(page)).toContainText("Downloading");
   await download(page)
     .getByRole("button", { name: "Cancel", exact: true })
@@ -207,6 +172,8 @@ test("recommended punctuation does not resume a cancelled profile change", async
   ]);
   expect(await settings(page)).toEqual({
     ...before,
+    // The NVIDIA consent given for Accurate is kept; model choices are not.
+    componentAcknowledgments: { "nvidia-sherpa-cuda13": expect.any(String) },
     punctuationV2RecommendationAcknowledged: true,
   });
 });
@@ -283,10 +250,7 @@ test("recommended download uses cancel and retry, preserves choices and does not
   await expect(download(page)).toContainText("Downloading");
   await finishPunctuation(page);
   await expect(download(page)).toContainText("Installed");
-  const library = page.getByRole("region", {
-    name: "Model library",
-    exact: true,
-  });
+  const library = await openModelLibrary(page);
   await library
     .getByRole("combobox", { name: "Filter model library" })
     .selectOption("punctuation");
@@ -319,11 +283,8 @@ test("punctuation library row discloses license, source and runtime download siz
       totalBytes: 322728954,
     },
   });
-  const library = page.getByRole("region", {
-    name: "Model library",
-    exact: true,
-  });
-  await library.getByRole("tab", { name: "Browse", exact: true }).click();
+  const library = await openModelLibrary(page);
+  await library.getByRole("tab", { name: "Get more", exact: true }).click();
   await library
     .getByRole("combobox", { name: "Filter model library" })
     .selectOption("punctuation");
@@ -364,47 +325,6 @@ test("punctuation library row discloses license, source and runtime download siz
     path: testInfo.outputPath("punctuation-library.png"),
     fullPage: true,
   });
-});
-
-test("failed first-run punctuation offers Retry and cancellation keeps setup unfinished", async ({
-  page,
-}) => {
-  await openSetup(page, {
-    settings: { setupProfile: null },
-    modelPatches: {
-      "mock-whisper-small-cuda": { state: "installed" },
-      "mock-cleanup-2b-cuda": { state: "installed" },
-    },
-  });
-  await page.evaluate(
-    (id) =>
-      window.__testFailModelInstall(id, "Fixture punctuation download failed"),
-    id,
-  );
-  await page.getByRole("button", { name: "Finish setup", exact: true }).click();
-  await expect(download(page)).toContainText(
-    "Fixture punctuation download failed",
-  );
-  expect((await settings(page)).setupProfile).toBeNull();
-  await download(page)
-    .getByRole("button", { name: "Retry", exact: true })
-    .click();
-  await expect(download(page)).toContainText("Downloading");
-  await download(page)
-    .getByRole("button", { name: "Cancel", exact: true })
-    .click();
-  await expect(
-    download(page).getByRole("button", { name: "Retry", exact: true }),
-  ).toBeEnabled();
-  expect((await settings(page)).setupProfile).toBeNull();
-  await download(page)
-    .getByRole("button", { name: "Retry", exact: true })
-    .click();
-  await expect(download(page)).toContainText("Downloading");
-  await finishPunctuation(page);
-  await expect
-    .poll(async () => (await settings(page)).setupProfile)
-    .toBe("balanced");
 });
 
 for (const state of ["checking", "unsupported"]) {

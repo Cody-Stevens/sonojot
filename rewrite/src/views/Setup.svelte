@@ -217,13 +217,13 @@
     <SettingRow label="Models folder">
       <div class="actions">
         <button
-          class="button quiet small"
+          class="button quiet storage-action"
           disabled={!control.canConfigure || modelsLocked || actionPending}
           onclick={() => locate("models")}
           >{pending === "models" ? "Checking folder…" : "Change…"}</button
         >
         <button
-          class="button quiet small"
+          class="button quiet storage-action"
           disabled={!app.native || actionPending}
           onclick={openModels}
           >{pending === "open-models" ? "Opening…" : "Open"}</button
@@ -240,12 +240,12 @@
         >
       {:else if mediaNeedsSetup}<div class="actions">
           {#if canInstallMedia}<button
-              class="button small"
+              class="button storage-action"
               disabled={!control.canConfigure || actionPending}
               onclick={installMedia}>Install media support</button
             >{/if}
           <button
-            class="button quiet small"
+            class="button quiet storage-action"
             disabled={!control.canConfigure || actionPending}
             onclick={() => locate("converter")}
             >{pending === "converter"
@@ -284,6 +284,11 @@
     .setup-options :global(.paper-card) {
       padding: 18px;
     }
+  }
+  /* Models keeps the 18px control scale (see the 0.20.0 Setup notes in the
+     design bible), including the storage rows in Performance and storage. */
+  .storage-action {
+    font-size: 1rem;
   }
   .setup-state {
     white-space: nowrap;

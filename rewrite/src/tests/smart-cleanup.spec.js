@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { installDesktopFixture } from "./desktop-fixture.js";
+import { openApp, showRecentDictations } from "./app-helpers.js";
 
 const smartId = "speakoflow-mini-q4_k_m";
 const smart = {
@@ -152,23 +153,24 @@ for (const theme of ["fog", "slate"]) {
       tabTemporary: true,
     });
     const recovery = page.getByRole("button", {
-      name: "Use original",
+      name: "Copy before AI changes",
       exact: true,
     });
     await expect(recovery).toBeVisible();
-    await expect(recovery).toHaveAttribute("title", "Copy original text");
+    await expect(recovery).toHaveAttribute(
+      "title",
+      "Copy text from before AI cleanup or layout changes",
+    );
     await page.evaluate(() => document.fonts.ready);
     const sheet = await page.locator(".tab-sheet").boundingBox();
-    const lead = await recovery.boundingBox();
     const actions = await page.locator(".tab-actions").boundingBox();
     expect(sheet.height).toBe(48);
-    expect(lead.x + lead.width + 8).toBeLessThanOrEqual(actions.x);
     expect(actions.x + actions.width).toBeLessThanOrEqual(
       sheet.x + sheet.width,
     );
     await screenshot(page, `idle-${theme}`, page.locator(".screen-tab"));
     await recovery.click();
-    await expect(page.getByRole("status")).toHaveText("Original copied");
+    await expect(page.getByRole("status")).toHaveText("Copied");
     expect(await page.evaluate(() => window.__testClipboard)).toBe(
       result.preModelText,
     );
@@ -187,13 +189,68 @@ for (const theme of ["fog", "slate"]) {
   });
 }
 
+// "Copy before AI changes" is longer than the old "Use original". The 600px tab
+// (Windows and the Mac menu bar panel alike) makes room by showing Keep and
+// Hide as icons while the link is up.
+for (const theme of ["fog", "slate"]) {
+  for (const temporary of [true, false]) {
+    test(`the recovery link clears the idle tab actions: ${theme}${temporary ? ", revealed" : ""}`, async ({
+      page,
+    }) => {
+      await installDesktopFixture(page, {
+        settings: { doNotSaveDictations: true, autoPaste: true },
+        history: [],
+      });
+      await page.goto(`/?view=overlay&theme=${theme}`);
+      await page.evaluate((patch) => window.__testPushSnapshot(patch), {
+        ...result,
+        tabTemporary: temporary,
+      });
+      const recovery = page.getByRole("button", {
+        name: "Copy before AI changes",
+        exact: true,
+      });
+      await expect(recovery).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const lead = await recovery.boundingBox();
+      const sheet = await page.locator(".tab-sheet").boundingBox();
+      const buttons = page.locator(".tab-actions button");
+      const first = await buttons.first().boundingBox();
+      const last = await buttons.last().boundingBox();
+      expect(lead.x + lead.width + 8).toBeLessThanOrEqual(first.x);
+      expect(last.x + last.width).toBeLessThanOrEqual(sheet.x + sheet.width);
+      await expect(
+        page.getByRole("button", { name: "Hide", exact: true }),
+      ).toHaveAttribute("title", "Hide");
+      await expect(
+        page.getByRole("button", { name: "Keep visible", exact: true }),
+      ).toHaveCount(temporary ? 1 : 0);
+      await screenshot(
+        page,
+        `idle-actions-${theme}${temporary ? "-revealed" : ""}`,
+        page.locator(".screen-tab"),
+      );
+      // A new capture clears recovery and the labels come back.
+      await page.evaluate(() =>
+        window.__testPushSnapshot({
+          resultSessionId: null,
+          publicationStage: "rules",
+          preModelText: null,
+        }),
+      );
+      await expect(recovery).toHaveCount(0);
+      await expect(buttons.last()).toHaveText("Hide");
+    });
+  }
+}
+
 test("delayed recovery is refused after a newer dictation", async ({
   page,
 }) => {
   await installDesktopFixture(page, { holdCommands: ["copy_smart_original"] });
   await page.goto("/?view=overlay");
   await page.evaluate((patch) => window.__testPushSnapshot(patch), result);
-  await page.getByRole("button", { name: "Use original" }).click();
+  await page.getByRole("button", { name: "Copy before AI changes" }).click();
   await expect
     .poll(async () => (await calls(page, "copy_smart_original")).length)
     .toBe(1);
@@ -226,21 +283,21 @@ test("history separates raw recognition, rules original, Cleaned and guard fallb
     ],
   });
   await page.goto("/?page=dictation");
-  await page
-    .locator(".history-item")
-    .filter({ hasText: result.outputText })
-    .click();
+  const history = await showRecentDictations(page);
+  await history.getByRole("button", { name: result.outputText }).click();
+  await history.getByRole("button", { name: "Compare versions" }).click();
+  const versions = history.getByRole("region", { name: "Compare versions" });
   await expect(
-    page.getByRole("heading", { name: "As recognized", exact: true }),
+    versions.getByRole("heading", { name: "As recognized", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Original", exact: true }),
+    versions.getByRole("heading", { name: "Before AI changes", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Cleaned", exact: true }),
+    versions.getByRole("heading", { name: "Cleaned", exact: true }),
   ).toBeVisible();
-  const original = page.locator(".history-comparison > div").filter({
-    has: page.getByRole("heading", { name: "Original", exact: true }),
+  const original = versions.locator(":scope > div").filter({
+    has: page.getByRole("heading", { name: "Before AI changes", exact: true }),
   });
   await expect(original).toContainText(result.preModelText);
   await original.getByRole("button", { name: "Copy", exact: true }).click();
@@ -249,13 +306,21 @@ test("history separates raw recognition, rules original, Cleaned and guard fallb
   ]);
   await screenshot(page, "history-comparison");
   await page.getByRole("button", { name: "All recent dictations" }).click();
-  await page
-    .locator(".history-item")
-    .filter({ hasText: "Keep zero point zero four volts." })
+  await history
+    .getByRole("button", { name: "Keep zero point zero four volts." })
     .click();
-  await expect(page.getByText(/Rules ·/)).toContainText(
+  await history.locator("summary", { hasText: "More" }).click();
+  await history.getByRole("button", { name: "Processing details" }).click();
+  const details = history.getByRole("region", { name: "Processing details" });
+  await expect(details.getByRole("definition")).toHaveText([
+    "Complete",
+    "Rules",
     "Number change blocked",
-  );
+  ]);
+  await history.getByRole("button", { name: "Compare versions" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Finished text", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Cleaned", exact: true }),
   ).toHaveCount(0);

@@ -25,12 +25,11 @@ test("About checks explicitly and receives background download progress", async 
   await installDesktopFixture(page);
   await page.goto("/?page=about");
   await expect(page.getByText("0.22.0", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Check for updates" }).click();
+  // About checks on request; the sidebar button carries download and restart.
+  await page.getByRole("button", { name: "Check now" }).click();
   expect(await calls(page, "check_for_updates")).toHaveLength(1);
   await expect(page.getByText("Checking for updates…")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Check for updates" }),
-  ).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Check now" })).toBeDisabled();
   await pushUpdate(page, { status: { state: "downloading", percent: 42 } });
   await expect(page.getByText("Downloading update · 42%")).toBeVisible();
   await pushUpdate(page, { status: ready });
@@ -75,9 +74,10 @@ test("busy reason disables restart and clears when the backend becomes idle", as
   await page.goto("/?page=about");
   const restart = page.getByRole("button", { name: "Restart to update" });
   await expect(restart).toBeDisabled();
-  await expect(
-    page.getByText("Wait for meeting transcription to finish."),
-  ).toBeVisible();
+  await restart.focus();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "Wait for meeting transcription to finish.",
+  );
   await pushUpdate(page, { restartBlockedReason: null });
   await expect(restart).toBeEnabled();
   expect(await calls(page, "restart_to_update")).toHaveLength(0);
@@ -94,11 +94,14 @@ test("network errors stay in About and permit retry", async ({ page }) => {
   });
   await page.goto("/?page=about");
   await expect(
-    page.getByText("Could not check for updates. Try again later."),
+    page.getByText("Could not check for updates. Try again later.", {
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Check now" })).toBeEnabled();
   await expect(
-    page.getByRole("button", { name: "Check for updates" }),
+    page.getByRole("button", { name: "Update failed · Retry" }),
   ).toBeEnabled();
 });
 
