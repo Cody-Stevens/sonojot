@@ -965,13 +965,23 @@ fn qwen_guard_boundary(
     } else {
         None
     };
+    // People do repeat a word a few times inside real speech ("test, test,
+    // test, test, test, test"). A partial loop is only cut when it is longer
+    // than speech plausibly repeats, or the section holds more words than
+    // its audio could. Mostly-repetition output and repetition at the token
+    // limit stay hallucinations: that is what Qwen produces over silence.
+    let spoken_rate_exceeded = audio_seconds > 0.0
+        && words.len() as f64 / audio_seconds > MAX_SPOKEN_WORDS_PER_SECOND;
+    let long_loop = loops.iter().any(|found| found.repetitions >= MIN_COLLAPSE_REPETITIONS);
     let (action, reason) = if !loops.is_empty() {
         if segment.truncated() {
             ("drop", Some("repetition_at_token_limit"))
         } else if non_loop_words <= 3 || repeated_words * 5 >= words.len() * 4 {
             ("drop", Some("mostly_repetition"))
-        } else {
+        } else if long_loop || spoken_rate_exceeded {
             ("collapse", Some("consecutive_repetition"))
+        } else {
+            ("none", None)
         }
     } else if rate_exceeded && rate_exemption.is_none() {
         ("review", Some("extreme_token_rate"))
@@ -1015,6 +1025,11 @@ struct QwenResolution {
     warnings: Vec<String>,
     attempts: Vec<serde_json::Value>,
 }
+
+/// A partial loop shorter than this inside otherwise ordinary speech is kept.
+const MIN_COLLAPSE_REPETITIONS: usize = 8;
+/// Above this many words per second of audio, repetition was not spoken.
+const MAX_SPOKEN_WORDS_PER_SECOND: f64 = 4.5;
 
 const QWEN_MARKER: &str = "<asr_text>";
 const MAX_QWEN_NATIVE_TOKENS: usize = 4_096;
@@ -1206,8 +1221,11 @@ where
                 truncated |= next.truncated();
                 let next_boundary = qwen_guard_boundary(&next, audio_seconds, guards_enabled);
                 attempts.push(qwen_attempt_evidence(&next, &next_boundary));
-                // A dropped retry must not revive the first ambiguous text.
-                if next_boundary.guard.intervened() {
+                // A dropped retry must not revive the first ambiguous text,
+                // and a first-attempt length limit makes any retry loop suspect.
+                if next_boundary.guard.intervened()
+                    || (truncated && !next_boundary.guard.loops.is_empty())
+                {
                     return qwen_guard_resolution(next, next_boundary, attempts, truncated);
                 }
                 if next_boundary.review_reason.is_none() && !next_boundary.text.trim().is_empty() {
@@ -1258,6 +1276,9 @@ fn qwen_guard_resolution(
     // A length limit on either attempt plus repetition is a hallucination;
     // retaining the collapsed loop would still publish suspect text.
     if truncated && !boundary.guard.loops.is_empty() {
+        if boundary.original_text.is_none() {
+            boundary.original_text = Some(std::mem::take(&mut boundary.text));
+        }
         boundary.text.clear();
         boundary.guard.action = "drop";
         boundary.guard.reason = Some("repetition_at_token_limit");
@@ -2306,7 +2327,8 @@ mod tests {
     fn qwen_original_speech_survives_guards_and_retry_resolution() {
         for (raw, guarded, changed) in [
             ("go go go go", "", true),
-            ("Keep these four words. go go go go", "Keep these four words. go", true),
+            ("Keep these four words. go go go go go go go go", "Keep these four words. go", true),
+            ("Keep these four words. go go go go", "Keep these four words. go go go go", false),
             ("Keep these four words.", "Keep these four words.", false),
         ] {
             for retry in [false, true] {
@@ -2397,7 +2419,7 @@ mod tests {
     #[test]
     fn qwen_partial_loop_preserves_first_spelling_punctuation_and_surrounding_words() {
         let text = "Please keep these opening words. É isso! é ISSO? É isso, é isso. Then keep the final sentence.";
-        let result = guarded_response(text, 40, "stop", 5.0);
+        let result = guarded_response(text, 40, "stop", 3.0);
         assert_eq!(result.boundary.text,
             "Please keep these opening words. É isso! Then keep the final sentence.");
         assert_eq!(result.boundary.guard.action, "collapse");
@@ -2405,14 +2427,38 @@ mod tests {
         assert!(result.warnings[0].contains("first occurrence"));
         assert_eq!(result.segment.text, text);
 
-        let result = guarded_response("Keep all four words. yes,YES!yes?Yes.", 20, "stop", 4.0);
+        let result = guarded_response("Keep all four words. yes,YES!yes?Yes.", 20, "stop", 1.5);
         assert_eq!(result.boundary.text, "Keep all four words. yes,");
         let result = guarded_response(
             "Keep all four words. yes yes yes yes. Save these four too. no no no no.",
-            25, "stop", 4.0,
+            25, "stop", 3.0,
         );
         assert_eq!(result.boundary.text, "Keep all four words. yes Save these four too. no");
         assert_eq!(result.boundary.guard.loops.len(), 2);
+        // Eight repetitions are longer than speech plausibly repeats, at any pace.
+        let raw = format!("Keep these opening words. {} Keep the end.", vec!["echo"; 8].join(" "));
+        let result = guarded_response(&raw, 40, "stop", 20.0);
+        assert_eq!(result.boundary.text, "Keep these opening words. echo Keep the end.");
+        assert_eq!(result.boundary.guard.action, "collapse");
+    }
+
+    #[test]
+    fn qwen_keeps_a_word_the_speaker_really_repeated() {
+        // Field report 2026-10-14 (Mac, Q4 Metal): a speaker said one word six
+        // times; collapsing it lost words and marked the dictation incomplete.
+        let text = "Checking the sound on this new microphone before we begin. \
+            Please confirm the levels look right to you. Check, check, check, check, check, check. \
+            Does it stop when I let go?";
+        let result = guarded_response(text, 60, "stop", 13.2);
+        assert_eq!(result.boundary.text, text);
+        assert!(result.warnings.is_empty());
+        assert_eq!(result.completeness, RecognitionCompleteness::Complete);
+        assert_eq!(result.boundary.guard.action, "none");
+        assert_eq!(result.boundary.guard.loops[0].repetitions, 6);
+        for repetitions in 4..MIN_COLLAPSE_REPETITIONS {
+            let raw = format!("Keep these opening words. {} Keep the end.", vec!["no"; repetitions].join(", "));
+            assert_eq!(guarded_response(&raw, 40, "stop", 6.0).boundary.text, raw);
+        }
     }
 
     #[test]

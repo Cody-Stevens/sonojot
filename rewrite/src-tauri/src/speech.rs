@@ -1359,7 +1359,7 @@ mod tests {
         let store = crate::store::Store::open(Some(directory.clone())).unwrap();
         for source in [
             "go go go go",
-            "Keep these four words. go go go go",
+            "Keep these four words. go go go go go go go go",
             "Keep these four words.",
         ] {
             let recognition = crate::sherpa::llama_test_recognition((
