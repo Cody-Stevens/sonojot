@@ -79,6 +79,23 @@ impl VerifiedModels {
 }
 
 pub fn verify_models_folder(folder: &Path) -> Result<VerifiedModels, String> {
+    if crate::model_manager::linux_runtime::AVAILABLE {
+        let mut identities: Identities = serde_json::from_str(include_str!("../assets/model-identities.json"))
+            .map_err(|_| "The app's model identity list could not be read. Reinstall the app.")?;
+        identities.platform = "linux-x86_64".into();
+        identities.groups.retain(|group| group.id.starts_with("moonshine-"));
+        for group in &mut identities.groups {
+            if group.id == "moonshine-runtime" {
+                group.directory = "moonshine/runtime/linux-x64/lib".into();
+                group.files = crate::model_manager::linux_runtime::MOONSHINE_FILES.iter().map(|pin| Identity {
+                    name: pin.relative.into(), bytes: pin.bytes, sha256: pin.sha256.into(),
+                }).collect();
+            } else if folder.join("optional").join(&group.id).is_dir() {
+                group.directory = format!("optional/{}", group.id);
+            }
+        }
+        return verify(folder, &identities);
+    }
     if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         return Err("This model-folder verifier supports the Windows x64 bundle. Choose models on a supported Windows computer.".into());
     }
@@ -96,7 +113,7 @@ fn safe_relative(value: &str) -> bool {
 }
 
 fn verify(folder: &Path, identities: &Identities) -> Result<VerifiedModels, String> {
-    if identities.schema_version != 1 || identities.platform != "windows-x86_64" {
+    if identities.schema_version != 1 || !matches!(identities.platform.as_str(), "windows-x86_64" | "linux-x86_64") {
         return Err("The app's model identity list is unsupported. Reinstall the app.".into());
     }
     let root = fs::canonicalize(folder)
@@ -163,7 +180,7 @@ fn verify(folder: &Path, identities: &Identities) -> Result<VerifiedModels, Stri
             {
                 let entry = entry.map_err(|_| "The model runtime folder could not be read.")?;
                 let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-                if name.ends_with(".dll") && !expected.contains(&name) {
+                if (name.ends_with(".dll") || name.contains(".so")) && !expected.contains(&name) {
                     return Err("The model runtime contains an unrecognized library. Choose the original model bundle.".into());
                 }
             }
@@ -186,7 +203,8 @@ fn verify(folder: &Path, identities: &Identities) -> Result<VerifiedModels, Stri
     }
     let mut paths = BTreeMap::new();
     let runtime = &groups["moonshine-runtime"];
-    insert_path(&mut paths, "moonshine_dll", &runtime.join("moonshine.dll"))?;
+    let library = if identities.platform == "linux-x86_64" { "libmoonshine.so" } else { "moonshine.dll" };
+    insert_path(&mut paths, "moonshine_dll", &runtime.join(library))?;
     if let Some(parent) = runtime.parent() {
         insert_path(&mut paths, "moonshine_runtime_dir", parent)?;
     }

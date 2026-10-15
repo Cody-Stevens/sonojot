@@ -21,4 +21,10 @@ export const platforms = [
     status: "released", stage: "alpha", asset: "SonoJot-macos-arm64.dmg",
     command: { label: "Terminal", lines: ["curl --proto '=https' --proto-redir '=https' -fsSL https://sonojot.com/install.sh | sh"] },
   },
+  {
+    id: "linux", name: "Linux", detail: "Arch Linux and Omarchy, x86_64; Hyprland for the shortcut and paste",
+    status: "source", stage: "alpha",
+    note: "Early and rough: expect bugs and missing pieces. It builds from source, and meetings record the microphone only. Use Feedback in the app to report problems.",
+    command: { label: "Terminal", lines: ["git clone https://github.com/Cody-Stevens/sonojot.git", "sonojot/rewrite/scripts/linux/install.sh"] },
+  },
 ];

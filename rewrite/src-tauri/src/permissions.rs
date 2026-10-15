@@ -3,10 +3,11 @@
 //! the running app bundle (for when SonoJot is not listed yet).
 //!
 //! Each permission is a [`PermissionSpec`]: its copy, the System Settings pane
-//! URL, a `granted` check that is polled while the helper is open and an
-//! optional one-time `request` (for example, asking macOS to list the app).
-//! Add a spec to [`SPECS`] to reuse the assistant for another permission; the
-//! commands and the Svelte helper are driven entirely by the spec.
+//! URL, a `granted` check that is polled while the helper is open, a
+//! `request` made each time the user asks (macOS lists the app or shows its
+//! own prompt) and whether its list accepts the dragged app. Add a spec to
+//! [`SPECS`] to reuse the assistant for another permission; the commands, the
+//! setup Permissions step and the Svelte helper are driven by the spec.
 //!
 //! Once `granted` turns true, the helper closes, a `permission-status` event
 //! reports it and SonoJot comes back to the front. The helper never blocks
@@ -42,10 +43,14 @@ pub struct PermissionSpec {
     pub settings_url: &'static str,
     /// Polled while the helper is open.
     pub granted: fn() -> bool,
-    /// Called when the assistant opens; returns true if access is already granted.
+    /// Called each time the assistant opens. True when no Settings visit is
+    /// needed now: access is granted or macOS is showing its own prompt.
     pub request: Option<fn() -> bool>,
     /// Clears SonoJot's own entry so macOS asks again.
     pub reset: Option<PermissionReset>,
+    /// The pane's list takes an app dragged in (or added with +). The
+    /// Microphone list does not: macOS adds apps only when they ask.
+    pub draggable: bool,
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // Reset runs only on macOS.
@@ -57,19 +62,10 @@ pub struct PermissionReset {
     pub prompt: fn() -> bool,
 }
 
-fn accessibility_request() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        crate::mac_paste::request_accessibility_listing()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        true
-    }
-}
-
-/// After a reset the old entry is gone, so this always asks: macOS lists
-/// SonoJot again, switched off, and shows its alert.
+/// Asks macOS every time the user presses Allow, not once per run: if the
+/// user removed SonoJot's entry from the list, macOS lists it again (switched off)
+/// and shows its alert, so the list never depends on the icon drag. After a
+/// reset the old entry is gone, so the same call lists SonoJot again.
 fn accessibility_prompt() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -85,20 +81,21 @@ pub static SPECS: &[PermissionSpec] = &[
     PermissionSpec {
         kind: "accessibility",
         title: "Allow SonoJot to paste",
-        body: "Switch SonoJot on in the list. If it isn't there, drag this icon into the list.",
+        body: "Switch SonoJot on in the list. If it isn't listed, click\u{a0}+ under the list and choose SonoJot in Applications, or drag this icon into the list.",
         stale_hint: "Already on but not working?",
         settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
         granted: crate::platform::paste_permission_granted,
-        request: Some(accessibility_request),
+        request: Some(accessibility_prompt),
         reset: Some(PermissionReset {
             tcc_service: "Accessibility",
             prompt: accessibility_prompt,
         }),
+        draggable: true,
     },
     PermissionSpec {
         kind: "system_audio",
         title: "Allow SonoJot to record system audio",
-        body: "Switch SonoJot on under System Audio Recording Only. If it isn't there, drag this icon into that list.",
+        body: "Switch SonoJot on under System Audio Recording Only. If it isn't listed, click\u{a0}+ under that list and choose SonoJot in Applications, or drag this icon in.",
         stale_hint: "Already on but not recording?",
         settings_url: crate::system_audio::SETTINGS_URL,
         granted: crate::system_audio::permission_granted,
@@ -110,8 +107,121 @@ pub static SPECS: &[PermissionSpec] = &[
             tcc_service: "AudioCapture",
             prompt: crate::system_audio::request_permission_prompted,
         }),
+        draggable: true,
+    },
+    PermissionSpec {
+        kind: "microphone",
+        title: "Allow SonoJot to use the microphone",
+        // The Microphone list has no + and takes no drops: macOS lists an app
+        // once it has asked, which `request` does when it never has.
+        body: "Switch SonoJot on in the Microphone list.",
+        stale_hint: "Already on but not hearing you?",
+        settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+        granted: microphone::granted,
+        // Never asked: macOS shows its own prompt instead of Settings.
+        request: Some(microphone::request),
+        // kTCCServiceMicrophone. After the reset macOS asks again.
+        reset: Some(PermissionReset {
+            tcc_service: "Microphone",
+            prompt: microphone::request,
+        }),
+        draggable: false,
     },
 ];
+
+/// Microphone access from AVFoundation's authorization status, the check
+/// macOS itself applies when dictation or a meeting opens the microphone.
+mod microphone {
+    /// AVAuthorizationStatus.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum Authorization {
+        NotDetermined,
+        Restricted,
+        Denied,
+        Authorized,
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(super) fn from_raw(value: isize) -> Authorization {
+        match value {
+            0 => Authorization::NotDetermined,
+            1 => Authorization::Restricted,
+            3 => Authorization::Authorized,
+            _ => Authorization::Denied,
+        }
+    }
+
+    /// True when no Settings visit is needed now: access is on, or macOS is
+    /// about to show its own prompt.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(super) fn needs_no_settings(status: Authorization) -> bool {
+        matches!(status, Authorization::Authorized | Authorization::NotDetermined)
+    }
+
+    #[cfg(target_os = "macos")]
+    mod native {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+        #[link(name = "AVFoundation", kind = "framework")]
+        unsafe extern "C" {
+            static AVMediaTypeAudio: &'static AnyObject;
+        }
+
+        fn capture_device() -> Option<&'static AnyClass> {
+            AnyClass::get(c"AVCaptureDevice")
+        }
+
+        /// Raw AVAuthorizationStatus (an NSInteger). Without AVFoundation it
+        /// reports authorized, and opening the microphone asks instead.
+        pub fn status() -> isize {
+            let Some(class) = capture_device() else { return 3 };
+            unsafe { msg_send![class, authorizationStatusForMediaType: AVMediaTypeAudio] }
+        }
+
+        /// Shows macOS's microphone prompt. The answer arrives later on
+        /// another queue; setup and the helper poll the status.
+        pub fn ask() {
+            let Some(class) = capture_device() else { return };
+            // AVFoundation copies the block.
+            let done = block2::RcBlock::new(|_granted: Bool| {});
+            unsafe {
+                let _: () = msg_send![
+                    class,
+                    requestAccessForMediaType: AVMediaTypeAudio,
+                    completionHandler: &*done
+                ];
+            }
+        }
+    }
+
+    pub fn granted() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            from_raw(native::status()) == Authorization::Authorized
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            true
+        }
+    }
+
+    pub fn request() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            let status = from_raw(native::status());
+            if status == Authorization::NotDetermined {
+                native::ask();
+            }
+            needs_no_settings(status)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            true
+        }
+    }
+}
 
 pub fn spec(kind: &str) -> Result<&'static PermissionSpec, String> {
     SPECS
@@ -134,6 +244,8 @@ pub struct PermissionStatus {
     pub stale_hint: &'static str,
     /// [`permission_reset`] can clear this permission's entry.
     pub can_reset: bool,
+    /// The helper offers the app icon to drag into the list.
+    pub draggable: bool,
 }
 
 pub fn status(app: &AppHandle, spec: &'static PermissionSpec) -> PermissionStatus {
@@ -154,6 +266,7 @@ pub fn status(app: &AppHandle, spec: &'static PermissionSpec) -> PermissionStatu
         body: spec.body,
         stale_hint: spec.stale_hint,
         can_reset: required && spec.reset.is_some(),
+        draggable: spec.draggable,
     }
 }
 
@@ -269,6 +382,31 @@ pub fn permission_drag(window: tauri::WebviewWindow) -> Result<(), String> {
     }
 }
 
+/// NSDragOperation offered by the helper's icon: copy | link | generic
+/// outside the app, as a Finder drag offers them. Never move or delete, so
+/// dropping the icon on the Trash or a folder cannot move the app. Nothing
+/// inside the helper itself.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn drag_operations(context: isize) -> usize {
+    const COPY: usize = 1;
+    const LINK: usize = 2;
+    const GENERIC: usize = 4;
+    // NSDraggingContextOutsideApplication
+    if context == 0 {
+        COPY | LINK | GENERIC
+    } else {
+        0
+    }
+}
+
+/// Pasteboard types a Finder drag of an app carries: the modern file URL and
+/// the legacy filenames list (a property-list array of paths). Older AppKit
+/// lists, such as the privacy panes, may register only for the legacy type.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const FILE_URL_TYPE: &std::ffi::CStr = c"public.file-url";
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const FILENAMES_TYPE: &std::ffi::CStr = c"NSFilenamesPboardType";
+
 /// Top-left rectangle in CoreGraphics points.
 #[cfg(any(test, target_os = "macos"))]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -354,8 +492,9 @@ mod native {
     use tauri::{LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder};
 
     const WIDTH: f64 = 520.0;
-    // Room for the reset offer under the instruction.
-    const HEIGHT: f64 = 172.0;
+    // Room for the reset offer under the instruction, and for the + and
+    // drag fallback in the longest (system audio) instruction.
+    const HEIGHT: f64 = 192.0;
     const SETTINGS_BUNDLE: &str = "com.apple.systempreferences";
     /// NSFloatingWindowLevel: above System Settings, below menus and alerts.
     const FLOATING_LEVEL: isize = 3;
@@ -747,12 +886,19 @@ mod native {
         _session: *mut AnyObject,
         context: isize,
     ) -> usize {
-        // Outside the app: copy, link or generic, whichever the list accepts.
-        if context == 0 {
-            1 | 2 | 4
-        } else {
-            0
-        }
+        drag_operations(context)
+    }
+
+    /// Local diagnostics only (stderr, never sent anywhere): whether the
+    /// list accepted the drop. Operation 0 means it was refused.
+    extern "C-unwind" fn drag_ended(
+        _: *mut AnyObject,
+        _: Sel,
+        _session: *mut AnyObject,
+        _point: CGPoint,
+        operation: usize,
+    ) {
+        eprintln!("Permission helper drag ended with operation {operation}.");
     }
 
     /// One drag source for the process. AppKit does not retain it.
@@ -767,6 +913,10 @@ mod native {
                     sel!(draggingSession:sourceOperationMaskForDraggingContext:),
                     operation_mask as extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject, isize) -> usize,
                 );
+                builder.add_method(
+                    sel!(draggingSession:endedAtPoint:operation:),
+                    drag_ended as extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject, CGPoint, usize),
+                );
                 Some(builder.register())
             })?;
             thread_local! {
@@ -777,6 +927,35 @@ mod native {
                     .get_or_init(|| msg_send![class, new])
                     .clone()
             })
+        }
+    }
+
+    fn ns_string(text: &CStr) -> Option<Retained<AnyObject>> {
+        unsafe { msg_send![class!(NSString), stringWithUTF8String: text.as_ptr()] }
+    }
+
+    /// The app as Finder puts it on a drag pasteboard: `public.file-url` (the
+    /// URL string) and the legacy `NSFilenamesPboardType` array of paths.
+    /// The URL alone is all some drop targets read; others, like older
+    /// AppKit lists, register only for the filenames type.
+    fn finder_pasteboard_item(url: &AnyObject, path: &AnyObject) -> Option<Retained<AnyObject>> {
+        unsafe {
+            let item: Option<Retained<AnyObject>> = msg_send![class!(NSPasteboardItem), new];
+            let item = item?;
+            let url_string: Option<Retained<AnyObject>> = msg_send![url, absoluteString];
+            let url_string = url_string?;
+            let file_url_type = ns_string(FILE_URL_TYPE)?;
+            let wrote_url: bool =
+                msg_send![&*item, setString: &*url_string, forType: &*file_url_type];
+            let paths: Option<Retained<AnyObject>> = msg_send![class!(NSArray), arrayWithObject: path];
+            let paths = paths?;
+            let filenames_type = ns_string(FILENAMES_TYPE)?;
+            let wrote_paths: bool =
+                msg_send![&*item, setPropertyList: &*paths, forType: &*filenames_type];
+            if !wrote_paths {
+                eprintln!("Permission helper drag carries only the file URL.");
+            }
+            wrote_url.then_some(item)
         }
     }
 
@@ -815,8 +994,9 @@ mod native {
                 height: 64.0,
             };
             let _: () = msg_send![&*icon, setSize: size];
+            let writer = finder_pasteboard_item(&url, &path).ok_or("macOS could not prepare the drag.")?;
             let item: Allocated<AnyObject> = msg_send![class!(NSDraggingItem), alloc];
-            let item: Option<Retained<AnyObject>> = msg_send![item, initWithPasteboardWriter: &*url];
+            let item: Option<Retained<AnyObject>> = msg_send![item, initWithPasteboardWriter: &*writer];
             let item = item.ok_or("macOS could not prepare the drag.")?;
             let location: CGPoint = msg_send![ns_window, mouseLocationOutsideOfEventStream];
             let point: CGPoint = msg_send![
@@ -874,6 +1054,48 @@ mod tests {
             assert!(tccutil_reset_args(reset.tcc_service, "studio.codystevens.eavesdropper.next").is_ok());
             assert_eq!(SPECS.iter().filter(|other| other.kind == spec.kind).count(), 1);
         }
+    }
+
+    #[test]
+    fn only_lists_that_take_drops_offer_the_icon() {
+        for spec in SPECS {
+            let mentions_drag = spec.body.contains("drag");
+            assert_eq!(spec.draggable, mentions_drag, "{}", spec.kind);
+            // A list that takes the app also has + as the fallback.
+            assert_eq!(spec.draggable, spec.body.contains("click\u{a0}+"), "{}", spec.kind);
+        }
+        let microphone = spec("microphone").unwrap();
+        assert!(!microphone.draggable);
+        assert!(microphone.settings_url.ends_with("Privacy_Microphone"));
+        assert_eq!(microphone.reset.as_ref().unwrap().tcc_service, "Microphone");
+        assert!(spec("accessibility").unwrap().draggable);
+        assert!(spec("system_audio").unwrap().draggable);
+    }
+
+    #[test]
+    fn microphone_asks_macos_only_when_it_never_has() {
+        use microphone::{from_raw, needs_no_settings, Authorization};
+        assert_eq!(from_raw(0), Authorization::NotDetermined);
+        assert_eq!(from_raw(1), Authorization::Restricted);
+        assert_eq!(from_raw(2), Authorization::Denied);
+        assert_eq!(from_raw(3), Authorization::Authorized);
+        assert_eq!(from_raw(42), Authorization::Denied);
+        assert!(needs_no_settings(Authorization::Authorized));
+        assert!(needs_no_settings(Authorization::NotDetermined));
+        assert!(!needs_no_settings(Authorization::Denied));
+        assert!(!needs_no_settings(Authorization::Restricted));
+    }
+
+    #[test]
+    fn the_icon_drag_copies_or_links_and_never_moves() {
+        const MOVE: usize = 16;
+        const DELETE: usize = 32;
+        let outside = drag_operations(0);
+        assert_eq!(outside, 1 | 2 | 4);
+        assert_eq!(outside & (MOVE | DELETE), 0);
+        assert_eq!(drag_operations(1), 0);
+        assert_eq!(FILE_URL_TYPE.to_str().unwrap(), "public.file-url");
+        assert_eq!(FILENAMES_TYPE.to_str().unwrap(), "NSFilenamesPboardType");
     }
 
     #[test]

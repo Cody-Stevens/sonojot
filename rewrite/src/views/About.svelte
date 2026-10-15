@@ -11,7 +11,8 @@
   import apacheLicense from "../../../LICENSE?raw";
   import { TERMS_VERSION } from "../lib/terms";
   let diagnostics = $state("");
-  let { ontour }: { ontour?: () => void } = $props();
+  let { ontour, onreport }: { ontour?: () => void; onreport?: () => void } =
+    $props();
   // Explains a disabled Restart to update beside Check now.
   const updateReason = $derived(
     app.snapshot.update.status.state === "ready" &&
@@ -25,6 +26,8 @@
   <h1 class="text-grain" data-text-surface="emboss">About</h1>
 </header>
 <Card title="SonoJot">
+  {#if onreport}<button class="button" onclick={onreport}>Report a bug</button
+    >{/if}
   {#if ontour}<button
       class="button"
       disabled={!app.native ||

@@ -15,6 +15,7 @@
     smartLayoutUnavailableReason,
   } from "../lib/smart-layout";
   import type { ModelRole } from "../lib/model-library";
+  import { LIVE_PREVIEW_MODEL, livePreviewHelpText } from "../lib/live-preview";
   import type { Settings } from "../lib/protocol";
   let {
     onmanage,
@@ -80,6 +81,12 @@
       app.snapshot.settings,
       library.data?.models ?? [],
     ),
+  );
+  const livePreviewModel = $derived(
+    library.data?.models.find((model) => model.id === LIVE_PREVIEW_MODEL),
+  );
+  const livePreviewHelp = $derived(
+    livePreviewHelpText(livePreviewModel, app.snapshot.settings.asrModel),
   );
   onMount(() => library.acquire());
 </script>
@@ -156,6 +163,16 @@
           onchange={(audioCues) => app.saveSettings({ audioCues })}
         />
       </SettingRow>
+      <SettingRow label="Live preview" help={livePreviewHelp}
+        ><Toggle
+          label="Live preview"
+          checked={app.snapshot.settings.livePreview}
+          disabled={!app.native ||
+            app.busy("settings") ||
+            livePreviewModel?.supported === false}
+          onchange={(livePreview) => app.saveSettings({ livePreview })}
+        /></SettingRow
+      >
       <SettingRow
         label="Written form"
         help="Write numbers, symbols and AI model names in their usual form. Applies to Clean."

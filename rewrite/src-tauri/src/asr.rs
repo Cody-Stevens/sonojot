@@ -82,6 +82,9 @@ pub fn provider_requested(id: &str) -> &'static str {
 /// Never relabels CPU execution as GPU. GPU strings delegate to `gpu_asr` so
 /// labels cannot drift.
 pub fn backend_for(id: &str) -> &'static str {
+    if cfg!(target_os = "linux") && crate::llama_asr::find(id).is_some_and(|m| matches!(m.runtime, crate::llama_asr::Runtime::Cpu)) {
+        return "llama.cpp b10964 (Qwen3-ASR CPU)";
+    }
     if crate::mac_speech::find(id).is_some() {
         crate::mac_speech::BACKEND
     } else if let Some(model) = crate::llama_asr::find(id) {
@@ -99,6 +102,13 @@ pub fn backend_for(id: &str) -> &'static str {
 
 /// Verbatim compatibility label for the ID (for `acceleration.rs`/Setup).
 pub fn compatibility_for(id: &str) -> &'static str {
+    if cfg!(all(target_os = "linux", target_arch = "x86_64"))
+        && (matches!(id, "moonshine-medium" | "moonshine-small" | crate::live_preview::MODEL_ID)
+            || crate::optional_asr::is_optional(id) || crate::whisper_catalog::is_whisper(id)
+            || crate::llama_asr::find(id).is_some_and(|m| matches!(m.runtime, crate::llama_asr::Runtime::Cpu)))
+    {
+        return "Linux x64 CPU via the pinned model runtime. Speech GPU offload is not enabled.";
+    }
     if crate::mac_speech::find(id).is_some() {
         crate::mac_speech::COMPATIBILITY
     } else if let Some(model) = crate::llama_asr::find(id) {
@@ -131,7 +141,8 @@ fn model_directory_checked(root: &Path, id: &str, check: crate::model_verificati
         crate::gpu_asr::model_dir(root, id)
     } else if crate::whisper_catalog::is_whisper(id) {
         crate::whisper_catalog::model_dir(root, id)
-    } else if crate::optional_asr::is_optional(id) {
+    } else if crate::optional_asr::is_optional(id) || id == crate::live_preview::MODEL_ID {
+        // The live-preview model is never bundled: only verified managed files.
         crate::optional_asr::model_dir(root, id)
     } else {
         let bundled = if id == "moonshine-small" {
@@ -220,6 +231,12 @@ pub(crate) fn model_status(root: &Path, id: &str, check: crate::model_verificati
     if crate::optional_asr::is_optional(id) {
         return crate::optional_asr::model_status(root, id, check);
     }
+    if id == crate::live_preview::MODEL_ID {
+        return Status::all([
+            moonshine_runtime_status(root, check),
+            crate::model_manager::moonshine_managed_status(root, id, check),
+        ]);
+    }
     if !matches!(id, "moonshine-medium" | "moonshine-small") {
         return Status::Missing;
     }
@@ -229,7 +246,15 @@ pub(crate) fn model_status(root: &Path, id: &str, check: crate::model_verificati
     } else {
         Status::present(moonshine_files_present(&dir))
     };
-    Status::all([Status::present(runtime_path(root).is_file()), files])
+    Status::all([moonshine_runtime_status(root, check), files])
+}
+
+fn moonshine_runtime_status(root: &Path, check: crate::model_verification::Check) -> crate::model_verification::Status {
+    if crate::model_manager::linux_runtime::AVAILABLE {
+        crate::model_manager::linux_runtime::moonshine_status(root, check)
+    } else {
+        crate::model_verification::Status::present(runtime_path(root).is_file())
+    }
 }
 
 fn moonshine_files_present(dir: &Path) -> bool {
@@ -543,6 +568,21 @@ impl Recognizer {
         })
     }
 
+    /// A disposable helper recognizer in its own below-normal-priority worker
+    /// (the live preview). One load attempt; no replay or crash recovery.
+    pub(crate) fn load_background(
+        root: &Path,
+        requested: &str,
+        cancel: &AtomicBool,
+    ) -> Result<Self, String> {
+        let remote = crate::recognition::Remote::load_background(root, requested, cancel)?;
+        Ok(Self {
+            backend: Backend::Remote(remote),
+            model_id: requested.to_owned(),
+            requested_model: requested.to_owned(),
+        })
+    }
+
     pub(crate) fn load_native(root: &Path, requested: &str) -> Result<Self, String> {
         if !crate::recognition::is_worker() {
             return Err("Native recognition must run in its owned worker process.".into());
@@ -590,7 +630,9 @@ impl Recognizer {
                 backend: Backend::Sherpa(engine),
             });
         }
-        if !matches!(requested, "moonshine-medium" | "moonshine-small") {
+        if !matches!(requested, "moonshine-medium" | "moonshine-small")
+            && requested != crate::live_preview::MODEL_ID
+        {
             return Err(format!("Unsupported recognizer: {requested}"));
         }
         let api = Api::open(root)?;
@@ -603,18 +645,24 @@ impl Recognizer {
                 continue;
             }
             let path = native_model_path(&model_directory(root, id))?;
-            let names = [
+            let mut names = vec![
                 CString::new("ort_providers").unwrap(),
                 CString::new("identify_speakers").unwrap(),
                 // We publish text and never consume native per-segment PCM.
                 // Let Moonshine release completed audio during long streams.
                 CString::new("return_audio_data").unwrap(),
             ];
-            let values = [
+            let mut values = vec![
                 CString::new("CPU").unwrap(),
                 CString::new("false").unwrap(),
                 CString::new("false").unwrap(),
             ];
+            if id == crate::live_preview::MODEL_ID {
+                // Moonshine skips passes until this much new audio arrives
+                // (default 0.5 s); the live preview asks more often.
+                names.push(CString::new("transcription_interval").unwrap());
+                values.push(CString::new(crate::live_preview::TRANSCRIPTION_INTERVAL).unwrap());
+            }
             let options: Vec<OptionC> = names
                 .iter()
                 .zip(values.iter())
@@ -626,7 +674,12 @@ impl Recognizer {
             let handle = unsafe {
                 (api.load)(
                     path.as_ptr(),
-                    if id == "moonshine-small" { 4 } else { 5 },
+                    // MOONSHINE_MODEL_ARCH_{TINY,SMALL,MEDIUM}_STREAMING.
+                    match id {
+                        crate::live_preview::MODEL_ID => 2,
+                        "moonshine-small" => 4,
+                        _ => 5,
+                    },
                     options.as_ptr(),
                     options.len() as u64,
                     HEADER_VERSION,
@@ -833,6 +886,20 @@ impl Stream<'_> {
             Stream::Moonshine(stream) => stream.add(samples, sample_rate),
         }
     }
+    /// End of the newest recognized segment on the stream's own audio
+    /// timeline (seconds of input from the first sample). Text from `update`
+    /// covers audio up to here; a live preview shows only what comes after.
+    /// Metal reports none: the Mac has no live-preview model yet.
+    pub(crate) fn committed_seconds(&self) -> Option<f32> {
+        match self {
+            Stream::Remote(stream) => stream.committed_seconds(),
+            Stream::Sherpa(stream) => stream.committed_seconds(),
+            Stream::Gpu(stream) => stream.committed_seconds(),
+            #[cfg(target_os = "macos")]
+            Stream::Metal(_) => None,
+            Stream::Moonshine(stream) => ledger_end(&stream.ledger),
+        }
+    }
     pub fn update(&mut self) -> Result<String, String> {
         match self {
             Stream::Remote(stream) => stream.update(),
@@ -969,6 +1036,15 @@ pub(crate) fn finish_recognition(ledger: &BTreeMap<u64, Segment>) -> Recognition
             Vec::new()
         },
     }
+}
+
+/// Latest segment end in a ledger, or `None` before the first segment.
+pub(crate) fn ledger_end(ledger: &BTreeMap<u64, Segment>) -> Option<f32> {
+    ledger
+        .values()
+        .map(|segment| segment.end_seconds.unwrap_or(segment.start_seconds))
+        .filter(|end| end.is_finite())
+        .reduce(f32::max)
 }
 
 pub(crate) fn ordered_segments(ledger: &BTreeMap<u64, Segment>) -> Vec<Segment> {

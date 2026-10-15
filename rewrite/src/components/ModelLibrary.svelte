@@ -103,6 +103,7 @@
       model.roles.includes("meetingSpeech") && !model.roles.includes("asr")
         ? "Meetings only"
         : "",
+      model.roles.includes("preview") ? "Live preview" : "",
       roles(model),
       model.older ? "Older" : "",
     ]
@@ -177,7 +178,7 @@
           value={role.id}>{role.title}</option
         >{/each}<option value="meetingSpeech">Meetings</option><option
         value="punctuation">Punctuation</option
-      ></select
+      ><option value="preview">Live preview</option></select
     >
   </div>
   {#if tab === "browse"}<ModelPareto />{/if}
@@ -226,7 +227,8 @@
                   </p>{/if}
                 <PunctuationDetails id={model.id} inline />
               {:else}
-                {#if model.roles.includes("meetingSpeech")}<p>
+                {#if model.roles.includes("meetingSpeech") || model.roles.includes("preview")}<p
+                  >
                     {model.guidance}
                   </p>{/if}
                 <p>{detail(model)}</p>

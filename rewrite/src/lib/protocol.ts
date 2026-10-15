@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pendingCrashSchema, reportSchema, reportReceiptSchema, type Report, type ReportKind } from "./reports";
 import { downloadConsentSchema } from "./download-consent";
 import { setupStatusSchema } from "./setup";
 import {
@@ -44,6 +45,8 @@ export const settingsSchema = z.object({
   hotkeyMode: z.enum(["toggle", "hold"]),
   autoPaste: z.boolean(),
   audioCues: z.boolean(),
+  /** Tiny-model draft beside the speech model while dictating. Display only. */
+  livePreview: z.boolean().default(true),
   autoStopSeconds: z.number().finite().nonnegative(),
   microphone: z.string().nullable(),
   asrModel: z.string(),
@@ -163,6 +166,8 @@ export const snapshotSchema = z.object({
   publicationStage: z.string().nullable().default(null),
   guardReason: z.string().nullable().default(null),
   interimText: z.string(),
+  /** Live-preview draft after interimText. Never saved, copied or pasted. */
+  previewText: z.string().default(""),
   audioLevel: z.number().finite().min(0).max(1),
   meetingLevels: z
     .object({
@@ -271,7 +276,11 @@ export const learnedEntrySchema = z.object({
 export type LearnedEntry = z.infer<typeof learnedEntrySchema>;
 const nothing = z.union([z.undefined(), z.null()]);
 /** Kinds registered in src-tauri/src/permissions.rs `SPECS`. */
-export const permissionKinds = ["accessibility", "system_audio"] as const;
+export const permissionKinds = [
+  "microphone",
+  "accessibility",
+  "system_audio",
+] as const;
 export type PermissionKind = (typeof permissionKinds)[number];
 /** A macOS permission and its helper copy; other platforms report granted. */
 export const permissionStatusSchema = z.object({
@@ -283,10 +292,18 @@ export const permissionStatusSchema = z.object({
   body: z.string(),
   staleHint: z.string(),
   canReset: z.boolean(),
+  /** The helper offers the app icon to drag into the list. */
+  draggable: z.boolean().default(true),
 });
 export type PermissionStatus = z.infer<typeof permissionStatusSchema>;
 
 export const commandSchemas = {
+  get_pending_crash: pendingCrashSchema.nullable(),
+  prepare_report: reportSchema,
+  send_report: reportReceiptSchema,
+  dismiss_crash: nothing,
+  copy_report: nothing,
+  open_report_issues: nothing,
   check_for_updates: snapshotSchema,
   download_update: snapshotSchema,
   restart_to_update: snapshotSchema,
@@ -387,6 +404,12 @@ export const commandSchemas = {
   learn_correction: vocabularySchema,
 };
 export interface CommandArguments {
+  get_pending_crash: undefined;
+  prepare_report: { kind: ReportKind; includeDiagnostics: boolean };
+  send_report: { report: Report };
+  dismiss_crash: { id: string };
+  copy_report: { report: Report };
+  open_report_issues: undefined;
   check_for_updates: undefined;
   download_update: undefined;
   restart_to_update: undefined;
@@ -395,7 +418,8 @@ export interface CommandArguments {
   get_hardware_profile: undefined;
   apply_setup_profile: { profile: SetupProfile };
   begin_onboarding: undefined;
-  confirm_onboarding_profile: { profile: SetupProfile };
+  /** `skip`: profile downloads unchecked on setup's Downloads step. */
+  confirm_onboarding_profile: { profile: SetupProfile; skip?: string[] };
   finish_onboarding: undefined;
   onboarding_microphone: { action: "start" | "level" | "stop" };
   open_permission_settings: { kind: "microphone" | "accessibility" };
@@ -568,6 +592,7 @@ export const previewSnapshot: Snapshot = {
     hotkeyMode: "toggle",
     autoPaste: true,
     audioCues: true,
+    livePreview: true,
     autoStopSeconds: 0,
     microphone: null,
     asrModel: "",
@@ -594,6 +619,7 @@ export const previewSnapshot: Snapshot = {
   publicationStage: null,
   guardReason: null,
   interimText: "",
+  previewText: "",
   audioLevel: 0,
   meetingLevels: null,
   meetingSourceStatus: [],

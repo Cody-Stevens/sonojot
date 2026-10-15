@@ -178,7 +178,7 @@ pub(crate) fn setup_hardware() -> SetupHardware {
         total_ram_bytes: ram,
         physical_cores: physical,
         logical_cores: logical,
-        gpu: if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        gpu: if cfg!(all(any(target_os = "windows", target_os = "linux"), target_arch = "x86_64")) {
             cached_gpu_hardware()
         } else {
             // Apple GPUs use unified RAM, not a separate VRAM allowance.
@@ -244,7 +244,50 @@ fn physical_core_count() -> Option<u32> {
     (status == 0 && size == 4 && cores > 0).then_some(cores)
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(target_os = "linux")]
+fn physical_core_count() -> Option<u32> {
+    linux_physical_cores(&std::fs::read_to_string("/proc/cpuinfo").ok()?)
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn linux_physical_cores(cpuinfo: &str) -> Option<u32> {
+    let cores: std::collections::HashSet<_> = cpuinfo.split("\n\n").filter_map(|processor| {
+        let mut physical = None;
+        let mut core = None;
+        for line in processor.lines() {
+            let Some((key, value)) = line.split_once(':') else { continue };
+            match key.trim() {
+                "physical id" => physical = value.trim().parse::<u32>().ok(),
+                "core id" => core = value.trim().parse::<u32>().ok(),
+                _ => {}
+            }
+        }
+        Some((physical?, core?))
+    }).collect();
+    u32::try_from(cores.len()).ok().filter(|n| *n > 0)
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn linux_memory_value(meminfo: &str, key: &str) -> Option<u64> {
+    let (_, value) = meminfo.lines().filter_map(|line| line.split_once(':')).find(|(name, _)| *name == key)?;
+    let mut fields = value.split_whitespace();
+    let kib = fields.next()?.parse::<u64>().ok()?;
+    if fields.next()? != "kB" || fields.next().is_some() { return None; }
+    kib.checked_mul(1024)
+}
+
+#[test]
+fn linux_resource_parsers_handle_smt_and_unknown_fields() {
+    assert_eq!(linux_physical_cores("physical id : 0\ncore id : 0\n\nphysical id : 0\ncore id : 0\n\nphysical id : 1\ncore id : 0\n"), Some(2));
+    assert_eq!(linux_physical_cores("processor : 0\nmodel name : VM\n"), None);
+    let meminfo = "MemTotal: 8388608 kB\nMemFree: 7 kB\nMemAvailable: 4194304 kB\n";
+    assert_eq!(linux_memory_value(meminfo, "MemTotal"), Some(8 << 30));
+    assert_eq!(linux_memory_value(meminfo, "MemAvailable"), Some(4 << 30));
+    assert_eq!(linux_memory_value("MemTotal: 100 MB", "MemTotal"), None);
+    assert_eq!(linux_memory_value("MemFree: 7 kB", "MemAvailable"), None);
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn physical_core_count() -> Option<u32> {
     None
 }
@@ -328,7 +371,9 @@ fn total_ram_bytes() -> Option<u64> {
     {
         mac_memory::total()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    { linux_memory_value(&std::fs::read_to_string("/proc/meminfo").ok()?, "MemTotal").filter(|n| *n > 0) }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         None
     }
@@ -347,7 +392,9 @@ fn available_ram_bytes() -> Option<u64> {
     {
         mac_memory::available()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    { linux_memory_value(&std::fs::read_to_string("/proc/meminfo").ok()?, "MemAvailable") }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         None
     }
@@ -655,9 +702,26 @@ fn cached_gpu_hardware() -> Option<GpuHardwareRow> {
         // Older nvidia-smi versions lack compute_cap; retain known facts but
         // leave capability unknown, so they cannot qualify for CUDA setup.
         .or_else(|| query_nvidia_smi("index,memory.total,memory.free,name,driver_version"))
-        .and_then(|text| selected_gpu_hardware(&text));
+        .and_then(|text| selected_gpu_hardware(&text))
+        .or_else(linux_drm_gpu);
     *sample = Some((Instant::now(), gpu.clone()));
     gpu
+}
+
+fn linux_drm_gpu() -> Option<GpuHardwareRow> {
+    if !cfg!(target_os = "linux") { return None; }
+    for entry in std::fs::read_dir("/sys/class/drm").ok()?.take(64).flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.strip_prefix("card").is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit())) { continue; }
+        let device = entry.path().join("device");
+        let vendor = std::fs::read_to_string(device.join("vendor")).ok();
+        let label = match vendor.as_deref().map(str::trim) {
+            Some("0x10de") => "NVIDIA", Some("0x1002") => "AMD", Some("0x8086") => "Intel", _ => continue,
+        };
+        return Some(GpuHardwareRow { index: 0, total_bytes: None,
+            name: Some(format!("{label} graphics ({name})")), driver_version: None, compute_capability: None });
+    }
+    None
 }
 
 /// Matching total/free pair for the ACTUAL selected CUDA device (index
@@ -877,6 +941,8 @@ pub fn estimated_ram_interval(id: &str) -> Option<(u64, u64)> {
         "moonshine-medium" => (560_000_000, 800 * MIB),
         // Small was not measured in that report; retain its provisional range.
         "moonshine-small" => (400 * MIB, 800 * MIB),
+        // Live preview helper beside dictation; see admit_live_preview.
+        crate::live_preview::MODEL_ID => (PREVIEW_RAM_MIN, PREVIEW_RAM_MAX),
         "parakeet-tdt-0.6b-v2" => (1200 * MIB, 2000 * MIB),
         "qwen3-asr-1.7b" => (3000 * MIB, 4600 * MIB),
         crate::llama_asr::MODEL_ID => (900 * MIB, 1600 * MIB),
@@ -934,6 +1000,7 @@ pub fn estimated_vram_interval(id: &str) -> Option<(u64, u64)> {
     match id {
         "moonshine-medium"
         | "moonshine-small"
+        | crate::live_preview::MODEL_ID
         | "parakeet-tdt-0.6b-v2"
         | "qwen3-asr-1.7b"
         | "whisper-small-metal"
@@ -1006,6 +1073,7 @@ pub fn estimate_basis(id: &str) -> String {
         },
         "ternary-bonsai-2-27b" => "Preview estimate, not measured in SonoJot. PrismML Ternary Bonsai 2 PQ2_0 weights are 7.2 GB; short-context CUDA planning includes the Prism fork runtime, CUDA workspaces and KV cache. The bundled stock llama-server cannot load this format.".to_owned(),
         "whisper-small-fp32-cuda" | "whisper-large-v3-turbo-fp32-cuda" | "parakeet-tdt-0.6b-v2-fp16-cuda" => "Preview estimate, not measured: full floating-point model weights plus native sessions, CUDA workspaces and activation headroom for short VAD chunks. Host range includes loading copies; GPU range is separate. Validate on your hardware.".to_owned(),
+        crate::live_preview::MODEL_ID => "Live preview helper beside dictation, not part of the Speech plan. Observed 2026-10-14 on Windows with a debug-build worker and six 60 s TED clips fed in real time: 156-176 MB peak working set for the whole helper process, one ONNX Runtime thread, 17-40% of one core. Weights are 45 MB. No GPU.".into(),
         "moonshine-medium" => "Observed 2026-09-28 app-worker peak RAM in holdout file mode: 0.56 GB on Windows. See evaluation/BENCHMARK-WINDOWS-2026-09-28.md, App-worker peak RAM. Upper bound adds headroom; Notes and the app's working allowance are separate. One computer, not a guarantee.".into(),
         "whisper-tiny.en" => "Observed 2026-09-28 app-worker peak RAM in holdout file mode: 0.53 GB on Windows. See evaluation/BENCHMARK-WINDOWS-2026-09-28.md, App-worker peak RAM. Upper bound adds headroom; this observation does not measure multilingual Tiny or CUDA.".into(),
         "whisper-small" => "Observed 2026-09-28 app-worker peak RAM in holdout file mode: 1.28 GB on Windows. See evaluation/BENCHMARK-WINDOWS-2026-09-28.md, App-worker peak RAM. Upper bound adds headroom; this observation does not measure Small.en, CUDA or Metal.".into(),
@@ -1043,6 +1111,7 @@ pub fn estimate_evidence(id: &str) -> &'static str {
         "whisper-tiny-fp32-cuda" => "Provisional 2026-09-16; VRAM widens isolated RTX 5070 observation (+705 MiB decode, 1822->2527 MiB, public audio, gpu-asr-evidence.json); host RAM provisional",
         "qwen3-asr-1.7b-fp16-cuda" => "Observed 2026-09-17 app worker (native-qwen.json): 10.51 GB sampled private host peak, 2.60 GB working set, +7.56 GB device-use delta. Bounds are estimates widened from this single run.",
         "moonshine-medium" => "Observed 2026-09-28 app-worker peak: 0.56 GB (BENCHMARK-WINDOWS-2026-09-28.md, holdout file mode). Upper bound adds headroom.",
+        crate::live_preview::MODEL_ID => "Observed 2026-10-14 debug-build preview worker, six 60 s TED clips fed in real time: 156-176 MB peak working set, 17-40% of one core. Upper bound adds headroom; one computer.",
         "whisper-tiny.en" => "Observed 2026-09-28 app-worker peak: 0.53 GB (BENCHMARK-WINDOWS-2026-09-28.md, holdout file mode). Upper bound adds headroom.",
         "whisper-small" => "Observed 2026-09-28 app-worker peak: 1.28 GB (BENCHMARK-WINDOWS-2026-09-28.md, holdout file mode). Upper bound adds headroom.",
         "moonshine-small" | "parakeet-tdt-0.6b-v2" | "qwen3-asr-1.7b"
@@ -1980,6 +2049,31 @@ pub fn evict_idle_on_pressure() -> usize {
 /// workers are evicted via confirmed release first, then availability is
 /// re-read before the final decision. Never claims pending ASR memory as
 /// freed. A low-memory estimate is advisory after one idle-eviction attempt.
+/// Live-preview working-set planning range (worker process, model loaded).
+const PREVIEW_RAM_MIN: u64 = 150 * MIB;
+const PREVIEW_RAM_MAX: u64 = 250 * MIB;
+
+/// The one exemption from dictation's single ASR lease: the live preview
+/// (`live_preview`). It is a display-only CPU helper of about 45 MB of
+/// weights that runs beside the leased primary recognizer. It takes no lease
+/// or reservation, is never counted as the resident speech model, never
+/// evicts or waits for anything, and its failure ends only the preview. It is
+/// admitted only when no update is installing and known free RAM still covers
+/// its upper estimate above the normal safety reserve. Unknown memory admits
+/// it, as ordinary admission does. Its files cannot be removed while it runs.
+pub fn admit_live_preview() -> bool {
+    if lock_state().map_or(true, |state| state.update_installing) {
+        return false;
+    }
+    let hardware = probe_hardware();
+    match hardware.available_ram_bytes {
+        Some(available) => {
+            available >= PREVIEW_RAM_MAX.saturating_add(reserve_bytes(hardware.total_ram_bytes))
+        }
+        None => true,
+    }
+}
+
 pub fn admission_check(additional_bytes: u64, what: &str) -> Result<(), String> {
     admission_check_inner(None, additional_bytes, what)
 }

@@ -176,6 +176,7 @@ impl Control {
         state.recognition_warnings.clear();
         state.can_copy_last = false;
         state.delivery_notice = None;
+        state.preview_text.clear();
         state.audio_level = 0.0;
         state.session_id = None;
         state.capture_generation = None;
@@ -192,6 +193,7 @@ impl Control {
             | Event::Progress { session_id, .. }
             | Event::Level { session_id, .. }
             | Event::Interim { session_id, .. }
+            | Event::Preview { session_id, .. }
             | Event::Finishing { session_id }
             | Event::Cleaning { session_id, .. }
             | Event::Completed { session_id, .. }
@@ -240,6 +242,15 @@ impl Control {
                     state.state = AppState::Listening;
                 }
             }
+            Event::Preview { text, .. } => {
+                if !matches!(
+                    state.state,
+                    AppState::Loading | AppState::Listening | AppState::Finishing
+                ) {
+                    return SpeechUpdate::Ignored;
+                }
+                state.preview_text = text;
+            }
             Event::Finishing { .. } => state.state = AppState::Finishing,
             Event::Cleaning { original_text, .. } => {
                 state.recognition_progress = None;
@@ -247,6 +258,7 @@ impl Control {
                 state.original_text = original_text.clone();
                 state.output_text = original_text.clone();
                 state.interim_text = original_text;
+                state.preview_text.clear();
                 state.audio_level = 0.0;
             }
             Event::Completed { result, .. } => {
@@ -257,6 +269,7 @@ impl Control {
                 state.publication_stage = result.publication_stage.clone();
                 state.guard_reason = result.guard_reason.clone();
                 state.interim_text.clear();
+                state.preview_text.clear();
                 state.audio_level = 0.0;
                 state.state = AppState::Finishing;
                 state.result_session_id = Some(id);
@@ -289,6 +302,7 @@ impl Control {
                 state.state = AppState::Idle;
                 state.audio_level = 0.0;
                 state.interim_text.clear();
+                state.preview_text.clear();
                 clear_review_text(state);
                 state.session_id = None;
                 state.capture_generation = None;
@@ -317,6 +331,8 @@ impl Control {
                 state.state = AppState::Error;
                 state.error = Some(message.clone());
                 state.audio_level = 0.0;
+                // The draft is never promoted to text, even on failure.
+                state.preview_text.clear();
                 state.session_id = None;
                 state.capture_generation = None;
                 if !state.interim_text.trim().is_empty() {
@@ -362,6 +378,7 @@ fn clear_review_text(state: &mut Snapshot) {
     state.publication_stage = None;
     state.guard_reason = None;
     state.interim_text.clear();
+    state.preview_text.clear();
     state.result_session_id = None;
     state.recognition_completeness = None;
     state.recognition_warnings.clear();
@@ -934,6 +951,7 @@ impl Runtime {
             state.capture_generation = Some(generation);
             state.error = None;
             state.interim_text.clear();
+            state.preview_text.clear();
             state.original_text.clear();
             state.output_text.clear();
             state.pre_model_text = None;
@@ -975,6 +993,18 @@ impl Runtime {
             if let Err(error) = windows::show_cursor(app) {
                 self.report(app, error);
             }
+        }
+        // macOS: starting from another app must leave that app in front. If
+        // anything made SonoJot active while capture started, hand activation
+        // back; restore_target_focus acts only while SonoJot is frontmost.
+        #[cfg(target_os = "macos")]
+        if let Some(target) = control.target.clone() {
+            std::thread::spawn(move || {
+                for wait in [150, 350, 500] {
+                    std::thread::sleep(std::time::Duration::from_millis(wait));
+                    platform::restore_target_focus(&target);
+                }
+            });
         }
         // Keep early completion/error events behind UI creation so they cannot leave a stale indicator.
         drop(control);
@@ -1365,54 +1395,77 @@ fn shortcut_action(state: AppState, mode: HotkeyMode, key: ShortcutState) -> u8 
     }
 }
 
-pub fn register_shortcut(app: &AppHandle, value: &str) -> Result<(), String> {
+/// Shortcuts bound by the compositor instead of a key grab. Wayland gives
+/// clients no global keys; Hyprland runs `SonoJot --shortcut ...` instead.
+pub fn compositor_binds() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::hyprland::active()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+pub fn register_shortcut(app: &AppHandle, value: &str, mode: HotkeyMode) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if crate::hyprland::active() {
+        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        return crate::hyprland::install_shortcut(value, mode == HotkeyMode::Hold, &executable)
+            .map_err(|e| format!("Cannot bind {value} in Hyprland: {e}"));
+    }
+    let _ = mode;
     let shortcut: Shortcut = value
         .replace(' ', "")
         .parse()
         .map_err(|e| format!("Invalid keyboard shortcut: {e}"))?;
     app.global_shortcut()
-        .on_shortcut(shortcut, |app, _, event| {
-            let Some(runtime) = app.try_state::<Arc<Runtime>>() else {
-                return;
-            };
-            let runtime = runtime.inner().clone();
-            let app = app.clone();
-            let Ok(snapshot) = runtime.snapshot() else {
-                return;
-            };
-            let action =
-                shortcut_action(snapshot.state, snapshot.settings.hotkey_mode, event.state());
-            if action == 0 {
-                return;
-            }
-            // Preserve the focused editor at the key event, before any app UI or worker delay.
-            let target = if action == 1 {
-                platform::capture_paste_target()
-            } else {
-                None
-            };
-            let generation = runtime.command_generation.load(Ordering::Acquire);
-            let stop_ticket = if action == 2 || action == 3 {
-                runtime.stop_ticket().ok()
-            } else {
-                None
-            };
-            tauri::async_runtime::spawn_blocking(move || {
-                let result = if action == 1 {
-                    runtime.start_at_generation(&app, target, generation)
-                } else if action == 3 {
-                    let Some(ticket) = stop_ticket else { return };
-                    runtime.stop_cleanup_at(ticket)
-                } else {
-                    let Some(ticket) = stop_ticket else { return };
-                    runtime.stop_at(&app, ticket)
-                };
-                if let Err(error) = result {
-                    runtime.report(&app, error);
-                }
-            });
-        })
+        .on_shortcut(shortcut, |app, _, event| shortcut_event(app, event.state()))
         .map_err(|e| format!("Cannot register {value}. Another app may be using it: {e}"))
+}
+
+/// One press or release of the dictation shortcut, from the key grab or from
+/// a compositor bind.
+pub fn shortcut_event(app: &AppHandle, key: ShortcutState) {
+    let Some(runtime) = app.try_state::<Arc<Runtime>>() else {
+        return;
+    };
+    let runtime = runtime.inner().clone();
+    let app = app.clone();
+    let Ok(snapshot) = runtime.snapshot() else {
+        return;
+    };
+    let action = shortcut_action(snapshot.state, snapshot.settings.hotkey_mode, key);
+    if action == 0 {
+        return;
+    }
+    // Preserve the focused editor at the key event, before any app UI or worker delay.
+    let target = if action == 1 {
+        platform::capture_paste_target()
+    } else {
+        None
+    };
+    let generation = runtime.command_generation.load(Ordering::Acquire);
+    let stop_ticket = if action == 2 || action == 3 {
+        runtime.stop_ticket().ok()
+    } else {
+        None
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = if action == 1 {
+            runtime.start_at_generation(&app, target, generation)
+        } else if action == 3 {
+            let Some(ticket) = stop_ticket else { return };
+            runtime.stop_cleanup_at(ticket)
+        } else {
+            let Some(ticket) = stop_ticket else { return };
+            runtime.stop_at(&app, ticket)
+        };
+        if let Err(error) = result {
+            runtime.report(&app, error);
+        }
+    });
 }
 
 #[cfg(test)]
@@ -1550,6 +1603,39 @@ mod publication_boundary_tests {
         );
         control.on_speech(&mut state, Event::Cancelled { session_id: 7 });
         assert!(state.recognition_progress.is_none());
+    }
+
+    #[test]
+    fn live_preview_draft_is_display_only_and_never_becomes_text() {
+        let preview = |text: &str| Event::Preview { session_id: 7, text: text.into() };
+        // Shown while loading, before the primary has produced anything.
+        let (mut control, mut state) = active(7, 2, AppState::Loading);
+        control.on_speech(&mut state, preview("early words"));
+        assert_eq!(state.preview_text, "early words");
+        assert_eq!(state.state, AppState::Loading, "a draft is not model readiness");
+        // Committed text does not absorb the draft.
+        control.on_speech(&mut state, Event::Interim { session_id: 7, text: "Committed.".into() });
+        assert_eq!(state.interim_text, "Committed.");
+        assert_eq!(state.preview_text, "early words");
+        // A failure promotes committed text only, never the draft.
+        control.on_speech(&mut state, Event::Error { session_id: 7, message: "worker exited".into() });
+        assert!(state.preview_text.is_empty());
+        assert_eq!(state.original_text, "Committed.");
+        assert!(!state.output_text.contains("early"));
+        // Late drafts after the session ends are ignored.
+        control.on_speech(&mut state, preview("late"));
+        assert!(state.preview_text.is_empty());
+
+        let (mut control, mut state) = active(7, 2, AppState::Listening);
+        control.on_speech(&mut state, preview("draft"));
+        let SpeechUpdate::Publish(publication) =
+            control.on_speech(&mut state, completed(7, "Raw.", "Output.", "complete"))
+        else {
+            panic!("publication missing");
+        };
+        assert_eq!(publication.text, "Output.");
+        assert_eq!(publication.original_text, "Raw.");
+        assert!(state.preview_text.is_empty());
     }
 
     #[test]

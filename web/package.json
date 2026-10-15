@@ -9,6 +9,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro check",
+    "test": "node --test legal.test.mjs connect-openrouter.test.mjs report.test.mjs",
     "deploy": "astro build && wrangler deploy",
     "deploy:preview": "astro build && wrangler versions upload"
   },

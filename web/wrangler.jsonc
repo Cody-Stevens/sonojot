@@ -3,13 +3,27 @@
   "name": "sonojot-site",
   "compatibility_date": "2026-09-11",
 
-  // Static only. There is no Worker script, so `main` is deliberately absent
-  // and every request is served straight from the built asset manifest.
+  "main": "worker/report.mjs",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page"
   },
+
+  "vars": {
+    "PATCHBELL_BASE_URL": "https://patchbell.codystevens.studio",
+    "PATCHBELL_PROJECT": "sonojot",
+    // PatchBell project `sonojot`, connection `app-reports`. The matching
+    // PATCHBELL_INGEST_SECRET is a Worker secret, never in source.
+    "PATCHBELL_INGEST_KEY_ID": "ingest_08e7f9c7f9880ed1"
+  },
+  "ratelimits": [{
+    "name": "REPORT_RATE_LIMITER",
+    "namespace_id": "2026101501",
+    "simple": { "limit": 5, "period": 60 }
+  }],
 
   // Wrangler provisions the DNS records and certificates for these on deploy.
   // The canonical URL is the apex; www serves the same build.

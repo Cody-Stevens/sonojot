@@ -127,7 +127,8 @@ test("choosing system audio without permission offers the fix at once", async ({
   expect((await calls(page, "start_meeting"))[0].args.source).toBe("both");
 });
 
-async function toMeetingsStep(page, options, theme = "fog") {
+/** Replays the tour to the step after Terms: Permissions on a Mac. */
+async function toPermissionsStep(page, options, theme = "fog") {
   await page.clock.install();
   await installDesktopFixture(page, options);
   await page.goto(`/?page=about&theme=${theme}`);
@@ -138,45 +139,34 @@ async function toMeetingsStep(page, options, theme = "fog") {
   };
   await next();
   await next("Agree and continue");
-  await next();
-  await next();
-  await next();
-  await next("Use Balanced");
-  await expect(page.getByRole("status", { name: "System audio permission" })).toBeVisible();
   await page.clock.runFor(5000);
 }
 
 for (const theme of ["fog", "slate"]) {
-  test(`setup asks for system audio on a Mac and waits for an answer (${theme})`, async ({ page }) => {
-    await toMeetingsStep(page, mac("notDetermined", { systemAudioAnswer: "ready" }), theme);
+  test(`setup asks for system audio with the other Mac permissions and never waits (${theme})`, async ({ page }) => {
+    await toPermissionsStep(page, mac("notDetermined", { systemAudioAnswer: "ready" }), theme);
+    await expect(page.getByRole("heading", { name: "Permissions", level: 1 })).toBeVisible();
     const status = page.getByRole("status", { name: "System audio permission" });
-    await expect(status).toContainText("System audio: Not allowed yet");
-    await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
-    await expect(page.getByText("Allow system audio, or choose Not now")).toBeVisible();
-    await page.locator(".onboarding-content").evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
-    await capture(page, `setup-system-audio-needed-${theme}`);
-    await page.getByRole("button", { name: "Allow system audio", exact: true }).click();
-    await expect(status).toContainText("System audio: Ready");
+    await expect(status).toHaveText("Not allowed yet");
+    // Not allowing it never holds setup.
     await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+    await capture(page, `setup-system-audio-needed-${theme}`);
+    await page.getByRole("button", { name: "Allow System audio", exact: true }).click();
+    await expect(status).toHaveText("Allowed");
+    expect((await calls(page, "permission_assistant")).at(-1).args).toEqual({ kind: "system_audio", action: "open" });
     await capture(page, `setup-system-audio-ready-${theme}`);
   });
 }
 
-test("setup Not now is a deliberate, explained choice", async ({ page }) => {
-  await toMeetingsStep(page, mac("denied"));
-  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "Not now", exact: true }).click();
-  await expect(page.getByText(/For now, meetings record only your microphone/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+test("a Mac that cannot record system audio shows no system audio row", async ({ page }) => {
+  await toPermissionsStep(page, mac("unsupported"));
+  await expect(page.getByRole("status", { name: "Microphone permission" })).toBeVisible();
+  await expect(page.getByRole("status", { name: "System audio permission" })).toHaveCount(0);
 });
 
-test("Windows setup shows system audio as ready without a permission step", async ({ page }) => {
-  await toMeetingsStep(page, { settings: { setupProfile: "balanced" } });
-  await expect(page.getByRole("status", { name: "System audio permission" })).toContainText(
-    "Windows needs no permission",
-  );
+test("Windows setup has no permission step and no system audio question", async ({ page }) => {
+  await toPermissionsStep(page, { settings: { setupProfile: "balanced" } });
+  await expect(page.getByRole("heading", { name: "Your microphone", level: 1 })).toBeVisible();
+  await expect(page.getByRole("status", { name: "System audio permission" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Allow system audio" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
-  await page.locator(".onboarding-content").evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
-  await capture(page, "setup-system-audio-windows-fog");
 });

@@ -13,3 +13,8 @@ rewrite/THIRD_PARTY_NOTICES.md -text
 rewrite/scripts/generate_notices.py text eol=lf
 rewrite/scripts/test_generate_notices.py text eol=lf
 rewrite/scripts/build_ffmpeg_lgpl_macos.sh text eol=lf
+
+
+# Linux packaging runs on Linux shells; keep LF on every platform.
+rewrite/packaging/** text eol=lf
+rewrite/scripts/linux/** text eol=lf

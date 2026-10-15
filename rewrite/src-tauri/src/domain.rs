@@ -50,6 +50,9 @@ pub struct Settings {
     pub hotkey_mode: HotkeyMode,
     pub auto_paste: bool,
     pub audio_cues: bool,
+    /// Show a tiny model's draft beside the primary while dictating. Display
+    /// only; it does nothing until the live-preview model is installed.
+    pub live_preview: bool,
     pub auto_stop_seconds: u32,
     pub microphone: Option<String>,
     pub asr_model: String,
@@ -98,6 +101,7 @@ impl Default for Settings {
             hotkey_mode: HotkeyMode::Toggle,
             auto_paste: true,
             audio_cues: true,
+            live_preview: true,
             auto_stop_seconds: 0,
             microphone: None,
             asr_model: "moonshine-medium".into(),
@@ -248,6 +252,10 @@ pub struct Snapshot {
     #[serde(default)]
     pub guard_reason: Option<String>,
     pub interim_text: String,
+    /// Live-preview draft for audio the primary has not committed yet.
+    /// Display only: never saved, published, copied or used as a fallback.
+    #[serde(default)]
+    pub preview_text: String,
     pub audio_level: f32,
     /// Microphone and system levels while a two-source meeting records.
     #[serde(default)]

@@ -85,6 +85,13 @@ fn discover_devices() -> Result<Vec<Device>, String> {
     let default = host.default_input_device().and_then(|d| d.name().ok());
     host.input_devices()
         .map_err(|e| e.to_string())?
+        // ALSA lists raw PCMs (hw:, plughw:, dsnoop: and so on) that bypass or
+        // fight PipeWire. Keep the routed devices, such as `default`, which
+        // follows the input chosen in the desktop's sound settings.
+        .filter(|d| {
+            !cfg!(target_os = "linux")
+                || d.name().is_ok_and(|name| !name.contains(':') && name != "null")
+        })
         .map(|d| {
             let name = d.name().map_err(|e| e.to_string())?;
             Ok(Device {
@@ -307,6 +314,25 @@ struct CaptureCompletion {
     reason: AtomicU32,
     wait_ms: AtomicU64,
     cue: Mutex<CueState>,
+}
+
+/// See `Capture::cue_mask`.
+#[derive(Clone)]
+pub(crate) struct CueMask(Arc<CaptureCompletion>);
+
+impl CueMask {
+    /// A mask with no start cue (tests and benches).
+    #[cfg(test)]
+    pub(crate) fn none() -> Self {
+        Self(Arc::new(CaptureCompletion::default()))
+    }
+    /// Silence the start cue in `samples`, whose first capture frame is `first`.
+    pub(crate) fn apply(&self, samples: &mut [f32], first: u64) {
+        let window = self.0.cue.lock().unwrap_or_else(|e| e.into_inner()).window;
+        if let Some(window) = window {
+            window.suppress(samples, first);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -685,6 +711,11 @@ impl Capture {
     pub(crate) fn filter_asr(&self, samples: &mut [f32]) {
         self.completion.cue.lock().unwrap_or_else(|e| e.into_inner()).filter(samples);
     }
+    /// Read-only start-cue suppression for a display-only consumer (the live
+    /// preview). Unlike `filter_asr` it never advances ASR consumption.
+    pub(crate) fn cue_mask(&self) -> CueMask {
+        CueMask(self.completion.clone())
+    }
     pub(crate) fn diagnostics(&self) -> CaptureDiagnostics { self.completion.diagnostics() }
     pub(crate) fn level_handle(&self) -> Arc<AtomicU32> {
         self.level.clone()
@@ -715,7 +746,11 @@ fn build_stream(
     attempt: u64,
     stop: Arc<AtomicBool>,
     completion: Arc<CaptureCompletion>,
-) -> Result<cpal::Stream, String> {
+) -> Result<Input, String> {
+    if let Some(path) = test_audio_path() {
+        capture_event("microphone-test-file", attempt, epoch, 0);
+        return file_stream(&path, queue, epoch, level, stop, completion);
+    }
     let host = cpal::default_host();
     let device = match device_id.filter(|s| !s.is_empty()) {
         Some(id) => {
@@ -753,15 +788,131 @@ fn build_stream(
     }
 }
 
-fn make_stream<T>(
-    device: &cpal::Device,
-    config: &cpal::StreamConfig,
-    mut queue: ChunkQueue,
+/// The microphone stream, or the WAV that `SONOJOT_TEST_AUDIO` names.
+enum Input {
+    Device(cpal::Stream),
+    File(TestSource),
+}
+
+impl Input {
+    fn play(&self) -> Result<(), String> {
+        match self {
+            Self::Device(stream) => stream.play().map_err(|e| e.to_string()),
+            Self::File(source) => {
+                source.playing.store(true, Ordering::Release);
+                Ok(())
+            }
+        }
+    }
+    fn pause(&self) {
+        match self {
+            Self::Device(stream) => {
+                let _ = stream.pause();
+            }
+            Self::File(source) => source.playing.store(false, Ordering::Release),
+        }
+    }
+}
+
+/// Everything after mixdown, shared by the device callback and the test
+/// source: Stop and post-roll handling, level metering and queueing.
+struct Delivery {
+    queue: ChunkQueue,
     epoch: Instant,
     level: Arc<AtomicU32>,
     stop: Arc<AtomicBool>,
     completion: Arc<CaptureCompletion>,
-) -> Result<cpal::Stream, String>
+    timeline: CaptureTimeline,
+    post_roll: PostRoll,
+    sample_rate: u32,
+}
+
+impl Delivery {
+    fn new(
+        queue: ChunkQueue,
+        epoch: Instant,
+        level: Arc<AtomicU32>,
+        stop: Arc<AtomicBool>,
+        completion: Arc<CaptureCompletion>,
+        sample_rate: u32,
+    ) -> Self {
+        completion.rate.store(sample_rate, Ordering::Release);
+        Self {
+            queue,
+            epoch,
+            level,
+            stop,
+            completion,
+            timeline: CaptureTimeline::default(),
+            post_roll: PostRoll::new(sample_rate),
+            sample_rate,
+        }
+    }
+
+    fn closed(&self) -> bool {
+        self.queue.error_cause.load(Ordering::Acquire) != 0
+            || self.completion.closed.load(Ordering::Acquire)
+            || self.completion.cancel.load(Ordering::Acquire)
+    }
+
+    /// `delay` is how long before `received_at` the first sample was
+    /// captured; `device_elapsed` is the device clock since its first sample.
+    fn accept(
+        &mut self,
+        mut samples: Vec<f32>,
+        received_at: Duration,
+        delay: Duration,
+        device_elapsed: Option<Duration>,
+    ) {
+        let (completion, sample_rate) = (&self.completion, self.sample_rate);
+        let captured_at = self.timeline.advance(
+            received_at,
+            delay,
+            device_elapsed,
+            samples.len() as u64,
+            sample_rate,
+        );
+        // Clock updates and cue scheduling never block a native audio
+        // callback. An older clock still maps the same sample timeline.
+        let clock = CaptureClock { frame: self.post_roll.frames, at: captured_at, rate: sample_rate };
+        if let Ok(mut cue) = completion.cue.try_lock() {
+            cue.clock = Some(clock);
+        }
+        let mut accepted = 0;
+        // Observe Stop/cancel within large hardware blocks as well.
+        for chunk in samples.chunks(sample_rate.div_ceil(100) as usize) {
+            if completion.closed.load(Ordering::Acquire) || completion.cancel.load(Ordering::Acquire) { break; }
+            if self.stop.load(Ordering::Acquire) {
+                // A late callback can contain audio captured before
+                // Stop. Count its tail from the hardware timeline, not
+                // the time that this callback finally arrived.
+                self.post_roll.stop_at(clock.frame_at(completion.mark_stop(self.epoch.elapsed())));
+            }
+            accepted += self.post_roll.observe(chunk, false);
+            if self.post_roll.reason.is_some() { break; }
+        }
+        samples.truncate(accepted);
+        completion.tail_frames.store(self.post_roll.tail_frames(), Ordering::Release);
+        if let Some(reason) = self.post_roll.reason {
+            let _ = completion.reason.compare_exchange(0, if reason == "quiet" { 1 } else { 2 }, Ordering::AcqRel, Ordering::Acquire);
+            completion.closed.store(true, Ordering::Release);
+        }
+        if samples.is_empty() { return; }
+        let rms = (samples.iter().map(|v| v * v).sum::<f32>() / samples.len() as f32).sqrt();
+        self.level.store(rms.to_bits(), Ordering::Relaxed);
+        self.queue.push(samples, sample_rate, rms, captured_at);
+    }
+}
+
+fn make_stream<T>(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    queue: ChunkQueue,
+    epoch: Instant,
+    level: Arc<AtomicU32>,
+    stop: Arc<AtomicBool>,
+    completion: Arc<CaptureCompletion>,
+) -> Result<Input, String>
 where
     T: cpal::SizedSample,
     f32: cpal::FromSample<T>,
@@ -769,20 +920,17 @@ where
     let channels = config.channels as usize;
     let sample_rate = config.sample_rate.0;
     let error_cause = queue.error_cause.clone();
-    let mut timeline = CaptureTimeline::default();
     let mut first_capture_instant = None;
-    let mut post_roll = PostRoll::new(sample_rate);
-    completion.rate.store(sample_rate, Ordering::Release);
+    let mut delivery = Delivery::new(queue, epoch, level, stop, completion, sample_rate);
     device
         .build_input_stream(
             config,
             move |data: &[T], info| {
                 let received_at = epoch.elapsed();
-                if queue.error_cause.load(Ordering::Acquire) != 0 || completion.closed.load(Ordering::Acquire)
-                    || completion.cancel.load(Ordering::Acquire) {
+                if delivery.closed() {
                     return;
                 }
-                let mut samples: Vec<f32> = data
+                let samples: Vec<f32> = data
                     .chunks_exact(channels)
                     .map(|frame| {
                         frame
@@ -811,49 +959,108 @@ where
                     .duration_since(&stamp.capture)
                     .unwrap_or_else(|| frame_duration(samples.len() as u64, sample_rate));
                 let first = *first_capture_instant.get_or_insert(stamp.capture);
-                let captured_at = timeline.advance(
-                    received_at,
-                    delay,
-                    stamp.capture.duration_since(&first),
-                    samples.len() as u64,
-                    sample_rate,
-                );
-                // Clock updates and cue scheduling never block a native audio
-                // callback. An older clock still maps the same sample timeline.
-                let clock = CaptureClock { frame: post_roll.frames, at: captured_at, rate: sample_rate };
-                if let Ok(mut cue) = completion.cue.try_lock() {
-                    cue.clock = Some(clock);
-                }
-                let mut accepted = 0;
-                // Observe Stop/cancel within large hardware blocks as well.
-                for chunk in samples.chunks(sample_rate.div_ceil(100) as usize) {
-                    if completion.closed.load(Ordering::Acquire) || completion.cancel.load(Ordering::Acquire) { break; }
-                    if stop.load(Ordering::Acquire) {
-                        // A late callback can contain audio captured before
-                        // Stop. Count its tail from the hardware timeline, not
-                        // the time that this callback finally arrived.
-                        post_roll.stop_at(clock.frame_at(completion.mark_stop(epoch.elapsed())));
-                    }
-                    accepted += post_roll.observe(chunk, false);
-                    if post_roll.reason.is_some() { break; }
-                }
-                samples.truncate(accepted);
-                completion.tail_frames.store(post_roll.tail_frames(), Ordering::Release);
-                if let Some(reason) = post_roll.reason {
-                    let _ = completion.reason.compare_exchange(0, if reason == "quiet" { 1 } else { 2 }, Ordering::AcqRel, Ordering::Acquire);
-                    completion.closed.store(true, Ordering::Release);
-                }
-                if samples.is_empty() { return; }
-                let rms = (samples.iter().map(|v| v * v).sum::<f32>() / samples.len() as f32).sqrt();
-                level.store(rms.to_bits(), Ordering::Relaxed);
-                queue.push(samples, sample_rate, rms, captured_at);
+                delivery.accept(samples, received_at, delay, stamp.capture.duration_since(&first));
             },
             move |_| {
                 fail_capture(&error_cause, ERROR_STREAM);
             },
             None,
         )
+        .map(Input::Device)
         .map_err(|e| e.to_string())
+}
+
+/// A WAV file played as the microphone, for machines without one and for
+/// repeatable shortcut and paste tests. Set `SONOJOT_TEST_AUDIO` to a WAV
+/// path: every capture plays it from the start in real time, then silence
+/// until Stop. Diagnostics record that a test source was used.
+struct TestSource {
+    playing: Arc<AtomicBool>,
+    ended: Arc<AtomicBool>,
+    feeder: Option<JoinHandle<()>>,
+}
+
+impl Drop for TestSource {
+    fn drop(&mut self) {
+        self.ended.store(true, Ordering::Release);
+        if let Some(feeder) = self.feeder.take() {
+            let _ = feeder.join();
+        }
+    }
+}
+
+fn test_audio_path() -> Option<PathBuf> {
+    std::env::var_os("SONOJOT_TEST_AUDIO")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Mono samples and the file's sample rate.
+fn read_test_audio(path: &Path) -> Result<(Vec<f32>, u32), String> {
+    let mut reader = hound::WavReader::open(path)
+        .map_err(|e| format!("Cannot open test audio {}: {e}", path.display()))?;
+    let spec = reader.spec();
+    let channels = usize::from(spec.channels.max(1));
+    let interleaved: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>(),
+        hound::SampleFormat::Int => {
+            let scale = 1.0 / (1u64 << (spec.bits_per_sample.clamp(1, 32) - 1)) as f32;
+            reader
+                .samples::<i32>()
+                .map(|sample| sample.map(|value| value as f32 * scale))
+                .collect::<Result<_, _>>()
+        }
+    }
+    .map_err(|e| format!("Cannot read test audio {}: {e}", path.display()))?;
+    let mono = interleaved
+        .chunks_exact(channels)
+        .map(|frame| (frame.iter().sum::<f32>() / channels as f32).clamp(-1.0, 1.0))
+        .collect();
+    Ok((mono, spec.sample_rate))
+}
+
+fn file_stream(
+    path: &Path,
+    queue: ChunkQueue,
+    epoch: Instant,
+    level: Arc<AtomicU32>,
+    stop: Arc<AtomicBool>,
+    completion: Arc<CaptureCompletion>,
+) -> Result<Input, String> {
+    let (audio, sample_rate) = read_test_audio(path)?;
+    if sample_rate == 0 {
+        return Err("The test audio has an invalid sample rate.".into());
+    }
+    let playing = Arc::new(AtomicBool::new(false));
+    let ended = Arc::new(AtomicBool::new(false));
+    let (feeder_playing, feeder_ended) = (playing.clone(), ended.clone());
+    let mut delivery = Delivery::new(queue, epoch, level, stop, completion, sample_rate);
+    let feeder = thread::Builder::new()
+        .name("test-audio".into())
+        .spawn(move || {
+            let block = sample_rate.div_ceil(100) as usize;
+            let mut position = 0usize;
+            let mut started: Option<Instant> = None;
+            while !feeder_ended.load(Ordering::Acquire) && !delivery.closed() {
+                if !feeder_playing.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(5));
+                    continue;
+                }
+                let start = *started.get_or_insert_with(Instant::now);
+                let due = start + frame_duration(position as u64, sample_rate);
+                if let Some(wait) = due.checked_duration_since(Instant::now()) {
+                    thread::sleep(wait);
+                }
+                let samples: Vec<f32> = (position..position + block)
+                    .map(|index| audio.get(index).copied().unwrap_or(0.0))
+                    .collect();
+                let elapsed = frame_duration(position as u64, sample_rate);
+                position += block;
+                delivery.accept(samples, epoch.elapsed(), Duration::ZERO, Some(elapsed));
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(Input::File(TestSource { playing, ended, feeder: Some(feeder) }))
 }
 
 /// Best-effort short cues on a separate output owner. Never blocks capture or

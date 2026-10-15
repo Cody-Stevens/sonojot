@@ -27,7 +27,7 @@ export const profileSelectionSchema = z.object({
 export type ProfileSelection = z.infer<typeof profileSelectionSchema>;
 export const hardwareProfileSchema = z.object({
   hardware: z.object({
-    platform: z.enum(["windows", "macos", "unknown"]),
+    platform: z.enum(["windows", "macos", "linux", "unknown"]),
     appleSilicon: z.boolean(),
     totalRamBytes: bytes,
     physicalCores: cores,

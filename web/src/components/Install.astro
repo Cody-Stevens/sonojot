@@ -7,12 +7,13 @@ import { site, platforms } from "../site.config.mjs";
 <Section
   id="install"
   title="Install."
-  lede="Download the SonoJot dictation app for Windows or macOS on Apple Silicon."
+  lede="Download the SonoJot dictation app for Windows or macOS on Apple Silicon, or build the Linux alpha."
 >
   <div class="rack">
     {
       platforms.map((platform, index) => {
         const released = platform.status === "released";
+        const source = platform.status === "source";
         const href = released ? site.asset(platform.asset) : site.latestRelease;
 
         return (
@@ -26,12 +27,18 @@ import { site, platforms } from "../site.config.mjs";
                 <span class="ticket stage" data-text-surface="flat">{platform.stage}</span>
               </div>
               <p class="small quiet" data-text-surface="flat">{platform.detail}</p>
+              {platform.note && <p class="small note" data-text-surface="flat">{platform.note}</p>}
             </header>
 
             {released ? (
               <a class="action action--ink slab-action" href={href} download aria-label={`Download SonoJot for ${platform.name}`}>
                 <Icon name="download" size={17} stroke={1.6} />
                 Download
+              </a>
+            ) : source ? (
+              <a class="action action--stock slab-action" href={site.repoUrl}>
+                <Icon name="terminal" size={17} stroke={1.6} />
+                Build from source
               </a>
             ) : (
               <span class="action action--stock slab-action" aria-disabled="true">
@@ -109,7 +116,7 @@ import { site, platforms } from "../site.config.mjs";
   .rack {
     display: grid;
     gap: var(--space-3);
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
     align-items: start;
   }
 
@@ -151,6 +158,10 @@ import { site, platforms } from "../site.config.mjs";
 
   .slab-head p {
     margin-top: 0.25rem;
+  }
+
+  .note {
+    color: var(--ink);
   }
 
   .slab-action {

@@ -466,8 +466,7 @@ impl ContainedChild {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
-        let child = command
-            .spawn()
+        let child = crate::child_lifetime::spawn(command)
             .map_err(|_| "Cannot start Granite worker.")?;
         let mut owned = Self {
             child,
@@ -506,7 +505,7 @@ impl ContainedChild {
                 windows_sys::Win32::System::JobObjects::TerminateJobObject(self.job, 1);
             }
         }
-        let _ = self.child.kill();
+        let _ = crate::child_lifetime::kill(&mut self.child);
         let _ = self.child.wait();
     }
 }

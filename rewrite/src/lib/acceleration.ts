@@ -61,8 +61,8 @@ export function isMetalAsrModel(modelId: string): boolean {
 }
 
 /**
- * Display name for the text GPU path. Windows is NVIDIA CUDA; macOS preserves
- * Metal wording instead of claiming CUDA everywhere. Unknown hosts keep the
+ * Display name for the text GPU path: Windows CUDA, macOS Metal, Linux Vulkan.
+ * Unknown hosts keep the
  * Windows primary wording so existing checks stay explicit.
  */
 export function textGpuName(
@@ -72,6 +72,7 @@ export function textGpuName(
   const p = (platform ?? "").toLowerCase();
   const b = (backend ?? "").toLowerCase();
   if (p === "macos" || p.startsWith("mac") || b === "metal") return "Metal";
+  if (p === "linux" || b === "vulkan") return "Vulkan";
   return "NVIDIA CUDA";
 }
 

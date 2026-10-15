@@ -14,7 +14,7 @@ test("app and website carry the same final terms", () => {
 });
 test("downloads and source use the public stable destinations", () => {
   assert.equal(site.repoUrl, "https://github.com/Cody-Stevens/sonojot");
-  assert.deepEqual(platforms.map(p => site.asset(p.asset)), [
+  assert.deepEqual(platforms.filter(p => p.status === "released").map(p => site.asset(p.asset)), [
     "https://releases.sonojot.com/download/SonoJot-windows-x64-setup.exe",
     "https://releases.sonojot.com/download/SonoJot-macos-arm64.dmg",
   ]);

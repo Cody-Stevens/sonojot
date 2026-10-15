@@ -18,7 +18,7 @@ test("openApp walks first-run setup and Terms to the app on Windows", async ({
   expect(saved.termsAcceptedAt).toBeTruthy();
 });
 
-test("openApp answers the Mac system-audio step with Not now", async ({
+test("openApp walks the Mac Permissions and Downloads steps", async ({
   page,
 }) => {
   const mac = macProfileFixture(16);

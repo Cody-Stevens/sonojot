@@ -20,6 +20,7 @@ mod granite_model;
 mod granite_speech;
 pub mod granite_worker;
 mod llama_asr;
+mod live_preview;
 mod media_support;
 pub mod meeting_ai;
 pub mod meeting_audio_export;
@@ -36,6 +37,7 @@ mod optional_asr;
 mod optional_llm;
 pub mod recognition;
 mod recognition_diagnostics;
+mod reports;
 #[cfg(feature = "fidelity-eval")]
 pub mod resource_manager;
 #[cfg(not(feature = "fidelity-eval"))]
@@ -68,6 +70,13 @@ pub mod structured_clean;
 pub mod system_audio;
 pub mod system_audio_commands;
 mod menu_panel;
+mod child_lifetime;
+#[cfg(target_os = "linux")]
+mod control;
+#[cfg(target_os = "linux")]
+mod hyprland;
+#[cfg(target_os = "linux")]
+mod omarchy;
 mod windows;
 mod updater;
 
@@ -86,7 +95,15 @@ fn tray_icon() -> Result<tauri::image::Image<'static>, tauri::Error> {
         .and_then(|key| key.get_value::<u32, _>("SystemUsesLightTheme"))
         .unwrap_or(0)
         != 0;
-    #[cfg(not(windows))]
+    // Linux bars are dark unless the desktop asks for light (Omarchy, GNOME's
+    // top bar and most tiling setups), so the white mark is the default.
+    #[cfg(target_os = "linux")]
+    let light = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "color-scheme"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains("prefer-light"));
+    #[cfg(not(any(windows, target_os = "linux")))]
     let light = true;
     let bytes: &[u8] = if light {
         include_bytes!("../../src/brand/marks/tray-black.png")
@@ -97,6 +114,10 @@ fn tray_icon() -> Result<tauri::image::Image<'static>, tauri::Error> {
 }
 
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    if let Some(code) = control::forward_from_args() {
+        std::process::exit(code);
+    }
     recognition::dispatch_worker();
     punctuation::dispatch_worker();
     diarization_process::dispatch_worker();
@@ -112,6 +133,15 @@ pub fn run() {
         std::process::exit(if result == Ok(true) { 0 } else { 1 });
     }
     std::env::set_var("MOONSHINE_ORT_SINGLE_THREAD", "1");
+    // WebKitGTK's DMA-BUF renderer draws blank or flickering windows on the
+    // NVIDIA driver under Wayland. Only this process opts out; an explicit
+    // WEBKIT_DISABLE_DMABUF_RENDERER (0 or 1) always wins.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+        && std::path::Path::new("/proc/driver/nvidia/version").exists()
+    {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let app = app.clone();
@@ -124,6 +154,12 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            reports::get_pending_crash,
+            reports::prepare_report,
+            reports::send_report,
+            reports::dismiss_crash,
+            reports::copy_report,
+            reports::open_report_issues,
             onboarding::begin_onboarding,
             onboarding::confirm_onboarding_profile,
             onboarding::queue_onboarding_download,
@@ -221,6 +257,12 @@ pub fn run() {
         ])
         .setup(move |app| {
             recognition_diagnostics::initialize();
+            let report_root = crate::environment::var_os("DATA_DIR")
+                .map(std::path::PathBuf::from).map(Ok)
+                .unwrap_or_else(crate::store::default_root).map_err(std::io::Error::other)?;
+            let reports = reports::CrashReports::start(&report_root).map_err(std::io::Error::other)?;
+            reports.install_hook();
+            app.manage(reports);
             recognition_diagnostics::event("desktop-start", "", std::process::id(), 0, 0, 0);
             let runtime = Runtime::create(app.handle()).map_err(std::io::Error::other)?;
             // Settings lifecycle: keep the shared resource coordinator on the
@@ -259,12 +301,12 @@ pub fn run() {
                     prewarm_runtime.prewarm_selected_models();
                 }
             });
-            let shortcut = runtime
-                .snapshot()
-                .map_err(std::io::Error::other)?
-                .settings
-                .hotkey;
-            match app::register_shortcut(app.handle(), &shortcut) {
+            let settings = runtime.snapshot().map_err(std::io::Error::other)?.settings;
+            #[cfg(target_os = "linux")]
+            if let Err(error) = control::serve(app.handle()) {
+                runtime.report(app.handle(), error);
+            }
+            match app::register_shortcut(app.handle(), &settings.hotkey, settings.hotkey_mode) {
                 Ok(()) => {
                     if let Ok(mut snapshot) = runtime.snapshot.lock() {
                         snapshot.capabilities.global_shortcut = true;
@@ -472,6 +514,11 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            #[cfg(target_os = "linux")]
+            {
+                let data = runtime.store.root().to_path_buf();
+                std::thread::spawn(move || omarchy::pin_tray_once(&data));
+            }
             #[cfg(target_os = "macos")]
             {
                 let handle = app.handle().clone();
@@ -493,6 +540,10 @@ pub fn run() {
                 }
                 let result = if setup_commands::needs_first_setup(&setup_runtime) {
                     windows::show_settings_page(&setup_app, "setup")
+                } else if setup_app.state::<reports::CrashReports>().pending().ok().flatten().is_some() {
+                    // Crash evidence also opens the app when login used --startup.
+                    // The frontend waits for onboarding/terms before showing it.
+                    windows::show_settings_page(&setup_app, "report")
                 } else if !std::env::args().any(|arg| arg == "--startup") {
                     windows::show_settings(&setup_app)
                 } else { Ok(()) };
@@ -586,6 +637,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("SonoJot could not start");
     application.run(|_app, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            if let Some(reports) = _app.try_state::<reports::CrashReports>() {
+                reports.clean_exit();
+            }
+        }
+        #[cfg(target_os = "linux")]
+        if matches!(event, tauri::RunEvent::Exit) && hyprland::active() {
+            hyprland::release_shortcut();
+        }
         #[cfg(target_os = "macos")]
         if matches!(event, tauri::RunEvent::Reopen { .. }) {
             let app = _app.clone();

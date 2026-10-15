@@ -2,7 +2,8 @@
 //! showing app UI. Delivery may return from this app to that captured target, but
 //! never displaces another foreground application or restores old clipboard data.
 //! Windows sends Ctrl+V with SendInput; macOS posts Command+V to the HID event
-//! tap once Accessibility access is granted. Both leave the text on the clipboard.
+//! tap once Accessibility access is granted; Linux asks Hyprland to send the
+//! paste keys. All leave the text on the clipboard.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -26,6 +27,14 @@ pub struct PasteTarget {
     /// without Accessibility queries, so the application is the target.
     #[cfg(target_os = "macos")]
     pid: i32,
+    /// The focused Hyprland window. Wayland exposes no focused-control
+    /// identity, so the window is the target.
+    #[cfg(target_os = "linux")]
+    address: String,
+    #[cfg(target_os = "linux")]
+    pid: i64,
+    #[cfg(target_os = "linux")]
+    terminal: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,7 +78,7 @@ impl FocusState {
             Self::TargetInvalid => DeliveryOutcome::copied("target_invalid", "The original text target was closed or replaced. Text is ready to paste."),
             Self::OtherApp => DeliveryOutcome::copied("external_focus_changed", "Focus changed to another application. Text is ready to paste."),
             Self::TargetFocusChanged => DeliveryOutcome::copied("target_control_changed", "The focused control in the original application changed. Text is ready to paste."),
-            Self::OwnApp => DeliveryOutcome::copied("restore_not_completed", if cfg!(target_os = "macos") { "macOS did not return focus from SonoJot to the original app. Text is ready to paste." } else { "Windows did not return focus from SonoJot to the original text target. Text is ready to paste." }),
+            Self::OwnApp => DeliveryOutcome::copied("restore_not_completed", if cfg!(target_os = "macos") { "macOS did not return focus from SonoJot to the original app. Text is ready to paste." } else if cfg!(target_os = "linux") { "Hyprland did not return focus from SonoJot to the original window. Text is ready to paste." } else { "Windows did not return focus from SonoJot to the original text target. Text is ready to paste." }),
             Self::NoForeground | Self::TargetFocusPending => DeliveryOutcome::copied("focus_not_ready", "The original text target did not regain keyboard focus. Text is ready to paste."),
             Self::Ready => DeliveryOutcome::copied("modifiers_held", "A shortcut modifier is still held. Text is ready to paste."),
         }
@@ -132,7 +141,14 @@ pub fn paste_target_diagnostics(target: Option<&PasteTarget>) -> String {
 }
 
 pub fn auto_paste_available() -> bool {
-    cfg!(any(windows, target_os = "macos"))
+    #[cfg(target_os = "linux")]
+    {
+        crate::hyprland::active()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        cfg!(any(windows, target_os = "macos"))
+    }
 }
 
 /// Explains platform/permission limitations without claiming untested support.
@@ -145,7 +161,13 @@ pub fn auto_paste_unavailable_reason() -> Option<String> {
     {
         (!paste_permission_granted()).then(|| MAC_PERMISSION_REASON.to_string())
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        (!crate::hyprland::active()).then(|| {
+            "Automatic paste needs Hyprland. Text is copied; press Ctrl+V to paste.".to_string()
+        })
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         Some(
             "Automatic paste is unavailable on this platform. Use the clipboard paste shortcut."
@@ -243,7 +265,9 @@ pub async fn deliver_text(
         // A deliberate switch to any other app always ends delivery without input.
         // macOS activation is asynchronous and the target's window needs a
         // moment to become key, so it gets a longer deadline and a short settle.
-        let (window, settle) = if cfg!(target_os = "macos") {
+        // Hyprland moves focus at once, but the window needs a frame to
+        // receive keyboard focus before the paste keys arrive.
+        let (window, settle) = if cfg!(any(target_os = "macos", target_os = "linux")) {
             (Duration::from_millis(1000), Duration::from_millis(60))
         } else {
             (Duration::from_millis(450), Duration::ZERO)
@@ -1246,39 +1270,146 @@ mod native {
         mac::set_pasteboard(text)
     }
 
+    // Linux delivery goes through Hyprland's IPC socket. Other Linux desktops
+    // get the clipboard only (`auto_paste_available` is false there).
+    #[cfg(not(target_os = "macos"))]
+    use crate::hyprland;
+
+    #[cfg(not(target_os = "macos"))]
+    fn own_pid(pid: i64) -> bool {
+        pid == i64::from(std::process::id())
+    }
     #[cfg(not(target_os = "macos"))]
     pub(super) fn capture_target() -> Option<PasteTarget> {
-        None
+        let window = hyprland::active_window()?;
+        (!own_pid(window.pid)).then(|| PasteTarget {
+            terminal: window.is_terminal(),
+            address: window.address,
+            pid: window.pid,
+        })
     }
     #[cfg(not(target_os = "macos"))]
-    pub(super) fn focus_state(_: &PasteTarget) -> FocusState {
-        FocusState::TargetInvalid
+    pub(super) fn focus_state(target: &PasteTarget) -> FocusState {
+        match hyprland::active_window() {
+            Some(window) if window.address == target.address => FocusState::Ready,
+            Some(window) if own_pid(window.pid) => FocusState::OwnApp,
+            _ if !window_exists(&target.address) => FocusState::TargetInvalid,
+            Some(_) => FocusState::OtherApp,
+            None => FocusState::NoForeground,
+        }
     }
     #[cfg(not(target_os = "macos"))]
-    pub(super) fn restore_from_own_app(_: &PasteTarget) -> bool {
-        false
+    fn window_exists(address: &str) -> bool {
+        #[derive(serde::Deserialize)]
+        struct Client {
+            address: String,
+        }
+        hyprland::request("j/clients")
+            .ok()
+            .and_then(|reply| serde_json::from_str::<Vec<Client>>(&reply).ok())
+            .is_some_and(|clients| clients.iter().any(|client| client.address == address))
+    }
+    /// Focus moves only from SonoJot back to the captured window, never away
+    /// from a third window the user switched to.
+    #[cfg(not(target_os = "macos"))]
+    pub(super) fn restore_from_own_app(target: &PasteTarget) -> bool {
+        hyprland::active_window().is_some_and(|window| own_pid(window.pid))
+            && hyprland::focus(&target.address)
     }
     #[cfg(not(target_os = "macos"))]
-    pub(super) fn focus_diagnostics(_: Option<&PasteTarget>) -> String {
+    pub(super) fn focus_diagnostics(target: Option<&PasteTarget>) -> String {
+        if !hyprland::active() {
+            return "platform=linux compositor=other automatic_paste=unsupported".into();
+        }
+        let observed = hyprland::active_window();
+        let status = match &observed {
+            None => "no_foreground",
+            Some(window) if own_pid(window.pid) => "own_app",
+            Some(_) => "external_target",
+        };
+        let target_info = target
+            .map(|target| format!("target_pid={} target_terminal={}", target.pid, target.terminal))
+            .unwrap_or_else(|| "target=none".into());
         format!(
-            "platform={} automatic_paste=unsupported",
-            std::env::consts::OS
+            "platform=linux compositor=hyprland lua={} {target_info} observed_pid={} capture_status={status}",
+            hyprland::lua(),
+            observed.map_or(0, |window| window.pid),
         )
     }
+    /// Wayland has no clipboard sequence number. `paste_if_current` compares
+    /// the clipboard text itself just before sending keys.
     #[cfg(not(target_os = "macos"))]
     pub(super) fn clipboard_matches(_: u32) -> bool {
-        false
+        true
     }
+    /// Wayland gives clients no global keyboard state. Shortcut binds fire on
+    /// key press or release, so modifiers are normally up by delivery time.
     #[cfg(not(target_os = "macos"))]
     pub(super) fn modifiers_pressed() -> bool {
         false
     }
     #[cfg(not(target_os = "macos"))]
-    pub(super) fn paste_if_current(_: &PasteTarget, _: u32, _: &str) -> DeliveryOutcome {
-        DeliveryOutcome::copied(
-            "unsupported",
-            "Automatic paste is unavailable on this platform.",
-        )
+    pub(super) fn paste_if_current(target: &PasteTarget, _: u32, text: &str) -> DeliveryOutcome {
+        let focus = focus_state(target);
+        if focus != FocusState::Ready {
+            return focus.fallback();
+        }
+        if clipboard_text().as_deref() != Some(text) {
+            return DeliveryOutcome::copied(
+                "clipboard_payload_changed",
+                "The clipboard text changed before automatic paste; no keys were sent.",
+            );
+        }
+        if focus_state(target) != FocusState::Ready {
+            return focus_state(target).fallback();
+        }
+        let window = hyprland::Window {
+            address: target.address.clone(),
+            pid: target.pid,
+            class: String::new(),
+            tags: if target.terminal { vec!["terminal".into()] } else { Vec::new() },
+        };
+        if hyprland::send_paste(&window) {
+            DeliveryOutcome {
+                paste_sent: true,
+                reason: None,
+                reason_code: "paste_sent",
+                diagnostics: String::new(),
+            }
+        } else {
+            DeliveryOutcome::copied(
+                "input_rejected",
+                "Hyprland did not accept the paste keys. Text remains on the clipboard.",
+            )
+        }
+    }
+    /// The current clipboard text, read without focus through wl-paste.
+    #[cfg(not(target_os = "macos"))]
+    fn clipboard_text() -> Option<String> {
+        use std::io::Read;
+        let mut child = Command::new("wl-paste")
+            .args(["--no-newline", "--type", "text"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let stdout = child.stdout.take()?;
+        let reader = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stdout.take(16 << 20).read_to_end(&mut bytes).ok()?;
+            String::from_utf8(bytes).ok()
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while matches!(child.try_wait(), Ok(None)) {
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        reader.join().ok().flatten()
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -57,6 +57,7 @@ pub fn show_settings_page(app: &AppHandle, page: &str) -> Result<(), String> {
         return window.set_focus().map_err(|e| e.to_string());
     }
     let url = match page {
+        "report" => "index.html?page=report",
         "meetings" => "index.html?page=meetings",
         "setup" => "index.html?page=setup",
         "appearance" => "index.html?page=appearance",
@@ -110,9 +111,13 @@ pub fn set_screen_tab(
         // The hidden window keeps a zero region and passthrough; the footprint
         // stays virtual so discovery works before the overlay exists.
         if let Some(window) = app.get_webview_window("overlay") {
-            window
-                .set_ignore_cursor_events(true)
-                .map_err(|e| e.to_string())?;
+            // tao panics on a GTK window that was never shown; a hidden
+            // Linux window takes no input anyway.
+            if !cfg!(target_os = "linux") || window.is_visible().unwrap_or(false) {
+                window
+                    .set_ignore_cursor_events(true)
+                    .map_err(|e| e.to_string())?;
+            }
             window.hide().map_err(|e| e.to_string())?;
             configure_tab_window(&window, false)?;
             apply_tab_region(&window, 0.0)?;
@@ -324,9 +329,39 @@ fn poll_cursor(_: &AppHandle) -> Option<(i32, i32)> {
 
 #[cfg(not(windows))]
 fn poll_cursor(app: &AppHandle) -> Option<(i32, i32)> {
+    #[cfg(target_os = "linux")]
+    if crate::hyprland::active() {
+        return crate::hyprland::cursor_physical();
+    }
     app.get_webview_window("overlay")
         .and_then(|window| window.cursor_position().ok())
         .map(|p| (p.x as i32, p.y as i32))
+}
+
+/// Wayland clients cannot position their windows; on Hyprland the compositor
+/// moves them. Coordinates are Tauri's physical pixels.
+fn move_window(window: &tauri::WebviewWindow, x: i32, y: i32) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if crate::hyprland::active() {
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let title = window.title().map_err(|e| e.to_string())?;
+        let logical = |value: i32| (f64::from(value) / scale).round() as i32;
+        return crate::hyprland::move_window(&title, logical(x), logical(y));
+    }
+    window
+        .set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())
+}
+
+/// A bar along the top of the display (Omarchy's, on Linux) stays visible:
+/// the tab hangs below it instead of under it.
+fn top_bar_height(x: i32, y: i32) -> i32 {
+    #[cfg(target_os = "linux")]
+    if crate::hyprland::active() {
+        return crate::hyprland::top_reserved_physical(x, y);
+    }
+    let _ = (x, y);
+    0
 }
 
 fn tab_monitors(app: &AppHandle) -> Result<Vec<TabMonitor>, String> {
@@ -532,7 +567,7 @@ pub(crate) fn place_screen_tab_on_monitors(
     let width = (TAB_WIDTH * scale).round() as u32;
     let height = (TAB_WINDOW_HEIGHT * scale).round() as u32;
     let x = monitor.rect.0 + (monitor.rect.2 - monitor.rect.0 - width as i32) / 2;
-    let y = monitor.rect.1;
+    let y = monitor.rect.1 + top_bar_height(monitor.rect.0, monitor.rect.1);
     let placement = (x, y, width, height, scale.to_bits());
     let (changed, region_height, full_height, visible) = {
         let geometry = TAB_GEOMETRY.lock().map_err(|e| e.to_string())?;
@@ -544,13 +579,21 @@ pub(crate) fn place_screen_tab_on_monitors(
             geometry.visible,
         )
     };
+    // Hyprland can apply its own placement as the window maps. This runs on
+    // every display poll, so a misplaced tab is corrected within 500 ms.
+    #[cfg(target_os = "linux")]
+    let changed = changed
+        || (visible
+            && crate::hyprland::active()
+            && window.title().is_ok_and(|title| {
+                let expected = (
+                    (f64::from(x) / scale).round() as i32,
+                    (f64::from(y - ((full_height - region_height) * scale).round() as i32) / scale).round() as i32,
+                );
+                crate::hyprland::window_position(&title).is_some_and(|at| at != expected)
+            }));
     if changed {
-        window
-            .set_position(tauri::PhysicalPosition::new(
-                x,
-                y - ((full_height - region_height) * scale).round() as i32,
-            ))
-            .map_err(|e| e.to_string())?;
+        move_window(window, x, y - ((full_height - region_height) * scale).round() as i32)?;
         window
             .set_size(tauri::PhysicalSize::new(width, height))
             .map_err(|e| e.to_string())?;
@@ -848,7 +891,59 @@ fn screen_tab_region(
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn tab_region_writer(
+    window: &tauri::WebviewWindow,
+) -> Result<impl Fn(f64) -> Result<(), String> + Send + 'static, String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let (placement, full_height) = {
+        let geometry = TAB_GEOMETRY.lock().map_err(|e| e.to_string())?;
+        (geometry.placement, geometry.full_height)
+    };
+    let window = window.clone();
+    Ok(move |height: f64| {
+        if TAB_DRAGGING.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        // The same paper shape as the Windows region, in logical pixels: the
+        // sheet takes input only while revealed, the hanging lip always.
+        let sheet_height = full_height - LIP_HEIGHT;
+        let clipped_top = full_height - height;
+        let mut rectangles = Vec::new();
+        if height > 0.0 {
+            rectangles.push(((TAB_WIDTH - LIP_WIDTH) / 2.0, sheet_height - 8.0, LIP_WIDTH, LIP_HEIGHT + 8.0));
+        }
+        if height > LIP_HEIGHT {
+            rectangles.push((0.0, 0.0, TAB_WIDTH, sheet_height));
+        }
+        let shown = window.clone();
+        window
+            .run_on_main_thread(move || {
+                use gtk::prelude::WidgetExt;
+                let Ok(gtk_window) = shown.gtk_window() else { return };
+                let region = gtk::cairo::Region::create();
+                for (x, y, w, h) in &rectangles {
+                    let top = y.max(clipped_top);
+                    if y + h > top {
+                        let _ = region.union_rectangle(&gtk::cairo::RectangleInt::new(
+                            x.round() as i32,
+                            top.round() as i32,
+                            w.round() as i32,
+                            (y + h - top).round() as i32,
+                        ));
+                    }
+                }
+                gtk_window.input_shape_combine_region(Some(&region));
+            })
+            .map_err(|e| e.to_string())?;
+        if let Some((x, y, _, _, _)) = placement {
+            move_window(&window, x, y - ((full_height - height) * scale).round() as i32)?;
+        }
+        Ok(())
+    })
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn tab_region_writer(
     _: &tauri::WebviewWindow,
 ) -> Result<impl Fn(f64) -> Result<(), String> + Send + 'static, String> {
@@ -902,11 +997,18 @@ pub fn show_cursor(app: &AppHandle) -> Result<(), String> {
     .visible(false)
     .build()
     .map_err(|e| e.to_string())?;
+    // GTK has no native window to shape until show realizes it, and tao
+    // panics on an unrealized one, so Linux makes it click-through after show.
+    #[cfg(not(target_os = "linux"))]
     window
         .set_ignore_cursor_events(true)
         .map_err(|e| e.to_string())?;
     position_cursor(&window);
-    window.show().map_err(|e| e.to_string())?;
+    show_cursor_window(&window)?;
+    #[cfg(target_os = "linux")]
+    window
+        .set_ignore_cursor_events(true)
+        .map_err(|e| e.to_string())?;
     configure_cursor_window(&window)?;
     window
         .set_size(tauri::LogicalSize::new(48.0, 48.0))
@@ -916,8 +1018,7 @@ pub fn show_cursor(app: &AppHandle) -> Result<(), String> {
         while CURSOR_GENERATION.load(Ordering::Acquire) == generation {
             if let Some(position) = cursor_position(&window) {
                 if previous != Some(position) {
-                    let _ =
-                        window.set_position(tauri::PhysicalPosition::new(position.0, position.1));
+                    let _ = move_window(&window, position.0, position.1);
                     previous = Some(position);
                 }
             }
@@ -947,7 +1048,7 @@ pub fn finish_cursor(app: &AppHandle) {
 
 fn position_cursor(window: &tauri::WebviewWindow) {
     if let Some((x, y)) = cursor_position(window) {
-        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        let _ = move_window(window, x, y);
     }
 }
 
@@ -988,8 +1089,40 @@ fn configure_cursor_window(_: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+/// macOS: Tauri's show is makeKeyAndOrderFront. The indicator only floats
+/// beside the caret, so it is ordered front without becoming key, like the
+/// menu bar sheet, and never pulls SonoJot's main window forward.
+#[cfg(target_os = "macos")]
+fn show_cursor_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let shown = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let Ok(pointer) = shown.ns_window() else {
+                return;
+            };
+            let ns_window = pointer as *mut objc2::runtime::AnyObject;
+            unsafe {
+                let _: () = objc2::msg_send![ns_window, setHidesOnDeactivate: false];
+                let _: () = objc2::msg_send![ns_window, orderFrontRegardless];
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn show_cursor_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())
+}
+
 fn cursor_position(window: &tauri::WebviewWindow) -> Option<(i32, i32)> {
-    let anchor = caret_anchor().or_else(|| window.cursor_position().ok().map(|p| (p.x, p.y)))?;
+    let pointer = || {
+        #[cfg(target_os = "linux")]
+        if crate::hyprland::active() {
+            return crate::hyprland::cursor_physical().map(|(x, y)| (f64::from(x), f64::from(y)));
+        }
+        window.cursor_position().ok().map(|p| (p.x, p.y))
+    };
+    let anchor = caret_anchor().or_else(pointer)?;
     let monitor = window.available_monitors().ok()?.into_iter().find(|m| {
         let p = m.position();
         let s = m.size();

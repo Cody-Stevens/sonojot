@@ -98,6 +98,25 @@ export function tabPreview(text: string, maximum = 280): string {
   return points.length > maximum ? points.slice(-maximum).join("") : text;
 }
 
+/**
+ * Committed text followed by the live-preview draft, bounded together like
+ * tabPreview. The draft only trails the committed text; it is never saved.
+ */
+export function tabPreviewParts(
+  committed: string,
+  draft: string,
+  maximum = 280,
+): { committed: string; draft: string } {
+  if (!draft) return { committed: tabPreview(committed, maximum), draft: "" };
+  const tail = Array.from((committed ? " " : "") + draft);
+  if (tail.length >= maximum)
+    return { committed: "", draft: tail.slice(-maximum).join("") };
+  return {
+    committed: tabPreview(committed, maximum - tail.length),
+    draft: tail.join(""),
+  };
+}
+
 /** Idle collapse waits for an empty tab; a temporary edge reveal stays open until the host hides it. */
 export function tabCollapseAllowed(state: {
   pointerInside: boolean;

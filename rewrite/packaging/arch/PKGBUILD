@@ -1,0 +1,43 @@
+# Builds SonoJot from this source checkout for Arch Linux (Omarchy included).
+# Run `makepkg -si` in this directory, or use rewrite/scripts/linux/install.sh.
+# Tauri builds its Debian package, and this repackages that file tree for
+# pacman, so the layout matches the tested bundle.
+
+_repo="$(realpath "$startdir/../../..")"
+pkgname=sonojot
+pkgver=$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' "$_repo/rewrite/package.json" | head -1)
+pkgrel=1
+pkgdesc="Private local dictation and meeting notes"
+arch=('x86_64')
+url="https://sonojot.com"
+license=('Apache-2.0')
+depends=(
+  'webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'librsvg' 'alsa-lib'
+  'pipewire-alsa' 'wl-clipboard' 'hicolor-icon-theme' 'glibc' 'gcc-libs'
+)
+optdepends=(
+  'ffmpeg: import audio and video files into Meetings'
+  'vulkan-icd-loader: GPU text cleanup and Qwen speech models with the Vulkan runtime'
+  'hyprland: global dictation shortcut and automatic paste'
+)
+makedepends=('cargo' 'nodejs' 'npm' 'libarchive')
+options=('!lto' '!debug')
+install=sonojot.install
+
+build() {
+  cd "$_repo/rewrite"
+  npm ci --no-audit --no-fund
+  npx tauri build --bundles deb
+}
+
+package() {
+  local deb
+  deb=$(ls -t "$_repo"/rewrite/src-tauri/target/release/bundle/deb/SonoJot_"${pkgver}"_amd64.deb | head -1)
+  [ -f "$deb" ] || { echo "Tauri did not produce a .deb for $pkgver" >&2; return 1; }
+  mkdir -p "$srcdir/deb"
+  bsdtar -xf "$deb" -C "$srcdir/deb" data.tar.gz
+  bsdtar -xf "$srcdir/deb/data.tar.gz" -C "$pkgdir"
+  # A lowercase name for terminals and compositor binds.
+  ln -s SonoJot "$pkgdir/usr/bin/sonojot"
+  install -Dm644 "$_repo/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

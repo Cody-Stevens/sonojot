@@ -1,6 +1,7 @@
 import { call, native, subscribe, subscribeDictationHistory } from "./api";
 import { meetingDataChanged } from "./meeting-update";
 import { restartBlockedReason } from "./updates";
+import type { PendingCrash } from "./reports";
 import {
   errorMessage,
   previewSnapshot,
@@ -20,6 +21,16 @@ export class AppState {
   meetingRevision = $state(0);
   dictationRevision = $state(0);
   dirty = $state(false);
+  pendingCrash = $state<PendingCrash | null>(null);
+
+  async checkPendingCrash(): Promise<void> {
+    if (this.native) this.pendingCrash = await call("get_pending_crash");
+  }
+  async dismissPendingCrash(): Promise<void> {
+    if (!this.pendingCrash) return;
+    await call("dismiss_crash", { id: this.pendingCrash.id });
+    this.pendingCrash = null;
+  }
   confirmation = $state<{
     title: string;
     detail: string;

@@ -7,6 +7,9 @@
 //! Whisper checkpoints appear as explicitly unverified placeholders, never as
 //! installable models with invented sizes or hashes.
 
+#[path = "linux_runtime.rs"]
+pub(crate) mod linux_runtime;
+
 use crate::{diarization_model, domain::Settings, granite_model, resource_manager};
 use crate::model_verification::{Check, Status};
 use serde::Serialize;
@@ -285,15 +288,16 @@ fn status_entry_state(id: &str, status: Status, installable: bool) -> (String, u
     }
 }
 
-// Frozen from models/rewrite/manifest.json. The custom Moonshine DLL is
-// app-bundled; these URLs provide weights only, never a replacement runtime.
+// Weights are frozen from models/rewrite/manifest.json. Windows uses its custom
+// bundled DLL; Linux installs the separately pinned upstream shared library.
 const MOONSHINE_REVISION: &str = "quantized_26_08_21";
-const MOONSHINE_AVAILABLE: bool = cfg!(all(target_os = "windows", target_arch = "x86_64"));
+const MOONSHINE_AVAILABLE: bool = cfg!(all(any(target_os = "windows", target_os = "linux"), target_arch = "x86_64"));
 
 fn moonshine_cdn_base(id: &str) -> Option<&'static str> {
     match id {
         "moonshine-medium" => Some("https://download.moonshine.ai/model/medium-streaming-en/quantized_26_08_21"),
         "moonshine-small" => Some("https://download.moonshine.ai/model/small-streaming-en/quantized_26_08_21"),
+        crate::live_preview::MODEL_ID => Some(crate::live_preview::CDN_BASE),
         _ => None,
     }
 }
@@ -321,6 +325,16 @@ struct BundledIdentities<'a> {
 fn moonshine_files(id: &str) -> Option<&'static [BundledIdentityFile<'static>]> {
     if moonshine_cdn_base(id).is_none() && id != "moonshine-runtime" {
         return None;
+    }
+    if id == crate::live_preview::MODEL_ID {
+        // Pinned in code: the bundle identity list stays the folder verifier's.
+        static PREVIEW: OnceLock<Vec<BundledIdentityFile<'static>>> = OnceLock::new();
+        return Some(PREVIEW.get_or_init(|| {
+            crate::live_preview::FILES
+                .iter()
+                .map(|&(name, bytes, sha256)| BundledIdentityFile { name, bytes, sha256 })
+                .collect()
+        }));
     }
     static IDENTITIES: OnceLock<Option<BundledIdentities<'static>>> = OnceLock::new();
     IDENTITIES
@@ -367,6 +381,10 @@ pub(crate) fn moonshine_managed_status(root: &Path, id: &str, check: Check) -> S
 }
 
 fn require_moonshine_runtime(root: &Path) -> Result<(), String> {
+    if linux_runtime::AVAILABLE {
+        return if linux_runtime::moonshine_status(root, Check::Blocking).ready() { Ok(()) }
+        else { Err("Moonshine's speech runtime is missing or damaged. Reinstall the speech model in Setup.".into()) };
+    }
     let library = crate::asr::runtime_path(root);
     let ready = library.parent().is_some_and(|directory| {
         moonshine_files("moonshine-runtime").is_some_and(|files| {
@@ -409,7 +427,7 @@ fn moonshine_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEntry>
         if !MOONSHINE_AVAILABLE {
             state = "unavailable".into();
         }
-        let total = if ready { disk } else { total.max(package_bytes) };
+        let total = if ready { disk } else { total.max(package_bytes + linux_runtime::moonshine_download_bytes(models_root)) };
         let downloaded = if ready { disk } else { dl };
         let (ram_min, ram_max, vram_min, vram_max) = estimate_pair(id);
         let _ = params;
@@ -435,7 +453,7 @@ fn moonshine_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEntry>
             }.into(),
             evidence: resource_manager::estimate_evidence(id).into(),
             backend: "moonshine-ort-cpu".into(),
-            compatibility: "Windows x64 CPU via bundled ONNX runtime. No GPU offload in this build; never labeled as GPU.".into(),
+            compatibility: if linux_runtime::AVAILABLE { "Linux x64 CPU via the pinned Moonshine runtime. No GPU offload." } else { "Windows x64 CPU via bundled ONNX runtime. No GPU offload in this build; never labeled as GPU." }.into(),
             state,
             downloaded_bytes: downloaded,
             total_bytes: total,
@@ -449,6 +467,59 @@ fn moonshine_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEntry>
         });
     }
     out
+}
+
+/// The live-preview helper. Its role is "preview": never a Speech choice.
+fn live_preview_entry(models_root: &Path) -> ModelEntry {
+    let id = crate::live_preview::MODEL_ID;
+    let status = if MOONSHINE_AVAILABLE { crate::asr::model_status(models_root, id, Check::Background) } else { Status::Missing };
+    let ready = status.ready();
+    let package_bytes: u64 = crate::live_preview::FILES.iter().map(|(_, bytes, _)| bytes).sum();
+    let installable = MOONSHINE_AVAILABLE && !ready;
+    let disk = if ready { folder_size(&crate::optional_asr::model_dir(models_root, id)) } else { package_bytes };
+    let (mut state, downloaded, total, error) = status_entry_state(id, status, installable);
+    if !MOONSHINE_AVAILABLE {
+        state = "unavailable".into();
+    }
+    let (ram_min, ram_max, vram_min, vram_max) = estimate_pair(id);
+    ModelEntry {
+        id: id.into(),
+        name: crate::live_preview::MODEL_NAME.into(),
+        kind: "asr".into(),
+        roles: vec!["preview".into()],
+        family: "Moonshine".into(),
+        languages: vec!["en".into()],
+        older: false,
+        deprecated: false,
+        disk_bytes: disk,
+        ram_min_bytes: ram_min,
+        ram_max_bytes: ram_max,
+        vram_min_bytes: vram_min,
+        vram_max_bytes: vram_max,
+        memory_basis: resource_manager::estimate_basis(id),
+        guidance: "Live preview: a quick English draft of your words while your speech model works. Runs beside it on one CPU thread. The draft never reaches your text.".into(),
+        evidence: resource_manager::estimate_evidence(id).into(),
+        backend: "moonshine-ort-cpu".into(),
+        compatibility: if linux_runtime::AVAILABLE {
+            "Linux x64 CPU via the pinned Moonshine runtime, one thread. No GPU."
+        } else if MOONSHINE_AVAILABLE {
+            "Windows x64 CPU via the bundled Moonshine runtime, one thread, below-normal priority. No GPU."
+        } else {
+            "Live preview requires Windows x64 in this build."
+        }.into(),
+        state,
+        downloaded_bytes: if ready { disk } else { downloaded },
+        total_bytes: if ready { disk } else { total.max(package_bytes + linux_runtime::moonshine_download_bytes(models_root)) },
+        error,
+        installable,
+        removable: ready,
+        used_by: Vec::new(),
+        revision: MOONSHINE_REVISION.into(),
+        quantization: "bundled-ort".into(),
+        context_tokens: None,
+        supported: MOONSHINE_AVAILABLE,
+        stage: None,
+    }
 }
 
 fn optional_asr_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEntry> {
@@ -1106,6 +1177,7 @@ pub fn build_library(models_root: &Path, settings: &Settings) -> ModelLibrary {
     };
     let mut models = Vec::new();
     models.extend(moonshine_entries(models_root, settings));
+    models.push(live_preview_entry(models_root));
     models.extend(optional_asr_entries(models_root, settings));
     models.extend(llama_asr_entries(models_root, settings));
     models.extend(granite_entries(models_root, settings));
@@ -1114,6 +1186,26 @@ pub fn build_library(models_root: &Path, settings: &Settings) -> ModelLibrary {
     models.extend(optional_llm_entries(models_root, settings));
     models.extend(asr_worker_extra_entries(models_root, settings));
     for model in &mut models {
+        if linux_runtime::AVAILABLE {
+            if crate::optional_llm::is_bonsai(&model.id) {
+                model.state = "unavailable".into();
+                model.installable = false;
+                model.compatibility = "Bonsai requires the Windows PrismML CUDA runtime.".into();
+            } else if crate::optional_llm::find(&model.id).is_some() {
+                model.backend = "llama.cpp b10964 (CPU; Vulkan when available)".into();
+                model.compatibility = "Linux x64 CPU; Vulkan offload when a hardware device is detected. CPU fallback is available.".into();
+                model.guidance = "Installs verified GGUF weights and the shared CPU and Vulkan runtimes. Auto tries Vulkan; CPU forces local CPU execution.".into();
+                if model.state == "not-installed" { model.total_bytes += linux_runtime::llama_download_bytes(models_root); }
+            } else if crate::llama_asr::find(&model.id).is_some_and(|m| matches!(m.runtime, crate::llama_asr::Runtime::Cpu)) {
+                model.backend = "llama.cpp b10964 (Qwen3-ASR CPU)".into();
+                model.compatibility = "Linux x64 CPU with Silero speech detection. GPU speech offload is not enabled.".into();
+            } else if crate::optional_asr::is_optional(&model.id) || crate::whisper_catalog::is_whisper(&model.id) {
+                model.compatibility = "Linux x64 CPU via pinned sherpa-onnx v1.13.8. No GPU offload.".into();
+                if model.state == "not-installed" { model.total_bytes += crate::optional_asr::runtime_download_bytes(models_root); }
+            } else if model.id.starts_with("moonshine-") {
+                model.guidance = "English streaming speech on CPU. Installs the pinned Moonshine runtime and verified model weights.".into();
+            }
+        }
         model.deprecated = deprecated_model(&model.id);
         if crate::gpu_asr::is_gpu_model(&model.id)
             && !crate::gpu_asr::runtime_status(models_root, Check::Background).ready()
@@ -1176,7 +1268,11 @@ pub fn build_library(models_root: &Path, settings: &Settings) -> ModelLibrary {
             dedicated_vram_bytes: hardware.dedicated_vram_bytes,
         },
         plan,
-    ) + " Estimates are provisional (weights + engine/context assumptions documented per model); disk size is real and separate. Text models run on CPU, or NVIDIA CUDA when that runtime is present. AMD graphics are not supported.";
+    ) + if linux_runtime::AVAILABLE {
+        " Estimates are provisional; available RAM comes from /proc/meminfo. Speech runs on CPU. Text models try Vulkan when available, then CPU."
+    } else {
+        " Estimates are provisional (weights + engine/context assumptions documented per model); disk size is real and separate. Text models run on CPU, or NVIDIA CUDA when that runtime is present. AMD graphics are not supported."
+    };
     if hardware.unified_memory {
         guidance = "Apple Silicon shares memory between CPU and GPU. Model estimates count that pool once; available memory estimates free and reclaimable inactive pages. Estimates are provisional. Metal speech and text models are listed first.".into();
     }
@@ -1239,7 +1335,7 @@ fn describe_target(models_root: &Path, id: &str) -> Result<InstallTarget, String
     }
     if let Some(base) = moonshine_cdn_base(id) {
         if !MOONSHINE_AVAILABLE {
-            return Err("Moonshine requires Windows x64. On Mac, choose Whisper Small.".into());
+            return Err("Moonshine requires Windows x64 or Linux x64. On Mac, choose Whisper Small.".into());
         }
         let files: Vec<_> = moonshine_files(id)
             .ok_or("The app's Moonshine identity list could not be read. Repair SonoJot.")?
@@ -1256,9 +1352,9 @@ fn describe_target(models_root: &Path, id: &str) -> Result<InstallTarget, String
             id: id.into(),
             dest_dir: optional_root.join(id),
             optional_root,
-            total_bytes: files.iter().map(|file| file.bytes).sum(),
+            total_bytes: files.iter().map(|file| file.bytes).sum::<u64>() + linux_runtime::moonshine_download_bytes(models_root),
             files,
-            // The custom bundled runtime has no downloadable substitute.
+            // Moonshine owns its runtime; never request the sherpa runtime.
             needs_runtime: false,
         });
     }
@@ -1342,7 +1438,7 @@ fn describe_target(models_root: &Path, id: &str) -> Result<InstallTarget, String
             dest_dir: crate::optional_llm::model_dir(models_root, model.id),
             optional_root: crate::optional_asr::optional_root(models_root),
             files,
-            total_bytes: model.file.bytes + mac_runtime_download_bytes(models_root),
+            total_bytes: model.file.bytes + mac_runtime_download_bytes(models_root) + linux_runtime::llama_download_bytes(models_root),
             needs_runtime: false,
         });
     }
@@ -1360,7 +1456,8 @@ fn describe_target(models_root: &Path, id: &str) -> Result<InstallTarget, String
                 ),
             })
             .collect::<Vec<_>>();
-        let total = files.iter().map(|f| f.bytes).sum();
+        let total = files.iter().map(|f| f.bytes).sum::<u64>()
+            + if linux_runtime::AVAILABLE { crate::optional_asr::runtime_download_bytes(models_root) } else { 0 };
         return Ok(InstallTarget {
             id: id.to_owned(),
             dest_dir: crate::optional_asr::model_dir(models_root, model.id),
@@ -1375,7 +1472,8 @@ fn describe_target(models_root: &Path, id: &str) -> Result<InstallTarget, String
     // install_inner delegates to whisper_catalog::install_model with progress
     // mapped into the job registry. Total is the pinned package size.
     if let Some(checkpoint) = crate::whisper_catalog::find(id) {
-        let total = crate::whisper_catalog::package_bytes(checkpoint);
+        let total = crate::whisper_catalog::package_bytes(checkpoint)
+            + if linux_runtime::AVAILABLE { crate::optional_asr::runtime_download_bytes(models_root) } else { 0 };
         return Ok(InstallTarget {
             id: id.to_owned(),
             dest_dir: crate::whisper_catalog::model_dir(models_root, checkpoint.id),
@@ -1645,7 +1743,8 @@ fn install_inner(models_root: &Path, id: &str, cancel: &AtomicBool) -> Result<()
         set_job_phase(id, Phase::Downloading, None);
         let total = crate::whisper_catalog::find(id)
             .map(crate::whisper_catalog::package_bytes)
-            .unwrap_or(0);
+            .unwrap_or(0)
+            + if linux_runtime::AVAILABLE { crate::optional_asr::runtime_download_bytes(models_root) } else { 0 };
         set_job_progress(id, 0, total);
         let result =
             crate::whisper_catalog::install_model(models_root, id, cancel, &|done, total| {
@@ -1712,16 +1811,29 @@ fn install_inner(models_root: &Path, id: &str, cancel: &AtomicBool) -> Result<()
         if crate::asr::model_ready(models_root, id) {
             return Ok(());
         }
+        if linux_runtime::AVAILABLE {
+            set_job_stage(id, Some("Moonshine runtime"));
+            linux_runtime::ensure_moonshine(models_root, cancel, &|done, _| {
+                set_download_progress(id, done, target.total_bytes);
+            })?;
+            set_job_stage(id, Some("model files"));
+            if crate::asr::model_ready(models_root, id) { return Ok(()); }
+        }
         require_moonshine_runtime(models_root)?;
     }
     let is_diarization = id == diarization_model::ID;
+    if linux_runtime::AVAILABLE && target.needs_runtime && !is_diarization {
+        crate::optional_asr::ensure_runtime_with_cancel(models_root, cancel, &|done, _| {
+            set_download_progress(id, done, target.total_bytes);
+        })?;
+    }
     if target.needs_runtime && !is_diarization && !crate::optional_asr::runtime_ready(models_root) {
         return Err(
             "The speech runtime is not installed. Install one speech model via Setup once to fetch the runtime, then retry this install."
                 .into(),
         );
     }
-    // Insufficient-disk check before any bytes move.
+    // Gate model-weight staging after any shared runtime has been prepared.
     if let Some(free) = resource_manager::disk_free_bytes(&target.optional_root) {
         let need = target.total_bytes.saturating_add(256 << 20);
         if free < need {
@@ -1735,6 +1847,12 @@ fn install_inner(models_root: &Path, id: &str, cancel: &AtomicBool) -> Result<()
     fs::create_dir_all(&target.optional_root)
         .map_err(|e| format!("Cannot create the optional models folder: {e}"))?;
     crate::optional_asr::ensure_within(models_root, &target.optional_root)?;
+    if linux_runtime::AVAILABLE && crate::optional_llm::find(id).is_some() {
+        set_job_stage(id, Some("llama.cpp runtime"));
+        linux_runtime::ensure_llama(models_root, cancel, &|done, _| set_download_progress(id, done, target.total_bytes))?;
+        set_job_stage(id, Some("model files"));
+        if crate::cleanup::model_ready(models_root, id) { return Ok(()); }
+    }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     if crate::optional_llm::find(id).is_some() {
         install_mac_runtime(models_root, id, target.total_bytes, cancel)?;
@@ -1767,7 +1885,7 @@ fn install_inner(models_root: &Path, id: &str, cancel: &AtomicBool) -> Result<()
     // A diarization folder that is present but unverified (installed returned
     // above) is repaired the same way.
     let repair_existing = target.dest_dir.exists()
-        && (cfg!(target_os = "macos") || is_diarization || is_moonshine);
+        && (cfg!(target_os = "macos") || linux_runtime::AVAILABLE || is_diarization || is_moonshine);
     if target.dest_dir.exists() && !repair_existing { return Err("This model is already installed.".into()); }
     // Staging under the optional root keeps activation atomic.
     let staging =
@@ -1929,6 +2047,12 @@ fn install_granite(models_root: &Path, cancel: &AtomicBool) -> Result<(), String
         let _ = fs::remove_dir_all(&staging);
     }
     result
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) fn install_linux_text(root: &Path, id: &str) -> Result<(), String> {
+    crate::optional_llm::find(id).ok_or("Choose a downloadable text model.")?;
+    install_inner(root, id, &AtomicBool::new(false))
 }
 
 pub(crate) fn mac_runtime_download_bytes(root: &Path) -> u64 {
@@ -2216,7 +2340,7 @@ pub fn start_install(models_root: PathBuf, id: String) -> Result<(), String> {
             if crate::asr::model_ready(&models_root, &id) {
                 return Err("This model is already installed.".into());
             }
-            require_moonshine_runtime(&models_root)?;
+            if !linux_runtime::AVAILABLE { require_moonshine_runtime(&models_root)?; }
         }
         if target.dest_dir.exists() {
             // Distinguish already-installed from a stale failed job.
@@ -2240,7 +2364,7 @@ pub fn start_install(models_root: PathBuf, id: String) -> Result<(), String> {
                 crate::optional_asr::model_ready(&models_root, &id)
             } else {
                 crate::cleanup::model_ready(&models_root, &id)
-                    || (!cfg!(target_os = "macos")
+                    || (!cfg!(target_os = "macos") && !linux_runtime::AVAILABLE
                         && crate::optional_llm::optional_copy_ready(&models_root, &id))
             };
             if ready {
@@ -2487,6 +2611,22 @@ fn remove_inner(models_root: &Path, id: &str) -> Result<(), String> {
         invalidate_sizes();
         return Ok(());
     }
+    if id == crate::live_preview::MODEL_ID {
+        if crate::live_preview::running() {
+            return Err("Live preview is running. Finish dictating, then try again.".into());
+        }
+        let optional = crate::optional_asr::optional_root(models_root);
+        let dest = crate::optional_asr::model_dir(models_root, id);
+        if dest.exists() {
+            crate::optional_asr::ensure_within(models_root, &optional)?;
+            crate::optional_asr::ensure_within(&optional, &dest)?;
+            fs::remove_dir_all(&dest)
+                .map_err(|e| format!("The live preview files could not be removed: {e}"))?;
+        }
+        resource_manager::note_model_removed(id);
+        invalidate_sizes();
+        return Ok(());
+    }
     // Only optional downloads + real Whisper checkpoints + real GPU models are
     // removable. Moonshine (bundled or managed) and local-rules stay protected.
     // The shared CUDA runtime is never deleted by a single-model
@@ -2694,6 +2834,62 @@ pub async fn remove_model(
 #[cfg(test)]
 mod tests {
     #[test]
+    #[ignore = "Downloads Linux punctuation weights and runs the native helper"]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn linux_punctuation_native_smoke() {
+        let root = std::path::PathBuf::from(std::env::var_os("SONOJOT_MODELS").expect("explicit disposable models root"));
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let start = std::time::Instant::now();
+        super::install_inner(&root, "sonojot-punct-v1", &cancel).unwrap();
+        println!("INSTALL punctuation: {:.3}s", start.elapsed().as_secs_f64());
+        let outcome = crate::punctuation::run(&root, "hello my name is sam this is a test of local punctuation", &[], &cancel);
+        crate::punctuation_worker::release_cached();
+        println!("PUNCTUATION: {:.3}s [{}]: {}", outcome.elapsed_ms / 1000.0, outcome.stage, outcome.text);
+        assert_eq!(outcome.stage, "punctuation_model");
+    }
+
+    /// Opt-in integration check: downloads pinned models into a disposable root.
+    /// Run with SONOJOT_MODELS and SONOJOT_NATIVE_WAV explicitly set.
+    #[test]
+    #[ignore = "Downloads Linux runtimes and model weights; requires a speech WAV"]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn linux_runtime_native_smoke() {
+        let root = std::path::PathBuf::from(std::env::var_os("SONOJOT_MODELS").expect("explicit disposable models root"));
+        let wav = std::path::PathBuf::from(std::env::var_os("SONOJOT_NATIVE_WAV").expect("explicit speech WAV"));
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        std::env::set_var("MOONSHINE_ORT_SINGLE_THREAD", "1");
+        std::env::set_var("SONOJOT_CLEANUP_CPU", "1");
+        std::fs::create_dir_all(&root).unwrap();
+        for id in ["moonshine-medium", crate::llama_asr::SMALL_CPU_MODEL_ID, "whisper-tiny"] {
+            let start = std::time::Instant::now();
+            super::install_inner(&root, id, &cancel).expect(id);
+            println!("INSTALL {id}: {:.3}s", start.elapsed().as_secs_f64());
+            let start = std::time::Instant::now();
+            let text = crate::asr::transcribe_file(&root, &wav, id, &cancel).expect(id);
+            println!("TRANSCRIBE {id}: {:.3}s: {text}", start.elapsed().as_secs_f64());
+            assert!(text.to_lowercase().contains("country"), "{id}: {text}");
+        }
+        let start = std::time::Instant::now();
+        super::install_inner(&root, "lfm2.5-1.2b", &cancel).unwrap();
+        println!("INSTALL cleanup: {:.3}s", start.elapsed().as_secs_f64());
+        let start = std::time::Instant::now();
+        let result = crate::cleanup::generate_local(&root, "lfm2.5-1.2b",
+            "Repeat the user's sentence exactly. Do not add commentary.",
+            "The small garden is quiet today.", 40, &cancel);
+        let status = crate::acceleration::inspect(&root);
+        crate::cleanup::shutdown();
+        let text = result.expect("local cleanup request");
+        println!("CLEANUP: {:.3}s: {text}", start.elapsed().as_secs_f64());
+        assert!(text.contains("garden"), "{text}");
+        assert_eq!(status.text_runtime.unwrap().backend, "cpu");
+        assert!(super::linux_runtime::llama_status(&root, true, crate::model_verification::Check::Blocking).ready());
+        assert!(!crate::acceleration::gpu_support(&root).available, "CPU-only VM expected");
+        println!("HARDWARE: {:?}", crate::resource_manager::setup_hardware());
+        let verified = crate::setup::verify_models_folder(&root).unwrap();
+        assert!(verified.model_ids().iter().any(|id| id == "moonshine-medium"));
+    }
+
+    #[test]
     #[ignore = "Requires an explicitly supplied model root and installed Mac model"]
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn mac_text_native_smoke() {
@@ -2771,7 +2967,7 @@ mod tests {
         assert!(entry.used_by.is_empty());
         assert_eq!(entry.state, if diarization_model::AVAILABLE { "not-installed" } else { "unavailable" });
         assert_eq!(entry.disk_bytes, 302_708_257);
-        let runtime = if diarization_model::MAC { diarization_model::MAC_RUNTIME_ARCHIVE_BYTES } else { 8_179_934 };
+        let runtime = if diarization_model::MAC { diarization_model::MAC_RUNTIME_ARCHIVE_BYTES } else { crate::optional_asr::runtime_download_bytes(&root) };
         assert_eq!(entry.total_bytes, entry.disk_bytes + runtime);
         assert_eq!(entry.ram_min_bytes, Some(400_000_000));
         assert_eq!(entry.ram_max_bytes, Some(400_000_000));
@@ -2838,7 +3034,7 @@ mod tests {
         assert!(!entry.removable);
         assert!(entry.used_by.is_empty());
         assert_eq!(entry.state, if diarization_model::AVAILABLE { "not-installed" } else { "unavailable" });
-        let runtime = if diarization_model::MAC { diarization_model::MAC_RUNTIME_ARCHIVE_BYTES } else { 8_179_934 };
+        let runtime = if diarization_model::MAC { diarization_model::MAC_RUNTIME_ARCHIVE_BYTES } else { crate::optional_asr::runtime_download_bytes(&root) };
         assert_eq!(entry.total_bytes, entry.disk_bytes + runtime);
         assert_eq!(entry.revision, "94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625");
         assert!(!entry.guidance.contains("not available yet"));
@@ -2994,6 +3190,34 @@ mod tests {
     }
 
     #[test]
+    fn live_preview_model_is_a_pinned_optional_download_never_a_speech_choice() {
+        let _gate = test_gate();
+        let root = isolated_root("live-preview");
+        let id = crate::live_preview::MODEL_ID;
+        let entry = live_preview_entry(&root);
+        assert_eq!(entry.roles, ["preview"]);
+        assert_eq!(entry.kind, "asr");
+        assert!(entry.used_by.is_empty());
+        assert!(!entry.removable);
+        assert_eq!(entry.installable, MOONSHINE_AVAILABLE);
+        assert_eq!(entry.total_bytes, 45_233_659 + linux_runtime::moonshine_download_bytes(&root));
+        assert_eq!(entry.vram_max_bytes, Some(0));
+        if MOONSHINE_AVAILABLE {
+            let target = describe_target(&root, id).unwrap();
+            assert_eq!(target.files.len(), 8);
+            assert_eq!(target.dest_dir, crate::optional_asr::optional_root(&root).join(id));
+            assert!(!target.needs_runtime, "uses the bundled Moonshine runtime");
+            for file in &target.files {
+                assert_eq!(file.url, format!("{}/{}", crate::live_preview::CDN_BASE, file.relative));
+                assert_eq!(file.sha256.len(), 64);
+            }
+        }
+        let library = build_library(&root, &Settings::default());
+        assert!(library.models.iter().filter(|m| m.roles.iter().any(|r| r == "asr")).all(|m| m.id != id));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn moonshine_targets_use_shipped_identities_and_recorded_weight_urls() {
         let root = isolated_root("moonshine-pins");
         for (id, size, bytes) in [
@@ -3014,8 +3238,8 @@ mod tests {
             let target = describe_target(&root, id).unwrap();
             assert_eq!(target.dest_dir, root.join("optional").join(id));
             assert_eq!(target.optional_root, root.join("optional"));
-            assert_eq!(target.total_bytes, bytes);
-            assert!(!target.needs_runtime, "Moonshine never downloads a runtime");
+            assert_eq!(target.total_bytes, bytes + linux_runtime::moonshine_download_bytes(&root));
+            assert!(!target.needs_runtime, "Moonshine does not use the sherpa runtime");
             assert_eq!(target.files.len(), files.len());
             for (download, identity) in target.files.iter().zip(files) {
                 assert_eq!(download.relative, identity.name);
@@ -3036,7 +3260,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_moonshine_rows_offer_pinned_installs_only_on_windows_x64() {
+    fn missing_moonshine_rows_offer_pinned_installs_on_supported_platforms() {
         let _gate = test_gate();
         let root = isolated_root("moonshine-missing");
         let mut settings = Settings::default();
@@ -3048,7 +3272,7 @@ mod tests {
             assert_eq!(entry.state, if MOONSHINE_AVAILABLE { "not-installed" } else { "unavailable" });
             assert!(!entry.removable);
             assert_eq!(entry.downloaded_bytes, 0);
-            assert_eq!(entry.total_bytes, entry.disk_bytes);
+            assert_eq!(entry.total_bytes, entry.disk_bytes + linux_runtime::moonshine_download_bytes(&root));
             assert!(entry.disk_bytes > 0);
             assert_eq!(entry.revision, MOONSHINE_REVISION);
             assert_eq!(entry.used_by, if entry.id == settings.asr_model { vec!["asr"] } else { vec![] });
@@ -3151,7 +3375,7 @@ mod tests {
             if MOONSHINE_AVAILABLE {
                 assert_eq!(entry.state, if phase == Phase::Downloading { "downloading" } else { "verifying" });
                 assert_eq!(entry.downloaded_bytes, 10);
-                assert_eq!(entry.total_bytes, 142_300_974);
+                assert_eq!(entry.total_bytes, 142_300_974 + linux_runtime::moonshine_download_bytes(&root));
             }
             assert!(cancel_install(id));
             assert!(cancel.load(Ordering::Acquire));
@@ -3249,7 +3473,7 @@ mod tests {
         let runtime = if diarization_model::MAC {
             diarization_model::MAC_RUNTIME_ARCHIVE_BYTES
         } else {
-            8_179_934
+            crate::optional_asr::runtime_download_bytes(&root)
         };
         assert_eq!(entry.total_bytes, 103_871_648 + runtime);
         assert_eq!((entry.ram_min_bytes, entry.ram_max_bytes), (None, None));
@@ -3385,7 +3609,7 @@ mod tests {
         // Existing CPU/text packages plus the sherpa and llama GPU catalogs.
         assert_eq!(
             library.models.len(),
-            2 + 2 + 2 + 1 + crate::optional_llm::catalog().len() + 2 + 12 + crate::gpu_asr::GPU_MODELS.len()
+            2 + 1 + 2 + 2 + 1 + crate::optional_llm::catalog().len() + 2 + 12 + crate::gpu_asr::GPU_MODELS.len()
                 + crate::llama_asr::catalog().len()
                 + if mac { crate::mac_speech::catalog().len() } else { 0 }
         );
@@ -3421,7 +3645,7 @@ mod tests {
                 assert!(!entry.removable, "{}", entry.id);
                 assert!(entry.disk_bytes > 0, "{}", entry.id);
                 assert!(entry.ram_min_bytes.is_some(), "{}", entry.id);
-                assert!(entry.compatibility.contains("AMD"), "{}", entry.id);
+                assert!(entry.compatibility.contains(if linux_runtime::AVAILABLE { "Linux x64" } else { "AMD" }), "{}", entry.id);
                 assert!(entry.evidence.contains("2026-09-16"), "{}", entry.id);
             }
             if !mac && crate::gpu_asr::is_gpu_model(&entry.id) {

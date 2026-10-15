@@ -1515,6 +1515,10 @@ impl Stream<'_> {
         Ok(crate::asr::assemble_segments(&self.ledger, false))
     }
 
+    pub(crate) fn committed_seconds(&self) -> Option<f32> {
+        crate::asr::ledger_end(&self.ledger)
+    }
+
     pub(crate) fn original_text(&self) -> Option<&str> {
         self.original_text.as_deref()
     }

@@ -95,7 +95,14 @@
         : "For example, Ctrl+Space or Alt+Shift+D. You can also type a combination."}
     </p>
   </div>
-  {#if !app.snapshot.capabilities.globalShortcut}<p
+  {#if app.snapshot.capabilities.platform === "linux"}<p
+      class="field-help"
+      data-text-surface="flat"
+    >
+      {app.snapshot.capabilities.globalShortcut
+        ? "Hyprland runs this shortcut. SonoJot keeps it in ~/.config/hypr/sonojot.lua."
+        : "This desktop has no global shortcuts for apps. Bind a key to `SonoJot --shortcut press` in your compositor, or use the dictation button."}
+    </p>{:else if !app.snapshot.capabilities.globalShortcut}<p
       class="field-help"
       data-text-surface="flat"
     >

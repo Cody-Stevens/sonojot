@@ -522,7 +522,7 @@ fn worker_loop(address: &str) -> Result<()> {
     }
 }
 
-#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 pub(crate) fn initialize_runtime(root: &Path) -> Result<()> {
     if !is_worker() {
         return Err(Failure::Runtime);
@@ -646,7 +646,7 @@ mod tests {
         assert!(!release_idle(ModelRetention::Immediately));
     }
 
-    #[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
     #[test]
     fn desktop_cannot_enter_native_loader() {
         assert!(!is_worker());

@@ -8,6 +8,8 @@
   import Appearance from "./views/Appearance.svelte";
   import Shortcuts from "./views/Shortcuts.svelte";
   import About from "./views/About.svelte";
+  import ReportView from "./views/Report.svelte";
+  import { shouldShowCrash, type PendingCrash } from "./lib/reports";
   import Setup from "./views/Setup.svelte";
   import Onboarding from "./views/Onboarding.svelte";
   import Terms from "./views/Terms.svelte";
@@ -58,12 +60,30 @@
   let closing = false;
   let onboardingMode = $state<"first-run" | "tour" | null>(null);
   let setupChecked = $state(false);
+  let reportCrash = $state<PendingCrash | null>(null);
+  let shownCrashId = $state<string | null>(null);
   const termsRequired = $derived(
     app.native && app.ready && needsTermsAcceptance(app.snapshot.settings),
   );
   let page = $state<Page | SetupPage>(
     navigation.find((item) => item.id === query.get("page"))?.id ?? "dictation",
   );
+  $effect(() => {
+    if (
+      shouldShowCrash(
+        app.pendingCrash,
+        setupChecked,
+        onboardingMode !== null,
+        termsRequired,
+      ) &&
+      app.pendingCrash &&
+      shownCrashId !== app.pendingCrash.id
+    ) {
+      shownCrashId = app.pendingCrash.id;
+      reportCrash = app.pendingCrash;
+      page = "report";
+    }
+  });
   let dismissedError = $state("");
   const error = $derived(
     app.error ||
@@ -118,6 +138,11 @@
           if (app.snapshot.settings.setupProfile === null)
             onboardingMode = "first-run";
         }
+        try {
+          await app.checkPendingCrash();
+        } catch (failure: unknown) {
+          app.error = errorMessage(failure);
+        }
       }
       setupChecked = true;
     });
@@ -161,6 +186,15 @@
       ))
     )
       return;
+    if (page === "report" && reportCrash) {
+      try {
+        await app.dismissPendingCrash();
+      } catch (failure: unknown) {
+        app.error = errorMessage(failure);
+        return;
+      }
+    }
+    reportCrash = null;
     setupFocus = null;
     dictationReviewSession = null;
     page = next;
@@ -239,6 +273,8 @@
     await app.perform("window", async () => {
       closing = action === "close";
       try {
+        if (closing && page === "report" && reportCrash)
+          await app.dismissPendingCrash();
         await controlWindow(action);
       } catch (error: unknown) {
         closing = false;
@@ -385,7 +421,15 @@
                     />{:else if page === "setup"}<Setup
                       focusRole={setupFocus}
                       onnavigate={navigate}
-                    />{:else}<About
+                    />{:else if page === "report"}
+                    {#key reportCrash?.id ?? "bug"}<ReportView
+                        crash={reportCrash}
+                        onclose={() => navigate("about")}
+                      />{/key}
+                  {:else}<About
+                      onreport={() => {
+                        void navigate("report");
+                      }}
                       ontour={() => {
                         onboardingMode = "tour";
                       }}

@@ -3,7 +3,7 @@
 
 **Terms version 1** · Effective October 13, 2026
 
-SonoJot is free, open-source dictation and meeting-transcription software for Windows and macOS. Cody Stevens Studio LLC, a Texas limited liability company (the "Studio", "we", "us"), makes it. These terms are short. Please read sections 4 to 6 in particular.
+SonoJot is free, open-source dictation and meeting-transcription software for Windows, macOS, and Linux. Cody Stevens Studio LLC, a Texas limited liability company (the "Studio", "we", "us"), makes it. These terms are short. Please read sections 4 to 6 in particular.
 
 ## 1. What these terms cover
 

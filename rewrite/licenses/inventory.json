@@ -2662,8 +2662,292 @@
       "version": "0.5.2"
     },
     {
+      "distribution": "Embedded source notices retained beside Linux runtime downloads",
+      "files": [
+        {
+          "path": "licenses/linux/llama-cpp-linux.txt",
+          "sha256": "83d6f05a3c3cb75329931d89feebebe2dd6f44831c0a15531926e0b6e78d7caf"
+        },
+        {
+          "path": "licenses/linux/moonshine-linux.txt",
+          "sha256": "eb9b45f0330d00a8602d6ab3cdf9934960b6a953874a41a83d5e4c7d336d132b"
+        },
+        {
+          "path": "licenses/linux/sherpa-onnx-linux-cpu.txt",
+          "sha256": "7fdf5cca049ee2ab786933ab41adcb042e1c4f767f5ff09f1f5ff397a5df1ea0"
+        }
+      ],
+      "id": "asset:linux-runtime-notices",
+      "issues": [],
+      "kind": "notice-resource",
+      "license": "MIT AND Apache-2.0 AND BSD-3-Clause AND MPL-2.0; native dependency notices",
+      "name": "Linux runtime source notices",
+      "sources": [
+        "licenses/download-components.json"
+      ],
+      "texts": [
+        {
+          "bytes": 1483,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE",
+          "path": "licenses/texts/e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882.txt",
+          "role": "license",
+          "sha256": "e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882",
+          "source": "licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE"
+        },
+        {
+          "bytes": 559,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING",
+          "path": "licenses/texts/4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b.txt",
+          "role": "license",
+          "sha256": "4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b",
+          "source": "licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING"
+        },
+        {
+          "bytes": 1078,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE",
+          "path": "licenses/texts/94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d.txt",
+          "role": "license",
+          "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+          "source": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE"
+        },
+        {
+          "bytes": 1075,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp",
+          "path": "licenses/texts/c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86.txt",
+          "role": "license",
+          "sha256": "c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86",
+          "source": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp"
+        },
+        {
+          "bytes": 1210,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE",
+          "path": "licenses/texts/88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd.txt",
+          "role": "license",
+          "sha256": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd",
+          "source": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE"
+        },
+        {
+          "bytes": 1073,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE",
+          "path": "licenses/texts/c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca.txt",
+          "role": "license",
+          "sha256": "c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca",
+          "source": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE"
+        },
+        {
+          "bytes": 1075,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE",
+          "path": "licenses/texts/4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b.txt",
+          "role": "license",
+          "sha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b",
+          "source": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE"
+        },
+        {
+          "bytes": 1088,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md",
+          "path": "licenses/texts/ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55.txt",
+          "role": "license",
+          "sha256": "ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55",
+          "source": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md"
+        },
+        {
+          "bytes": 41,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE",
+          "path": "licenses/texts/b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25.txt",
+          "role": "license",
+          "sha256": "b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25",
+          "source": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE"
+        },
+        {
+          "bytes": 1389,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE",
+          "path": "licenses/texts/6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a.txt",
+          "role": "license",
+          "sha256": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a",
+          "source": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE"
+        },
+        {
+          "bytes": 1073,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE",
+          "path": "licenses/texts/2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c.txt",
+          "role": "license",
+          "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+          "source": "licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE"
+        },
+        {
+          "bytes": 325054,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt",
+          "path": "licenses/texts/0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2.txt",
+          "role": "license",
+          "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+          "source": "licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt"
+        },
+        {
+          "bytes": 14180,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+          "path": "licenses/texts/fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f.txt",
+          "role": "license",
+          "sha256": "fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+        },
+        {
+          "bytes": 1096,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE",
+          "path": "licenses/texts/13f73297830e0a900097bd86f88e7a89059de1298741aff3c5a1a9c22868e51a.txt",
+          "role": "license",
+          "sha256": "13f73297830e0a900097bd86f88e7a89059de1298741aff3c5a1a9c22868e51a",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE"
+        },
+        {
+          "bytes": 16726,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2",
+          "path": "licenses/texts/fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
+          "role": "license",
+          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2"
+        },
+        {
+          "bytes": 1086,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt",
+          "path": "licenses/texts/0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5.txt",
+          "role": "license",
+          "sha256": "0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE"
+        },
+        {
+          "bytes": 246,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING",
+          "path": "licenses/texts/a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6.txt",
+          "role": "license",
+          "sha256": "a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING"
+        },
+        {
+          "bytes": 1076,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT",
+          "path": "licenses/texts/86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14.txt",
+          "role": "license",
+          "sha256": "86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT"
+        },
+        {
+          "bytes": 1073,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt",
+          "path": "licenses/texts/2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c.txt",
+          "role": "license",
+          "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt"
+        },
+        {
+          "bytes": 1338,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt",
+          "path": "licenses/texts/c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566.txt",
+          "role": "license",
+          "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt"
+        },
+        {
+          "bytes": 5125,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md",
+          "path": "licenses/texts/3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256.txt",
+          "role": "license",
+          "sha256": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md"
+        },
+        {
+          "bytes": 1738,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md",
+          "path": "licenses/texts/082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a.txt",
+          "role": "license",
+          "sha256": "082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a",
+          "source": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md"
+        },
+        {
+          "bytes": 1076,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT",
+          "path": "licenses/texts/46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603.txt",
+          "role": "license",
+          "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603",
+          "source": "licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT"
+        },
+        {
+          "bytes": 11357,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE",
+          "path": "licenses/texts/c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4.txt",
+          "role": "license",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "source": "licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE"
+        }
+      ],
+      "version": "Pinned upstream release source notices"
+    },
+    {
       "distribution": "Compile-time data tables; written-form model names retain their per-entry source URLs",
       "files": [
+        {
+          "path": "src-tauri/assets/linux-llama-identities.json",
+          "sha256": "241ef86caeec95c627db16a22a9d78787f8dce33c8f08ff907ac32fa08e2880e"
+        },
         {
           "path": "src-tauri/assets/model-identities.json",
           "sha256": "97a174c8b3f0eb815a8b1ceedce3c63c322f099cb1dc1dc1bb8ccb867528fde0"
@@ -32972,23 +33256,23 @@
   ],
   "counts": {
     "artwork": 2,
-    "assetFiles": 32,
+    "assetFiles": 36,
     "buildOnlyRust": 84,
     "data": 2,
     "dictionary": 1,
     "embedded-javascript": 1,
     "font": 1,
     "installer": 3,
-    "models": 41,
+    "models": 42,
     "native": 4,
     "native-derived": 1,
-    "notice-resource": 2,
+    "notice-resource": 3,
     "npm": 22,
-    "runtimes": 22,
+    "runtimes": 25,
     "rust": 416,
     "sound": 1,
     "toolchain-runtime": 1,
-    "uniqueTexts": 495
+    "uniqueTexts": 497
   },
   "downloadMetadata": {
     "coverage": {
@@ -33689,6 +33973,195 @@
       "verification": "Pinned repository metadata and available card/license files were fetched at the exact catalog commit; large model files were not downloaded.",
       "verificationStatus": "pinned-license-verified",
       "version": "84022ce711b28455e8c4fc364ce68c00cf995875"
+    },
+    {
+      "artifactPins": [
+        {
+          "bytes": 16825086,
+          "scope": "catalog archive pin",
+          "sha256": "9abf88aea48a55d0f80edb1ee20220b186848cca0b4e919d71518cfd7ca67443",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10964/llama-b10964-bin-ubuntu-x64.tar.gz"
+        },
+        {
+          "bytes": 30166472,
+          "scope": "catalog archive pin",
+          "sha256": "55d1e58e14c11eedea090bf088fdeefbfe7b4b09ee03bf6dba9834651769afcf",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10964/llama-b10964-bin-ubuntu-vulkan-x64.tar.gz"
+        }
+      ],
+      "attribution": "llama.cpp / ggml authors; retain notices for JSON for Modern C++, cpp-httplib, hashing code and embedded server UI libraries where included.",
+      "catalogIds": [],
+      "conditions": "Retain MIT/BSD and other applicable dependency notices. NVIDIA runtime DLLs have separate proprietary conditions. Do not treat the top-level MIT file as a complete binary dependency manifest.",
+      "distribution": "Downloaded directly from the pinned upstream GitHub release after the existing Setup consent checks. No SonoJot mirror.",
+      "downloadUrls": [
+        "https://github.com/ggml-org/llama.cpp/releases/download/b10964/llama-b10964-bin-ubuntu-x64.tar.gz",
+        "https://github.com/ggml-org/llama.cpp/releases/download/b10964/llama-b10964-bin-ubuntu-vulkan-x64.tar.gz"
+      ],
+      "evidence": [
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 1078,
+          "sourceSha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE"
+        },
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/cmake/license.cmake",
+          "scope": "pinned-source",
+          "sourceBytes": 1445,
+          "sourceSha256": "083515dff8a9b8696e348c7c616934e53941a7db30e1b3f092576632e9a2d1d4",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/cmake/license.cmake"
+        },
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp",
+          "scope": "pinned-source",
+          "sourceBytes": 1075,
+          "sourceSha256": "c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp"
+        },
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 1234,
+          "sourceSha256": "e9b0e94f628e00b5ed98046cfa041696ff89eebbbdd54108ee350625bc6d0363",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE"
+        },
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 1073,
+          "sourceSha256": "c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE"
+        },
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 1075,
+          "sourceSha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE"
+        },
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md",
+          "scope": "pinned-source",
+          "sourceBytes": 1088,
+          "sourceSha256": "ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md"
+        },
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 41,
+          "sourceSha256": "b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE"
+        },
+        {
+          "file": "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 1389,
+          "sourceSha256": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a",
+          "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE"
+        }
+      ],
+      "id": "llama-cpp-linux",
+      "issues": [
+        "The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency."
+      ],
+      "kind": "runtime",
+      "license": "MIT; native dependency licenses",
+      "licenseUrl": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE",
+      "name": "llama.cpp Linux x64 CPU and Vulkan",
+      "noticeTexts": [
+        {
+          "bytes": 1078,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE",
+          "path": "licenses/texts/94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d.txt",
+          "role": "license",
+          "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+          "source": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE"
+        },
+        {
+          "bytes": 1075,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp",
+          "path": "licenses/texts/c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86.txt",
+          "role": "license",
+          "sha256": "c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86",
+          "source": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp"
+        },
+        {
+          "bytes": 1234,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE",
+          "path": "licenses/texts/e9b0e94f628e00b5ed98046cfa041696ff89eebbbdd54108ee350625bc6d0363.txt",
+          "role": "license",
+          "sha256": "e9b0e94f628e00b5ed98046cfa041696ff89eebbbdd54108ee350625bc6d0363",
+          "source": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE"
+        },
+        {
+          "bytes": 1073,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE",
+          "path": "licenses/texts/c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca.txt",
+          "role": "license",
+          "sha256": "c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca",
+          "source": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE"
+        },
+        {
+          "bytes": 1075,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE",
+          "path": "licenses/texts/4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b.txt",
+          "role": "license",
+          "sha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b",
+          "source": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE"
+        },
+        {
+          "bytes": 1088,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md",
+          "path": "licenses/texts/ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55.txt",
+          "role": "license",
+          "sha256": "ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55",
+          "source": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md"
+        },
+        {
+          "bytes": 41,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE",
+          "path": "licenses/texts/b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25.txt",
+          "role": "license",
+          "sha256": "b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25",
+          "source": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE"
+        },
+        {
+          "bytes": 1389,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE",
+          "path": "licenses/texts/6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a.txt",
+          "role": "license",
+          "sha256": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a",
+          "source": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE"
+        }
+      ],
+      "recommendation": "Retain the source notices and archive LICENSE; complete the native dependency audit before redistribution.",
+      "sources": [
+        "rewrite/src-tauri/src/linux_runtime.rs",
+        "https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE"
+      ],
+      "textFiles": [
+        "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE",
+        "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp",
+        "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE",
+        "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE",
+        "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE",
+        "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md",
+        "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE",
+        "downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE"
+      ],
+      "verification": "2026-10-15: downloaded on Arch Linux; archive sizes and SHA-256 hashes match these pins. Extracted runtime files are pinned separately in code. Source license evidence is retained from the same upstream release; no new binary dependency audit is claimed.",
+      "verificationStatus": "pinned-archive-verified",
+      "version": "b10964"
     },
     {
       "artifactPins": [
@@ -34741,6 +35214,232 @@
     {
       "artifactPins": [
         {
+          "bytes": 14576999,
+          "scope": "catalog archive pin",
+          "sha256": "9c3a87fea93ff2ad957938868f95a0a366dce9ff8ad86bde6cdcf5a4cadb51df",
+          "url": "https://github.com/moonshine-ai/moonshine/releases/download/v0.1.5/moonshine-voice-linux-x86_64.tar.gz"
+        }
+      ],
+      "attribution": "Useful Sensors, Inc. (dba Moonshine AI) and embedded dependency copyright holders.",
+      "catalogIds": [],
+      "conditions": "MIT for Moonshine code; retain the separate Eigen MPL-2.0, kaldi-native-fbank Apache-2.0, KissFFT BSD-3-Clause, ONNX Runtime MIT, nlohmann/json MIT, utf-8 and utf8proc/Unicode notices. For distributed MPL-covered files, make the corresponding source and local modifications available as required.",
+      "distribution": "Downloaded directly from the pinned upstream GitHub release after the existing Setup consent checks. No SonoJot mirror.",
+      "downloadUrls": [
+        "https://github.com/moonshine-ai/moonshine/releases/download/v0.1.5/moonshine-voice-linux-x86_64.tar.gz"
+      ],
+      "evidence": [
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 14180,
+          "sourceSha256": "fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 1095,
+          "sourceSha256": "70b76093f6fb38e8d76e5cf0045ce4c3ae12f7f93b81f143ad6b389eaf9e0e16",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2",
+          "scope": "pinned-source",
+          "sourceBytes": 16726,
+          "sourceSha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt",
+          "scope": "pinned-source",
+          "sourceBytes": 1086,
+          "sourceSha256": "0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 11358,
+          "sourceSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING",
+          "scope": "pinned-source",
+          "sourceBytes": 246,
+          "sourceSha256": "a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT",
+          "scope": "pinned-source",
+          "sourceBytes": 1076,
+          "sourceSha256": "86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt",
+          "scope": "pinned-source",
+          "sourceBytes": 1073,
+          "sourceSha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt",
+          "scope": "pinned-source",
+          "sourceBytes": 1338,
+          "sourceSha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md",
+          "scope": "pinned-source",
+          "sourceBytes": 5125,
+          "sourceSha256": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md",
+          "scope": "pinned-source",
+          "sourceBytes": 1738,
+          "sourceSha256": "082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md"
+        }
+      ],
+      "id": "moonshine-linux",
+      "issues": [
+        "The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency."
+      ],
+      "kind": "runtime",
+      "license": "MIT AND MPL-2.0 AND Apache-2.0 AND BSD-3-Clause; other native notices",
+      "licenseUrl": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+      "name": "Moonshine Linux x64",
+      "noticeTexts": [
+        {
+          "bytes": 14180,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+          "path": "licenses/texts/fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f.txt",
+          "role": "license",
+          "sha256": "fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+        },
+        {
+          "bytes": 1095,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE",
+          "path": "licenses/texts/70b76093f6fb38e8d76e5cf0045ce4c3ae12f7f93b81f143ad6b389eaf9e0e16.txt",
+          "role": "license",
+          "sha256": "70b76093f6fb38e8d76e5cf0045ce4c3ae12f7f93b81f143ad6b389eaf9e0e16",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE"
+        },
+        {
+          "bytes": 16726,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2",
+          "path": "licenses/texts/fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
+          "role": "license",
+          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2"
+        },
+        {
+          "bytes": 1086,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt",
+          "path": "licenses/texts/0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5.txt",
+          "role": "license",
+          "sha256": "0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE"
+        },
+        {
+          "bytes": 246,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING",
+          "path": "licenses/texts/a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6.txt",
+          "role": "license",
+          "sha256": "a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING"
+        },
+        {
+          "bytes": 1076,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT",
+          "path": "licenses/texts/86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14.txt",
+          "role": "license",
+          "sha256": "86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT"
+        },
+        {
+          "bytes": 1073,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt",
+          "path": "licenses/texts/2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c.txt",
+          "role": "license",
+          "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt"
+        },
+        {
+          "bytes": 1338,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt",
+          "path": "licenses/texts/c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566.txt",
+          "role": "license",
+          "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt"
+        },
+        {
+          "bytes": 5125,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md",
+          "path": "licenses/texts/3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256.txt",
+          "role": "license",
+          "sha256": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md"
+        },
+        {
+          "bytes": 1738,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md",
+          "path": "licenses/texts/082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a.txt",
+          "role": "license",
+          "sha256": "082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md"
+        }
+      ],
+      "recommendation": "Retain the source notices and archive LICENSE; complete the native dependency audit before redistribution.",
+      "sources": [
+        "rewrite/src-tauri/src/linux_runtime.rs",
+        "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+      ],
+      "textFiles": [
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md",
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md"
+      ],
+      "verification": "2026-10-15: downloaded on Arch Linux; archive sizes and SHA-256 hashes match these pins. Extracted runtime files are pinned separately in code. Source license evidence is retained from the same upstream release; no new binary dependency audit is claimed.",
+      "verificationStatus": "pinned-archive-verified",
+      "version": "v0.1.5"
+    },
+    {
+      "artifactPins": [
+        {
           "bytes": 3651296,
           "file": "adapter.ort",
           "sha256": "3f2a287def57cc094367a0eec3c4f5fc36a32ec420e86764b696920991b20281",
@@ -35245,6 +35944,123 @@
         "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
       ],
       "verification": "v0.1.5 license fetched at resolved commit 234f60faa0eb388b01cdf7e60aca232af37aefda. CDN files are pinned by app SHA-256, but quantized_26_08_21 is a release directory, not a repository commit linking those exact weights to this license.",
+      "verificationStatus": "pinned-source-only",
+      "version": "quantized_26_08_21"
+    },
+    {
+      "artifactPins": [
+        {
+          "bytes": 1319664,
+          "file": "adapter.ort",
+          "sha256": "22ecc949e146c49667fda28d102d4e30749a107dc88a396292aa8f277ef1347c",
+          "url": "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/adapter.ort"
+        },
+        {
+          "bytes": 1287544,
+          "file": "cross_kv.ort",
+          "sha256": "143a36667b8d05fd9d04e8c337b7ee121f37ef299aea6b3d82bdb3d3401950b4",
+          "url": "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/cross_kv.ort"
+        },
+        {
+          "bytes": 32583720,
+          "file": "decoder_kv.ort",
+          "sha256": "8852553f312adb6c9aa4d17418015049b30f412209ee569d336548c0044627de",
+          "url": "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/decoder_kv.ort"
+        },
+        {
+          "bytes": 7675440,
+          "file": "encoder.ort",
+          "sha256": "a8414e1a5dedf9f2093d7680601dd8a9b0433e7020260eafe0e370ead91134ca",
+          "url": "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/encoder.ort"
+        },
+        {
+          "bytes": 23344,
+          "file": "frontend.model.ort",
+          "sha256": "5121b561417b638afce0c6c31b760e37c93cf97f80d9b0031aad1fe7b6f25d61",
+          "url": "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/frontend.model.ort"
+        },
+        {
+          "bytes": 2093464,
+          "file": "frontend.weights.ort",
+          "sha256": "217da24ac6f522ebf02da8ef288e77d1ac68d50d4a6821433182e4fbf4204bbd",
+          "url": "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/frontend.weights.ort"
+        },
+        {
+          "bytes": 509,
+          "file": "streaming_config.json",
+          "sha256": "74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950",
+          "url": "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/streaming_config.json"
+        },
+        {
+          "bytes": 249974,
+          "file": "tokenizer.bin",
+          "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d",
+          "url": "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/tokenizer.bin"
+        }
+      ],
+      "attribution": "Copyright (c) 2025 Useful Sensors, Inc. (dba Moonshine AI).",
+      "catalogIds": [
+        "moonshine-tiny-streaming"
+      ],
+      "conditions": "Retain the copyright and MIT permission notice with copies or substantial portions. The v0.1.5 license names every streaming model and every English model as MIT; its noncommercial Community License section covers only the enumerated legacy non-English, non-streaming models.",
+      "distribution": "Optional download from the vendor CDN download.moonshine.ai. No SonoJot model mirror.",
+      "downloadUrls": [
+        "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/adapter.ort",
+        "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/cross_kv.ort",
+        "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/decoder_kv.ort",
+        "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/encoder.ort",
+        "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/frontend.model.ort",
+        "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/frontend.weights.ort",
+        "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/streaming_config.json",
+        "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_08_21/tokenizer.bin"
+      ],
+      "evaluationOnly": false,
+      "evidence": [
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 14180,
+          "sourceSha256": "fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+        },
+        {
+          "file": "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md",
+          "scope": "pinned-source",
+          "sourceBytes": 1738,
+          "sourceSha256": "082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a",
+          "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md"
+        }
+      ],
+      "id": "moonshine-tiny-streaming",
+      "issues": [
+        "No model-specific immutable license/card accompanies the CDN file pins. Preserve the vendor release license and confirm the exact CDN release association."
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+      "name": "Moonshine tiny English streaming (Live preview)",
+      "noticeTexts": [
+        {
+          "bytes": 14180,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+          "path": "licenses/texts/fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f.txt",
+          "role": "license",
+          "sha256": "fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f",
+          "source": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+        }
+      ],
+      "recommendation": "Keep with the stated license, attribution and applicable upstream notices.",
+      "sources": [
+        "rewrite/src-tauri/src/live_preview.rs",
+        "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+        "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md",
+        "https://huggingface.co/moonshine-ai/moonshine-streaming-tiny"
+      ],
+      "textFiles": [
+        "downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+      ],
+      "verification": "v0.1.5 license fetched at resolved commit 234f60faa0eb388b01cdf7e60aca232af37aefda. Files pinned by app SHA-256 on 2026-10-14 from the CDN path compiled into the bundled runtime; the Hugging Face card for moonshine-ai/moonshine-streaming-tiny is tagged MIT. quantized_26_08_21 is a release directory, not a repository commit linking those exact weights to this license.",
       "verificationStatus": "pinned-source-only",
       "version": "quantized_26_08_21"
     },
@@ -37079,6 +37895,275 @@
       "verification": "Pinned converter card identifies the base model but does not declare a license. Apache-2.0 is corroborated by current vendor evidence; exact base revision and converter licensing remain unresolved.",
       "verificationStatus": "upstream-current-only",
       "version": "36a678687ba7d07a74ca70ccb0e36902e005fb80"
+    },
+    {
+      "artifactPins": [
+        {
+          "bytes": 9249201,
+          "scope": "catalog archive pin",
+          "sha256": "bf2d998c8b07012cd5098f3b92673bc1333fd9b927767d7cb664be8190d8bc0b",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib.tar.bz2"
+        }
+      ],
+      "attribution": "sherpa-onnx / k2-fsa / Xiaomi contributors; retain Apache-2.0 and notices for ONNX Runtime, kaldi-decoder, kaldi-native-fbank, OpenFst, simple-sentencepiece, nlohmann/json and hclust.",
+      "catalogIds": [],
+      "conditions": "Preserve all applicable native dependency licenses and copyright notices; the top-level Apache license alone does not describe every linked component. Keep the source/build correspondence for the exact binary.",
+      "distribution": "Downloaded directly from the pinned upstream GitHub release after the existing Setup consent checks. No SonoJot mirror.",
+      "downloadUrls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib.tar.bz2"
+      ],
+      "evidence": [
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 11358,
+          "sourceSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/.github/workflows/windows-x64.yaml",
+          "scope": "pinned-source",
+          "sourceBytes": 14858,
+          "sourceSha256": "7ca454616c8ed85a44443c4350f117a462523a5850255efcb47b813837b264ad",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/.github/workflows/windows-x64.yaml"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/.github/workflows/windows-x64-cuda.yaml",
+          "scope": "pinned-source",
+          "sourceBytes": 6734,
+          "sourceSha256": "81dafe76d0a7b878155fec4010d747c77fb380834213a8a8ae1f628ba433318b",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/.github/workflows/windows-x64-cuda.yaml"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/CMakeLists.txt",
+          "scope": "pinned-build-source",
+          "sourceBytes": 23792,
+          "sourceSha256": "4df4359dc8ad360eadd0d125059622c12bcac99f32e7cf2aabe44aaa16a0c09c",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/CMakeLists.txt"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/sherpa-onnx/csrc/CMakeLists.txt",
+          "scope": "pinned-build-source",
+          "sourceBytes": 27564,
+          "sourceSha256": "3d410a06b24f1af5522d8f03c5277d880bd9616c37ad526951becce8d361cd19",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/sherpa-onnx/csrc/CMakeLists.txt"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/onnxruntime-win-x64.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 4289,
+          "sourceSha256": "d80f82ef73673dd273533cd3ecb9b8844cbb6cbf20fa65012db17a3d96e2edc0",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/onnxruntime-win-x64.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/onnxruntime-win-x64-gpu.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 3038,
+          "sourceSha256": "72ac3665f2d9e47c0aaefadd558c742b652f67d6fac1d5860bc80271c63a1f4e",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/onnxruntime-win-x64-gpu.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/onnxruntime.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 9593,
+          "sourceSha256": "4dad1ee8f3e09d6270c5b752629f4ddbb3c8584a93a424d9aa8a4c4d66bf2fc5",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/onnxruntime.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/eigen.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 1409,
+          "sourceSha256": "8239d74b44e37e1bb05be2e1c86f6b1e931f0daca93b325fb2e0b6d6e996b2ed",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/eigen.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/hclust-cpp.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 2139,
+          "sourceSha256": "093ae7b3712119d140df2629b5d20b71bafb3d49ba0124dd7a391f278f4db357",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/hclust-cpp.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/kaldi-decoder.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 2667,
+          "sourceSha256": "af34b17974474a70b12978d49ac0831276839082924e5ac93bd9bb194a7fd310",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/kaldi-decoder.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/kaldi-native-fbank.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 3017,
+          "sourceSha256": "619f0046f568e85790f4180899e666053f246f5c0fc36c951421441f3e992e38",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/kaldi-native-fbank.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/openfst.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 2487,
+          "sourceSha256": "1658b8ba6bc449daef239cece7ebf6d0bef09665dd4a078ccf6cb66ec01e5d1f",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/openfst.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/simple-sentencepiece.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 7665,
+          "sourceSha256": "af791de58aa82fe575d709f773b526cd31a3a5b6b56397ea3da665eee12659ad",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/simple-sentencepiece.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/json.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 1480,
+          "sourceSha256": "e318b4065954cb479318d191c91e32d5a0cae94a53fff70987791b6f9828b1de",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/json.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/espeak-ng-for-piper.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 3602,
+          "sourceSha256": "d353f2becec6c8a2064e314b7d0d9c4e4388b48c7e5742a3ba8a62355952407c",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/espeak-ng-for-piper.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/piper-phonemize.cmake",
+          "scope": "pinned-build-source",
+          "sourceBytes": 2456,
+          "sourceSha256": "b062750c938e4f4e778b9c0605a250f4abebdf17656c0d654fbace43a800258b",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/cmake/piper-phonemize.cmake"
+        },
+        {
+          "file": "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/.github/scripts/libs/windows_x64_cuda.py",
+          "scope": "pinned-build-source",
+          "sourceBytes": 1785,
+          "sourceSha256": "c383df3824a80dc6515fbe47e9218918fa097dec1a7c2de1868197caa678fec9",
+          "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/.github/scripts/libs/windows_x64_cuda.py"
+        },
+        {
+          "file": "downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE",
+          "scope": "pinned-source",
+          "sourceBytes": 1073,
+          "sourceSha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+          "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE"
+        },
+        {
+          "file": "downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt",
+          "scope": "pinned-source",
+          "sourceBytes": 325054,
+          "sourceSha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+          "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt"
+        }
+      ],
+      "id": "sherpa-onnx-linux-cpu",
+      "issues": [
+        "The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency."
+      ],
+      "kind": "runtime",
+      "license": "Apache-2.0; native dependency licenses",
+      "licenseUrl": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE",
+      "name": "sherpa-onnx Linux x64 CPU",
+      "noticeTexts": [
+        {
+          "bytes": 1483,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE",
+          "path": "licenses/texts/e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882.txt",
+          "role": "license",
+          "sha256": "e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882",
+          "source": "https://raw.githubusercontent.com/csukuangfj/hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "https://raw.githubusercontent.com/csukuangfj/kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE"
+        },
+        {
+          "bytes": 559,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING",
+          "path": "licenses/texts/4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b.txt",
+          "role": "license",
+          "sha256": "4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b",
+          "source": "https://raw.githubusercontent.com/csukuangfj/openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "https://raw.githubusercontent.com/k2-fsa/kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE"
+        },
+        {
+          "bytes": 1073,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE",
+          "path": "licenses/texts/2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c.txt",
+          "role": "license",
+          "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+          "source": "https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE"
+        },
+        {
+          "bytes": 325054,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt",
+          "path": "licenses/texts/0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2.txt",
+          "role": "license",
+          "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+          "source": "https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt"
+        },
+        {
+          "bytes": 1076,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT",
+          "path": "licenses/texts/46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603.txt",
+          "role": "license",
+          "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603",
+          "source": "https://raw.githubusercontent.com/nlohmann/json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT"
+        },
+        {
+          "bytes": 11357,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE",
+          "path": "licenses/texts/c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4.txt",
+          "role": "license",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "source": "https://raw.githubusercontent.com/pkufool/simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE"
+        }
+      ],
+      "recommendation": "Retain the source notices and archive LICENSE; complete the native dependency audit before redistribution.",
+      "sources": [
+        "rewrite/src-tauri/src/optional_asr.rs",
+        "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE"
+      ],
+      "textFiles": [
+        "downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE",
+        "downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE",
+        "downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING",
+        "downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE",
+        "downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE",
+        "downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE",
+        "downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt",
+        "downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT",
+        "downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE"
+      ],
+      "verification": "2026-10-15: downloaded on Arch Linux; archive sizes and SHA-256 hashes match these pins. Extracted runtime files are pinned separately in code. Source license evidence is retained from the same upstream release; no new binary dependency audit is claimed.",
+      "verificationStatus": "pinned-archive-verified",
+      "version": "1.13.8"
     },
     {
       "artifactPins": [
@@ -41106,8 +42191,8 @@
     "index.html": "9712eb6cccb3387405cbd8aad0a217585fc4e6c33bfe168d156509dc20da8097",
     "legal/download-consent.json": "41195659db80517da221249ecdd256d9d8c302fdaad686f178dad73b6ea7816f",
     "legal/terms-of-use.md": "2b8770ad369014b8e7248eb1f255619e3ddb51876cf1c8b9e674d7737a18bbfe",
-    "licenses/assets.json": "99867c3ee1085264e1827b9b225fc3f1a1a4109bf62033b65c8e45a8ed9c5b46",
-    "licenses/download-components.json": "ecfb1eb9f6601eb5f6c7ed90e96827323242180058cdff21f39d88c15ce2bab6",
+    "licenses/assets.json": "68848d94773330f82ac5635ab17616041467eb8a45cb2eeffe0e7cb9dfa1a488",
+    "licenses/download-components.json": "a12065747226ad6dc5d0082848eacef9500cdb198e6246adaef842413cd4ebd0",
     "licenses/downloads/archives/llama-cpp-macos-metal/llama-b10964/LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
     "licenses/downloads/archives/nvidia-cublas-13.7.0.27/nvidia_cublas-13.7.0.27.dist-info/METADATA": "55319adb28b995dde623062f5db4942656c18795737e046841cc01c179098a87",
     "licenses/downloads/archives/nvidia-cublas-13.7.0.27/nvidia_cublas-13.7.0.27.dist-info/licenses/License.txt": "ad6f5853fba0ca0d159d0f58d49ae49830c2f8c93f7a92648b9ce90adb4c6ccd",
@@ -41293,6 +42378,9 @@
     "licenses/downloads/web/cudnn-9.26.0-eula.txt": "7a32b180e91e352dc0a047c56ff9a6affc7514805cf1e9010015c450cea1c752",
     "licenses/downloads/web/ffmpeg-legal.html": "cd51dc25f9e3200b1e3953aee036f499ed51f01f7ba30563873186cb3f870eda",
     "licenses/downloads/web/ffmpeg-martin-riedl.html": "7ecefd2f2ed05f48ecf328c80d2995f790fce1673eef710730f30dd0c5259b15",
+    "licenses/linux/llama-cpp-linux.txt": "83d6f05a3c3cb75329931d89feebebe2dd6f44831c0a15531926e0b6e78d7caf",
+    "licenses/linux/moonshine-linux.txt": "eb9b45f0330d00a8602d6ab3cdf9934960b6a953874a41a83d5e4c7d336d132b",
+    "licenses/linux/sherpa-onnx-linux-cpu.txt": "7fdf5cca049ee2ab786933ab41adcb042e1c4f767f5ff09f1f5ff397a5df1ea0",
     "licenses/native-rules.json": "42c4c787e834d7fad8b77f36dd81f9c5fbbb0f70185e33797fa7d31744b02adf",
     "licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
     "licenses/punctuation/NOTICE-v1.txt": "b9450987f058ba2e9e5c1010dca209811ccfd05294bc5a500164bb62fa06de09",
@@ -41307,12 +42395,13 @@
     "package.json": "6c227facbf4363d8d02cb0a18cf25fe713af14651d291f0195c1beb804788132",
     "scripts/generate_notices.py": "75893e4e28e00b97dedec538c35a880fed6157491938c8a2801b75478a006fda",
     "src-tauri/Cargo.lock": "a6a95d474a6f616646ee06d4418bc8577293728909228c30f755b43acb2fff65",
-    "src-tauri/Cargo.toml": "5eecb5129bc622fd5a283eae375b41cf013c482e5bc1c5ce38598aeaff1d7b42",
+    "src-tauri/Cargo.toml": "768d7bcc59a22e9698a6371f40b83beb08d506e95990fbdc0c72b39e4f84e53a",
+    "src-tauri/assets/linux-llama-identities.json": "241ef86caeec95c627db16a22a9d78787f8dce33c8f08ff907ac32fa08e2880e",
     "src-tauri/assets/model-identities.json": "97a174c8b3f0eb815a8b1ceedce3c63c322f099cb1dc1dc1bb8ccb867528fde0",
     "src-tauri/build.rs": "33126a7f3f8ac762d07234d15f37f837ee82804763bb74f5141a8dcdc6294ca0",
     "src-tauri/licenses/nnnoiseless-0.5.2.txt": "6550b9b34d95e28ea8f7c16bf3c08c4b6bee81bef5d62c9c1ea12ff1aaea032b",
     "src-tauri/licenses/scowl-2020.12.07.txt": "384a59022be3b0deac5770e72f1f255f1dc7e1279159ab768bf0cc5ee140f714",
-    "src-tauri/src/audio.rs": "76257a3fb8b0e14741b74195e5a5c4efd24b7fef8722e8ff5b1c782748a5941c",
+    "src-tauri/src/audio.rs": "ecfb0800afb8123ed7fc582c5081b3c770572c5dbb9f7a9578c9632fb4d2f161",
     "src-tauri/src/punctuation_lowercase.txt": "b2045a2460991c60ec730bc627113368929828e274dc3eee272babbea78533de",
     "src-tauri/src/written_form/PROVENANCE.md": "19dcf78ec05e2119bcaea79eb6120cc4f433949ff8c413a305dab24964ace742",
     "src-tauri/src/written_form/models.json": "ee30a67479540b2df24846ddc8aa82fb5315a5991ab0b2bcd92fa429b158e111",
@@ -41685,6 +42774,12 @@
       "encoding": "utf-8",
       "path": "licenses/texts/13746d509d74e55ea2265fbef204bb7cdbf84a8315b0207e988326cb54387028.txt",
       "sha256": "13746d509d74e55ea2265fbef204bb7cdbf84a8315b0207e988326cb54387028"
+    },
+    {
+      "bytes": 1096,
+      "encoding": "utf-8",
+      "path": "licenses/texts/13f73297830e0a900097bd86f88e7a89059de1298741aff3c5a1a9c22868e51a.txt",
+      "sha256": "13f73297830e0a900097bd86f88e7a89059de1298741aff3c5a1a9c22868e51a"
     },
     {
       "bytes": 1067,
@@ -43043,6 +44138,12 @@
       "sha256": "88d6040be855fd69bf415a8a7859f3002134fb6e40d3e12b306e39a8309ed9c7"
     },
     {
+      "bytes": 1210,
+      "encoding": "utf-8",
+      "path": "licenses/texts/88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd.txt",
+      "sha256": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd"
+    },
+    {
       "bytes": 1062,
       "encoding": "utf-8",
       "path": "licenses/texts/898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1.txt",
@@ -44391,13 +45492,16 @@
       "lfm2.5-1.2b: The exact $10 million boundary needs clarification because the definition and section 5 use different comparison wording.",
       "lfm2.5-2.6b: Commercial-use revenue restriction applies to the distributor and to users exercising the license, not only revenue earned from SonoJot.",
       "lfm2.5-2.6b: The exact $10 million boundary needs clarification because the definition and section 5 use different comparison wording.",
+      "llama-cpp-linux: The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency.",
       "llama-cpp-macos-metal: Additional server UI/linked-library notices require review against the actual release build; the single archive LICENSE is not a complete third-party manifest.",
       "llama-cpp-prism-bonsai: Exact release ZIP directory has no standalone LICENSE or NOTICE; add the source license/attributions to the installed package. Complete embedded/linked dependency inventory remains unresolved.",
       "llama-cpp-windows-provisioned: The supplied LLVM OpenMP license was recovered and matches the manifest pin. libomp.dll has ProductVersion 5.0 and FileVersion 20140926; this does not establish its source revision or which included license grant applies. Recover the vendor build/source correspondence.",
+      "moonshine-linux: The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency.",
       "moonshine-medium: No model-specific immutable license/card accompanies the CDN file pins. Preserve the vendor release license and confirm the exact CDN release association.",
       "moonshine-runtime: Locally modified/relinked Eigen/MPL covered-source correspondence and complete native dependency inventory need recovery.",
       "moonshine-runtime: The Moonshine source COPYING references a missing KissFFT LICENSES/BSD-3-Clause file. Full BSD terms captured from upstream KissFFT 131.1.0 are supplementary; exact vendored revision is not identified.",
       "moonshine-small: No model-specific immutable license/card accompanies the CDN file pins. Preserve the vendor release license and confirm the exact CDN release association.",
+      "moonshine-tiny-streaming: No model-specific immutable license/card accompanies the CDN file pins. Preserve the vendor release license and confirm the exact CDN release association.",
       "native:release-toolchain: Pin the release Rust, MSVC and Xcode toolchains and archive their exact runtime notices. No built Windows installer or macOS binary was inspected in this source-only task, and the exact macOS compiler runtime revision is not available in this Windows checkout. OS-provided frameworks and system CRTs are not redistributed as separate app resources.",
       "native:webview2-loader@1.0.3650.58: The downloaded Microsoft Edge WebView2 Runtime is a separate product governed by its own terms; this SDK loader license does not cover that runtime. The installer currently fetches an unpinned Evergreen bootstrapper from Microsoft.",
       "nemotron-3-diarization: The app pins/downloads LICENSE but omits the repository's required NOTICE.",
@@ -44454,6 +45558,7 @@
       "rust:realfft@3.5.0: Full standard MIT terms are retained verbatim, including unfilled placeholders. The published source declares MIT but no component-specific license/copyright file was found; obtain attribution confirmation before release.",
       "rust:selectors@0.36.1: The source headers declare MPL-2.0 and link the standard terms; the crate does not include a standalone full license file. Exact standard terms and source attribution are supplied separately.",
       "rust:whisper-rs-sys@0.15.0: The wrapper declares Unlicense but ships no standalone wrapper license file. Standard Unlicense terms are provided separately; whisper.cpp and ggml retain their MIT terms.",
+      "sherpa-onnx-linux-cpu: The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency.",
       "sherpa-onnx-windows-cpu: Source dependencies are pinned, but a complete binary-linked dependency bill of materials is still needed; source tree licenses can overinclude unused code.",
       "sherpa-onnx-windows-cpu: Verified CPU archive includes no standalone license or NOTICE files. Supply them with the app/package.",
       "sherpa-onnx-windows-cuda12: Do not label this complete CUDA runtime Apache-only or assume a user opt-in resolves GPL/NVIDIA compatibility.",

@@ -768,17 +768,17 @@ pub fn release_cached() -> bool {
     crate::punctuation_worker::release_cached()
 }
 
-#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 struct Engine {
     session: ort::session::Session,
     tokenizer: tokenizers::Tokenizer,
     config: Config,
 }
 
-#[cfg(not(any(windows, all(target_os = "macos", target_arch = "aarch64"))))]
+#[cfg(not(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
 struct Engine;
 
-#[cfg(not(any(windows, all(target_os = "macos", target_arch = "aarch64"))))]
+#[cfg(not(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
 impl Engine {
     fn load(_: &Selection, _: &AtomicBool) -> Result<Self> {
         Err(Failure::Unsupported)
@@ -861,7 +861,7 @@ fn merge_window<T: Copy>(
     Ok(())
 }
 
-#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 impl Engine {
     fn load(selection: &Selection, cancel: &AtomicBool) -> Result<Self> {
         use crate::model_verification::Check;
@@ -1078,7 +1078,7 @@ fn encode_pieces(
     Ok((ids, positions))
 }
 
-#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn validate_graph(
     session: &ort::session::Session,
     classes: usize,
@@ -1117,7 +1117,7 @@ fn validate_graph(
     )
 }
 
-#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn validate_head_outputs<'a>(
     outputs: impl IntoIterator<Item = (&'a str, &'a ort::value::ValueType)>,
     classes: usize,
@@ -1145,7 +1145,7 @@ fn validate_head_outputs<'a>(
     }
 }
 
-#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn validate_head_type(dtype: &ort::value::ValueType, classes: usize) -> Result<()> {
     use ort::value::{TensorElementType, ValueType};
     match dtype {
@@ -2697,7 +2697,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
     fn head_tensor_type_requires_float_batch_sequence_and_matching_classes() {
         use ort::value::{Shape, SymbolicDimensions, TensorElementType, ValueType};
         let tensor = |ty, shape: &[i64]| ValueType::Tensor {
@@ -2742,7 +2742,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
     fn graph_heads_must_match_the_optional_span_config() {
         use ort::value::{Shape, SymbolicDimensions, TensorElementType, ValueType};
         let tensor = |classes| ValueType::Tensor {
@@ -2897,7 +2897,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
     fn real_standin_when_environment_is_set() {
         let Some(directory) = std::env::var_os("SONOJOT_PUNCT_MODEL_DIR") else {
             return;

@@ -192,6 +192,8 @@ test("text GPU wording preserves Metal on macOS instead of all-platform CUDA", (
 });
 
 test("Qwen Metal and CUDA rows are labelled by their GPU backend, CPU Qwen stays CPU", () => {
+  assert.equal(textGpuName("linux"), "Vulkan");
+  assert.equal(textGpuName(undefined, "vulkan"), "Vulkan");
   for (const id of ["qwen3-asr-1.7b-q8-metal", "qwen3-asr-1.7b-q4-metal", "whisper-small-metal"]) {
     const result = modelAcceleration(id, "asr", null, false, "macos");
     assert.equal(result.label, "Apple Metal selected", id);

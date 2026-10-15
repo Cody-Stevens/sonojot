@@ -19,7 +19,8 @@
 
   /** Floating macOS helper beside a System Settings privacy pane. Its copy comes
    * from the permission's Rust spec; the icon is a native file drag of the
-   * running SonoJot app, for when it is not listed yet. */
+   * running SonoJot app, for when it is not listed yet. Lists that take no
+   * drops (Microphone) get no icon. */
   const requested = new URLSearchParams(window.location.search).get("kind");
   const kind: PermissionKind =
     permissionKinds.find((value) => value === requested) ?? "accessibility";
@@ -28,6 +29,8 @@
   let showStaleHint = $state(false);
   let resetting = $state(false);
   const canOfferReset = $derived(offerReset(status, showStaleHint));
+  // Until the status arrives, assume the common case so the sheet doesn't jump.
+  const draggable = $derived(status?.draggable ?? kind !== "microphone");
 
   onMount(() => {
     const stop = watchPermission(
@@ -80,16 +83,21 @@
   }
 </script>
 
-<div class="stock helper-sheet" role="dialog" aria-labelledby="helper-title">
+<div
+  class="stock helper-sheet"
+  class:iconless={!draggable}
+  role="dialog"
+  aria-labelledby="helper-title"
+>
   <div class="helper-main">
-    <img
-      class="helper-icon"
-      src={appIcon}
-      alt="SonoJot app icon. Drag it into the list in System Settings."
-      title="Drag into the list"
-      draggable="true"
-      ondragstart={drag}
-    />
+    {#if draggable}<img
+        class="helper-icon"
+        src={appIcon}
+        alt="SonoJot app icon. Drag it into the list in System Settings."
+        title="Drag into the list"
+        draggable="true"
+        ondragstart={drag}
+      />{/if}
     <div class="helper-copy">
       <strong id="helper-title" data-text-surface="emboss"
         >{status?.title ?? ""}</strong
@@ -133,6 +141,12 @@
   /* Under the instruction, aligned with it: icon width plus the gap. */
   .helper-reset {
     padding-left: 88px;
+  }
+  .iconless .helper-main {
+    padding-left: 4px;
+  }
+  .iconless .helper-reset {
+    padding-left: 4px;
   }
   .helper-icon {
     flex: none;

@@ -134,6 +134,9 @@ enum Reply {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         original_text: Option<String>,
         warnings: Vec<String>,
+        /// Audio covered by `raw` (see `asr::Stream::committed_seconds`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        committed_seconds: Option<f32>,
     },
     Finished {
         result: RecognitionResult,
@@ -253,8 +256,7 @@ impl OwnedChild {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
-        let child = command
-            .spawn()
+        let child = crate::child_lifetime::spawn(command)
             .map_err(|_| "Cannot start native worker.")?;
         let mut owned = Self {
             child,
@@ -289,8 +291,35 @@ impl OwnedChild {
         self.child.try_wait()
     }
 
+    /// Background helpers (the live preview) yield the CPU to capture, the
+    /// primary recognizer and the user's foreground app: below-normal
+    /// priority and at most two logical processors, the highest-numbered ones
+    /// this process may use. ONNX Runtime runs single-threaded there (see
+    /// `Connection::spawn`); the mask is a hard ceiling in case a runtime
+    /// ignores that. Set before Load, so every native thread inherits it.
+    /// Best effort: a failure leaves the helper at below-normal priority.
+    fn lower_priority(&self) {
+        #[cfg(windows)]
+        unsafe {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::System::Threading::{
+                GetCurrentProcess, GetProcessAffinityMask, SetPriorityClass, SetProcessAffinityMask,
+                BELOW_NORMAL_PRIORITY_CLASS,
+            };
+            let child = self.child.as_raw_handle() as _;
+            SetPriorityClass(child, BELOW_NORMAL_PRIORITY_CLASS);
+            let (mut allowed, mut system) = (0usize, 0usize);
+            if GetProcessAffinityMask(GetCurrentProcess(), &mut allowed, &mut system) != 0 {
+                let mask = background_affinity(allowed, BACKGROUND_PROCESSORS);
+                if mask != 0 && mask != allowed {
+                    SetProcessAffinityMask(child, mask);
+                }
+            }
+        }
+    }
+
     pub(crate) fn terminate(&mut self) {
-        let _ = self.child.kill();
+        let _ = crate::child_lifetime::kill(&mut self.child);
         let deadline = Instant::now() + DROP_LIMIT;
         while Instant::now() < deadline {
             if !matches!(self.child.try_wait(), Ok(None)) {
@@ -300,6 +329,28 @@ impl OwnedChild {
         }
     }
 }
+/// Logical processors a background helper may use.
+const BACKGROUND_PROCESSORS: u32 = 2;
+
+/// The highest `count` processors set in `allowed`, or `allowed` when it has
+/// no more than that.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn background_affinity(allowed: usize, count: u32) -> usize {
+    if allowed.count_ones() <= count {
+        return allowed;
+    }
+    let mut mask = 0usize;
+    for bit in (0..usize::BITS).rev() {
+        if mask.count_ones() == count {
+            break;
+        }
+        if allowed & (1 << bit) != 0 {
+            mask |= 1 << bit;
+        }
+    }
+    mask
+}
+
 impl Drop for OwnedChild {
     fn drop(&mut self) {
         self.terminate();
@@ -319,13 +370,25 @@ struct Connection {
     model: String,
 }
 impl Connection {
-    fn spawn(cancel: &AtomicBool) -> Result<Self, String> {
+    fn spawn(cancel: &AtomicBool, background: bool) -> Result<Self, String> {
         #[cfg(test)]
         if let Some(behavior) = tests::next_child() {
             return Self::spawn_command(tests::child_command(behavior), cancel, true);
         }
         let exe = worker_executable()?;
-        Self::spawn_command(Command::new(exe), cancel, false)
+        let mut command = Command::new(exe);
+        if background {
+            // Must be in the initial environment: the C runtime's getenv
+            // reads its startup copy, so worker_main's later set_var is not
+            // seen by the native library. Without it ONNX Runtime starts a
+            // spinning thread pool per session (about 60 threads).
+            command.env("MOONSHINE_ORT_SINGLE_THREAD", "1");
+        }
+        let connection = Self::spawn_command(command, cancel, false)?;
+        if background {
+            connection.child.lower_priority();
+        }
+        Ok(connection)
     }
 
     fn spawn_command(
@@ -514,8 +577,9 @@ fn validate_response(response: &Response, request: u64, session: u64) -> Result<
     let valid_warnings =
         |warnings: &[String]| warnings.len() <= 64 && warnings.iter().all(|s| s.len() <= 2048);
     match &response.body {
-        Reply::Text { raw, original_text, warnings }
+        Reply::Text { raw, original_text, warnings, committed_seconds }
             if raw.len() > MAX_TEXT
+                || committed_seconds.is_some_and(|seconds| !seconds.is_finite() || seconds < 0.0)
                 || original_text.as_ref().is_some_and(|text| text.len() > MAX_TEXT)
                 || !valid_warnings(warnings) => {
             Err("Invalid recognition result size.".into())
@@ -587,6 +651,9 @@ pub struct Remote {
     model: String,
     connection: Option<Connection>,
     load_retried: bool,
+    /// A disposable helper (the live preview): below-normal priority, no
+    /// replay file and no crash recovery. Its failure only ends the helper.
+    background: bool,
 }
 impl Remote {
     pub(crate) fn is_alive(&mut self) -> bool {
@@ -610,12 +677,26 @@ impl Remote {
         connection.child.child.kill().unwrap();
         let _ = connection.child.child.wait();
     }
+    /// One attempt, below-normal priority, no replay. See `background`.
+    pub(crate) fn load_background(root: &Path, model: &str, cancel: &AtomicBool) -> Result<Self, String> {
+        let mut remote = Self {
+            root: root.to_owned(),
+            model: model.to_owned(),
+            connection: None,
+            load_retried: true,
+            background: true,
+        };
+        remote.connect(cancel)?;
+        Ok(remote)
+    }
+
     pub(crate) fn load(root: &Path, model: &str, cancel: &AtomicBool) -> Result<Self, String> {
         let mut remote = Self {
             root: root.to_owned(),
             model: model.to_owned(),
             connection: None,
             load_retried: false,
+            background: false,
         };
         if remote.connect(cancel).is_err() {
             check_wait(cancel, Instant::now() + START_LIMIT)?;
@@ -629,7 +710,7 @@ impl Remote {
     fn connect(&mut self, cancel: &AtomicBool) -> Result<(), String> {
         progress("loading");
         self.connection.take();
-        let mut connection = Connection::spawn(cancel)?;
+        let mut connection = Connection::spawn(cancel, self.background)?;
         let pid = connection.child.child.id();
         let start = Instant::now();
         diag::event("load-start", &self.model, pid, 0, 0, 0);
@@ -697,7 +778,7 @@ impl Remote {
         let session = NEXT_SESSION
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
             .map_err(|_| "Recognition session ID exhausted.")?;
-        let mut retried = std::mem::take(&mut self.load_retried);
+        let mut retried = std::mem::take(&mut self.load_retried) || self.background;
         if !matches!(self.call(session, Operation::Begin, cancel), Ok(Reply::Ack)) {
             check_wait(cancel, Instant::now() + START_LIMIT)?;
             if retried {
@@ -719,6 +800,7 @@ impl Remote {
             replay: if retried { None } else { Replay::new().ok() },
             retried,
             raw: String::new(),
+            committed_seconds: None,
             original_text: None,
             warnings: Vec::new(),
             failed: false,
@@ -790,6 +872,7 @@ pub struct RemoteStream<'a> {
     replay: Option<Replay>,
     retried: bool,
     raw: String,
+    committed_seconds: Option<f32>,
     original_text: Option<String>,
     warnings: Vec<String>,
     failed: bool,
@@ -805,14 +888,18 @@ impl RemoteStream<'_> {
     pub(crate) fn original_text(&self) -> Option<&str> {
         self.original_text.as_deref()
     }
+    pub(crate) fn committed_seconds(&self) -> Option<f32> {
+        self.committed_seconds
+    }
     pub(crate) fn warnings(&self) -> Vec<String> {
         self.warnings.clone()
     }
     fn accept_text(&mut self, reply: Reply) -> Result<(), String> {
-        let Reply::Text { raw, original_text, warnings } = reply else {
+        let Reply::Text { raw, original_text, warnings, committed_seconds } = reply else {
             return Err("Unexpected recognition response.".into());
         };
         self.raw = raw; // complete snapshot: replay never appends duplicate text
+        self.committed_seconds = committed_seconds;
         self.original_text = original_text;
         self.warnings = warnings;
         if !self.first_result && !self.raw.is_empty() {
@@ -1125,9 +1212,12 @@ fn worker_main(address: &str) -> Result<(), &'static str> {
         match request.op {
             Operation::Begin if request.session > last_session => {
                 last_session = request.session;
+                // Keep Moonshine's existing ~650 ms publication cadence; the
+                // tiny live-preview model publishes about every 100 ms.
+                let cadence = if recognizer.model_id == crate::live_preview::MODEL_ID { 0.1 } else { 0.65 };
                 let stream = recognizer.stream().map_err(|_| "Native stream failed.")?;
                 send_reply(&mut socket, &request, Reply::Ack)?;
-                serve_stream(&mut socket, stream, last_session, &mut last_request)?;
+                serve_stream(&mut socket, stream, last_session, &mut last_request, cadence)?;
             }
             Operation::Shutdown if request.session == 0 => {
                 drop(recognizer);
@@ -1168,10 +1258,12 @@ fn serve_stream(
     mut stream: crate::asr::Stream<'_>,
     session: u64,
     last: &mut u64,
+    cadence: f64,
 ) -> Result<(), &'static str> {
     let mut pending_seconds = 0.0;
     let mut raw = String::new();
     let mut original_text = None;
+    let mut committed_seconds = None;
     loop {
         let request = receive_request(socket, last)?;
         if request.session != session {
@@ -1191,17 +1283,19 @@ fn serve_stream(
                     .map_err(|_| "Native decode failed.")?;
                 pending_seconds += samples.len() as f64 / f64::from(*rate);
                 // Capture callbacks can be only a few milliseconds long.
-                // Keep Moonshine's existing ~650 ms publication cadence,
+                // Publish at the model's cadence (see `worker_main`),
                 // including while draining queued audio after Stop.
-                if pending_seconds >= 0.65 {
+                if pending_seconds >= cadence {
                     raw = stream.update().map_err(|_| "Native update failed.")?;
                     original_text = stream.original_text().map(str::to_owned);
+                    committed_seconds = stream.committed_seconds();
                     pending_seconds = 0.0;
                 }
                 Reply::Text {
                     raw: raw.clone(),
                     original_text: original_text.clone(),
                     warnings: stream.warnings(),
+                    committed_seconds,
                 }
             }
             Operation::Finish { observed } => {

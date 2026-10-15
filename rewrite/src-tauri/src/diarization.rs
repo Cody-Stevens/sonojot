@@ -16,7 +16,7 @@ pub struct Turn {
 }
 
 /// Worker-only entry point: the desktop process must never initialize ONNX Runtime.
-#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 pub(crate) fn diarize_file(models_root: &Path, audio: &Path) -> Result<Vec<Turn>, String> {
     let model_dir = crate::diarization_model::path(models_root);
     let runtime = crate::diarization_model::runtime_library(models_root);
@@ -42,12 +42,12 @@ pub(crate) fn diarize_file(models_root: &Path, audio: &Path) -> Result<Vec<Turn>
     algorithm::run(&model_dir, &waveform, &constants)
 }
 
-#[cfg(not(any(windows, all(target_os = "macos", target_arch = "aarch64"))))]
+#[cfg(not(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
 pub(crate) fn diarize_file(_models_root: &Path, _audio: &Path) -> Result<Vec<Turn>, String> {
     Err("Speaker labeling is not available on this platform.".into())
 }
 
-#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64"), test))]
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"), test))]
 mod algorithm {
     use super::Turn;
     use std::collections::BTreeMap;
@@ -145,7 +145,7 @@ mod algorithm {
             })
         }
 
-        #[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+        #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
         pub(super) fn load(path: &std::path::Path) -> Result<Self, String> {
             use std::io::Read;
             let file = std::fs::File::open(path)
@@ -596,7 +596,7 @@ mod algorithm {
         turns
     }
 
-    #[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
     pub(super) fn run(
         model_dir: &std::path::Path,
         waveform: &[f32],

@@ -139,6 +139,9 @@ test("profile wire contract distinguishes unfinished setup from legacy fixtures"
     }),
   );
   assert.deepEqual(parseResponse("get_hardware_profile", report), report);
+  // Linux reports its own platform (profiles.rs); setup must not treat it as invalid.
+  const linux = { ...report, hardware: { ...hardware, platform: "linux" } };
+  assert.deepEqual(parseResponse("get_hardware_profile", linux), linux);
   for (const patch of [
     { cudaOk: "yes" },
     { totalRamBytes: -1 },

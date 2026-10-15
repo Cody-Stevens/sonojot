@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 pub(crate) const ID: &str = "nemotron-3-diarization";
 pub(crate) const NAME: &str = "Nemotron 3 Diarization";
 pub(crate) const AVAILABLE: bool = cfg!(any(
-    all(windows, target_arch = "x86_64"),
+    all(any(windows, target_os = "linux"), target_arch = "x86_64"),
     all(target_os = "macos", target_arch = "aarch64")
 ));
 pub(crate) const REPO: &str = "joosthel/Nemotron-3-Diarization-ONNX";
@@ -82,7 +82,7 @@ pub(crate) fn runtime_library_for_check(root: &Path, check: crate::model_verific
     if MAC {
         mac_runtime_library(root, check, &MAC_RUNTIME_MEMBERS.map(|(_, pin)| pin))
     } else {
-        optional_asr::runtime_dir(root).join("onnxruntime.dll")
+        optional_asr::runtime_dir(root).join(if cfg!(target_os = "linux") { "libonnxruntime.so" } else { "onnxruntime.dll" })
     }
 }
 
@@ -290,7 +290,7 @@ mod tests {
         let runtime = if MAC {
             MAC_RUNTIME_ARCHIVE_BYTES
         } else {
-            8_179_934
+            optional_asr::runtime_download_bytes(&root)
         };
         assert_eq!(download_bytes(&root), package_bytes() + runtime);
         fs::remove_dir_all(&root).unwrap();
@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[cfg(not(any(
-        all(windows, target_arch = "x86_64"),
+        all(any(windows, target_os = "linux"), target_arch = "x86_64"),
         all(target_os = "macos", target_arch = "aarch64")
     )))]
     #[test]

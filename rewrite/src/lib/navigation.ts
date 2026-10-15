@@ -5,6 +5,7 @@ export type Page =
   | "meetings"
   | "appearance"
   | "shortcuts"
+  | "report"
   | "about";
 export type SetupPage = "setup";
 
@@ -18,4 +19,5 @@ export const navigation = [
   { id: "appearance", label: "Appearance" },
   { id: "setup", label: "Models" },
   { id: "about", label: "About" },
+  { id: "report", label: "Feedback" },
 ] satisfies { id: Page | SetupPage; label: string }[];

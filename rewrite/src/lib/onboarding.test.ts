@@ -2,14 +2,19 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
   canContinue,
+  downloadPlan,
   dwellProgress,
   microphoneConfirmed,
   onboardingSteps,
   onboardingDownloadIds,
   onboardingModelDetails,
   practiceResult,
+  setupDownloadSettled,
+  setupDownloadStatus,
+  skipAllPlan,
   stepProgress,
   shouldApplyTourProfile,
+  type SetupDownload,
 } from "./onboarding";
 import { plainProfileReason, profileSpeechMemory } from "./setup-profiles";
 import { previewSnapshot } from "./protocol";
@@ -17,62 +22,90 @@ import { aiSettingsSchema } from "./ai";
 import type { ModelEntry } from "./model-library";
 import { PUNCTUATION_MODEL } from "./punctuation";
 
+const mac = onboardingSteps("macos");
+const windows = onboardingSteps("windows");
+const ids = (steps: { id: string }[]) => steps.map((step) => step.id);
+const find = (steps: ReturnType<typeof onboardingSteps>, id: string) =>
+  steps.find((step) => step.id === id)!;
+
+test("setup reads in eleven steps on a Mac and ten elsewhere", () => {
+  assert.deepEqual(ids(mac), [
+    "welcome",
+    "terms",
+    "permissions",
+    "microphone",
+    "shortcut",
+    "dictation",
+    "models",
+    "downloads",
+    "meetings",
+    "where",
+    "ready",
+  ]);
+  assert.deepEqual(
+    ids(windows),
+    ids(mac).filter((id) => id !== "permissions"),
+  );
+  assert.deepEqual(ids(onboardingSteps("linux")), ids(windows));
+  // No long new dwell: both new steps are short.
+  assert.ok(find(mac, "permissions").dwell <= 2000);
+  assert.ok(find(mac, "downloads").dwell <= 2000);
+});
+
 test("step progress follows forward, Back and tour navigation independently of dwell", () => {
-  for (const mode of ["first-run", "tour"]) {
+  for (const steps of [mac, windows]) {
     for (const step of [0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1, 0]) {
-      assert.equal(
-        stepProgress(step),
-        (step + 1) / onboardingSteps.length,
-        `${mode}, step ${step + 1}`,
-      );
+      assert.equal(stepProgress(step, steps.length), (step + 1) / steps.length);
       for (const elapsed of [0, 2400, 60000]) {
-        dwellProgress(step, elapsed);
-        assert.equal(stepProgress(step), (step + 1) / onboardingSteps.length);
+        dwellProgress(steps[step], elapsed);
+        assert.equal(
+          stepProgress(step, steps.length),
+          (step + 1) / steps.length,
+        );
       }
     }
+    assert.equal(stepProgress(steps.length - 1, steps.length), 1);
   }
 });
 
 test("guided screens enforce dwell; Ready can be left immediately", () => {
-  onboardingSteps.forEach(({ dwell }, step) => {
-    if (dwell > 0)
-      assert.equal(canContinue(step, dwell - 1, true, true), false);
-    assert.equal(canContinue(step, dwell, true, true), true);
-    assert.equal(dwellProgress(step, -100), dwell === 0 ? 1 : 0);
-    assert.equal(dwellProgress(step, dwell * 2), 1);
-  });
+  for (const step of mac) {
+    if (step.dwell > 0)
+      assert.equal(canContinue(step, step.dwell - 1, true, true), false);
+    assert.equal(canContinue(step, step.dwell, true, true), true);
+    assert.equal(dwellProgress(step, -100), step.dwell === 0 ? 1 : 0);
+    assert.equal(dwellProgress(step, step.dwell * 2), 1);
+  }
 });
-test("microphone confirmation gates Continue; model metadata does not", () => {
-  const mic = onboardingSteps.findIndex((step) => step.id === "microphone");
-  const models = onboardingSteps.findIndex((step) => step.id === "models");
+test("microphone confirmation gates Continue; permissions, models and downloads do not", () => {
+  const mic = find(mac, "microphone");
   assert.equal(canContinue(mic, 60000, false, true), false);
   assert.equal(canContinue(mic, 60000, true, true), true);
-  assert.equal(canContinue(models, 60000, true, true), true);
+  for (const id of ["permissions", "models", "downloads"]) {
+    const step = find(mac, id);
+    assert.equal(canContinue(step, step.dwell, false, false), true, id);
+  }
 });
 
-test("meeting extras are optional and come before finishing setup", () => {
-  const ids = onboardingSteps.map((step) => step.id);
-  const extras = ids.indexOf("extras");
-  assert.ok(extras > ids.indexOf("models"));
-  assert.ok(extras < ids.indexOf("where"));
-  // Nothing on the step gates Continue once its short dwell has passed.
-  assert.equal(
-    canContinue(extras, onboardingSteps[extras].dwell, false, false),
-    true,
-  );
-  assert.ok(ids.indexOf("shortcut") < ids.indexOf("dictation"));
+test("permissions come before the microphone check; downloads follow Models", () => {
+  const order = ids(mac);
+  assert.ok(order.indexOf("terms") < order.indexOf("permissions"));
+  assert.ok(order.indexOf("permissions") < order.indexOf("microphone"));
+  assert.equal(order.indexOf("downloads"), order.indexOf("models") + 1);
+  assert.ok(order.indexOf("downloads") < order.indexOf("where"));
+  assert.ok(order.indexOf("shortcut") < order.indexOf("dictation"));
+  assert.ok(!order.includes("extras"));
 });
 
 test("terms require an explicit checkbox before the microphone step", () => {
-  const terms = onboardingSteps.findIndex((step) => step.id === "terms");
-  const mic = onboardingSteps.findIndex((step) => step.id === "microphone");
-  assert.ok(terms < mic);
+  const terms = find(mac, "terms");
+  assert.ok(ids(mac).indexOf("terms") < ids(mac).indexOf("microphone"));
   assert.equal(canContinue(terms, 60000, true), false);
   assert.equal(canContinue(terms, 60000, true, false), false);
   assert.equal(canContinue(terms, 0, false, true), true);
 });
 
-test("profile consent covers all local roles and punctuation without duplicate IDs", () => {
+test("profile downloads are speech, punctuation and local notes without duplicates", () => {
   assert.deepEqual(
     onboardingDownloadIds({
       asrModel: "speech",
@@ -80,16 +113,16 @@ test("profile consent covers all local roles and punctuation without duplicate I
       notesModel: "notes",
       reasons: [],
     }),
-    ["speech", "cleanup", "notes", PUNCTUATION_MODEL],
+    ["speech", PUNCTUATION_MODEL, "notes"],
   );
   assert.deepEqual(
     onboardingDownloadIds({
       asrModel: "speech",
       cleanupModel: "notes",
-      notesModel: "notes",
+      notesModel: "speech",
       reasons: [],
     }),
-    ["speech", "notes", PUNCTUATION_MODEL],
+    ["speech", PUNCTUATION_MODEL],
   );
   assert.deepEqual(
     onboardingDownloadIds({
@@ -100,6 +133,44 @@ test("profile consent covers all local roles and punctuation without duplicate I
     }),
     ["speech", PUNCTUATION_MODEL],
   );
+});
+
+const rows: SetupDownload[] = [
+  { id: "speech", kind: "profile", settled: false },
+  { id: PUNCTUATION_MODEL, kind: "profile", settled: true },
+  { id: "notes", kind: "profile", settled: false },
+  { id: "nemotron-3-diarization", kind: "extra", settled: false },
+  { id: "ffmpeg", kind: "media", settled: false },
+];
+
+test("one download press consents once to every checked row", () => {
+  const all = downloadPlan(rows, []);
+  assert.deepEqual(all.consent, [
+    "speech",
+    "notes",
+    "nemotron-3-diarization",
+    "ffmpeg",
+  ]);
+  assert.deepEqual(all.skip, []);
+  assert.deepEqual(all.profile, ["speech", "notes"]);
+  assert.deepEqual(all.extras, ["nemotron-3-diarization"]);
+  assert.equal(all.media, true);
+
+  const some = downloadPlan(rows, ["notes", "ffmpeg", PUNCTUATION_MODEL]);
+  assert.deepEqual(some.consent, ["speech", "nemotron-3-diarization"]);
+  // Only pending profile models are skipped; installed ones need nothing.
+  assert.deepEqual(some.skip, ["notes"]);
+  assert.equal(some.media, false);
+
+  const none = downloadPlan(rows, [
+    "speech",
+    "notes",
+    "nemotron-3-diarization",
+    "ffmpeg",
+  ]);
+  assert.deepEqual(none.consent, []);
+  assert.deepEqual(none.skip, ["speech", "notes"]);
+  assert.deepEqual(skipAllPlan(rows), ["speech", "notes"]);
 });
 
 const selection = {
@@ -216,6 +287,21 @@ test("unknown or checking local entries stay unavailable; known downloads count 
     ).downloadBytes,
     200,
   );
+});
+
+test("download rows read Installed, Queued or a percentage and then lock", () => {
+  assert.equal(setupDownloadStatus(model("a")), "Installed");
+  assert.equal(setupDownloadStatus(model("a", "available")), "Not installed");
+  assert.equal(setupDownloadStatus(model("a", "queued")), "Queued");
+  assert.equal(
+    setupDownloadStatus({ ...model("a", "downloading"), downloadedBytes: 45 }),
+    "Downloading · 45%",
+  );
+  assert.equal(setupDownloadStatus(model("a", "failed")), "Didn't finish");
+  assert.equal(setupDownloadSettled(model("a", "available")), false);
+  assert.equal(setupDownloadSettled(model("a", "failed")), false);
+  for (const state of ["installed", "queued", "downloading", "checking"])
+    assert.equal(setupDownloadSettled(model("a", state)), true, state);
 });
 
 test("practice uses new published text, never stale, interim, cancelled or meeting output", () => {

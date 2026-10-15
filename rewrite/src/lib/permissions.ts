@@ -99,7 +99,7 @@ export const MAC_PASTE_COPY = {
     "To paste into the app you were using, SonoJot needs Accessibility access. Until then, text is copied; press Command+V to paste.",
   grant: "Grant Accessibility",
   assistant:
-    "In System Settings, switch SonoJot on. If it isn't listed, drag the icon from the SonoJot helper into the list.",
+    "In System Settings, switch SonoJot on. If it isn't listed, click + and choose SonoJot in Applications, or drag the icon from the SonoJot helper into the list.",
   reset: PERMISSION_RESET_LABEL,
   resetHelp:
     "If SonoJot is already switched on but paste still doesn't work, reset it. macOS will ask again; switch SonoJot on.",
@@ -107,6 +107,40 @@ export const MAC_PASTE_COPY = {
   rowOn: "On. SonoJot can paste into the app you were using.",
   rowNeeded: "Needed to paste on a Mac. Until then, press Command+V to paste.",
 } as const;
+
+/** The setup Permissions step: one row per macOS permission, in this order. */
+export const SETUP_PERMISSIONS: {
+  kind: PermissionKind;
+  name: string;
+  why: string;
+}[] = [
+  {
+    kind: "microphone",
+    name: "Microphone",
+    why: "Hears you for dictation and meetings.",
+  },
+  {
+    kind: "accessibility",
+    name: "Paste into apps",
+    why: "Pastes where your cursor is. Without it, press Command+V.",
+  },
+  {
+    kind: "system_audio",
+    name: "System audio",
+    why: "Records the other people on a call.",
+  },
+];
+
+/** Status words shared by the rows. */
+export function permissionLabel(state: PermissionState): string {
+  return state === "granted"
+    ? "Allowed"
+    : state === "assisting"
+      ? "Finish in System Settings"
+      : state === "unknown"
+        ? "Checking…"
+        : "Not allowed yet";
+}
 
 /** The helper offers the reset after this long without access. */
 export const STALE_HINT_DELAY_MS = 6000;

@@ -2379,6 +2379,9 @@ pub(crate) fn cuda_server_path(root: &Path) -> PathBuf {
         "llama.cpp/runtime/win-x64-cuda-13.3/llama-server.exe",
     )
 }
+pub(crate) fn vulkan_server_path(root: &Path) -> PathBuf {
+    crate::asr::bundle_path(root, "llama_server_vulkan_exe", "llama.cpp/runtime/linux-x64-vulkan/llama-server")
+}
 fn bundled_gguf_path(root: &Path) -> PathBuf {
     crate::asr::bundle_path(
         root,
@@ -2424,7 +2427,10 @@ pub(crate) fn model_status(root: &Path, id: &str, check: crate::model_verificati
     let optional = crate::optional_llm::optional_copy_status(root, id, check);
     // Located/bundled LFM keeps its established precedence as a fallback.
     let bundled = id == "lfm2.5-1.2b" && bundled_gguf_path(root).metadata().is_ok_and(|m| m.is_file() && m.len() > 0);
-    Status::all([Status::present(runtime_ready), Status::any([optional, Status::present(bundled)])])
+    let runtime = if crate::model_manager::linux_runtime::AVAILABLE && !crate::optional_llm::is_bonsai(id) {
+        crate::model_manager::linux_runtime::llama_status(root, false, check)
+    } else { Status::present(runtime_ready) };
+    Status::all([runtime, Status::any([optional, Status::present(bundled)])])
 }
 
 pub fn resolve_generation_model(root: &Path, preferred: &str) -> Result<String, String> {
@@ -2512,7 +2518,7 @@ impl Drop for ProcessJob {
 }
 impl Drop for Server {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        let _ = crate::child_lifetime::kill(&mut self.child);
         let _ = self.child.wait();
         crate::acceleration::stopped(self.child.id());
         // The erase-endpoint directory is owned by this server instance only;
@@ -2605,6 +2611,16 @@ impl Server {
                 Err(error) => {
                     fallback_reason = Some(format!("CUDA could not start; using CPU. {error}"));
                 }
+            }
+        }
+        if cfg!(target_os = "linux") && !force_cpu && !budget_cpu
+            && crate::model_manager::linux_runtime::llama_status(root, true,
+                if model == smart::MODEL_ID { crate::model_verification::Check::Background } else { crate::model_verification::Check::Blocking }).ready()
+            && crate::acceleration::gpu_support(root).available
+        {
+            match Self::launch_variant(root, model, vulkan_server_path(root), "vulkan", "99", force_cpu, control) {
+                Ok(server) => return Ok(server),
+                Err(error) => fallback_reason = Some(format!("Vulkan could not start; using CPU. {error}")),
             }
         }
         if cfg!(target_os = "macos") && !force_cpu {
@@ -2734,7 +2750,7 @@ impl Server {
             command.creation_flags(0x08000000);
         }
         drop(listener);
-        let mut child = command.spawn().map_err(|e| {
+        let mut child = crate::child_lifetime::spawn(&mut command).map_err(|e| {
             let _ = std::fs::remove_dir_all(&slot_dir);
             format!("Cannot start local cleanup: {e}")
         })?;

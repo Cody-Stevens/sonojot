@@ -55,7 +55,8 @@ impl Runtime {
 
     fn supports(self, os: &str, arch: &str) -> bool {
         match self {
-            Self::Cuda | Self::Cpu => os == "windows" && arch == "x86_64",
+            Self::Cuda => os == "windows" && arch == "x86_64",
+            Self::Cpu => matches!(os, "windows" | "linux") && arch == "x86_64",
             Self::Metal => os == "macos" && arch == "aarch64",
         }
     }
@@ -66,7 +67,8 @@ impl Runtime {
 
     pub fn platform_requirement(self) -> &'static str {
         match self {
-            Self::Cuda | Self::Cpu => "This speech model requires Windows x64.",
+            Self::Cuda => "This speech model requires Windows x64.",
+            Self::Cpu => "This speech model requires Windows x64 or Linux x64.",
             Self::Metal => "This speech model requires an Apple Silicon Mac.",
         }
     }
@@ -78,6 +80,8 @@ impl Runtime {
     fn runtime_ready(self, root: &Path) -> bool {
         match self {
             Self::Metal => crate::cleanup::mac_runtime_ready(root),
+            Self::Cpu if crate::model_manager::linux_runtime::AVAILABLE =>
+                crate::model_manager::linux_runtime::llama_status(root, false, crate::model_verification::Check::Blocking).ready(),
             _ => self.executable(root).is_file(),
         }
     }
@@ -91,7 +95,8 @@ impl Runtime {
     }
 
     fn runtime_download_bytes(self, root: &Path) -> u64 {
-        if self.needs_vad() { optional_asr::runtime_download_bytes(root) }
+        if self.needs_vad() { optional_asr::runtime_download_bytes(root)
+            + if matches!(self, Self::Cpu) { crate::model_manager::linux_runtime::llama_download_bytes(root) } else { 0 } }
         else { crate::model_manager::mac_runtime_download_bytes(root)
             + optional_asr::mac_speech_runtime_download_bytes(root) }
     }
@@ -291,7 +296,9 @@ pub(crate) fn model_status(root: &Path, id: &str, check: crate::model_verificati
     let Some(model) = find(id) else { return Status::Missing };
     if !model.runtime.supported_platform() { return Status::Missing; }
     Status::all([
-        Status::present(model.runtime.runtime_ready(root)),
+        if crate::model_manager::linux_runtime::AVAILABLE {
+            crate::model_manager::linux_runtime::llama_status(root, false, check)
+        } else { Status::present(model.runtime.runtime_ready(root)) },
         model.runtime.vad_status(root, check),
         check.files(root, &model_dir(root, model.id), &[model.decoder, model.projector]),
     ])
@@ -311,7 +318,7 @@ pub fn install_model(
     }
     {
         // Refuse before downloading anything if the app's required runtime is absent.
-        if !model.runtime.runtime_ready(root) {
+        if !crate::model_manager::linux_runtime::AVAILABLE && !model.runtime.runtime_ready(root) {
             let runtime = match model.runtime {
                 Runtime::Cuda => "CUDA 13.3",
                 Runtime::Cpu => "CPU",
@@ -339,6 +346,11 @@ pub fn install_model(
             }
         }
         progress(0, total);
+        let linux_bytes = crate::model_manager::linux_runtime::llama_download_bytes(root);
+        if crate::model_manager::linux_runtime::AVAILABLE {
+            stage("llama.cpp runtime");
+            crate::model_manager::linux_runtime::ensure_llama(root, cancel, &|done, _| progress(done, total))?;
+        }
         // Name the shared add-on: when only it is missing, its size is the
         // whole download and would otherwise read as the model's.
         if runtime_bytes > 0 {
@@ -346,7 +358,7 @@ pub fn install_model(
         }
         if model.runtime.needs_vad() {
             optional_asr::ensure_runtime_with_cancel(root, cancel, &|done, _| {
-                progress(done.min(runtime_bytes), total);
+                progress((linux_bytes + done).min(runtime_bytes), total);
             })
             .map_err(|error| check_cancel(cancel).err().unwrap_or(error))?;
         } else {
@@ -665,8 +677,7 @@ impl Server {
             command.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
         drop(listener);
-        let mut child = command
-            .spawn()
+        let mut child = crate::child_lifetime::spawn(&mut command)
             .map_err(|e| format!("Cannot start local speech server: {e}"))?;
         #[cfg(windows)]
         let job = match ProcessJob::attach(&child) {
@@ -834,7 +845,7 @@ fn stop_server(child: &mut Child) {
         }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = child.kill();
+    let _ = crate::child_lifetime::kill(child);
     let _ = child.wait();
 }
 
@@ -1059,9 +1070,8 @@ mod tests {
     fn runtime_platform_gates_do_not_offer_cross_platform_packages() {
         for os in ["windows", "macos", "linux"] {
             for arch in ["x86_64", "aarch64", "x86"] {
-                for runtime in [Runtime::Cuda, Runtime::Cpu] {
-                    assert_eq!(runtime.supports(os, arch), os == "windows" && arch == "x86_64");
-                }
+                assert_eq!(Runtime::Cuda.supports(os, arch), os == "windows" && arch == "x86_64");
+                assert_eq!(Runtime::Cpu.supports(os, arch), matches!(os, "windows" | "linux") && arch == "x86_64");
                 assert_eq!(Runtime::Metal.supports(os, arch), os == "macos" && arch == "aarch64");
             }
         }

@@ -126,6 +126,27 @@ fn download_ids(settings: &Settings) -> Vec<String> {
     ids
 }
 
+/// The profile's downloads minus the ones unchecked on setup's Downloads
+/// step. A skipped model can be installed later from Models.
+fn chosen_downloads(settings: &Settings, skip: &[String]) -> Vec<String> {
+    download_ids(settings)
+        .into_iter()
+        .filter(|id| !skip.contains(id))
+        .collect()
+}
+
+/// A new profile choice replaces the queued profile models; optional extras
+/// already queued (speaker labels) stay behind them.
+fn requeue(profile: &[String], previous: &[String]) -> Vec<String> {
+    let mut queue = profile.to_vec();
+    for id in previous {
+        if OPTIONAL_DOWNLOADS.contains(&id.as_str()) && !queue.contains(id) {
+            queue.push(id.clone());
+        }
+    }
+    queue
+}
+
 fn chosen_settings(
     old: &Settings,
     profile: SetupProfile,
@@ -153,6 +174,7 @@ async fn commit(
     profile: SetupProfile,
     defaults: bool,
     complete: bool,
+    skip: Vec<String>,
 ) -> Result<Snapshot, String> {
     let _settings = runtime.settings_gate.lock().await;
     let r = runtime.clone();
@@ -179,20 +201,21 @@ async fn commit(
             next.setup_profile = None;
         }
         next.validate()?;
-        let ids = download_ids(&next);
-        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let queued = chosen_downloads(&next, &skip);
+        let ids: Vec<&str> = queued.iter().map(String::as_str).collect();
         crate::download_consent::require_components(&r, &ids)?;
         let changed = old.asr_model != next.asr_model
             || old.notes_model != next.notes_model
             || old.cleanup_model != next.cleanup_model;
         crate::resource_manager::with_model_selection(!first && changed, || {
-            let shortcut_changed = old.hotkey != next.hotkey;
+            let shortcut_changed = old.hotkey != next.hotkey
+                || (crate::app::compositor_binds() && old.hotkey_mode != next.hotkey_mode);
             let registered =
-                !shortcut_changed || crate::app::register_shortcut(&a, &next.hotkey).is_ok();
+                !shortcut_changed || crate::app::register_shortcut(&a, &next.hotkey, next.hotkey_mode).is_ok();
             // Persist the queue before the settings. A failed second write keeps
             // the unfinished marker, so restarting reopens setup.
             progress.profile = Some(profile);
-            progress.downloads = download_ids(&next);
+            progress.downloads = requeue(&queued, &progress.downloads);
             progress.seen = !first;
             if let Err(error) = persist_choice(&r.store, &progress, &next) {
                 if shortcut_changed && registered {
@@ -233,16 +256,23 @@ pub async fn confirm_onboarding_profile(
     app: AppHandle,
     state: State<'_, Arc<Runtime>>,
     profile: SetupProfile,
+    skip: Option<Vec<String>>,
 ) -> Result<Snapshot, String> {
-    let result = commit(&app, state.inner(), profile, false, false).await?;
+    let result = commit(&app, state.inner(), profile, false, false, skip.unwrap_or_default()).await?;
     resume_downloads(&app, state.inner());
     Ok(result)
 }
 
 /// Optional meeting extras setup may queue behind the profile downloads.
-const OPTIONAL_DOWNLOADS: &[&str] = &["nemotron-3-diarization"];
+const OPTIONAL_DOWNLOADS: &[&str] = &["nemotron-3-diarization", crate::live_preview::MODEL_ID];
 
-/// Queue an optional extra behind the confirmed profile downloads, so it
+/// Setup queues its optional extras and, when a tour keeps the saved
+/// profile, any of that profile's own downloads that are missing.
+fn queueable(settings: &Settings, id: &str) -> bool {
+    OPTIONAL_DOWNLOADS.contains(&id) || download_ids(settings).iter().any(|queued| queued == id)
+}
+
+/// Queue a setup download behind the confirmed profile downloads, so it
 /// installs one at a time even if setup is finished first. Without a setup
 /// marker (an existing install replaying the tour) it starts directly.
 #[tauri::command]
@@ -251,10 +281,10 @@ pub async fn queue_onboarding_download(
     state: State<'_, Arc<Runtime>>,
     id: String,
 ) -> Result<crate::model_manager::ModelLibrary, String> {
-    if !OPTIONAL_DOWNLOADS.contains(&id.as_str()) {
+    let runtime = state.inner().clone();
+    if !queueable(&runtime.snapshot()?.settings, &id) {
         return Err("This download cannot be queued from setup.".into());
     }
-    let runtime = state.inner().clone();
     require_terms(&runtime.snapshot()?.settings)?;
     crate::download_consent::require_components(&runtime, &[&id])?;
     let queued = {
@@ -570,6 +600,46 @@ mod tests {
         assert!(saved.seen);
         assert!(!OPTIONAL_DOWNLOADS.contains(&"speech"));
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn unchecked_downloads_are_not_queued_and_extras_survive_a_new_choice() {
+        let settings = Settings {
+            asr_model: "speech".into(),
+            notes_model: "notes".into(),
+            ..Settings::default()
+        };
+        assert_eq!(chosen_downloads(&settings, &[]), ["speech", "sonojot-punct-v2", "notes"]);
+        assert_eq!(
+            chosen_downloads(&settings, &["notes".into(), "sonojot-punct-v2".into()]),
+            ["speech"]
+        );
+        // Skipping something the profile does not download changes nothing.
+        assert_eq!(chosen_downloads(&settings, &["ffmpeg".into()]).len(), 3);
+        let previous = vec![
+            "old-speech".to_string(),
+            "nemotron-3-diarization".to_string(),
+        ];
+        assert_eq!(
+            requeue(&["speech".into()], &previous),
+            ["speech", "nemotron-3-diarization"]
+        );
+        assert_eq!(
+            requeue(&["speech".into(), "nemotron-3-diarization".into()], &previous),
+            ["speech", "nemotron-3-diarization"]
+        );
+    }
+    #[test]
+    fn setup_queues_extras_and_the_saved_profiles_own_models_only() {
+        let settings = Settings {
+            asr_model: "speech".into(),
+            notes_model: "openrouter".into(),
+            ..Settings::default()
+        };
+        assert!(queueable(&settings, "nemotron-3-diarization"));
+        assert!(queueable(&settings, "speech"));
+        assert!(queueable(&settings, "sonojot-punct-v2"));
+        assert!(!queueable(&settings, "openrouter"));
+        assert!(!queueable(&settings, "some-other-model"));
     }
     #[test]
     fn terms_acceptance_requires_the_version_and_local_timestamp() {

@@ -39,8 +39,9 @@ export async function expectAppShell(page) {
 
 /**
  * Walk first-run setup to the app with its default answers: agree to the
- * Terms, accept the microphone check, keep the recommended profile, skip the
- * optional extras and leave from Ready. It drives the footer's primary button
+ * Terms, accept the microphone check, keep the recommended profile, download
+ * what the Downloads step checks (accepting any license review) and leave
+ * from Ready. It drives the footer's primary button
  * rather than naming each step, so new steps need no change here. Needs
  * `page.clock.install()` before `page.goto` (openApp does this).
  */
@@ -56,9 +57,6 @@ export async function completeFirstRun(page, { maxSteps = 20 } = {}) {
     });
     if ((await terms.isVisible()) && !(await terms.isChecked()))
       await terms.check();
-    // Mac system audio: the step asks for an answer before Continue.
-    const notNow = page.getByRole("button", { name: "Not now", exact: true });
-    if (await notNow.isVisible()) await notNow.click();
     // Every step has a short dwell; the microphone step falls back to
     // "It's working" after about ten seconds without speech-level input.
     await page.clock.runFor(11_000);
@@ -73,6 +71,17 @@ export async function completeFirstRun(page, { maxSteps = 20 } = {}) {
     const label = await primary.textContent();
     await primary.click();
     if (label?.trim() === "Go to SonoJot") break;
+    // Downloads: one license review covers every checked download.
+    if (label?.trim() === "Download and continue") {
+      const consent = page.getByRole("dialog", { name: "Before downloading" });
+      const shown = await consent
+        .waitFor({ state: "visible", timeout: 1500 })
+        .then(
+          () => true,
+          () => false,
+        );
+      if (shown) await acceptDownloadTerms(page);
+    }
   }
   await expect(mainNavigation(page)).toBeVisible();
 }

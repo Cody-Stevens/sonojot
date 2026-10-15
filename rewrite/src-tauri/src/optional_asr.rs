@@ -128,16 +128,37 @@ const QWEN: OptionalModel = OptionalModel {
 
 pub const MODELS: &[OptionalModel] = &[PARAKEET, QWEN];
 
+#[cfg(target_os = "linux")]
+const RUNTIME_ARCHIVE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib.tar.bz2";
+#[cfg(target_os = "linux")]
+const RUNTIME_ARCHIVE_SHA256: &str = "bf2d998c8b07012cd5098f3b92673bc1333fd9b927767d7cb664be8190d8bc0b";
+#[cfg(target_os = "linux")]
+const RUNTIME_ARCHIVE_BYTES: u64 = 9_249_201;
+#[cfg(target_os = "linux")]
+const RUNTIME_ARCHIVE_ROOT: &str = "sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib";
+
+#[cfg(target_os = "linux")]
+pub(crate) const RUNTIME_FILES: &[PinnedFile] = &[
+    PinnedFile { relative: "libonnxruntime.so", bytes: 27_026_609, sha256: "4b3607aebd1784b26b6f9b20e4bd974c7ab8287043e4d095cb7d2cb40b5e566e" },
+    PinnedFile { relative: "libsherpa-onnx-c-api.so", bytes: 3_626_056, sha256: "c067b18cd746e49eb5016ee428196d21e1df14c14a3c54f128c1ac95f6aaed50" },
+    PinnedFile { relative: "silero_vad.onnx", bytes: VAD_BYTES, sha256: VAD_SHA256 },
+];
+
+#[cfg(not(target_os = "linux"))]
 const RUNTIME_ARCHIVE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-no-tts-lib.tar.bz2";
+#[cfg(not(target_os = "linux"))]
 const RUNTIME_ARCHIVE_SHA256: &str =
     "a1253e665c4f236119c443c8932a8acfca32a546c78c05962d483c9a0eae21b7";
+#[cfg(not(target_os = "linux"))]
 const RUNTIME_ARCHIVE_BYTES: u64 = 7_536_080;
+#[cfg(not(target_os = "linux"))]
 const RUNTIME_ARCHIVE_ROOT: &str = "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-no-tts-lib";
 const VAD_URL: &str =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx";
 pub(crate) const VAD_SHA256: &str = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6";
 pub(crate) const VAD_BYTES: u64 = 643_854;
 
+#[cfg(not(target_os = "linux"))]
 pub(crate) const RUNTIME_FILES: &[PinnedFile] = &[
     PinnedFile {
         relative: "onnxruntime.dll",
@@ -197,7 +218,7 @@ pub fn runtime_dir(models_root: &Path) -> PathBuf {
 }
 
 pub fn runtime_library(models_root: &Path) -> PathBuf {
-    runtime_dir(models_root).join("sherpa-onnx-c-api.dll")
+    runtime_dir(models_root).join(if cfg!(target_os = "linux") { "libsherpa-onnx-c-api.so" } else { "sherpa-onnx-c-api.dll" })
 }
 
 pub fn vad_path(models_root: &Path) -> PathBuf {
@@ -428,33 +449,33 @@ fn uninstall(runtime: &Runtime, id: &str) -> Result<(), String> {
     Err("Confirm removal in Setup before deleting model files. Use the guarded model library removal with confirmation; nothing was deleted.".into())
 }
 
-#[cfg(not(all(windows, target_arch = "x86_64")))]
+#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
 fn install_platform(_runtime: &Runtime, _id: &str) -> Result<(), String> {
-    Err("Automatic speech-model install is available only on 64-bit Windows.".into())
+    Err("Automatic speech-model install is available only on Windows x64 or Linux x64.".into())
 }
 
-#[cfg(not(all(windows, target_arch = "x86_64")))]
+#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
 fn install_platform_with_progress(
     _runtime: &Runtime,
     _id: &str,
     _cancel: &AtomicBool,
     _progress: &dyn Fn(u64, u64),
 ) -> Result<(), String> {
-    Err("Automatic speech-model install is available only on 64-bit Windows.".into())
+    Err("Automatic speech-model install is available only on Windows x64 or Linux x64.".into())
 }
 
-#[cfg(not(all(windows, target_arch = "x86_64")))]
+#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
 fn uninstall_platform(_runtime: &Runtime, _id: &str) -> Result<(), String> {
-    Err("Automatic speech-model install is available only on 64-bit Windows.".into())
+    Err("Automatic speech-model install is available only on Windows x64 or Linux x64.".into())
 }
 
-#[cfg(all(windows, target_arch = "x86_64"))]
+#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
 fn install_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
     static NEVER: AtomicBool = AtomicBool::new(false);
     install_platform_with_progress(runtime, id, &NEVER, &|_, _| {})
 }
 
-#[cfg(all(windows, target_arch = "x86_64"))]
+#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
 fn install_platform_with_progress(
     runtime: &Runtime,
     id: &str,
@@ -660,7 +681,7 @@ pub(crate) fn download_with_cancel_progress(
     Ok(())
 }
 
-#[cfg(all(windows, target_arch = "x86_64"))]
+#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
 fn uninstall_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
     // Whisper and speaker labels also share the sherpa CPU runtime.
     // Guarded subset of model_manager::remove_model (no silent fallback, no
@@ -733,7 +754,7 @@ fn uninstall_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(any(test, all(windows, target_arch = "x86_64")))]
+#[cfg(any(test, all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
 fn cpu_runtime_still_used(models_root: &Path, removed_id: &str) -> bool {
     MODELS
         .iter()
@@ -751,13 +772,13 @@ fn cpu_runtime_still_used(models_root: &Path, removed_id: &str) -> bool {
         })
 }
 
-#[cfg(all(windows, target_arch = "x86_64"))]
+#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
 fn ensure_runtime(models_root: &Path) -> Result<(), String> {
     static NEVER: AtomicBool = AtomicBool::new(false);
     ensure_runtime_with_cancel(models_root, &NEVER, &|_, _| {})
 }
 
-#[cfg(all(windows, target_arch = "x86_64"))]
+#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
 pub(crate) fn ensure_runtime_with_cancel(
     models_root: &Path,
     cancel: &AtomicBool,
@@ -799,11 +820,7 @@ pub(crate) fn ensure_runtime_with_cancel(
         let runtime_staging = staging.join("runtime");
         fs::create_dir(&runtime_staging)
             .map_err(|e| format!("Cannot prepare the speech runtime: {e}"))?;
-        for name in [
-            "onnxruntime.dll",
-            "onnxruntime_providers_shared.dll",
-            "sherpa-onnx-c-api.dll",
-        ] {
+        for name in RUNTIME_FILES.iter().map(|pin| pin.relative).filter(|name| *name != "silero_vad.onnx") {
             if cancel.load(Ordering::Acquire) {
                 return Err("Install cancelled.".into());
             }
@@ -837,6 +854,9 @@ pub(crate) fn ensure_runtime_with_cancel(
         if cancel.load(Ordering::Acquire) {
             return Err("Install cancelled.".into());
         }
+        #[cfg(target_os = "linux")]
+        fs::write(runtime_staging.join("NOTICES.txt"), include_str!("../../licenses/linux/sherpa-onnx-linux-cpu.txt"))
+            .map_err(|e| format!("Cannot retain sherpa runtime notices: {e}"))?;
         transactional_activate(models_root, &runtime_staging, &dest, "shared CPU runtime")?;
         progress(total, total);
         Ok(())
@@ -845,7 +865,7 @@ pub(crate) fn ensure_runtime_with_cancel(
     installed
 }
 
-#[cfg(not(all(windows, target_arch = "x86_64")))]
+#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
 pub(crate) fn ensure_runtime_with_cancel(
     _models_root: &Path,
     cancel: &AtomicBool,
@@ -1102,7 +1122,7 @@ fn allowed_host(host: &str, class: HostClass) -> bool {
     }
 }
 
-#[cfg(all(windows, target_arch = "x86_64"))]
+#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
 fn unpack_runtime(archive: &Path, staging: &Path) -> Result<(), String> {
     let file = File::open(archive)
         .map_err(|e| format!("The speech runtime package could not be opened: {e}"))?;

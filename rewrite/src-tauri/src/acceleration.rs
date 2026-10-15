@@ -240,6 +240,9 @@ fn asr_runtime() -> Option<AsrRuntime> {
 /// (`parse_offload`, 0.18.4 layer proof) is preserved untouched.
 fn speech_detail(root: &Path) -> String {
     use crate::model_verification::{Check, Status};
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        return "Linux speech uses CPU: Moonshine streaming, sherpa-onnx, or Qwen3-ASR through llama.cpp. Text cleanup can use Vulkan; speech GPU offload is not enabled.".into();
+    }
     let mut checking = false;
     let mut is_ready = |id: &str| {
         let status = crate::asr::model_status(root, id, Check::Background);
@@ -368,6 +371,8 @@ fn speech_detail(root: &Path) -> String {
 pub fn gpu_support(root: &Path) -> GpuSupport {
     let executable = if cfg!(target_os = "windows") {
         crate::cleanup::cuda_server_path(root)
+    } else if cfg!(target_os = "linux") && crate::cleanup::vulkan_server_path(root).is_file() {
+        crate::cleanup::vulkan_server_path(root)
     } else {
         crate::cleanup::server_path(root)
     };
@@ -386,11 +391,13 @@ pub fn gpu_support(root: &Path) -> GpuSupport {
         return cached.support.clone();
     }
     let support = if !executable.is_file() {
-        unavailable("GPU runtime is not installed. On Windows this app supports NVIDIA CUDA, not AMD graphics.")
-    } else if cfg!(target_os = "windows") || cfg!(target_os = "macos") {
+        unavailable(if cfg!(target_os = "linux") { "The Vulkan runtime is not installed. Install a local GGUF model in Setup." }
+            else { "GPU runtime is not installed. On Windows this app supports NVIDIA CUDA, not AMD graphics." })
+    } else if cfg!(target_os = "windows") || cfg!(target_os = "macos") || cfg!(target_os = "linux") {
         match device_output(&executable) {
             Ok(output) => support_from_output(&output),
-            Err(_) => unavailable("The GPU runtime could not detect a compatible device. Check its installation and graphics driver. Windows acceleration requires NVIDIA CUDA; AMD acceleration is not supported in this build."),
+            Err(_) => unavailable(if cfg!(target_os = "linux") { "Vulkan could not detect a compatible device. Check the Vulkan loader and graphics driver; CPU remains available." }
+                else { "The GPU runtime could not detect a compatible device. Check its installation and graphics driver. Windows acceleration requires NVIDIA CUDA; AMD acceleration is not supported in this build." }),
         }
     } else {
         unavailable("GPU acceleration is not configured for this platform in this app.")
@@ -417,7 +424,9 @@ fn support_from_output(output: &str) -> GpuSupport {
         .filter_map(|line| {
             let line = line.trim();
             let (id, description) = line.split_once(": ")?;
-            ((id.starts_with("CUDA") || id.starts_with("Metal") || id.starts_with("MTL")) && id.len() < 24).then(|| {
+            ((id.starts_with("CUDA") || id.starts_with("Metal") || id.starts_with("MTL") || id.starts_with("Vulkan")) && id.len() < 24
+                && !description.to_ascii_lowercase().contains("llvmpipe")
+                && !description.to_ascii_lowercase().contains("lavapipe")).then(|| {
                 description
                     .split(" (")
                     .next()
@@ -430,10 +439,12 @@ fn support_from_output(output: &str) -> GpuSupport {
         .take(8)
         .collect();
     if devices.is_empty() {
-        unavailable("No compatible GPU was reported by the text runtime. Windows acceleration requires NVIDIA CUDA; AMD acceleration is not supported in this build.")
+        unavailable(if cfg!(target_os = "linux") { "No hardware Vulkan device was reported. Models will run on CPU." }
+            else { "No compatible GPU was reported by the text runtime. Windows acceleration requires NVIDIA CUDA; AMD acceleration is not supported in this build." })
     } else {
         GpuSupport { available: true,
-            backend: if output.lines().any(|l| l.trim().starts_with("CUDA")) { "cuda" } else { "metal" }.into(),
+            backend: if output.lines().any(|l| l.trim().starts_with("CUDA")) { "cuda" }
+                else if output.lines().any(|l| l.trim().starts_with("Vulkan")) { "vulkan" } else { "metal" }.into(),
             devices, detail: "Compatible GPU detected. The same downloaded text model can run on CPU or GPU; no second model download is needed.".into() }
     }
 }
@@ -488,6 +499,14 @@ fn device_output(executable: &Path) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vulkan_requires_a_hardware_device() {
+        let support = super::support_from_output("Available devices:\n  Vulkan0: NVIDIA GeForce RTX 5070 (12000 MiB, 11000 MiB free)");
+        assert!(support.available);
+        assert_eq!(support.backend, "vulkan");
+        assert!(!super::support_from_output("Available devices:\n  Vulkan0: llvmpipe (LLVM 21.1.0, 256 bits)").available);
+        assert!(!super::support_from_output("Available devices:\n  (none)").available);
+    }
     #[test]
     fn mac_mtl_device_name_is_recognized() {
         let support = super::support_from_output("Available devices:\n  MTL0: Apple M4 (12124 MiB, 12123 MiB free)\n  BLAS: Accelerate (0 MiB, 0 MiB free)");

@@ -42,6 +42,14 @@
     },
     {
       "catalogIds": [
+        "moonshine-tiny-streaming"
+      ],
+      "kind": "model",
+      "license": "MIT",
+      "licenseUrl": "https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE"
+    },
+    {
+      "catalogIds": [
         "nemotron-3-diarization"
       ],
       "kind": "model",

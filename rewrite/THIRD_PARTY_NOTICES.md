@@ -5105,6 +5105,41 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Distribution: Existing installer resource; the crate's original COPYING is also reproduced
 - Text: [src-tauri/licenses/nnnoiseless-0.5.2.txt](#text-6c740e551fcc0b313e0082ecb0c81e7392956b810b05e717c1fba964705a6393) (SHA-256 `6c740e551fcc0b313e0082ecb0c81e7392956b810b05e717c1fba964705a6393`)
 
+### Linux runtime source notices Pinned upstream release source notices
+
+- Inventory ID: `asset:linux-runtime-notices`
+- License: `MIT AND Apache-2.0 AND BSD-3-Clause AND MPL-2.0; native dependency notices`
+- Source: licenses/download-components.json
+- Distribution: Embedded source notices retained beside Linux runtime downloads
+- Text: [licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE](#text-e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882) (SHA-256 `e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882`)
+- Text: [licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING](#text-4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b) (SHA-256 `4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE](#text-94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d) (SHA-256 `94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp](#text-c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86) (SHA-256 `c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE](#text-88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd) (SHA-256 `88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE](#text-c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca) (SHA-256 `c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE](#text-4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b) (SHA-256 `4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md](#text-ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55) (SHA-256 `ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE](#text-b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25) (SHA-256 `b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE](#text-6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a) (SHA-256 `6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a`)
+- Text: [licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE](#text-2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c) (SHA-256 `2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c`)
+- Text: [licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt](#text-0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2) (SHA-256 `0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE](#text-fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f) (SHA-256 `fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE](#text-13f73297830e0a900097bd86f88e7a89059de1298741aff3c5a1a9c22868e51a) (SHA-256 `13f73297830e0a900097bd86f88e7a89059de1298741aff3c5a1a9c22868e51a`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2](#text-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85) (SHA-256 `fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt](#text-0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5) (SHA-256 `0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING](#text-a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6) (SHA-256 `a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT](#text-86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14) (SHA-256 `86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt](#text-2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c) (SHA-256 `2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt](#text-c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566) (SHA-256 `c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md](#text-3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256) (SHA-256 `3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md](#text-082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a) (SHA-256 `082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a`)
+- Text: [licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT](#text-46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603) (SHA-256 `46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603`)
+- Text: [licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE](#text-c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4) (SHA-256 `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`)
+
 ### Authored model identity and written-form lexicons bundled files identified by SHA-256
 
 - Inventory ID: `asset:local-data`
@@ -5415,6 +5450,27 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Review: The exact $10 million boundary needs clarification because the definition and section 5 use different comparison wording.
 - Text: [licenses/downloads/huggingface/LiquidAI--LFM2.5-2.6B-GGUF/84022ce711b28455e8c4fc364ce68c00cf995875/LICENSE](#text-30adf9d6478191fb87f2424f63ba0728598335aaf99cd2848ef17e8e545fe94b) (SHA-256 `30adf9d6478191fb87f2424f63ba0728598335aaf99cd2848ef17e8e545fe94b`)
 
+### llama.cpp Linux x64 CPU and Vulkan b10964
+
+- Inventory ID: `llama-cpp-linux`
+- License: `MIT; native dependency licenses`
+- Source: rewrite/src-tauri/src/linux_runtime.rs
+- Source: https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE
+- License details: https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE
+- Distribution: Downloaded directly from the pinned upstream GitHub release after the existing Setup consent checks. No SonoJot mirror.
+- Attribution: llama.cpp / ggml authors; retain notices for JSON for Modern C++, cpp-httplib, hashing code and embedded server UI libraries where included.
+- Conditions: Retain MIT/BSD and other applicable dependency notices. NVIDIA runtime DLLs have separate proprietary conditions. Do not treat the top-level MIT file as a complete binary dependency manifest.
+- Verification: 2026-10-15: downloaded on Arch Linux; archive sizes and SHA-256 hashes match these pins. Extracted runtime files are pinned separately in code. Source license evidence is retained from the same upstream release; no new binary dependency audit is claimed.
+- Review: The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency.
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE](#text-94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d) (SHA-256 `94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp](#text-c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86) (SHA-256 `c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE](#text-e9b0e94f628e00b5ed98046cfa041696ff89eebbbdd54108ee350625bc6d0363) (SHA-256 `e9b0e94f628e00b5ed98046cfa041696ff89eebbbdd54108ee350625bc6d0363`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE](#text-c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca) (SHA-256 `c9f52548869a0a2e63a7100055c54cebf36b9327c8fc2da7cf9ca8dddc2f1cca`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE](#text-4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b) (SHA-256 `4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md](#text-ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55) (SHA-256 `ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE](#text-b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25) (SHA-256 `b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25`)
+- Text: [licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE](#text-6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a) (SHA-256 `6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a`)
+
 ### llama.cpp macOS Metal b10964
 
 - Inventory ID: `llama-cpp-macos-metal`
@@ -5507,6 +5563,30 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Text: [licenses/downloads/provisioned/94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d.txt](#text-94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d) (SHA-256 `94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d`)
 - Text: [licenses/downloads/provisioned/fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4.txt](#text-fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4) (SHA-256 `fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4`)
 
+### Moonshine Linux x64 v0.1.5
+
+- Inventory ID: `moonshine-linux`
+- License: `MIT AND MPL-2.0 AND Apache-2.0 AND BSD-3-Clause; other native notices`
+- Source: rewrite/src-tauri/src/linux_runtime.rs
+- Source: https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
+- License details: https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
+- Distribution: Downloaded directly from the pinned upstream GitHub release after the existing Setup consent checks. No SonoJot mirror.
+- Attribution: Useful Sensors, Inc. (dba Moonshine AI) and embedded dependency copyright holders.
+- Conditions: MIT for Moonshine code; retain the separate Eigen MPL-2.0, kaldi-native-fbank Apache-2.0, KissFFT BSD-3-Clause, ONNX Runtime MIT, nlohmann/json MIT, utf-8 and utf8proc/Unicode notices. For distributed MPL-covered files, make the corresponding source and local modifications available as required.
+- Verification: 2026-10-15: downloaded on Arch Linux; archive sizes and SHA-256 hashes match these pins. Extracted runtime files are pinned separately in code. Source license evidence is retained from the same upstream release; no new binary dependency audit is claimed.
+- Review: The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency.
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE](#text-fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f) (SHA-256 `fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE](#text-70b76093f6fb38e8d76e5cf0045ce4c3ae12f7f93b81f143ad6b389eaf9e0e16) (SHA-256 `70b76093f6fb38e8d76e5cf0045ce4c3ae12f7f93b81f143ad6b389eaf9e0e16`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2](#text-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85) (SHA-256 `fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt](#text-0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5) (SHA-256 `0fe0b331fa1513dcce8604ff1fa925f32d1cea17d8aeb1c2471fad40d291adc5`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING](#text-a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6) (SHA-256 `a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT](#text-86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14) (SHA-256 `86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt](#text-2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c) (SHA-256 `2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt](#text-c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566) (SHA-256 `c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md](#text-3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256) (SHA-256 `3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256`)
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md](#text-082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a) (SHA-256 `082542e55e7d8556182dedfbdc7df936792ba8d3ef57821fc68dcd371de4312a`)
+
 ### Moonshine medium English streaming quantized_26_08_21
 
 - Inventory ID: `moonshine-medium`
@@ -5573,6 +5653,22 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Attribution: Copyright (c) 2025 Useful Sensors, Inc. (dba Moonshine AI).
 - Conditions: Retain the copyright and MIT permission notice with copies or substantial portions. The v0.1.5 license expressly includes English and streaming models under MIT; its separate noncommercial Community License section applies to enumerated legacy non-English, non-streaming models, not these two English streaming entries.
 - Verification: v0.1.5 license fetched at resolved commit 234f60faa0eb388b01cdf7e60aca232af37aefda. CDN files are pinned by app SHA-256, but quantized_26_08_21 is a release directory, not a repository commit linking those exact weights to this license.
+- Review: No model-specific immutable license/card accompanies the CDN file pins. Preserve the vendor release license and confirm the exact CDN release association.
+- Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE](#text-fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f) (SHA-256 `fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f`)
+
+### Moonshine tiny English streaming (Live preview) quantized_26_08_21
+
+- Inventory ID: `moonshine-tiny-streaming`
+- License: `MIT`
+- Source: rewrite/src-tauri/src/live_preview.rs
+- Source: https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
+- Source: https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md
+- Source: https://huggingface.co/moonshine-ai/moonshine-streaming-tiny
+- License details: https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
+- Distribution: Optional download from the vendor CDN download.moonshine.ai. No SonoJot model mirror.
+- Attribution: Copyright (c) 2025 Useful Sensors, Inc. (dba Moonshine AI).
+- Conditions: Retain the copyright and MIT permission notice with copies or substantial portions. The v0.1.5 license names every streaming model and every English model as MIT; its noncommercial Community License section covers only the enumerated legacy non-English, non-streaming models.
+- Verification: v0.1.5 license fetched at resolved commit 234f60faa0eb388b01cdf7e60aca232af37aefda. Files pinned by app SHA-256 on 2026-10-14 from the CDN path compiled into the bundled runtime; the Hugging Face card for moonshine-ai/moonshine-streaming-tiny is tagged MIT. quantized_26_08_21 is a release directory, not a repository commit linking those exact weights to this license.
 - Review: No model-specific immutable license/card accompanies the CDN file pins. Preserve the vendor release license and confirm the exact CDN release association.
 - Text: [licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE](#text-fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f) (SHA-256 `fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f`)
 
@@ -5917,6 +6013,28 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Verification: Pinned converter card identifies the base model but does not declare a license. Apache-2.0 is corroborated by current vendor evidence; exact base revision and converter licensing remain unresolved.
 - Review: The converter does not supply a standalone LICENSE/NOTICE or an immutable base-model revision. Upstream Apache declaration/text captured at a current commit is corroboration, not the original conversion source pin.
 - Text: [licenses/downloads/standard/apache-2.0.txt](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+
+### sherpa-onnx Linux x64 CPU 1.13.8
+
+- Inventory ID: `sherpa-onnx-linux-cpu`
+- License: `Apache-2.0; native dependency licenses`
+- Source: rewrite/src-tauri/src/optional_asr.rs
+- Source: https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE
+- License details: https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE
+- Distribution: Downloaded directly from the pinned upstream GitHub release after the existing Setup consent checks. No SonoJot mirror.
+- Attribution: sherpa-onnx / k2-fsa / Xiaomi contributors; retain Apache-2.0 and notices for ONNX Runtime, kaldi-decoder, kaldi-native-fbank, OpenFst, simple-sentencepiece, nlohmann/json and hclust.
+- Conditions: Preserve all applicable native dependency licenses and copyright notices; the top-level Apache license alone does not describe every linked component. Keep the source/build correspondence for the exact binary.
+- Verification: 2026-10-15: downloaded on Arch Linux; archive sizes and SHA-256 hashes match these pins. Extracted runtime files are pinned separately in code. Source license evidence is retained from the same upstream release; no new binary dependency audit is claimed.
+- Review: The upstream archive is not a complete third-party binary dependency manifest; retained source notices do not establish every linked dependency.
+- Text: [licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE](#text-e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882) (SHA-256 `e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882`)
+- Text: [licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING](#text-4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b) (SHA-256 `4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b`)
+- Text: [licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE](#text-2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c) (SHA-256 `2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c`)
+- Text: [licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt](#text-0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2) (SHA-256 `0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2`)
+- Text: [licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT](#text-46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603) (SHA-256 `46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603`)
+- Text: [licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE](#text-c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4) (SHA-256 `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`)
 
 ### sherpa-onnx Windows CPU 1.13.8
 
@@ -8204,6 +8322,8 @@ Used by:
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md
 
 ```text
@@ -9023,9 +9143,11 @@ Used by:
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt
 - onnxruntime-macos — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt
 - onnxruntime-windows-cpu — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt
 - onnxruntime-windows-cuda13 — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt
+- sherpa-onnx-linux-cpu — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt
 - sherpa-onnx-windows-cpu — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt
 - sherpa-onnx-windows-cuda12 — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt
 - sherpa-onnx-windows-cuda13 — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt
@@ -15221,6 +15343,8 @@ THE SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt
 
 ```text
@@ -15444,6 +15568,38 @@ Used by:
 MIT License
 
 Copyright (c) 2023 Michael Hansen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+<a id="text-13f73297830e0a900097bd86f88e7a89059de1298741aff3c5a1a9c22868e51a"></a>
+
+### Text 13f73297830e0a900097bd86f88e7a89059de1298741aff3c5a1a9c22868e51a
+
+Used by:
+
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE
+
+```text
+MIT License
+
+Copyright (c) 2026 Useful Sensors, Inc. (dba Moonshine AI)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19818,12 +19974,16 @@ SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt
 - onnxruntime-macos — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE
 - onnxruntime-moonshine — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt
 - onnxruntime-moonshine — licenses/downloads/provisioned/onnxruntime-moonshine-LICENSE.txt — https://raw.githubusercontent.com/microsoft/onnxruntime/a83fc4d58cb48eb68890dd689f94f28288cf2278/LICENSE
 - onnxruntime-windows-cpu — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE
 - onnxruntime-windows-cuda13 — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE
+- sherpa-onnx-linux-cpu — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE
 - sherpa-onnx-windows-cpu — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE
 - sherpa-onnx-windows-cuda12 — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE
 - sherpa-onnx-windows-cuda13 — licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE — https://raw.githubusercontent.com/microsoft/onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE
@@ -21067,6 +21227,8 @@ Creator: Person: Daniel Thompson-Yvetot
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md
 
 ```text
@@ -21613,6 +21775,8 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING — licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING
+- sherpa-onnx-linux-cpu — licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING — https://raw.githubusercontent.com/csukuangfj/openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING
 - sherpa-onnx-windows-cpu — licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING — https://raw.githubusercontent.com/csukuangfj/openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING
 - sherpa-onnx-windows-cuda12 — licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING — https://raw.githubusercontent.com/csukuangfj/openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING
 - sherpa-onnx-windows-cuda13 — licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING — https://raw.githubusercontent.com/csukuangfj/openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING
@@ -21954,6 +22118,8 @@ limitations under the License.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT — licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT
+- sherpa-onnx-linux-cpu — licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT — https://raw.githubusercontent.com/nlohmann/json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT
 - sherpa-onnx-windows-cpu — licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT — https://raw.githubusercontent.com/nlohmann/json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT
 - sherpa-onnx-windows-cuda12 — licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT — https://raw.githubusercontent.com/nlohmann/json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT
 - sherpa-onnx-windows-cuda13 — licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT — https://raw.githubusercontent.com/nlohmann/json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT
@@ -22288,6 +22454,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE
+- llama-cpp-linux — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE
 - llama-cpp-macos-metal — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE
 - llama-cpp-prism-bonsai — licenses/downloads/github/PrismML-Eng--llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/vendor/cpp-httplib/LICENSE — https://raw.githubusercontent.com/PrismML-Eng/llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/vendor/cpp-httplib/LICENSE
 - llama-cpp-windows-provisioned — licenses/downloads/github/ggml-org--llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/vendor/cpp-httplib/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/vendor/cpp-httplib/LICENSE
@@ -26472,6 +26640,8 @@ THE SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE
+- llama-cpp-linux — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE
 - llama-cpp-macos-metal — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE
 - llama-cpp-prism-bonsai — licenses/downloads/github/PrismML-Eng--llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/vendor/hash/xxhash/LICENSE — https://raw.githubusercontent.com/PrismML-Eng/llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/vendor/hash/xxhash/LICENSE
 - llama-cpp-windows-provisioned — licenses/downloads/github/ggml-org--llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/vendor/hash/xxhash/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/vendor/hash/xxhash/LICENSE
@@ -26548,6 +26718,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE
 
 ```text
@@ -28564,6 +28735,8 @@ SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT
 
 ```text
@@ -29233,6 +29406,41 @@ Modifications made to the original work:
 No fine-tuning or weight modification was performed other than the fp32->fp16 cast.
 
 The Apache-2.0 license text is provided in the accompanying LICENSE file.
+```
+
+<a id="text-88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd"></a>
+
+### Text 88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd
+
+Used by:
+
+- asset:linux-runtime-notices — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE
+
+```text
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or
+distribute this software, either in source code form or as a compiled
+binary, for any purpose, commercial or non-commercial, and by any
+means.
+
+In jurisdictions that recognize copyright laws, the author or authors
+of this software dedicate any and all copyright interest in the
+software to the public domain. We make this dedication for the benefit
+of the public at large and to the detriment of our heirs and
+successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <http://unlicense.org>
 ```
 
 <a id="text-898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1"></a>
@@ -31679,6 +31887,8 @@ limitations under the License.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE
+- llama-cpp-linux — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE
 - llama-cpp-macos-metal — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE
 - llama-cpp-prism-bonsai — licenses/downloads/github/PrismML-Eng--llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/LICENSE — https://raw.githubusercontent.com/PrismML-Eng/llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/LICENSE
 - llama-cpp-windows-provisioned — licenses/downloads/github/ggml-org--llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/LICENSE
@@ -33441,6 +33651,8 @@ Used by:
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING
 
 ```text
@@ -37704,6 +37916,8 @@ SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE
+- llama-cpp-linux — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE
 - llama-cpp-macos-metal — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE
 - llama-cpp-prism-bonsai — licenses/downloads/github/PrismML-Eng--llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/vendor/hash/sha256/LICENSE — https://raw.githubusercontent.com/PrismML-Eng/llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/vendor/hash/sha256/LICENSE
 - llama-cpp-windows-provisioned — licenses/downloads/github/ggml-org--llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/vendor/hash/sha256/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/vendor/hash/sha256/LICENSE
@@ -38497,6 +38711,8 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp
+- llama-cpp-linux — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp
 - llama-cpp-macos-metal — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp
 - llama-cpp-prism-bonsai — licenses/downloads/github/PrismML-Eng--llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/licenses/LICENSE-jsonhpp — https://raw.githubusercontent.com/PrismML-Eng/llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/licenses/LICENSE-jsonhpp
 - llama-cpp-windows-provisioned — licenses/downloads/github/ggml-org--llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/licenses/LICENSE-jsonhpp — https://raw.githubusercontent.com/ggml-org/llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/licenses/LICENSE-jsonhpp
@@ -39581,6 +39797,7 @@ bzip2/libbzip2 version 1.0.8 of 13 July 2019
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE — licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE
 - rust:cpal@0.15.3 — LICENSE — https://docs.rs/crate/cpal/0.15.3/source/LICENSE
 - rust:esaxx-rs@0.1.10 — LICENSE — https://docs.rs/crate/esaxx-rs/0.1.10/source/LICENSE
 - rust:quinn-proto@0.11.17 — LICENSE-APACHE — https://docs.rs/crate/quinn-proto/0.11.17/source/LICENSE-APACHE
@@ -39590,6 +39807,7 @@ Used by:
 - rust:serialize-to-javascript@0.1.2 — LICENSE-APACHE — https://docs.rs/crate/serialize-to-javascript/0.1.2/source/LICENSE-APACHE
 - rust:spm_precompiled@0.1.4 — LICENSE — https://docs.rs/crate/spm_precompiled/0.1.4/source/LICENSE
 - rust:tokenizers@0.22.2 — LICENSE — https://docs.rs/crate/tokenizers/0.22.2/source/LICENSE
+- sherpa-onnx-linux-cpu — licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE — https://raw.githubusercontent.com/pkufool/simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE
 - sherpa-onnx-windows-cpu — licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE — https://raw.githubusercontent.com/pkufool/simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE
 - sherpa-onnx-windows-cuda12 — licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE — https://raw.githubusercontent.com/pkufool/simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE
 - sherpa-onnx-windows-cuda13 — licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE — https://raw.githubusercontent.com/pkufool/simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE
@@ -40465,6 +40683,8 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt
 - rust:ryu@1.0.23 — LICENSE-BOOST — https://docs.rs/crate/ryu/1.0.23/source/LICENSE-BOOST
 
@@ -40500,6 +40720,8 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE
+- llama-cpp-linux — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE
 - llama-cpp-macos-metal — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE
 - llama-cpp-prism-bonsai — licenses/downloads/github/PrismML-Eng--llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE — https://raw.githubusercontent.com/PrismML-Eng/llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE
 - llama-cpp-windows-provisioned — licenses/downloads/github/ggml-org--llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE
@@ -40534,6 +40756,8 @@ SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md
+- llama-cpp-linux — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md
 - llama-cpp-macos-metal — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md
 - llama-cpp-prism-bonsai — licenses/downloads/github/PrismML-Eng--llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/vendor/hash/rotate-bits/LICENSE.md — https://raw.githubusercontent.com/PrismML-Eng/llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/vendor/hash/rotate-bits/LICENSE.md
 - llama-cpp-windows-provisioned — licenses/downloads/github/ggml-org--llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/vendor/hash/rotate-bits/LICENSE.md — https://raw.githubusercontent.com/ggml-org/llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/vendor/hash/rotate-bits/LICENSE.md
@@ -40967,7 +41191,12 @@ Used by:
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE — licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE
+- asset:linux-runtime-notices — licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE — licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE
+- asset:linux-runtime-notices — licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE — licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE
 - granite-speech-4.1-2b-nar-q8 — licenses/downloads/standard/apache-2.0.txt — https://www.apache.org/licenses/LICENSE-2.0.txt
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE
 - qwen3-4b-instruct-2507 — licenses/downloads/standard/apache-2.0.txt — https://www.apache.org/licenses/LICENSE-2.0.txt
 - qwen3-asr-0.6b-q8-cpu — licenses/downloads/standard/apache-2.0.txt — https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -40988,6 +41217,9 @@ Used by:
 - rust:tinyvec@1.13.2 — LICENSE-APACHE.md — https://docs.rs/crate/tinyvec/1.13.2/source/LICENSE-APACHE.md
 - rust:utf8_iter@1.0.4 — LICENSE-APACHE — https://docs.rs/crate/utf8_iter/1.0.4/source/LICENSE-APACHE
 - rust:zeroize@1.9.0 — LICENSE-APACHE — https://docs.rs/crate/zeroize/1.9.0/source/LICENSE-APACHE
+- sherpa-onnx-linux-cpu — licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE — https://raw.githubusercontent.com/csukuangfj/kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE
+- sherpa-onnx-linux-cpu — licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE — https://raw.githubusercontent.com/k2-fsa/kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE
+- sherpa-onnx-linux-cpu — licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE — https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE
 - sherpa-onnx-windows-cpu — licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE — https://raw.githubusercontent.com/csukuangfj/kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE
 - sherpa-onnx-windows-cpu — licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE — https://raw.githubusercontent.com/k2-fsa/kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE
 - sherpa-onnx-windows-cpu — licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE — https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE
@@ -42328,6 +42560,8 @@ SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE — licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE
+- sherpa-onnx-linux-cpu — licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE — https://raw.githubusercontent.com/csukuangfj/hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE
 - sherpa-onnx-windows-cpu — licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE — https://raw.githubusercontent.com/csukuangfj/hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE
 - sherpa-onnx-windows-cuda12 — licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE — https://raw.githubusercontent.com/csukuangfj/hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE
 - sherpa-onnx-windows-cuda13 — licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE — https://raw.githubusercontent.com/csukuangfj/hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE
@@ -42850,6 +43084,7 @@ Joe Neeman <joeneeman@gmail.com>
 
 Used by:
 
+- llama-cpp-linux — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE
 - llama-cpp-macos-metal — licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE
 - llama-cpp-prism-bonsai — licenses/downloads/github/PrismML-Eng--llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/tools/ui/src/lib/vendors/big-integer/LICENSE — https://raw.githubusercontent.com/PrismML-Eng/llama.cpp/d8f26eec76da6d09bb708bcba51ef64b8cd868a3/tools/ui/src/lib/vendors/big-integer/LICENSE
 - llama-cpp-windows-provisioned — licenses/downloads/github/ggml-org--llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/tools/ui/src/lib/vendors/big-integer/LICENSE — https://raw.githubusercontent.com/ggml-org/llama.cpp/50182a53fa2c26bd2a7fc31d855231effdc2f4ad/tools/ui/src/lib/vendors/big-integer/LICENSE
@@ -50266,10 +50501,13 @@ SOFTWARE.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
 - moonshine-medium — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
 - moonshine-runtime — licenses/downloads/provisioned/fa7d1174dd8af6a7cd280be20b80d10095ed4c19b5b20b61a7715c3ad790dc5f.txt — models/rewrite/moonshine/LICENSE
 - moonshine-small — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
+- moonshine-tiny-streaming — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE
 
 ```text
 The code in this repo (https://github.com/moonshine-ai/moonshine), apart from 
@@ -50510,6 +50748,8 @@ sanctions laws and regulations.
 
 Used by:
 
+- asset:linux-runtime-notices — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2 — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2
+- moonshine-linux — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2 — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2
 - moonshine-runtime — licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2 — https://raw.githubusercontent.com/moonshine-ai/moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2
 - rust:cssparser@0.36.0 — LICENSE — https://docs.rs/crate/cssparser/0.36.0/source/LICENSE
 

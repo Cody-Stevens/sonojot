@@ -9,10 +9,10 @@
   import SidebarTour from "../components/SidebarTour.svelte";
   import TermsAcceptance from "../components/TermsAcceptance.svelte";
   import Shortcuts from "./Shortcuts.svelte";
-  import MacPasteAccess from "../components/MacPasteAccess.svelte";
-  import SystemAudioSetup from "../components/SystemAudioSetup.svelte";
+  import Icon from "../components/Icon.svelte";
+  import SetupPermissions from "../components/SetupPermissions.svelte";
   import { app } from "../lib/app.svelte";
-  import { call } from "../lib/api";
+  import { call, native } from "../lib/api";
   import { errorMessage } from "../lib/protocol";
   import type { AiSettings } from "../lib/ai";
   import { library } from "../lib/model-library.svelte";
@@ -30,6 +30,7 @@
   } from "../lib/setup-profiles";
   import {
     canContinue,
+    downloadPlan,
     dwellProgress,
     microphoneConfirmed,
     onboardingSteps,
@@ -37,8 +38,12 @@
     onboardingModelDetails,
     MODEL_DETAILS_TIMEOUT,
     practiceResult,
+    setupDownloadSettled,
+    setupDownloadStatus,
+    skipAllPlan,
     stepProgress,
     shouldApplyTourProfile,
+    type SetupDownload,
   } from "../lib/onboarding";
   import {
     PUNCTUATION_MODEL,
@@ -49,12 +54,23 @@
   import { needsTermsAcceptance } from "../lib/terms";
   import { acceptTerms } from "../lib/terms.svelte";
   import { ensureDownloadConsent } from "../lib/download-consent.svelte";
+  import { downloadConsentGroups } from "../lib/download-consent";
+  import { modelLicense } from "../lib/model-licenses";
+  import { systemAudioFixable } from "../lib/meeting-source";
+  import {
+    openPermissionAssistant,
+    permissionState,
+    watchPermission,
+  } from "../lib/permissions";
+  import type { PermissionStatus } from "../lib/protocol";
   import type { SetupStatus } from "../lib/setup";
 
   let { mode, onfinish }: { mode: "first-run" | "tour"; onfinish: () => void } =
     $props();
+  const steps = $derived(onboardingSteps(app.snapshot.capabilities.platform));
   let step = $state(0);
-  const stepId = $derived(onboardingSteps[step].id);
+  const current = $derived(steps[Math.min(step, steps.length - 1)]);
+  const stepId = $derived(current.id);
   let termsAgreed = $state(
     untrack(() => !needsTermsAcceptance(app.snapshot.settings)),
   );
@@ -87,47 +103,28 @@
   let practiceStarted = false;
   let setupFinished = false;
   let mediaStatus = $state<SetupStatus | null>(null);
-  // Consent review, then the download itself. Neither holds Continue: FFmpeg
-  // is optional and keeps installing while the rest of setup goes on.
-  let mediaPhase = $state<"consent" | "installing" | null>(null);
-  const mediaBusy = $derived(mediaPhase !== null);
+  // FFmpeg installs through its own command, beside the model queue. It
+  // never holds Continue and keeps installing while setup goes on.
+  let mediaInstalling = $state(false);
   let mediaError = $state("");
   const mediaAvailable = $derived(
     mediaStatus?.mediaImport.state === "installed" ||
       mediaStatus?.mediaImport.state === "ready",
   );
-  const mediaInstallable = $derived(
-    app.native &&
-      !mediaBusy &&
-      !mediaAvailable &&
-      mediaStatus !== null &&
-      mediaStatus.mediaImport.state !== "unsupported" &&
-      mediaStatus.mediaImport.state !== "loading" &&
-      mediaStatus.mediaImport.state !== "checking",
+  const mediaBusy = $derived(
+    mediaInstalling || mediaStatus?.mediaImport.state === "loading",
   );
-  const mediaState = $derived(
-    !app.native
-      ? "FFmpeg installs in the desktop app."
-      : mediaPhase === "consent"
-        ? "Review the license to continue the download."
-        : mediaPhase === "installing" ||
-            mediaStatus?.mediaImport.state === "loading"
-          ? "Downloading and installing FFmpeg…"
-          : mediaAvailable
-            ? "FFmpeg is installed."
-            : !mediaStatus || mediaStatus.mediaImport.state === "checking"
-              ? "Checking for FFmpeg…"
-              : mediaStatus.mediaImport.state === "unsupported"
-                ? "Automatic install is unavailable on this computer."
-                : mediaStatus.mediaImport.state === "failed"
-                  ? "The FFmpeg on this computer could not be used."
-                  : "Not installed.",
+  const mediaOffered = $derived(
+    app.native &&
+      mediaStatus !== null &&
+      mediaStatus.mediaImport.state !== "unsupported",
   );
   // Speaker labels queue behind the profile downloads (one install at a time).
   const SPEAKER_MODEL = "nemotron-3-diarization";
-  let speakerBusy = $state(false);
+  // Live preview beside the speech model; offered where the catalog has it
+  // (Windows today) and the speech model is not itself a live Moonshine one.
+  const PREVIEW_MODEL = "moonshine-tiny-streaming";
   let speakerRequested = $state(false);
-  let speakerError = $state("");
   const speakerModel = $derived(
     library.data?.models.find((model) => model.id === SPEAKER_MODEL),
   );
@@ -138,37 +135,16 @@
         checking(speakerModel) ||
         speakerModel.installable),
   );
-  const speakerInstallable = $derived(
-    app.native &&
-      !!speakerModel &&
-      speakerModel.installable &&
-      !installed(speakerModel) &&
-      !installing(speakerModel) &&
-      !checking(speakerModel) &&
-      !speakerBusy &&
-      !app.snapshot.meetingRecording,
-  );
-  const speakerState = $derived(
-    !speakerModel
-      ? ""
-      : !app.native
-        ? "Speaker labels install in the desktop app."
-        : installed(speakerModel)
-          ? "Installed. New meeting transcripts label each voice."
-          : speakerBusy
-            ? "Preparing the download…"
-            : speakerModel.state === "queued"
-              ? "Queued. It downloads after your models."
-              : speakerModel.state === "downloading"
-                ? `Downloading${speakerModel.totalBytes > 0 ? ` · ${Math.min(100, Math.floor((speakerModel.downloadedBytes / speakerModel.totalBytes) * 100))}%` : "…"}`
-                : installing(speakerModel)
-                  ? "Installing…"
-                  : checking(speakerModel)
-                    ? "Checking…"
-                    : speakerModel.state === "failed"
-                      ? "The download did not finish."
-                      : "Not installed.",
-  );
+  // The Downloads step. First-run checks every row. A replayed tour checks
+  // only a newly chosen profile's models, so continuing through an unchanged
+  // tour downloads nothing. These rows were flipped from their default.
+  let flipped = $state<string[]>([]);
+  const firstRun = untrack(() => mode === "first-run");
+  function defaultChecked(row: SetupDownload): boolean {
+    return firstRun || (row.kind === "profile" && needsConfirm);
+  }
+  let downloading = $state(false);
+  let downloadError = $state("");
   const selection = $derived(
     selected === "custom"
       ? { ...app.snapshot.settings, reasons: [] }
@@ -208,19 +184,153 @@
   const missingDetails = $derived(
     detailsLoading ? "Reading model details…" : "Model details unavailable",
   );
-  let systemAudioResolved = $state(false);
   const canAdvance = $derived(
-    canContinue(step, elapsed, micConfirmed, termsAgreed) &&
-      (stepId !== "meetings" || systemAudioResolved) &&
+    canContinue(current, elapsed, micConfirmed, termsAgreed) &&
       !busy &&
-      mediaPhase !== "consent" &&
-      !speakerBusy &&
+      !downloading &&
       !micBusy &&
       !app.busy("settings") &&
       !app.dirty,
   );
-  const dwell = $derived(dwellProgress(step, elapsed));
-  const progress = $derived(stepProgress(step));
+  const dwell = $derived(dwellProgress(current, elapsed));
+  const progress = $derived(stepProgress(step, steps.length));
+  // First-run confirms the profile once; a tour only when it changed.
+  const needsConfirm = $derived(
+    mode === "first-run"
+      ? confirmed !== selected
+      : confirmed !== selected &&
+          shouldApplyTourProfile(
+            app.snapshot.settings.setupProfile ?? "balanced",
+            selected,
+          ),
+  );
+  type DownloadRow = SetupDownload & {
+    name: string;
+    purpose: string;
+    size: number | null;
+    status: string;
+    /** 0..1 while downloading with a known size. */
+    fraction: number | null;
+    license: { label: string; open: () => void; url: string } | null;
+  };
+  const PURPOSES: Record<string, string> = {
+    speech: "Turns speech into text",
+    [PUNCTUATION_MODEL]: "Punctuation, numbers and symbols",
+    notes: "Writes meeting notes and titles",
+    [SPEAKER_MODEL]: "Who said what in meetings",
+    [PREVIEW_MODEL]: "Shows your words while you speak",
+  };
+  const ffmpegConsent = $derived(
+    downloadConsentGroups.find(
+      (group) =>
+        group.models.includes("ffmpeg") &&
+        group.platform === (mac ? "macos" : "windows"),
+    ),
+  );
+  function modelRow(
+    id: string,
+    kind: SetupDownload["kind"],
+    purpose: string,
+  ): DownloadRow | null {
+    const model = models.find((entry) => entry.id === id);
+    // A package this computer cannot install is never queued.
+    if (!model || (!model.installable && !installed(model))) return null;
+    const license = modelLicense(id);
+    const downloadingNow =
+      model.state === "downloading" && model.totalBytes > 0;
+    return {
+      id,
+      kind,
+      settled: setupDownloadSettled(model),
+      name: model.name,
+      purpose,
+      size: model.totalBytes || model.diskBytes || null,
+      status: setupDownloadStatus(model),
+      fraction: downloadingNow
+        ? Math.min(1, model.downloadedBytes / model.totalBytes)
+        : null,
+      license: license && {
+        label: license.name,
+        url: license.url,
+        open: () =>
+          void app.perform("model-license", () =>
+            call("open_model_license", { id }),
+          ),
+      },
+    };
+  }
+  const downloadRows = $derived.by((): DownloadRow[] => {
+    if (!library.data) return [];
+    const rows: (DownloadRow | null)[] = [];
+    if (selection) {
+      const ids = onboardingDownloadIds(selection);
+      for (const id of ids)
+        rows.push(
+          modelRow(
+            id,
+            "profile",
+            id === selection.asrModel
+              ? PURPOSES.speech
+              : id === PUNCTUATION_MODEL
+                ? PURPOSES[PUNCTUATION_MODEL]
+                : PURPOSES.notes,
+          ),
+        );
+    }
+    if (
+      selection &&
+      !["moonshine-small", "moonshine-medium"].includes(selection.asrModel)
+    )
+      rows.push(modelRow(PREVIEW_MODEL, "extra", PURPOSES[PREVIEW_MODEL]));
+    if (speakerOffered)
+      rows.push(modelRow(SPEAKER_MODEL, "extra", PURPOSES[SPEAKER_MODEL]));
+    if (mediaOffered) {
+      const link = ffmpegConsent?.links[0];
+      rows.push({
+        id: "ffmpeg",
+        kind: "media",
+        settled: mediaAvailable || mediaBusy,
+        name: "FFmpeg",
+        // Source and build details are in the license review.
+        purpose: "Imports audio and video files",
+        size: null,
+        status: mediaAvailable
+          ? "Installed"
+          : mediaBusy
+            ? "Installing…"
+            : mediaError
+              ? "Didn't finish"
+              : mediaStatus?.mediaImport.state === "checking"
+                ? "Checking…"
+                : "Not installed",
+        fraction: null,
+        license:
+          link && ffmpegConsent
+            ? {
+                label: link.label,
+                url: link.url,
+                open: () =>
+                  void app.perform("download-license", () =>
+                    call("open_download_license", {
+                      group: ffmpegConsent.id,
+                      index: 0,
+                    }),
+                  ),
+              }
+            : null,
+      });
+    }
+    return rows.filter((row): row is DownloadRow => row !== null);
+  });
+  const pendingRows = $derived(downloadRows.filter((row) => !row.settled));
+  const chosenRows = $derived(
+    pendingRows.filter(
+      (row) => defaultChecked(row) !== flipped.includes(row.id),
+    ),
+  );
+  const unchecked = $derived(
+    pendingRows.filter((row) => !chosenRows.includes(row)).map((row) => row.id),
+  );
   const downloadIds = $derived([
     app.snapshot.settings.asrModel,
     PUNCTUATION_MODEL,
@@ -262,8 +372,10 @@
   });
 
   $effect(() => {
-    if ((stepId !== "extras" && stepId !== "ready") || !app.native) return;
-    if (untrack(() => mediaBusy)) return;
+    // Read on Models too, so the FFmpeg row is there when Downloads opens.
+    if (!["models", "downloads", "ready"].includes(stepId) || !app.native)
+      return;
+    if (untrack(() => mediaInstalling)) return;
     let disposed = false;
     void call("get_setup")
       .then((value) => {
@@ -275,6 +387,19 @@
     return () => {
       disposed = true;
     };
+  });
+
+  // Dictation step on a Mac: say what happens without Accessibility access.
+  let pasteAccess = $state<PermissionStatus | null>(null);
+  $effect(() => {
+    if (!mac || !native) return;
+    return watchPermission(
+      "accessibility",
+      (status) => {
+        pasteAccess = status;
+      },
+      () => {},
+    );
   });
 
   onMount(() => {
@@ -368,7 +493,7 @@
       return;
     if (stepId === "microphone") await stopMicrophone();
     step = next;
-    if (onboardingSteps[next].id === "ready" && !practiceStarted) {
+    if (steps[next].id === "ready" && !practiceStarted) {
       practiceStarted = true;
       practiceBaseline = app.snapshot.resultSessionId;
     }
@@ -388,36 +513,13 @@
     error = "";
     try {
       if (stepId === "terms") await acceptTerms();
-      if (stepId === "models") {
-        const saved = app.snapshot.settings.setupProfile ?? "balanced";
-        if (
-          mode === "first-run"
-            ? confirmed !== selected
-            : shouldApplyTourProfile(saved, selected)
-        ) {
-          // Do not let missing hardware details bypass component consent.
-          if (!selection) {
-            await profiles.check();
-            if (!selection)
-              throw new Error(
-                "Model choices could not be read. Try again before downloading.",
-              );
-          }
-          if (!(await ensureDownloadConsent(onboardingDownloadIds(selection))))
-            return;
-          app.apply(
-            await call("confirm_onboarding_profile", { profile: selected }),
-          );
-          confirmed = selected;
-          // Catalog details must never hold Continue after settings were saved.
-          void library.refresh();
-          void call("get_ai_settings")
-            .then((value) => {
-              aiSettings = value;
-            })
-            .catch(() => {
-              aiDetailsFailed = true;
-            });
+      // Checked rows download on Continue too; unchecked ones are skipped.
+      if (stepId === "downloads") {
+        if (chosenRows.length > 0) {
+          if (!(await startDownloads())) return;
+        } else if (needsConfirm) {
+          const skip = skipAllPlan(downloadRows);
+          if (!(await confirmProfile(skip, []))) return;
         }
       }
       if (stepId === "ready") {
@@ -437,40 +539,96 @@
       busy = false;
     }
   }
-  async function installSpeakers(): Promise<void> {
-    if (!speakerInstallable || !speakerModel || busy) return;
-    const id = speakerModel.id;
-    speakerBusy = true;
-    speakerError = "";
+  /**
+   * Saves the chosen profile, queueing its downloads except `skip`. One
+   * consent review covers those downloads and `extra` (speaker labels,
+   * FFmpeg). Missing hardware details never bypass component consent.
+   */
+  async function confirmProfile(
+    skip: string[],
+    extra: string[],
+  ): Promise<boolean> {
+    if (!selection) {
+      await profiles.check();
+      if (!selection)
+        throw new Error(
+          "Model choices could not be read. Try again before downloading.",
+        );
+    }
+    const queued = onboardingDownloadIds(selection).filter(
+      (id) => !skip.includes(id),
+    );
+    if (!(await ensureDownloadConsent([...new Set([...queued, ...extra])])))
+      return false;
+    app.apply(
+      await call("confirm_onboarding_profile", { profile: selected, skip }),
+    );
+    confirmed = selected;
+    // Catalog details must never hold Continue after settings were saved.
+    void library.refresh();
+    void call("get_ai_settings")
+      .then((value) => {
+        aiSettings = value;
+      })
+      .catch(() => {
+        aiDetailsFailed = true;
+      });
+    return true;
+  }
+  /** Consent once for every checked row, then queue them all. */
+  async function startDownloads(): Promise<boolean> {
+    const plan = downloadPlan(downloadRows, unchecked);
+    if (plan.consent.length === 0 && !needsConfirm) return true;
+    downloading = true;
+    downloadError = "";
     try {
-      if (!(await ensureDownloadConsent([id]))) return;
-      library.apply(await call("queue_onboarding_download", { id }));
-      speakerRequested = true;
+      if (needsConfirm) {
+        if (!(await confirmProfile(plan.skip, plan.consent))) return false;
+      } else {
+        if (!(await ensureDownloadConsent(plan.consent))) return false;
+        // A tour keeping its profile queues that profile's missing models.
+        for (const id of plan.profile)
+          library.apply(await call("queue_onboarding_download", { id }));
+      }
+      for (const id of plan.extras) {
+        library.apply(await call("queue_onboarding_download", { id }));
+        if (id === SPEAKER_MODEL) speakerRequested = true;
+      }
+      if (plan.media) void installMedia();
+      return true;
     } catch (failure: unknown) {
-      speakerError = errorMessage(failure);
+      downloadError = errorMessage(failure);
+      return false;
     } finally {
-      speakerBusy = false;
+      downloading = false;
     }
   }
+  /** Consent was given with the other downloads. */
   async function installMedia(): Promise<void> {
-    if (!mediaInstallable || busy) return;
-    mediaPhase = "consent";
+    if (mediaBusy) return;
+    mediaInstalling = true;
     mediaError = "";
     try {
-      if (!(await ensureDownloadConsent(["ffmpeg"]))) return;
-      mediaPhase = "installing";
       mediaStatus = await call("install_media_support");
     } catch (failure: unknown) {
       mediaError = errorMessage(failure);
     } finally {
-      mediaPhase = null;
+      mediaInstalling = false;
     }
+  }
+  function toggleDownload(row: SetupDownload, checked: boolean): void {
+    flipped =
+      checked === defaultChecked(row)
+        ? flipped.filter((other) => other !== row.id)
+        : [...flipped, row.id];
   }
   async function permission(
     kind: "microphone" | "accessibility",
   ): Promise<void> {
     try {
-      await call("open_permission_settings", { kind });
+      // On a Mac, the same helper flow as the Permissions step.
+      if (mac) await openPermissionAssistant(kind);
+      else await call("open_permission_settings", { kind });
     } catch (failure: unknown) {
       error = errorMessage(failure);
     }
@@ -486,12 +644,10 @@
     <div class="onboarding-page">
       <div class="step-head">
         <h1 id="onboarding-title" tabindex="-1" data-text-surface="emboss">
-          {onboardingSteps[step].title}
+          {current.title}
         </h1>
         <p class="step" data-text-surface="flat">
-          Step {step + 1} of {onboardingSteps.length}{mode === "tour"
-            ? " · Tour"
-            : ""}
+          Step {step + 1} of {steps.length}{mode === "tour" ? " · Tour" : ""}
         </p>
       </div>
       <div
@@ -499,9 +655,9 @@
         role="progressbar"
         aria-label="Setup step progress"
         aria-valuemin="0"
-        aria-valuemax={onboardingSteps.length}
+        aria-valuemax={steps.length}
         aria-valuenow={step + 1}
-        aria-valuetext={`Step ${step + 1} of ${onboardingSteps.length}`}
+        aria-valuetext={`Step ${step + 1} of ${steps.length}`}
       >
         <span style:width={`${progress * 100}%`}></span>
       </div>
@@ -522,6 +678,8 @@
         </p>
       {:else if stepId === "terms"}
         <TermsAcceptance bind:agreed={termsAgreed} disabled={busy} />
+      {:else if stepId === "permissions"}
+        <SetupPermissions />
       {:else if stepId === "microphone"}
         <p data-text-surface="flat">
           Say a few words and watch the level. This check only measures input.
@@ -567,16 +725,14 @@
               </p>
             </div>
           </div>
-          {#if mac}<p data-text-surface="flat">
-              Allow microphone access when macOS asks. If access is denied,
-              enable SonoJot in System Settings, Privacy &amp; Security,
-              Microphone.
-            </p>
-          {:else if micError}<p data-text-surface="flat">
-              Check your device and allow desktop apps to use the microphone in
-              Windows privacy settings.
+          {#if micError}<p data-text-surface="flat">
+              {mac
+                ? "Check your device and allow SonoJot to use the microphone."
+                : app.snapshot.capabilities.platform === "linux"
+                  ? "Check your device and choose it as the input in your sound settings."
+                  : "Check your device and allow desktop apps to use the microphone in Windows privacy settings."}
             </p>{/if}
-          {#if !micActive || micError || mac || (elapsed >= 10000 && !micConfirmed)}<div
+          {#if !micActive || micError || (elapsed >= 10000 && !micConfirmed)}<div
               class="actions"
             >
               {#if !micActive}<button
@@ -584,12 +740,12 @@
                   disabled={micBusy}
                   onclick={startMicrophone}>Try microphone again</button
                 >{/if}
-              {#if micError || mac}<button
+              {#if micError}<button
                   class="button quiet"
                   onclick={() => permission("microphone")}
-                  >Open {mac
-                    ? "System Settings"
-                    : "microphone settings"}</button
+                  >{mac
+                    ? "Allow microphone"
+                    : "Open microphone settings"}</button
                 >{/if}
               {#if elapsed >= 10000 && !micConfirmed}<button
                   class="button"
@@ -602,11 +758,15 @@
       {:else if stepId === "shortcut"}
         <Shortcuts embedded />
       {:else if stepId === "dictation"}
-        {#if !mac && app.snapshot.capabilities.autoPaste}<p
+        {#if mac ? permissionState(pasteAccess) === "granted" : app.snapshot.capabilities.autoPaste}<p
             data-text-surface="flat"
           >
             When you finish speaking, SonoJot pastes the text where your cursor
             is.
+          </p>
+        {:else if mac && pasteAccess}<p data-text-surface="flat">
+            When you finish speaking, SonoJot copies the text. Press Command+V
+            to paste it, or allow Paste into apps on the Dictation page.
           </p>{/if}
         <div class="tab-explanation">
           <BrandMark />
@@ -617,9 +777,6 @@
               : "system tray"}.
           </p>
         </div>
-        {#if mac}<MacPasteAccess />{/if}
-        <!-- Mac-only permission sections (for example System audio recording)
-             go here, after the Accessibility block, as their own components. -->
       {:else if stepId === "models"}
         <div class="segments choices" role="group" aria-label="Setup profile">
           {#each setupProfiles.filter((profile) => profile.id !== "custom") as profile}<button
@@ -711,78 +868,77 @@
             <em class="key">Process notes</em> to choose a format and model. The original
             transcript stays available.
           </p>
+          {#if mac && systemAudioFixable(app.snapshot.capabilities.systemAudioStatus)}<p
+            >
+              System audio isn't allowed yet. SonoJot will offer to fix it when
+              you start a meeting.
+            </p>{/if}
         </div>
-        <SystemAudioSetup bind:resolved={systemAudioResolved} />
-      {:else if stepId === "extras"}
-        <p data-text-surface="flat">
-          Optional downloads for Meetings. Skip them if you like; you can add
-          them later.
-        </p>
-        <Card class="tour-card extras-card">
-          <section class="extra" aria-labelledby="extra-media">
-            <div class="extra-copy" data-text-surface="flat">
-              <h2 id="extra-media">Import recordings</h2>
-              <p>
-                FFmpeg converts audio and video files so you can import them. {mac
-                  ? "SonoJot's own LGPL build, from releases.sonojot.com."
-                  : "An LGPL build, from GitHub."}
-              </p>
-              <p class="extra-state" role="status">{mediaState}</p>
-            </div>
-            {#if !mediaAvailable}<button
-                class="button"
-                disabled={!mediaInstallable || busy}
-                onclick={installMedia}>Review license and download</button
-              >{/if}
-            {#if mediaPhase === "installing"}<progress
-                aria-label="Downloading FFmpeg"
-              ></progress>{/if}
-            {#if mediaStatus?.mediaImport.state === "unsupported" && mediaStatus.mediaImport.detail}<p
-                class="extra-note"
-                data-text-surface="flat"
-              >
-                {mediaStatus.mediaImport.detail}
-              </p>{/if}
-            {#if mediaError}<p class="extra-note flow-error" role="alert">
-                {mediaError}
-              </p>{/if}
-          </section>
-          {#if speakerOffered && speakerModel}
-            <section class="extra" aria-labelledby="extra-speakers">
-              <div class="extra-copy" data-text-surface="flat">
-                <h2 id="extra-speakers">Speaker labels</h2>
-                <p>
-                  Shows who said what in meeting transcripts. {speakerModel.name},
-                  {formatBytes(
-                    speakerModel.totalBytes || speakerModel.diskBytes,
-                  )}, runs on this computer.
-                </p>
-                <p class="extra-state" role="status">{speakerState}</p>
-              </div>
-              {#if !installed(speakerModel) && !installing(speakerModel)}<button
-                  class="button"
-                  disabled={!speakerInstallable || busy}
-                  onclick={installSpeakers}>Download</button
-                >{/if}
-              {#if installing(speakerModel) && speakerModel.state !== "queued"}<progress
-                  aria-label="Downloading speaker labels"
-                  max={speakerModel.totalBytes || 1}
-                  value={speakerModel.totalBytes > 0
-                    ? Math.min(
-                        speakerModel.downloadedBytes,
-                        speakerModel.totalBytes,
-                      )
-                    : undefined}
-                ></progress>{/if}
-              {#if speakerError || speakerModel.error}<p
-                  class="extra-note flow-error"
-                  role="alert"
+      {:else if stepId === "downloads"}
+        <div class="downloads-head">
+          <p data-text-surface="flat">
+            {firstRun
+              ? "Uncheck anything to add it later in Models instead."
+              : "Check anything you want to download now."}
+          </p>
+        </div>
+        {#if !library.data || !selection}<p data-text-surface="flat">
+            {missingDetails}
+          </p>{/if}
+        <ul class="download-rows" aria-label="Setup downloads">
+          {#each downloadRows as row (row.id)}
+            <li class="download-row" class:settled={row.settled}>
+              <span class="download-check">
+                {#if !row.settled}<input
+                    type="checkbox"
+                    id={`setup-download-${row.id}`}
+                    checked={chosenRows.includes(row)}
+                    disabled={downloading || busy}
+                    onchange={(event) =>
+                      toggleDownload(row, event.currentTarget.checked)}
+                  />{:else if row.status === "Installed"}<Icon
+                    name="check"
+                    size={18}
+                  />{/if}
+              </span>
+              <span class="download-copy">
+                {#if row.settled}<span class="download-name">{row.name}</span
+                  >{:else}<label
+                    class="download-name"
+                    for={`setup-download-${row.id}`}>{row.name}</label
+                  >{/if}
+                <span class="download-meta" data-text-surface="flat"
+                  >{row.purpose}{row.size
+                    ? ` · ${formatBytes(row.size)}`
+                    : ""}{#if row.license}{" · "}<a
+                      href={row.license.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onclick={(event) => {
+                        if (!native || !row.license) return;
+                        event.preventDefault();
+                        row.license.open();
+                      }}>{row.license.label} ↗</a
+                    >{/if}</span
                 >
-                  {speakerError || speakerModel.error}
-                </p>{/if}
-            </section>
-          {/if}
-        </Card>
+              </span>
+              <span
+                class="download-state"
+                role="status"
+                aria-label={`${row.name} download`}
+                data-text-surface="flat">{row.status}</span
+              >
+              {#if row.fraction !== null}<span
+                  class="download-bar"
+                  style:--fraction={row.fraction}
+                  aria-hidden="true"
+                ></span>{/if}
+            </li>
+          {/each}
+        </ul>
+        {#if downloadError || mediaError}<p class="flow-error" role="alert">
+            {downloadError || mediaError}
+          </p>{/if}
       {:else if stepId === "where"}
         <SidebarTour />
       {:else}
@@ -875,18 +1031,16 @@
   <footer class="onboarding-footer">
     <button
       class="button quiet"
-      disabled={step === 0 || busy || micBusy || mediaBusy}
+      disabled={step === 0 || busy || micBusy || downloading}
       onclick={() => move(step - 1)}>Back</button
     >
     <span class="dwell-note" data-text-surface="flat"
       >{stepId !== "ready" && dwell < 1
-        ? `Continue in ${Math.ceil((onboardingSteps[step].dwell - elapsed) / 1000)} seconds`
+        ? `Continue in ${Math.ceil((current.dwell - elapsed) / 1000)} seconds`
         : stepId === "terms" && !termsAgreed
           ? "Read and agree to continue"
           : stepId === "microphone" && !micConfirmed
             ? "Check your microphone to continue"
-            : stepId === "meetings" && !systemAudioResolved
-            ? "Allow system audio, or choose Not now"
             : app.dirty
               ? "Save your shortcut to continue"
               : ""}</span
@@ -907,7 +1061,9 @@
                 ? selected === "custom"
                   ? "Keep my models"
                   : `Use ${profileLabel(selected)}`
-                : "Continue"}</span
+                : stepId === "downloads" && chosenRows.length > 0
+                  ? "Download and continue"
+                  : "Continue"}</span
       ></button
     >
   </footer>
@@ -1158,39 +1314,82 @@
     text-decoration-skip-ink: none;
   }
 
-  /* Meeting extras: one row per optional download, action on the right. */
-  .extra {
+  /* Downloads: one checklist row per download, the Models page's two text
+     sizes (18px name, 15px meta and state). A thin ink bar along the row's
+     foot shows progress without changing its height. */
+  .downloads-head {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 9px 27px;
+    gap: 18px 27px;
+    margin-bottom: 9px;
   }
-  .extra + .extra {
-    margin-top: 14px;
-    padding-top: 14px;
+  .onboarding-page .downloads-head p {
+    flex: 1;
+    margin: 0;
+  }
+  .download-rows {
+    list-style: none;
+    margin: 0 0 9px;
+    padding: 0;
+  }
+  .download-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 27px minmax(0, 1fr) 10em;
+    align-items: center;
+    gap: 0 12px;
+    padding: 10px 0;
+  }
+  .download-row + .download-row {
     border-top: 1px solid var(--line);
   }
-  .extra-copy {
-    flex: 1 1 320px;
+  .download-check {
+    display: flex;
+    justify-content: center;
+    color: var(--dye);
+  }
+  .download-check input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--ink);
+  }
+  .download-copy {
     min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
-  .extra-copy h2 {
-    margin: 0;
-    font-size: 1rem;
+  .download-name {
+    font-size: 18px;
+    line-height: 1.35;
+  }
+  .download-meta,
+  .download-state {
+    font-size: 15px;
     line-height: 1.4;
-  }
-  .onboarding-page .extra-copy p {
-    margin: 0;
-    line-height: 1.4;
-  }
-  .onboarding-page .extra-copy .extra-state {
-    margin-top: 4px;
     color: var(--soft-ink);
   }
-  .extra progress,
-  .onboarding-page .extra-note {
-    flex: 1 0 100%;
-    margin: 0;
+  .download-meta a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .download-state {
+    text-align: right;
+  }
+  .settled .download-state {
+    color: var(--ink);
+  }
+  .download-bar {
+    position: absolute;
+    left: 39px;
+    bottom: -1px;
+    width: calc((100% - 39px) * var(--fraction));
+    height: 3px;
+    border-radius: 2px;
+    background: var(--ink);
+    opacity: 0.6;
+    pointer-events: none;
   }
 
   /* Ready */
@@ -1306,12 +1505,11 @@
       clip: rect(0, 0, 0, 0);
       white-space: nowrap;
     }
-    .extra-copy h2,
-    .onboarding-page .extra-copy h2 + p {
-      display: inline;
+    .downloads-head {
+      margin-bottom: 4px;
     }
-    .extra-copy h2::after {
-      content: ". ";
+    .download-row {
+      padding: 4px 0;
     }
     .onboarding-page p {
       margin-bottom: 12px;

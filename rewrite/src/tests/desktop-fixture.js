@@ -98,6 +98,15 @@ export async function installDesktopFixture(page, options = {}) {
     let onboardingProfile = null;
     let microphoneActive = false;
     let permissionAssistantOpen = false;
+    // Mock-only microphone permission (AVAuthorizationStatus words):
+    // authorized unless a spec sets notDetermined or denied.
+    let microphonePermission = options.microphonePermission ?? "authorized";
+    let microphoneAssistantOpen = false;
+    // Mock-only: the user switches SonoJot on under Accessibility.
+    window.__testGrantAccessibility = () => {
+      options.permissionGranted = true;
+      permissionAssistantOpen = false;
+    };
     let nextCallback = 1;
     const callbacks = new Map();
     // Deterministic slow native responses, released explicitly by the spec.
@@ -154,6 +163,7 @@ export async function installDesktopFixture(page, options = {}) {
         hotkeyMode: "toggle",
         autoPaste: false,
         audioCues: true,
+        livePreview: true,
         autoStopSeconds: 0,
         microphone: null,
         asrModel: "moonshine-medium",
@@ -791,14 +801,18 @@ export async function installDesktopFixture(page, options = {}) {
     window.__testLibrary = () => clone(library);
     const onboardingQueue = [];
     window.__testOnboarding = () => ({ required: onboardingRequired, profile: onboardingProfile, queue: [...onboardingQueue], microphoneActive });
-    function queueOnboarding(profile, defaults = false) {
+    function queueOnboarding(profile, defaults = false, skip = []) {
       const choice = profile === "custom" ? state.settings : hardwareProfile.recommendations[profile];
       Object.assign(state.settings, { asrModel: choice.asrModel, cleanupModel: choice.cleanupModel, notesModel: choice.notesModel,
         setupProfile: onboardingRequired && !defaults ? null : profile,
         punctuationRecommendationAcknowledged: true, punctuationV2RecommendationAcknowledged: true });
       if (defaults) Object.assign(state.settings, { microphone: null, hotkey: "Ctrl+Space", hotkeyMode: "toggle" });
       onboardingProfile = profile;
-      onboardingQueue.splice(0, onboardingQueue.length, ...new Set([choice.asrModel, "sonojot-punct-v2", choice.notesModel].filter((id) => id !== "openrouter")));
+      // Mirrors onboarding.rs: unchecked profile downloads are skipped and
+      // optional extras already queued stay behind the new profile's models.
+      const extras = onboardingQueue.filter((id) => id === "nemotron-3-diarization");
+      onboardingQueue.splice(0, onboardingQueue.length, ...new Set([choice.asrModel, "sonojot-punct-v2", choice.notesModel]
+        .filter((id) => id !== "openrouter" && !skip.includes(id)).concat(extras)));
       let downloading = false;
       for (const id of onboardingQueue) {
         const model = library.models.find((entry) => entry.id === id);
@@ -948,6 +962,24 @@ export async function installDesktopFixture(page, options = {}) {
         window.__testCalls.push({ command, args: clone(args) });
         if (heldCommands.has(command)) await heldCommands.get(command).promise;
         switch (command) {
+          case "get_pending_crash":
+            return clone(options.pendingCrash ?? null);
+          case "dismiss_crash":
+            if (options.pendingCrash?.id === args.id) options.pendingCrash = null;
+            return null;
+          case "prepare_report":
+            return {
+              schema: 1, kind: args.kind, requestId: crypto.randomUUID(),
+              app: options.pendingCrash?.app ?? { version: state.version, platform: state.capabilities.platform, arch: "x86_64", os: "Fixture OS" },
+              notes: "", crash: args.kind === "crash" ? options.pendingCrash.crash : null,
+              diagnostics: args.includeDiagnostics ? { setupProfile: "balanced", events: [{ event: "decode-complete", model: "moonshine-medium", ms: 120 }] } : null,
+            };
+          case "send_report":
+            if (options.reportFailures > 0) { options.reportFailures--; throw new Error("Could not send the report. Try again or copy it below."); }
+            return { receiptId: "fixture-receipt", replayed: false };
+          case "copy_report":
+          case "open_report_issues":
+            return null;
           case "plugin:event|listen":
             handlers.set(args.event, args.handler);
             return args.handler;
@@ -1026,7 +1058,7 @@ export async function installDesktopFixture(page, options = {}) {
             return onboardingRequired;
           case "confirm_onboarding_profile":
             if (profileApplyError) { const message = profileApplyError; profileApplyError = null; throw new Error(message); }
-            queueOnboarding(args.profile);
+            queueOnboarding(args.profile, false, args.skip ?? []);
             return clone(state);
           case "finish_onboarding":
             if (setupCompletionError) { const message = setupCompletionError; setupCompletionError = null; throw new Error(message); }
@@ -1053,6 +1085,22 @@ export async function installDesktopFixture(page, options = {}) {
               if (state.capabilities.platform !== "macos") throw new Error("This permission is needed only on macOS.");
               if (options.permissionResetError) throw new Error(options.permissionResetError);
             }
+            if (args.kind === "microphone") {
+              // Mirrors the microphone PermissionSpec: never asked shows
+              // macOS's prompt (answered with options.microphoneAnswer);
+              // denied opens Settings with a helper that has no drag icon.
+              const mac = state.capabilities.platform === "macos";
+              if (command === "permission_reset" || (command === "permission_assistant" && args.action === "open")) {
+                if (command === "permission_reset") microphonePermission = "notDetermined";
+                if (microphonePermission === "notDetermined" && options.microphoneAnswer)
+                  microphonePermission = options.microphoneAnswer;
+                microphoneAssistantOpen = microphonePermission === "denied";
+              } else if (command === "permission_assistant") microphoneAssistantOpen = false;
+              return { kind: "microphone", required: mac, granted: !mac || microphonePermission === "authorized",
+                assistantOpen: microphoneAssistantOpen, title: "Allow SonoJot to use the microphone",
+                body: "Switch SonoJot on in the Microphone list.", staleHint: "Already on but not hearing you?",
+                canReset: mac, draggable: false };
+            }
             if (args.kind === "system_audio") {
               // Mirrors the system_audio PermissionSpec: an unanswered
               // permission shows the macOS prompt; a denied one opens Settings.
@@ -1068,18 +1116,18 @@ export async function installDesktopFixture(page, options = {}) {
               return { kind: "system_audio", required: state.capabilities.platform === "macos",
                 granted: current === "ready" || current === "unsupported",
                 assistantOpen: systemAudioAssistantOpen, title: "Allow SonoJot to record system audio",
-                body: "Switch SonoJot on under System Audio Recording Only. If it isn't there, drag this icon into that list.",
+                body: "Switch SonoJot on under System Audio Recording Only. If it isn't listed, click + under that list and choose SonoJot in Applications, or drag this icon in.",
                 staleHint: "Already on but not recording?",
-                canReset: state.capabilities.platform === "macos" };
+                canReset: state.capabilities.platform === "macos", draggable: true };
             }
             if (command === "permission_assistant") permissionAssistantOpen = args.action === "open" && !options.permissionGranted;
             if (command === "permission_reset") permissionAssistantOpen = !options.permissionGranted;
             const required = state.capabilities.platform === "macos";
             return { kind: args.kind, required, granted: !required || Boolean(options.permissionGranted),
               assistantOpen: permissionAssistantOpen, title: "Allow SonoJot to paste",
-              body: "Switch SonoJot on in the list. If it isn't there, drag this icon into the list.",
+              body: "Switch SonoJot on in the list. If it isn't listed, click + under the list and choose SonoJot in Applications, or drag this icon into the list.",
               staleHint: "Already on but not working?",
-              canReset: required };
+              canReset: required, draggable: true };
           }
           case "permission_drag":
             return null;

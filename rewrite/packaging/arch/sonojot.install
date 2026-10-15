@@ -1,0 +1,14 @@
+post_install() {
+  cat <<'EOF'
+SonoJot is installed. Start it from the app launcher or run `SonoJot`.
+
+On Hyprland, SonoJot binds its dictation shortcut itself: it writes
+~/.config/hypr/sonojot.lua (sonojot.conf on older configs) and adds one line
+that loads it to ~/.config/hypr/bindings.lua. Change the shortcut in
+SonoJot > Settings > Shortcuts. Remove that line to undo.
+EOF
+}
+
+post_upgrade() {
+  echo "Restart SonoJot to use the new version."
+}

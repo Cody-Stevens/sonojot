@@ -18,7 +18,7 @@
     startTabMeeting,
     tabCapture,
     tabCollapseAllowed,
-    tabPreview,
+    tabPreviewParts,
     tabRepairPage,
   } from "../lib/screen-tab";
   import { suffixPreviewOffset } from "../lib/preview";
@@ -46,6 +46,8 @@
   const menubar =
     new URLSearchParams(window.location.search).get("presentation") ===
     "menubar";
+  // Moving the tab between monitors is native on Windows only.
+  const draggable = $derived(app.snapshot.capabilities.platform === "windows");
   function dragLip(event: PointerEvent): void {
     if (
       !dragStart ||
@@ -86,6 +88,10 @@
     capture === "meeting" ? app.snapshot.meetingSourceStatus.join(" · ") : "",
   );
   const recording = $derived(capture !== "idle");
+  // Committed recognition, then the softer live-preview draft (display only).
+  const livePreview = $derived(
+    tabPreviewParts(app.snapshot.interimText, app.snapshot.previewText),
+  );
   const recoverySession = $derived(smartRecoverySession(app.snapshot));
   const temporary = $derived(app.snapshot.tabTemporary);
   const visible = $derived(app.snapshot.tabVisible && !hiddenLocally);
@@ -514,9 +520,9 @@
   {#if !menubar}<button
       type="button"
       class="tab-lip stock"
-      title="Drag to another monitor"
+      title={draggable ? "Drag to another monitor" : undefined}
       onpointerdown={(event) => {
-        if (event.button !== 0 || !app.native) return;
+        if (event.button !== 0 || !app.native || !draggable) return;
         suppressLipClick = false;
         dragStart = { x: event.screenX, y: event.screenY };
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -771,7 +777,10 @@
               aria-label="Live transcript"
             >
               <span bind:this={previewText}
-                >{tabPreview(app.snapshot.interimText)}</span
+                >{livePreview.committed}{#if livePreview.draft}<span
+                    class="tab-draft"
+                    data-live-preview>{livePreview.draft}</span
+                  >{/if}</span
               >
             </div>{/if}
         </div>
@@ -1028,6 +1037,11 @@
   .tab-preview > span {
     flex: none;
     min-width: 100%;
+  }
+  /* Live preview: a quick draft from a tiny model, printed lighter than the
+     recognized words it trails. The same ink keeps it legible on both stocks. */
+  .tab-draft {
+    opacity: 0.62;
   }
   .tab-actions {
     display: flex;

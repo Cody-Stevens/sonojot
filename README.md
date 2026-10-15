@@ -1,6 +1,6 @@
 # SonoJot
 
-SonoJot is a local-first dictation and meeting transcription app for Windows and macOS. Speak into any app, keep the raw recognition, apply conservative cleanup, or transcribe a meeting. Speech models run on your computer. Optional cloud AI features send selected content to the provider you configure; see the [Privacy Notice](https://sonojot.com/privacy).
+SonoJot is a local-first dictation and meeting transcription app for Windows and macOS, with an alpha Linux build. Speak into any app, keep the raw recognition, apply conservative cleanup, or transcribe a meeting. Speech models run on your computer. Optional cloud AI features send selected content to the provider you configure; see the [Privacy Notice](https://sonojot.com/privacy).
 
 Get official builds and platform availability at **[sonojot.com](https://sonojot.com)**.
 
@@ -14,6 +14,7 @@ Install Git, Node.js 22 LTS with npm, and stable Rust through rustup. Follow the
 
 - Windows: Visual Studio Build Tools with Desktop development with C++, the Windows SDK, and Microsoft Edge WebView2.
 - macOS 14 or newer: Xcode Command Line Tools (`xcode-select --install`). Apple Silicon is the primary macOS target. The local Whisper backend builds with Metal.
+- Linux (alpha): `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`, `librsvg`, `alsa-lib`, `pipewire-alsa` and `wl-clipboard`. On Arch Linux, including Omarchy, `rewrite/scripts/linux/install.sh` installs these with pacman, builds a pacman package from `rewrite/packaging/arch/PKGBUILD` and installs it. The global shortcut and automatic paste need Hyprland; other Wayland desktops get clipboard delivery.
 
 From a terminal:
 

@@ -137,21 +137,9 @@ pub fn accessibility_trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
 
-/// Ask macOS once to list SonoJot under Accessibility. macOS shows its own
-/// alert the first time; later calls only report the current state.
-pub fn request_accessibility_listing() -> bool {
-    static PROMPTED: Once = Once::new();
-    let mut trusted = accessibility_trusted();
-    if trusted {
-        return true;
-    }
-    PROMPTED.call_once(|| trusted = prompt_accessibility());
-    trusted
-}
-
 /// Ask macOS to list SonoJot under Accessibility (switched off) and show its
-/// alert. Unlike [`request_accessibility_listing`], this always asks, which
-/// the permission reset needs after the old entry is gone.
+/// alert. It always asks: the permission assistant calls it whenever the user
+/// presses Allow, so an entry removed from the list (or by a reset) is listed again.
 pub fn prompt_accessibility() -> bool {
     unsafe {
         let keys = [kAXTrustedCheckOptionPrompt];

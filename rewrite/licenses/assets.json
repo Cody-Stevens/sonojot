@@ -90,7 +90,7 @@
       "license": "LicenseRef-Project-Data",
       "requiresNotice": false,
       "sources": ["src-tauri/src/written_form/PROVENANCE.md", "src-tauri/assets/model-identities.json"],
-      "patterns": ["src-tauri/assets/model-identities.json", "src-tauri/src/written_form/models.json", "src/brand/recommendations.json"],
+      "patterns": ["src-tauri/assets/model-identities.json", "src-tauri/assets/linux-llama-identities.json", "src-tauri/src/written_form/models.json", "src/brand/recommendations.json"],
       "provenanceFiles": ["src-tauri/src/written_form/PROVENANCE.md"],
       "distribution": "Compile-time data tables; written-form model names retain their per-entry source URLs",
       "issues": ["The written-form lexicon was supplied with the assignment; its provenance does not include an explicit license or ownership declaration. Confirm the right to redistribute the supplied data."]
@@ -118,6 +118,51 @@
       "patterns": [],
       "provenanceFiles": ["src-tauri/src/audio.rs"],
       "distribution": "Tone samples synthesized by application code; no recorded audio asset found in source or bundle resources",
+      "issues": []
+    },
+    {
+      "id": "asset:linux-runtime-notices",
+      "kind": "notice-resource",
+      "name": "Linux runtime source notices",
+      "version": "Pinned upstream release source notices",
+      "license": "MIT AND Apache-2.0 AND BSD-3-Clause AND MPL-2.0; native dependency notices",
+      "sources": [
+        "licenses/download-components.json"
+      ],
+      "patterns": [
+        "licenses/linux/*.txt"
+      ],
+      "textFiles": [
+        "licenses/downloads/github/csukuangfj--hclust-cpp/db76039198979ce8d03632ab6ef14fe6accb127c/LICENSE",
+        "licenses/downloads/github/csukuangfj--kaldi-native-fbank/b09e686fe2084732ddd30d1ef80acfc0f13eaf01/LICENSE",
+        "licenses/downloads/github/csukuangfj--openfst/f702a6317d600ac953fdbb4978674c3a28b6115c/COPYING",
+        "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/LICENSE",
+        "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/licenses/LICENSE-jsonhpp",
+        "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/big-integer/LICENSE",
+        "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/tools/ui/src/lib/vendors/nerdamer-prime/LICENSE",
+        "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/cpp-httplib/LICENSE",
+        "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/rotate-bits/LICENSE.md",
+        "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/sha256/LICENSE",
+        "licenses/downloads/github/ggml-org--llama.cpp/b29c606e28a01b1bc8c1351026a0fa6e616bf6c4/vendor/hash/xxhash/LICENSE",
+        "licenses/downloads/github/k2-fsa--kaldi-decoder/62fda2d74246a90db9570e46fb16b012f813fae7/LICENSE",
+        "licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE",
+        "licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/LICENSE",
+        "licenses/downloads/github/microsoft--onnxruntime/33ca9628233dc8f002435e868d4c2e9f82766ca1/ThirdPartyNotices.txt",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/cpp-annote/LICENSE",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/Eigen/COPYING.MPL2",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/doctest/LICENSE.txt",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kaldi-native-fbank/LICENSE",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/kissfft/COPYING",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/nlohmann/LICENSE.MIT",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/onnxruntime/LICENSE.txt",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf-8/LICENSE.txt",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/core/third-party/utf8proc/LICENSE.md",
+        "licenses/downloads/github/moonshine-ai--moonshine/234f60faa0eb388b01cdf7e60aca232af37aefda/docs/license.md",
+        "licenses/downloads/github/nlohmann--json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT",
+        "licenses/downloads/github/pkufool--simple-sentencepiece/62dd423df1d51da5ea06f1c3a046fc04f01b4f39/LICENSE"
+      ],
+      "distribution": "Embedded source notices retained beside Linux runtime downloads",
       "issues": []
     }
   ]

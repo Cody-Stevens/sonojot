@@ -7,6 +7,7 @@ import {
   tabCapture,
   tabCollapseAllowed,
   tabPreview,
+  tabPreviewParts,
   tabRepairPage,
   type ScreenTabIntent,
 } from "./screen-tab";
@@ -190,6 +191,27 @@ test("live preview is bounded without rewriting its Unicode suffix", () => {
   assert.ok(preview.endsWith("🪶"));
   assert.ok(!preview.includes("…"));
   assert.ok(source.endsWith(preview));
+});
+
+test("the live-preview draft trails committed text and shares its bound", () => {
+  assert.deepEqual(tabPreviewParts("Committed words.", ""), {
+    committed: "Committed words.",
+    draft: "",
+  });
+  assert.deepEqual(tabPreviewParts("", "draft only"), {
+    committed: "",
+    draft: "draft only",
+  });
+  assert.deepEqual(tabPreviewParts("Committed.", "and the draft"), {
+    committed: "Committed.",
+    draft: " and the draft",
+  });
+  const bounded = tabPreviewParts("older ".repeat(100), "newest draft 🪶", 40);
+  assert.equal(Array.from(bounded.committed + bounded.draft).length, 40);
+  assert.ok(bounded.draft.endsWith("🪶"));
+  const long = tabPreviewParts("committed", "draft ".repeat(100), 30);
+  assert.equal(long.committed, "");
+  assert.equal(Array.from(long.draft).length, 30);
 });
 
 test("a pinned Keep intent rides the queue verbatim without focus", async () => {

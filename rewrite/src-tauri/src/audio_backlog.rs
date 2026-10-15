@@ -44,10 +44,23 @@ pub struct AudioBacklog {
 }
 
 impl AudioBacklog {
+    // Dictation uses start_with_tap; tests and evaluation use this.
+    #[cfg_attr(not(any(test, feature = "fidelity-eval")), allow(dead_code))]
     pub fn start(
         receiver: Receiver<AudioMessage>,
         capture_stop: Arc<AtomicBool>,
         cancel: Arc<AtomicBool>,
+    ) -> Result<Self, String> {
+        Self::start_with_tap(receiver, capture_stop, cancel, None)
+    }
+
+    /// Also offer every captured chunk, unchanged and in order, to a
+    /// display-only live preview. The offer never blocks this worker.
+    pub(crate) fn start_with_tap(
+        receiver: Receiver<AudioMessage>,
+        capture_stop: Arc<AtomicBool>,
+        cancel: Arc<AtomicBool>,
+        tap: Option<crate::live_preview::Tap>,
     ) -> Result<Self, String> {
         if cancel.load(Ordering::Acquire) {
             capture_stop.store(true, Ordering::Release);
@@ -70,7 +83,7 @@ impl AudioBacklog {
         let producer = shared.clone();
         let worker = thread::Builder::new()
             .name("dictation-audio-backlog".into())
-            .spawn(move || produce(receiver, producer))
+            .spawn(move || produce(receiver, producer, tap))
             .map_err(|error| {
                 let message = incomplete(format!("could not start its worker: {error}"));
                 shared.fail(&mut shared.lock(), message.clone());
@@ -239,7 +252,11 @@ impl Drop for ProducerExit {
     }
 }
 
-fn produce(receiver: Receiver<AudioMessage>, shared: Arc<Shared>) {
+fn produce(
+    receiver: Receiver<AudioMessage>,
+    shared: Arc<Shared>,
+    mut tap: Option<crate::live_preview::Tap>,
+) {
     let _exit = ProducerExit(shared.clone());
     loop {
         {
@@ -260,6 +277,9 @@ fn produce(receiver: Receiver<AudioMessage>, shared: Arc<Shared>) {
                 break;
             }
         };
+        if let (Some(tap), AudioMessage::Chunk { samples, sample_rate, .. }) = (&mut tap, &message) {
+            tap.offer(samples, *sample_rate);
+        }
         let mut state = shared.lock();
         shared.check_cancel(&mut state);
         let Some(spool) = &mut state.spool else {

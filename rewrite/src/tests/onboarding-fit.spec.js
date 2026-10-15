@@ -15,20 +15,22 @@ const sizes = [
 const platforms = {
   windows: () => ({ firstRun: true, capabilities: { platform: "windows" }, setup: { mediaImport: { state: "missing", detail: null } } }),
   mac: () => ({ ...macProfileFixture(16), firstRun: true, setup: { mediaImport: { state: "missing", detail: null } } }),
-  // macOS 14.2+ before System Audio Recording is allowed; Allow grants it.
+  // macOS 14.2+ before anything is answered; Allow all asks for each.
   "mac-permission": () => {
     const mac = macProfileFixture(16);
     return { ...mac, firstRun: true, setup: { mediaImport: { state: "missing", detail: null } },
-      capabilities: { ...mac.capabilities, systemAudioStatus: "notDetermined" }, systemAudioAnswer: "ready" };
+      capabilities: { ...mac.capabilities, systemAudioStatus: "notDetermined" }, systemAudioAnswer: "ready",
+      microphonePermission: "notDetermined", microphoneAnswer: "authorized" };
   },
-  // Permission turned off earlier; the user defers it with Not now.
+  // Permissions turned off earlier; the user continues without them.
   "mac-denied": () => {
     const mac = macProfileFixture(16);
     return { ...mac, firstRun: true, setup: { mediaImport: { state: "missing", detail: null } },
-      capabilities: { ...mac.capabilities, systemAudioStatus: "denied" } };
+      capabilities: { ...mac.capabilities, systemAudioStatus: "denied" }, microphonePermission: "denied" };
   },
 };
-const order = ["welcome", "terms", "microphone", "shortcut", "dictation", "models", "meetings", "extras", "where", "ready"];
+const windowsOrder = ["welcome", "terms", "microphone", "shortcut", "dictation", "models", "downloads", "meetings", "where", "ready"];
+const macOrder = [...windowsOrder.slice(0, 2), "permissions", ...windowsOrder.slice(2)];
 
 async function screenshot(page, folder, name) {
   const target = new URL(`${folder}/`, directory);
@@ -96,6 +98,7 @@ for (const [platform, options] of Object.entries(platforms)) {
         await page.goto(`/?theme=${theme}`);
         const section = page.locator(".onboarding");
         const visited = [];
+        const order = platform === "windows" ? windowsOrder : macOrder;
         await expect(section).toHaveAttribute("data-step", order[0]);
         for (let index = 0; index < order.length + 2; index++) {
           const id = await section.getAttribute("data-step");
@@ -114,35 +117,38 @@ for (const [platform, options] of Object.entries(platforms)) {
           } else {
             await screenshot(page, folder, name);
           }
-          if (id === "extras") {
-            // Both optional downloads report progress in place, still fitting.
-            await page.getByRole("button", { name: "Review license and download" }).click();
+          if (id === "permissions") {
+            // One row per permission; System audio only where macOS has it.
+            await expect(page.getByRole("list", { name: "Permissions" }).getByRole("listitem"))
+              .toHaveCount(platform === "mac" ? 2 : 3);
+            const all = page.getByRole("button", { name: "Allow all", exact: true });
+            if (await all.isVisible()) {
+              await all.click();
+              await page.clock.runFor(2000);
+              await expectFits(page, `${folder} permissions asked`);
+              await screenshot(page, folder, `${name}-asked`);
+            }
+          }
+          if (id === "downloads") {
+            // Every row reports progress in place after one consent review.
+            await expect(page.getByRole("list", { name: "Setup downloads" }).getByRole("listitem")).toHaveCount(5);
+            await page.getByRole("button", { name: "Download and continue", exact: true }).click();
             await acceptConsentIfShown(page);
-            await expect(page.getByText("FFmpeg is installed.")).toBeVisible();
-            await page.getByRole("button", { name: "Download", exact: true }).click();
-            await acceptConsentIfShown(page);
-            await expect(page.getByRole("region", { name: "Speaker labels" }).getByRole("status")).toHaveText(/Queued|Downloading/);
-            await expectFits(page, `${folder} extras started`);
+            // Back to the step: every row reports progress in place.
+            await expect(page.getByRole("heading", { name: "Meetings" })).toBeVisible();
+            await page.getByRole("button", { name: "Back", exact: true }).click();
+            await expect(page.getByRole("heading", { name: "Downloads" })).toBeVisible();
+            await page.clock.runFor(5000);
+            await expect(page.getByRole("status", { name: "FFmpeg download" })).toHaveText("Installed");
+            await expect(page.getByRole("status", { name: /Nemotron.* download/ })).toHaveText(/Queued|Downloading/);
+            await expectFits(page, `${folder} downloads started`);
             await screenshot(page, folder, `${name}-started`);
-          }
-          const allow = page.getByRole("button", { name: "Allow system audio", exact: true });
-          if (id === "meetings" && (await allow.isVisible())) {
-            await allow.click();
-            await expect(page.getByRole("status", { name: "System audio permission" })).toContainText("Ready");
-            await expectFits(page, `${folder} meetings allowed`);
-          }
-          const later = page.getByRole("button", { name: "Not now", exact: true });
-          if (id === "meetings" && (await later.isVisible())) {
-            await later.click();
-            await expectFits(page, `${folder} meetings deferred`);
-            await screenshot(page, folder, `${name}-deferred`);
           }
           const primary = page.locator(".onboarding-footer .continue");
           await expect(primary).toBeEnabled();
           await expect(primary).toBeInViewport({ ratio: 1 });
           if (id === "ready") break;
           await primary.click();
-          if (id === "models") await acceptConsentIfShown(page);
           await expect(section).not.toHaveAttribute("data-step", id);
         }
         expect(visited).toEqual(order);

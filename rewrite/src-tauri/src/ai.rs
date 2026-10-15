@@ -201,7 +201,7 @@ fn validate_settings(settings: &AiSettings) -> Result<(), String> {
 }
 
 pub(crate) fn supported() -> Result<(), String> {
-    if cfg!(any(windows, target_os = "macos")) {
+    if cfg!(any(windows, target_os = "macos", target_os = "linux")) {
         Ok(())
     } else {
         Err("OpenRouter connection is not yet available on this system. Local processing is available.".into())
@@ -270,6 +270,10 @@ pub fn disconnect(store: &Store) -> Result<AiSettingsStatus, String> {
 fn remove_key_unlocked(store: &Store) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     keychain::remove(store)?;
+    #[cfg(target_os = "linux")]
+    if let Some(reference) = saved_reference(store) {
+        secret_service::forget(&reference);
+    }
     let path = store.root().join(KEY_FILE);
     store.check_owned(&path)?;
     if path.exists() {
@@ -345,14 +349,27 @@ fn save_key(store: &Store, key: &str, cancel: &AtomicBool) -> Result<(), String>
 fn save_protected_key(store: &Store, key: &str, cancel: &AtomicBool) -> Result<(), String> {
     let encrypted = protect_bytes(key.as_bytes(), true)?;
     let _guard = store.lock()?;
-    check_cancel(cancel)?;
-    store.write(
-        &store.root().join(KEY_FILE),
-        &ProtectedKey {
-            version: 1,
-            ciphertext: URL_SAFE_NO_PAD.encode(encrypted),
-        },
-    )
+    #[cfg(target_os = "linux")]
+    let previous = saved_reference(store);
+    let written = check_cancel(cancel).and_then(|_| {
+        store.write(
+            &store.root().join(KEY_FILE),
+            &ProtectedKey {
+                version: 1,
+                ciphertext: URL_SAFE_NO_PAD.encode(&encrypted),
+            },
+        )
+    });
+    #[cfg(target_os = "linux")]
+    match &written {
+        Ok(()) => {
+            if let Some(reference) = previous {
+                secret_service::forget(&reference);
+            }
+        }
+        Err(_) => secret_service::forget(&encrypted),
+    }
+    written
 }
 
 #[cfg(windows)]
@@ -424,7 +441,88 @@ fn protect_bytes(input: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     Ok(result)
 }
 
-#[cfg(all(not(windows), not(target_os = "macos")))]
+/// Linux keeps the key in the Secret Service (GNOME Keyring or KWallet)
+/// through libsecret's `secret-tool`. The data folder records only the
+/// random item id, so every store owns a separate item.
+#[cfg(target_os = "linux")]
+mod secret_service {
+    use std::io::{Read, Write};
+    use std::process::{Command, Stdio};
+
+    const UNAVAILABLE: &str = "Saving the OpenRouter connection needs a Secret Service keyring (gnome-keyring) and secret-tool (libsecret).";
+
+    fn run(args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+        let mut child = Command::new("secret-tool")
+            .args(args)
+            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| UNAVAILABLE.to_string())?;
+        if let Some(input) = input {
+            let mut stdin = child.stdin.take().ok_or(UNAVAILABLE)?;
+            stdin.write_all(input).map_err(|_| UNAVAILABLE.to_string())?;
+        }
+        let mut output = Vec::new();
+        child
+            .stdout
+            .take()
+            .ok_or(UNAVAILABLE)?
+            .take(16_384)
+            .read_to_end(&mut output)
+            .map_err(|_| UNAVAILABLE.to_string())?;
+        let status = child.wait().map_err(|_| UNAVAILABLE.to_string())?;
+        if status.success() { Ok(output) } else { Err(UNAVAILABLE.into()) }
+    }
+
+    fn valid(id: &str) -> bool {
+        uuid::Uuid::parse_str(id).is_ok()
+    }
+
+    pub(super) fn store(secret: &[u8]) -> Result<Vec<u8>, String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        run(
+            &["store", "--label=SonoJot OpenRouter connection", "application", "sonojot", "item", &id],
+            Some(secret),
+        )?;
+        Ok(id.into_bytes())
+    }
+
+    pub(super) fn lookup(reference: &[u8]) -> Result<Vec<u8>, String> {
+        let id = std::str::from_utf8(reference).ok().filter(|id| valid(id))
+            .ok_or("The saved OpenRouter connection is invalid. Disconnect and connect again.")?;
+        let secret = run(&["lookup", "application", "sonojot", "item", id], None)
+            .map_err(|_| "The keyring did not return the OpenRouter connection. Unlock the keyring, or disconnect and connect again.".to_string())?;
+        if secret.is_empty() {
+            return Err("The OpenRouter connection is missing from the keyring. Disconnect and connect again.".into());
+        }
+        Ok(secret)
+    }
+
+    pub(super) fn forget(reference: &[u8]) {
+        if let Some(id) = std::str::from_utf8(reference).ok().filter(|id| valid(id)) {
+            let _ = run(&["clear", "application", "sonojot", "item", id], None);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn protect_bytes(input: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
+    if input.is_empty() || input.len() > 16_384 {
+        return Err("The saved OpenRouter connection is invalid.".into());
+    }
+    if encrypt { secret_service::store(input) } else { secret_service::lookup(input) }
+}
+
+/// The keyring item named by the saved connection file, if any.
+#[cfg(target_os = "linux")]
+fn saved_reference(store: &Store) -> Option<Vec<u8>> {
+    let path = store.root().join(KEY_FILE);
+    let protected: ProtectedKey = store.read(&path).ok()?;
+    URL_SAFE_NO_PAD.decode(protected.ciphertext).ok()
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn protect_bytes(_input: &[u8], _encrypt: bool) -> Result<Vec<u8>, String> {
     Err("Secure OpenRouter storage is not yet available on this system.".into())
 }
@@ -799,7 +897,21 @@ fn open_browser(url: &reqwest::Url) -> Result<(), String> {
         }
         Ok(())
     }
-    #[cfg(all(not(windows), not(target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        let opened = std::process::Command::new("xdg-open")
+            .arg(url.as_str())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|_| "Cannot open your browser for OpenRouter sign-in.".to_string())?;
+        if !opened.success() {
+            return Err("Cannot open your browser for OpenRouter sign-in.".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         supported()
     }

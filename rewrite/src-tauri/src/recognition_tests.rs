@@ -136,6 +136,7 @@ fn fake_child() {
                         raw: raw.clone(),
                         original_text: behavior.starts_with("guarded").then(|| format!("{raw} go go go go")),
                         warnings: vec![],
+                        committed_seconds: None,
                     }
                 }
             }
@@ -590,7 +591,8 @@ fn response_validation_rejects_wrong_version_request_and_oversized_text() {
             body: Reply::Text {
                 raw: "a".repeat(MAX_TEXT + 1),
                 original_text: None,
-                warnings: vec![]
+                warnings: vec![],
+                committed_seconds: None
             }
         },
         1,
@@ -635,7 +637,7 @@ fn original_text_roundtrips_in_worker_frames_and_obeys_byte_limits() {
                     }, details: None,
                 }
             } else {
-                Reply::Text { raw: String::new(), original_text: Some(original), warnings: vec!["omitted".into()] }
+                Reply::Text { raw: String::new(), original_text: Some(original), warnings: vec!["omitted".into()], committed_seconds: None }
             };
             let response = Response { version: VERSION, request: 1, session: 1, body };
             let bytes = encode(&response).unwrap();
@@ -662,4 +664,12 @@ fn original_text_roundtrips_in_worker_frames_and_obeys_byte_limits() {
     ).unwrap();
     assert!(legacy.original_text.is_none());
     assert_eq!(legacy.original_text(), "Old words.");
+}
+
+#[test]
+fn background_helpers_get_the_two_highest_allowed_processors() {
+    assert_eq!(background_affinity(0b1111_1111, 2), 0b1100_0000);
+    assert_eq!(background_affinity(0b0101_0101, 2), 0b0101_0000);
+    assert_eq!(background_affinity(0b0000_0011, 2), 0b0000_0011);
+    assert_eq!(background_affinity(0b0000_0100, 2), 0b0000_0100);
 }

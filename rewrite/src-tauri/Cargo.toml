@@ -60,7 +60,7 @@ tar = "0.4"
 flate2 = "1"
 
 # Speaker labels load ONNX Runtime dynamically on Windows x64 and Apple Silicon.
-[target.'cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))'.dependencies]
+[target.'cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))'.dependencies]
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["load-dynamic", "api-17"] }
 zip = { version = "4", default-features = false, features = ["deflate"] }
 
@@ -78,6 +78,10 @@ panic = "abort"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# The screen tab's input region on Linux (Tauri already links GTK 0.18).
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"

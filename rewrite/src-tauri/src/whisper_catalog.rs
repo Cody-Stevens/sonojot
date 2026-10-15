@@ -594,22 +594,28 @@ pub fn install_model(
     if cancel.load(Ordering::Acquire) {
         return Err("Transcription cancelled.".into());
     }
-    #[cfg(not(all(windows, target_arch = "x86_64")))]
+    #[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
     {
         let _ = (models_root, m, cancel, progress);
-        return Err("Automatic speech-model install is available only on 64-bit Windows.".into());
+        return Err("Automatic speech-model install is available only on Windows x64 or Linux x64.".into());
     }
-    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
     {
+        let runtime_bytes = if cfg!(target_os = "linux") { crate::optional_asr::runtime_download_bytes(models_root) } else { 0 };
+        if cfg!(target_os = "linux") {
+            crate::optional_asr::ensure_runtime_with_cancel(models_root, cancel, &|done, _| {
+                progress(done, runtime_bytes + package_bytes(m));
+            })?;
+        }
         if !crate::optional_asr::runtime_ready(models_root) {
             return Err("Install an existing optional speech model first so the verified CPU runtime is present; Whisper reuses that runtime.".into());
         }
         if model_ready(models_root, m.id) {
             return Ok(());
         }
-        let total: u64 = package_bytes(m);
-        let mut done: u64 = 0;
-        progress(0, total);
+        let total: u64 = runtime_bytes + package_bytes(m);
+        let mut done: u64 = runtime_bytes;
+        progress(done, total);
         let root = crate::optional_asr::optional_root(models_root);
         fs::create_dir_all(&root)
             .map_err(|e| format!("Cannot create the optional models folder: {e}"))?;

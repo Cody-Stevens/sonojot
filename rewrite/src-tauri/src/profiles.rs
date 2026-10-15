@@ -28,6 +28,7 @@ const QWEN_SMALL_CPU: &str = crate::llama_asr::SMALL_CPU_MODEL_ID;
 const QWEN_Q8_METAL: &str = crate::llama_asr::METAL_Q8_MODEL_ID;
 const QWEN_Q4_METAL: &str = crate::llama_asr::METAL_Q4_MODEL_ID;
 const MOONSHINE_MEDIUM: &str = "moonshine-medium";
+const PARAKEET: &str = "parakeet-tdt-0.6b-v2";
 const MOONSHINE_SMALL: &str = "moonshine-small";
 const WHISPER_SMALL_METAL: &str = "whisper-small-metal";
 const QWEN_NOTES: &str = "qwen3-4b-instruct-2507";
@@ -82,6 +83,8 @@ pub fn inspect(models_root: &Path) -> HardwareProfiles {
             "windows"
         } else if cfg!(target_os = "macos") {
             "macos"
+        } else if cfg!(target_os = "linux") {
+            "linux"
         } else {
             "unknown"
         }.into(),
@@ -143,8 +146,8 @@ pub fn recommend(hardware: &HardwareProfile, profile: SetupProfile) -> Selection
             }
             _ => QWEN_Q4_METAL,
         }
-    } else if hardware.platform == "windows" {
-        let cuda_speech = hardware.cuda_ok
+    } else if matches!(hardware.platform.as_str(), "windows" | "linux") {
+        let cuda_speech = hardware.platform == "windows" && hardware.cuda_ok
             && hardware.total_vram_bytes.is_some_and(|vram| vram >= CUDA_SPEECH_MIN_VRAM);
         let strong = strong_cpu(hardware);
         if cuda_speech {
@@ -159,26 +162,30 @@ pub fn recommend(hardware: &HardwareProfile, profile: SetupProfile) -> Selection
                 reasons.push("GPU memory is unknown; speech will use the CPU.".into());
             } else if hardware.cuda_ok && hardware.total_vram_bytes.is_some_and(|vram| vram < CUDA_SPEECH_MIN_VRAM) {
                 reasons.push("Qwen GPU speech needs at least 6 GiB of GPU memory.".into());
-            } else if hardware.gpu_name.is_some() || hardware.gpu_driver_version.is_some() {
+            } else if hardware.platform == "windows" && (hardware.gpu_name.is_some() || hardware.gpu_driver_version.is_some()) {
                 reasons.push("CUDA 13.3 compatibility or its runtime could not be confirmed; speech will use the CPU.".into());
             }
+            // CPU-only Balanced uses Parakeet: on a 4-core CPU (October 15, 2026)
+            // it scored 3.3% word errors on one-minute TED clips against 2.9%
+            // for Qwen 1.7B and 3.7% for Qwen 0.6B, and finished 0.15 s after
+            // speech ended against 2.0 s and 1.5 s. Accurate keeps Qwen 1.7B.
             match (strong, profile) {
-                (true, SetupProfile::Accurate | SetupProfile::Balanced) => {
+                (true, SetupProfile::Accurate) => {
                     reasons.push("The CPU and RAM meet the recommendation for Qwen speech.".into());
                     QWEN_CPU
                 }
-                (true, _) => MOONSHINE_MEDIUM,
                 (false, SetupProfile::Accurate) => {
                     reasons.push("Qwen speech is slower on this computer.".into());
                     QWEN_CPU
                 }
-                // Without a known RAM size the memory guard cannot check Qwen,
-                // so Balanced keeps the lighter streaming model.
-                (false, SetupProfile::Balanced) if hardware.total_ram_bytes.is_some() => {
-                    reasons.push("The smaller Qwen model uses less memory and suits fewer CPU cores.".into());
-                    QWEN_SMALL_CPU
+                // Without a known RAM size the memory guard cannot check
+                // Parakeet, so Balanced keeps the lighter streaming model.
+                (_, SetupProfile::Balanced) if hardware.total_ram_bytes.is_some() => {
+                    reasons.push("Parakeet is nearly as accurate as Qwen on the CPU and finishes moments after you stop speaking.".into());
+                    PARAKEET
                 }
-                (false, SetupProfile::Balanced) => MOONSHINE_MEDIUM,
+                (_, SetupProfile::Balanced) => MOONSHINE_MEDIUM,
+                (true, _) => MOONSHINE_MEDIUM,
                 _ => MOONSHINE_SMALL,
             }
         }
@@ -255,7 +262,8 @@ fn dictation_exceeds(selection: &Selection, ram: u64) -> bool {
 fn lighter_speech(id: &str) -> Option<(&'static str, &'static str)> {
     match id {
         QWEN_CPU => Some((QWEN_SMALL_CPU, "Qwen 0.6B replaces Qwen 1.7B")),
-        QWEN_SMALL_CPU => Some((MOONSHINE_MEDIUM, "Moonshine replaces Qwen speech")),
+        QWEN_SMALL_CPU => Some((PARAKEET, "Parakeet replaces Qwen speech")),
+        PARAKEET => Some((MOONSHINE_MEDIUM, "Moonshine replaces Parakeet")),
         QWEN_Q8_METAL => Some((QWEN_Q4_METAL, "Qwen Q4 replaces Q8")),
         QWEN_Q4_METAL => Some((WHISPER_SMALL_METAL, "Whisper Small replaces Qwen speech")),
         _ => None,
@@ -348,17 +356,17 @@ mod profiles_tests {
         unknown_cores.total_ram_bytes = None;
         let cases = [
             (nvidia(), [QWEN_CUDA, QWEN_CUDA, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (windows(32, Some(6), Some(6)), [QWEN_CPU, QWEN_CPU, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (windows(32, None, Some(12)), [QWEN_CPU, QWEN_CPU, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (windows(32, Some(4), Some(16)), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (windows(32, None, Some(11)), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (windows(32, None, None), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (windows(32, Some(6), Some(6)), [QWEN_CPU, PARAKEET, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (windows(32, None, Some(12)), [QWEN_CPU, PARAKEET, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (windows(32, Some(4), Some(16)), [QWEN_CPU, PARAKEET, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (windows(32, None, Some(11)), [QWEN_CPU, PARAKEET, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (windows(32, None, None), [QWEN_CPU, PARAKEET, MOONSHINE_SMALL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
             (HardwareProfile { total_ram_bytes: Some(16 * GIB), ..nvidia() }, [QWEN_CUDA, QWEN_CUDA, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (windows(16, Some(6), Some(12)), [QWEN_CPU, QWEN_CPU, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
-            (windows(12, Some(4), Some(8)), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
-            (windows(8, Some(4), Some(8)), [QWEN_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
-            (windows(7, Some(4), Some(8)), [QWEN_SMALL_CPU, QWEN_SMALL_CPU, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
-            (windows(6, Some(4), Some(8)), [MOONSHINE_MEDIUM, MOONSHINE_MEDIUM, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
+            (windows(16, Some(6), Some(12)), [QWEN_CPU, PARAKEET, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
+            (windows(12, Some(4), Some(8)), [QWEN_CPU, PARAKEET, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
+            (windows(8, Some(4), Some(8)), [QWEN_CPU, PARAKEET, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
+            (windows(7, Some(4), Some(8)), [QWEN_SMALL_CPU, PARAKEET, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
+            (windows(6, Some(4), Some(8)), [PARAKEET, PARAKEET, MOONSHINE_SMALL], [LIGHT_NOTES; 3]),
             (apple(32), [QWEN_Q8_METAL, QWEN_Q4_METAL, WHISPER_SMALL_METAL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
             (apple(24), [QWEN_Q8_METAL, QWEN_Q4_METAL, WHISPER_SMALL_METAL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
             (apple(16), [QWEN_Q8_METAL, QWEN_Q4_METAL, WHISPER_SMALL_METAL], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]),
@@ -420,9 +428,12 @@ mod profiles_tests {
         let smaller = recommend(&windows(7, Some(4), Some(8)), SetupProfile::Accurate);
         assert_eq!(smaller.asr_model, QWEN_SMALL_CPU);
         assert!(smaller.reasons.iter().any(|reason| reason == "Qwen 0.6B replaces Qwen 1.7B because dictation memory would exceed 45% of RAM."));
-        let moonshine = recommend(&windows(6, Some(4), Some(8)), SetupProfile::Accurate);
+        let parakeet = recommend(&windows(6, Some(4), Some(8)), SetupProfile::Accurate);
+        assert_eq!(parakeet.asr_model, PARAKEET);
+        assert!(parakeet.reasons.iter().any(|reason| reason.starts_with("Parakeet replaces Qwen speech")));
+        let moonshine = recommend(&windows(4, Some(4), Some(8)), SetupProfile::Balanced);
         assert_eq!(moonshine.asr_model, MOONSHINE_MEDIUM);
-        assert!(moonshine.reasons.iter().any(|reason| reason.starts_with("Moonshine replaces Qwen speech")));
+        assert!(moonshine.reasons.iter().any(|reason| reason.starts_with("Moonshine replaces Parakeet")));
 
         // 8 GiB fits Qwen dictation but not Notes. Notes is reported, never
         // traded for a worse speech model.
@@ -509,7 +520,7 @@ mod profiles_tests {
     fn profiles_unknown_or_small_vram_never_selects_cuda() {
         for vram in [None, Some(0), Some(6 * GIB - 1)] {
             let hardware = HardwareProfile { total_vram_bytes: vram, ..nvidia() };
-            assert_models(&hardware, [QWEN_CPU, QWEN_CPU, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]);
+            assert_models(&hardware, [QWEN_CPU, PARAKEET, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]);
         }
         let boundary = HardwareProfile { total_vram_bytes: Some(6 * GIB), ..nvidia() };
         assert_eq!(recommend(&boundary, SetupProfile::Accurate).asr_model, QWEN_CUDA);
@@ -521,7 +532,7 @@ mod profiles_tests {
             HardwareProfile { cuda_ok: false, ..nvidia() },
             HardwareProfile { gpu_name: Some("AMD Radeon".into()), ..windows(32, Some(6), Some(12)) },
         ] {
-            assert_eq!(recommend(&hardware, SetupProfile::Balanced).asr_model, QWEN_CPU);
+            assert_eq!(recommend(&hardware, SetupProfile::Balanced).asr_model, PARAKEET);
         }
         // Metadata alone never proves compatibility. Conversely, a runtime
         // that confirms CUDA support does not need a guessed driver threshold.
@@ -548,6 +559,13 @@ mod profiles_tests {
             assert_models(&unsupported, [""; 3], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]);
             assert!(recommend(&unsupported, SetupProfile::Accurate).reasons.iter().any(|reason| reason.contains("unavailable on this platform")));
         }
+    }
+
+    #[test]
+    fn profiles_linux_uses_cpu_choices_even_with_nvidia_metadata() {
+        let hardware = HardwareProfile { platform: "linux".into(), cuda_ok: true,
+            total_vram_bytes: Some(12 * GIB), ..windows(32, Some(8), Some(16)) };
+        assert_models(&hardware, [QWEN_CPU, PARAKEET, MOONSHINE_MEDIUM], [QWEN_NOTES, QWEN_NOTES, LIGHT_NOTES]);
     }
 
     #[test]

@@ -171,7 +171,8 @@ pub async fn save_settings(
     {
         return Err("Choose an installed local model or configure OpenRouter before selecting remote Notes.".into());
     }
-    let shortcut_changed = old.hotkey != settings.hotkey;
+    let shortcut_changed = old.hotkey != settings.hotkey
+        || (crate::app::compositor_binds() && old.hotkey_mode != settings.hotkey_mode);
     // Model identity plus the text-device preference decide which native
     // weights load: a textAcceleration flip mid-job would switch CPU/GPU
     // under later chunks (server_matches compares against this preference),
@@ -219,7 +220,7 @@ pub async fn save_settings(
             }
         }
         if shortcut_changed {
-            register_shortcut(&app, &settings.hotkey)?;
+            register_shortcut(&app, &settings.hotkey, settings.hotkey_mode)?;
         }
         let executable = std::env::current_exe().map_err(|e| e.to_string())?;
         if old.launch_at_login != settings.launch_at_login {

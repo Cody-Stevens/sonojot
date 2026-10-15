@@ -103,6 +103,54 @@ test("live preview has clearance above and below its text", async ({
     .screenshot({ path: testInfo.outputPath("preview-spacing.png") });
 });
 
+for (const theme of ["fog", "slate"]) {
+  test(`live-preview draft follows committed text in lighter ink (${theme})`, async ({
+    page,
+  }, testInfo) => {
+    await screenTab(page);
+    await page.evaluate(
+      (theme) =>
+        window.__tabPush({
+          settings: { ...window.__tabState().settings, theme },
+          state: "loading",
+          tabExpanded: true,
+          interimText: "",
+          previewText: "words appear while the model loads",
+        }),
+      theme,
+    );
+    const preview = page.getByLabel("Live transcript");
+    await expect(preview).toHaveText("words appear while the model loads");
+    await page.evaluate(() =>
+      window.__tabPush({
+        state: "listening",
+        interimText: "Committed sentence.",
+        previewText: "and a quick draft",
+      }),
+    );
+    await expect(preview).toHaveText("Committed sentence. and a quick draft");
+    const draft = preview.locator("[data-live-preview]");
+    await expect(draft).toHaveText(" and a quick draft");
+    const opacity = await draft.evaluate((node) =>
+      Number(getComputedStyle(node).opacity),
+    );
+    expect(opacity).toBeGreaterThan(0.5);
+    expect(opacity).toBeLessThan(1);
+    await page
+      .locator(".screen-tab")
+      .screenshot({ path: testInfo.outputPath(`live-preview-${theme}.png`) });
+    // The draft never outlives the result.
+    await page.evaluate(() =>
+      window.__tabPush({
+        state: "listening",
+        interimText: "Committed sentence. And more.",
+        previewText: "",
+      }),
+    );
+    await expect(draft).toHaveCount(0);
+  });
+}
+
 for (const action of ["button", "Escape"]) {
   test(`stop cleanup with ${action} keeps text and uses the cleanup command`, async ({
     page,

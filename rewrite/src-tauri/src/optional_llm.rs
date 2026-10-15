@@ -265,7 +265,12 @@ fn uninstall(runtime: &Runtime, id: &str) -> Result<(), String> {
     Err("Confirm removal in Setup before deleting model files. Use the guarded model library removal with confirmation; nothing was deleted.".into())
 }
 
-#[cfg(not(all(windows, target_arch = "x86_64")))]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn install_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
+    crate::model_manager::install_linux_text(&runtime.models_root, id)
+}
+
+#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
 fn install_platform(_runtime: &Runtime, _id: &str) -> Result<(), String> {
     Err("Automatic text-model install is available only on 64-bit Windows.".into())
 }

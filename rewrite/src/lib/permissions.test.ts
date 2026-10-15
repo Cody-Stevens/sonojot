@@ -5,7 +5,9 @@ import {
   MAC_PASTE_COPY,
   offerReset,
   PERMISSION_RESET_LABEL,
+  permissionLabel,
   permissionState,
+  SETUP_PERMISSIONS,
 } from "./permissions";
 import { parseResponse, permissionStatusSchema } from "./protocol";
 
@@ -18,6 +20,7 @@ const status = {
   body: "Switch SonoJot on in the list.",
   staleHint: "Already on but paste still doesn't work? Reset it.",
   canReset: true,
+  draggable: true,
 };
 
 test("the reset is offered only after a try that left access off", () => {
@@ -109,4 +112,40 @@ test("Mac copy no longer says automatic paste is missing", () => {
     "utf8",
   );
   assert.doesNotMatch(onboarding, /not implemented/i);
+});
+
+test("setup lists the three Mac permissions with one row anatomy", () => {
+  assert.deepEqual(
+    SETUP_PERMISSIONS.map((row) => row.kind),
+    ["microphone", "accessibility", "system_audio"],
+  );
+  for (const row of SETUP_PERMISSIONS) {
+    assert.ok(row.name && row.why.endsWith("."), row.kind);
+    // One line of why: short enough for the minimum window.
+    assert.ok(row.why.length <= 72, row.kind);
+  }
+  assert.equal(permissionLabel("granted"), "Allowed");
+  assert.equal(permissionLabel("needed"), "Not allowed yet");
+});
+
+test("the helper's drag icon follows the spec; status defaults to draggable", () => {
+  const parsed = permissionStatusSchema.parse({
+    ...status,
+    draggable: undefined,
+  });
+  assert.equal(parsed.draggable, true);
+  assert.equal(
+    permissionStatusSchema.parse({
+      ...status,
+      kind: "microphone",
+      draggable: false,
+    }).draggable,
+    false,
+  );
+  const rust = readFileSync(
+    new URL("../../src-tauri/src/permissions.rs", import.meta.url),
+    "utf8",
+  );
+  // The microphone list takes no drops, so its spec says so.
+  assert.match(rust, /kind: "microphone",[\s\S]*?draggable: false,/);
 });

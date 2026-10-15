@@ -39,6 +39,8 @@ pub struct StartOptions {
     /// they are never derived from history.
     pub confirmed_vocabulary: Vec<crate::structured_clean::VocabularyEntry>,
     pub auto_stop_seconds: u64,
+    /// Run the live preview beside the primary when its model is installed.
+    pub live_preview: bool,
     /// No-history snapshot for this job (from `do_not_save_dictations`).
     /// When true, the job calls the owned per-job erase
     /// (`cleanup_resource::end_job_report`) under its still-held text lease
@@ -66,6 +68,7 @@ impl Default for StartOptions {
             policy: cleanup::CleanupPolicy::conservative(),
             confirmed_vocabulary: Vec::new(),
             auto_stop_seconds: 0,
+            live_preview: false,
             no_history: false,
             store: None,
         }
@@ -112,6 +115,7 @@ impl StartOptions {
             policy: cleanup::CleanupPolicy::conservative(),
             confirmed_vocabulary,
             auto_stop_seconds: settings.auto_stop_seconds as u64,
+            live_preview: settings.live_preview,
             no_history: settings.do_not_save_dictations,
             store,
         }
@@ -179,6 +183,11 @@ pub enum Event {
         session_id: u64,
         text: String,
     },
+    /// Live-preview draft after the primary's committed text. Display only.
+    Preview {
+        session_id: u64,
+        text: String,
+    },
     Finishing {
         session_id: u64,
     },
@@ -236,6 +245,8 @@ struct Job {
     options: StartOptions,
     capture: Capture,
     audio: Option<AudioBacklog>,
+    /// Display-only helper; dropped with the job (see `live_preview`).
+    preview: Option<crate::live_preview::Preview>,
     _punctuation_prewarm: Option<crate::punctuation::Prewarm>,
     // Drop last, after the capture and audio drain owners.
     _update_activity: resource_manager::UpdateActivityLease,
@@ -534,8 +545,30 @@ impl Engine {
             capture_stop: capture.stop_handle(),
             start_cue: Some(capture.start_cue()),
         };
-        let audio =
-            AudioBacklog::start(audio, control.capture_stop.clone(), control.cancel.clone())?;
+        // The live preview receives a copy of the same captured audio, before
+        // the disk spool, so a slow or loading primary never delays it.
+        let (preview, tap) = crate::live_preview::wanted(
+            &self.inner.models_root,
+            options.live_preview,
+            &options.asr_model,
+        )
+        .then(|| {
+            crate::live_preview::Preview::start(
+                self.inner.models_root.clone(),
+                id,
+                self.inner.callback.clone(),
+                capture.cue_mask(),
+                control.cancel.clone(),
+            )
+        })
+        .flatten()
+        .unzip();
+        let audio = AudioBacklog::start_with_tap(
+            audio,
+            control.capture_stop.clone(),
+            control.cancel.clone(),
+            tap,
+        )?;
         let punctuation_prewarm = (options.cleanup_mode != cleanup::Mode::Original)
             .then(|| crate::punctuation::prewarm(&self.inner.models_root, control.cancel.clone()));
         *active = Some(control.clone());
@@ -573,6 +606,7 @@ impl Engine {
                 options,
                 capture,
                 audio: Some(audio),
+                preview,
                 _punctuation_prewarm: punctuation_prewarm,
             }))
             .is_err()
@@ -1051,10 +1085,17 @@ fn run_job(
                                 0,
                             );
                         }
-                        callback(Event::Interim {
-                            session_id: id,
-                            text: text.clone(),
-                        });
+                        let publish = || {
+                            callback(Event::Interim {
+                                session_id: id,
+                                text: text.clone(),
+                            })
+                        };
+                        // The preview restarts after the newly committed audio.
+                        match &job.preview {
+                            Some(preview) => preview.commit(stream.committed_seconds(), publish),
+                            None => publish(),
+                        }
                         last_interim = text;
                     }
                     last_update = Instant::now();
@@ -1082,6 +1123,10 @@ fn run_job(
                 return Err("Audio ended without capture finalization.".into());
             }
         }
+    }
+    // Final recognition replaces the draft; stop decoding it now.
+    if let Some(preview) = &job.preview {
+        preview.stop();
     }
     for (event, value) in [
         ("audio-consumed-ms", audio_ms as u64),

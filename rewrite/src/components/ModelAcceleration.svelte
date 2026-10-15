@@ -27,7 +27,7 @@
   const platform = $derived(app.snapshot.capabilities.platform);
   const isMac = $derived((platform ?? "").toLowerCase() === "macos");
   const gpuOption = $derived(
-    isMac ? "Metal when available" : "NVIDIA CUDA when available",
+    isMac ? "Metal when available" : platform === "linux" ? "Vulkan when available" : "NVIDIA CUDA when available",
   );
   const info = $derived(
     modelAcceleration(
