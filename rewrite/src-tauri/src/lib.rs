@@ -3,7 +3,11 @@ mod permissions;
 mod ai;
 mod ai_catalog;
 mod ai_commands;
+pub mod agent_integration;
 mod app;
+pub mod app_context;
+pub mod cli_protocol;
+mod cli_server;
 pub mod asr;
 mod asr_filter;
 pub mod audio;
@@ -53,6 +57,7 @@ mod gpu_asr;
 pub use crate::cleanup::resource as cleanup_resource;
 pub mod platform;
 mod profiles;
+mod proofreader;
 mod onboarding;
 pub mod punctuation;
 pub mod written_form;
@@ -78,6 +83,9 @@ mod hyprland;
 #[cfg(target_os = "linux")]
 mod omarchy;
 mod windows;
+/// The macOS focus probe builds its window the way the cursor indicator does.
+#[cfg(feature = "fidelity-eval")]
+pub use windows::build_quiet;
 mod updater;
 
 use app::Runtime;
@@ -111,6 +119,32 @@ fn tray_icon() -> Result<tauri::image::Image<'static>, tauri::Error> {
         include_bytes!("../../src/brand/marks/tray-white.png")
     };
     tauri::image::Image::from_bytes(bytes)
+}
+
+/// Quits the way the tray's Quit item does: stop capture and jobs, save an
+/// active meeting recording, release models, then exit.
+pub(crate) fn quit_app(app: tauri::AppHandle, runtime: Arc<Runtime>) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = onboarding::close_early(&app, &runtime).await {
+            runtime.report(&app, error);
+            return;
+        }
+        runtime.engine.cancel();
+        runtime.meetings.cancel_all();
+        crate::ai_commands::cancel_optional_jobs();
+        let r = runtime.clone();
+        let a = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let _ = r.engine.shutdown(std::time::Duration::from_secs(5));
+            if r.snapshot().is_ok_and(|s| s.meeting_recording) {
+                let _ = commands::finish_recording(&a, &r);
+            }
+        })
+        .await;
+        cleanup::shutdown();
+        resource_manager::release_all_for_exit();
+        app.exit(0);
+    });
 }
 
 pub fn run() {
@@ -175,6 +209,7 @@ pub fn run() {
             ai_commands::get_ai_settings,
             ai_commands::save_ai_settings,
             ai_commands::connect_openrouter,
+            ai_commands::open_openrouter_privacy,
             ai_commands::cancel_ai_connect,
             ai_commands::disconnect_openrouter,
             ai_commands::list_ai_models,
@@ -232,6 +267,9 @@ pub fn run() {
             commands::clean_meeting,
             commands::set_meeting_speaker_labels,
             commands::delete_meeting,
+            commands::join_meetings,
+            commands::meeting_speakers,
+            commands::rename_meeting_speaker,
             commands::generate_notes,
             commands::export_meeting,
             commands::export_meeting_audio,
@@ -277,6 +315,11 @@ pub fn run() {
                 runtime.report(app.handle(), error);
             }
             app.manage(runtime.clone());
+            // Agents and scripts drive the app through `sonojot-cli` (see cli_protocol).
+            cli_server::start(app.handle());
+            // Once per install location: sonojot-cli on PATH, agents pointed at it.
+            let data_dir = runtime.store.root().to_path_buf();
+            std::thread::spawn(move || agent_integration::ensure_once(&data_dir));
             // macOS: remember the app in use before a menu bar click activates SonoJot.
             platform::observe_app_activations();
             meeting_ai::start_automatic_titles(&runtime, app.handle());
@@ -430,28 +473,7 @@ pub fn run() {
                         }
                         "quit" => {
                             recognition_diagnostics::event("tray-quit-requested", "", std::process::id(), 0, 0, 0);
-                            let app = app.clone();
-                            tauri::async_runtime::spawn(async move {
-                                if let Err(error) = onboarding::close_early(&app, &runtime).await {
-                                    runtime.report(&app, error);
-                                    return;
-                                }
-                                runtime.engine.cancel();
-                                runtime.meetings.cancel_all();
-                                crate::ai_commands::cancel_optional_jobs();
-                                let r = runtime.clone();
-                                let a = app.clone();
-                                let _ = tauri::async_runtime::spawn_blocking(move || {
-                                    let _ = r.engine.shutdown(std::time::Duration::from_secs(5));
-                                    if r.snapshot().is_ok_and(|s| s.meeting_recording) {
-                                        let _ = commands::finish_recording(&a, &r);
-                                    }
-                                })
-                                .await;
-                                cleanup::shutdown();
-                                resource_manager::release_all_for_exit();
-                                app.exit(0);
-                            });
+                            quit_app(app.clone(), runtime);
                         }
                         _ => {}
                     }

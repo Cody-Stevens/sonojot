@@ -1,6 +1,28 @@
 // This host exists only in the test bundle. It does not record audio or write files.
 import { readFileSync } from "node:fs";
 const downloadConsentCatalog = JSON.parse(readFileSync(new URL("../../legal/download-consent.json", import.meta.url), "utf8"));
+export const proofreaderCatalog = [
+  {
+    id: "openai/gpt-6-luna", name: "GPT-6 Luna", contextLength: 32000,
+    promptPrice: "0.000001", completionPrice: "0.000002",
+    inputModalities: ["text"], supportedParameters: ["reasoning", "temperature"], trainingRequired: false,
+  },
+  {
+    id: "mock/proofreader", name: "Another proofreading model", contextLength: 32000,
+    promptPrice: "0.000001", completionPrice: "0.000002",
+    inputModalities: ["text"], supportedParameters: ["temperature"], trainingRequired: false,
+  },
+  {
+    id: "meta/muse-spark-1.3-contributor", name: "Muse Spark Contributor", contextLength: 32000,
+    promptPrice: "0.000001", completionPrice: "0.000002",
+    inputModalities: ["text"], supportedParameters: [], trainingRequired: true,
+  },
+  {
+    id: "mock/another-training-model", name: "Another training model", contextLength: 32000,
+    promptPrice: "0.000001", completionPrice: "0.000002",
+    inputModalities: ["text"], supportedParameters: [], trainingRequired: true,
+  },
+];
 export const structuredMeetingTranscript =
   "[0:12] You: Keep 4.6. Do not replace the backup.\n\n[0:31] Other speakers: I will check the release notes.\n\n[1:02:03] You: We can ship after the review.";
 
@@ -157,6 +179,10 @@ export async function installDesktopFixture(page, options = {}) {
         cleanupMode: "clean",
         cleanupTrial: false,
         smartLayout: false,
+        smartLayoutAppHint: false,
+        proofreader: false,
+        proofreaderModel: "openai/gpt-6-luna",
+        proofreaderTrainingModels: [],
         writtenForm: true,
         launchAtLogin: false,
         hotkey: "Ctrl+Shift+D",
@@ -1195,7 +1221,7 @@ export async function installDesktopFixture(page, options = {}) {
           case "copy_smart_original":
             if (state.resultSessionId !== args.resultSessionId || state.sessionId !== null ||
                 !["idle", "error"].includes(state.state) || state.meetingRecording ||
-                !["smart_cleanup", "smart_layout"].includes(state.publicationStage) || !state.preModelText ||
+                !["smart_cleanup", "smart_layout", "proofread"].includes(state.publicationStage) || !state.preModelText ||
                 state.preModelText === state.outputText || state.recognitionCompleteness !== "complete") {
               throw new Error("This cleaned dictation is no longer current. Review it in Recent dictations.");
             }
@@ -1277,11 +1303,19 @@ export async function installDesktopFixture(page, options = {}) {
             emit();
             return clone(state);
           case "copy_text":
-          case "copy_history":
+            window.__testClipboard = args.original ? state.originalText : state.outputText;
+            return null;
+          case "copy_history": {
+            const entry = history.find((entry) => entry.id === args.id);
+            if (!entry) throw new Error("This dictation is no longer saved.");
+            window.__testClipboard = args.original ? entry.raw : entry.published;
+            return null;
+          }
           case "open_path":
           case "open_punctuation_model_page":
           case "open_model_license":
           case "open_legal_link":
+          case "open_openrouter_privacy":
           case "open_download_license":
           case "export_meeting":
             return null;

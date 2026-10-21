@@ -460,6 +460,8 @@ const catalogModel = (
   completionPrice: "0.000002",
   description: null,
   inputModalities,
+  supportedParameters: [],
+  trainingRequired: false,
   reasoningEffort,
 });
 

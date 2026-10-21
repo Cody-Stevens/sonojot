@@ -159,7 +159,7 @@ for (const theme of ["fog", "slate"]) {
     await expect(recovery).toBeVisible();
     await expect(recovery).toHaveAttribute(
       "title",
-      "Copy text from before AI cleanup or layout changes",
+      "Copy text from before cleanup, proofreading or layout changes",
     );
     await page.evaluate(() => document.fonts.ready);
     const sheet = await page.locator(".tab-sheet").boundingBox();

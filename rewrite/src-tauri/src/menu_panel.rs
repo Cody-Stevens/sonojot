@@ -535,9 +535,8 @@ mod native {
         .skip_taskbar(true)
         .focused(false)
         .visible(false)
-        .accept_first_mouse(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .accept_first_mouse(true);
+        let window = crate::windows::build_quiet(app, window).map_err(|e| e.to_string())?;
         let _ = window.set_visible_on_all_workspaces(true);
         PASSIVE_READY.store(false, Ordering::Release);
         Ok(window)

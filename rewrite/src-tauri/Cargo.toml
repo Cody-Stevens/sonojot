@@ -1,6 +1,6 @@
 [package]
 name = "sonojot"
-version = "0.28.6"
+version = "0.28.8"
 description = "Private local dictation and meetings"
 authors = ["Cody Stevens Studio"]
 license = "Apache-2.0"
@@ -15,6 +15,11 @@ crate-type = ["rlib"]
 custom-protocol = ["tauri/custom-protocol"]
 fidelity-eval = []
 
+# Console companion for agents and scripts; ships beside the app.
+[[bin]]
+name = "sonojot-cli"
+path = "src/bin/sonojot_cli.rs"
+
 [[bin]]
 name = "fidelity_eval"
 path = "src/bin/fidelity_eval.rs"
@@ -23,6 +28,11 @@ required-features = ["fidelity-eval"]
 [[bin]]
 name = "punctuation_probe"
 path = "src/bin/punctuation_probe.rs"
+required-features = ["fidelity-eval"]
+
+[[bin]]
+name = "focus_probe"
+path = "src/bin/focus_probe.rs"
 required-features = ["fidelity-eval"]
 
 [build-dependencies]
@@ -38,7 +48,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "=2.10.1"
 tauri-plugin-process = "=2.3.1"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 regex = "1"
 # Local tokenizer JSON only: no hub/HTTP, progress UI, or C++ trainer.
 tokenizers = { version = "=0.22.2", default-features = false, features = ["fancy-regex"] }
@@ -48,7 +58,7 @@ cpal = "0.15"
 hound = "3.5"
 libloading = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-tokio = { version = "1", features = ["time", "sync", "rt", "rt-multi-thread"] }
+tokio = { version = "1", features = ["time", "sync", "rt", "rt-multi-thread", "net", "io-util"] }
 genpdf = { version = "0.2", default-features = false, features = ["images"] }
 base64 = "0.22"
 image = { version = "0.23", default-features = false, features = ["png"] }

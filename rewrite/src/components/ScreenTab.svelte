@@ -617,7 +617,7 @@
                 >
                 <button
                   type="button"
-                  title="Copy text from before AI cleanup or layout changes"
+                  title="Copy text from before cleanup, proofreading or layout changes"
                   disabled={!app.native || app.busy("screen-tab-original")}
                   onclick={copyBeforeAiChanges}>Copy before AI changes</button
                 >

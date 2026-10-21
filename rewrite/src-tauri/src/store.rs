@@ -311,7 +311,7 @@ impl Store {
     ) -> Result<Option<DictationRecord>, String> {
         self.commit_dictation_with_metadata(
             generation, raw, published, recognition_completeness, recognition_warnings,
-            None, None, None,
+            None, None, None, None,
         )
     }
 
@@ -325,6 +325,26 @@ impl Store {
         pre_model_text: Option<&str>,
         publication_stage: Option<&str>,
         guard_reason: Option<&str>,
+        target_app: Option<&str>,
+    ) -> Result<Option<DictationRecord>, String> {
+        self.commit_dictation_with_status(
+            generation, raw, published, recognition_completeness, recognition_warnings,
+            pre_model_text, publication_stage, guard_reason, target_app, None,
+        )
+    }
+
+    pub fn commit_dictation_with_status(
+        &self,
+        generation: u64,
+        raw: &str,
+        published: &str,
+        recognition_completeness: RecognitionCompleteness,
+        recognition_warnings: &[String],
+        pre_model_text: Option<&str>,
+        publication_stage: Option<&str>,
+        guard_reason: Option<&str>,
+        target_app: Option<&str>,
+        cleanup_status: Option<&str>,
     ) -> Result<Option<DictationRecord>, String> {
         validate_text(raw, "Raw dictation")?;
         validate_text(published, "Published dictation")?;
@@ -342,9 +362,11 @@ impl Store {
             created_at: now(),
             raw: raw.into(),
             published: published.into(),
+            target_app: target_app.map(str::to_owned),
             pre_model_text: pre_model_text.map(str::to_owned),
             publication_stage: publication_stage.map(str::to_owned),
             guard_reason: guard_reason.map(str::to_owned),
+            cleanup_status: cleanup_status.map(str::to_owned),
             recognition_completeness,
             recognition_warnings: recognition_warnings.to_vec(),
         };
@@ -966,9 +988,11 @@ impl Store {
                             created_at: string_field(&legacy, "TimestampUtc"),
                             raw,
                             published,
+                            target_app: None,
                             pre_model_text: None,
                             publication_stage: None,
                             guard_reason: None,
+                            cleanup_status: None,
                             recognition_completeness: RecognitionCompleteness::Complete,
                             recognition_warnings: Vec::new(),
                         },
@@ -2015,7 +2039,7 @@ mod tests {
         for (stage, guard) in [("smart_cleanup", None), ("rules", Some("protected_number"))] {
             let record = store.commit_dictation_with_metadata(store.privacy_generation(),
                 "raw repeated repeated", "Repeated.", RecognitionCompleteness::Complete, &[],
-                Some("Repeated repeated."), Some(stage), guard).unwrap().unwrap();
+                Some("Repeated repeated."), Some(stage), guard, None).unwrap().unwrap();
             let loaded = store.get_dictation(&record.id).unwrap();
             assert_eq!(loaded.raw, "raw repeated repeated");
             assert_eq!(loaded.pre_model_text.as_deref(), Some("Repeated repeated."));
@@ -2035,8 +2059,107 @@ mod tests {
         store.save_settings(&settings).unwrap();
         assert!(store.commit_dictation_with_metadata(store.privacy_generation(),
             "private raw", "Private.", RecognitionCompleteness::Complete, &[],
-            Some("Private private."), Some("smart_cleanup"), None).unwrap().is_none());
+            Some("Private private."), Some("smart_cleanup"), None, None).unwrap().is_none());
         assert_eq!(store.count_dictations().unwrap(), 2);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn proofread_history_preserves_recovery_and_content_free_status() {
+        let (directory, store) = temp_store("proofreader-history");
+        let status = "punctuation_model;proofreader_model=openai/gpt-6-luna;proofreader_outcome=accepted;proofreader_reason=accepted";
+        let record = store.commit_dictation_with_status(
+            store.privacy_generation(), "send the the link", "Send the link.",
+            RecognitionCompleteness::Complete, &[], Some("Send the the link."),
+            Some("proofread"), None, None, Some(status),
+        ).unwrap().unwrap();
+        let loaded = store.get_dictation(&record.id).unwrap();
+        assert_eq!(loaded.raw, "send the the link");
+        assert_eq!(loaded.pre_model_text.as_deref(), Some("Send the the link."));
+        assert_eq!(loaded.publication_stage.as_deref(), Some("proofread"));
+        assert_eq!(loaded.cleanup_status.as_deref(), Some(status));
+        let mut legacy = serde_json::to_value(&loaded).unwrap();
+        legacy.as_object_mut().unwrap().remove("cleanupStatus");
+        assert!(serde_json::from_value::<DictationRecord>(legacy).unwrap().cleanup_status.is_none());
+        let restored = store.save_dictation_correction(&record.id, "Send the the link.", None).unwrap();
+        assert_eq!(restored.record.raw, loaded.raw);
+        assert_eq!(restored.record.pre_model_text, loaded.pre_model_text);
+        assert_eq!(restored.record.cleanup_status, loaded.cleanup_status);
+
+        let mut settings = store.load_settings().unwrap();
+        settings.do_not_save_dictations = true;
+        store.save_settings(&settings).unwrap();
+        assert!(store.commit_dictation_with_status(
+            store.privacy_generation(), "private raw", "Private text.",
+            RecognitionCompleteness::Complete, &[], Some("Private private text."),
+            Some("proofread"), None, None, Some(status),
+        ).unwrap().is_none());
+        assert_eq!(store.count_dictations().unwrap(), 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn target_app_round_trips_and_is_removed_with_its_record() {
+        let (directory, store) = temp_store("target-app-history");
+        let record = store.commit_dictation_with_metadata(
+            store.privacy_generation(), "raw words", "Published words.",
+            RecognitionCompleteness::Complete, &[], None, None, None, Some("outlook.exe"),
+        ).unwrap().unwrap();
+        let loaded = store.get_dictation(&record.id).unwrap();
+        assert_eq!(loaded.target_app.as_deref(), Some("outlook.exe"));
+        assert_eq!(loaded.raw, "raw words");
+        assert_eq!(loaded.published, "Published words.");
+        let mut legacy = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(legacy["targetApp"], "outlook.exe");
+        assert!(legacy.get("target_app").is_none());
+        legacy.as_object_mut().unwrap().remove("targetApp");
+        assert!(serde_json::from_value::<DictationRecord>(legacy).unwrap().target_app.is_none());
+
+        // A correction preserves the captured destination and immutable raw.
+        let corrected = store.save_dictation_correction(&record.id, "Corrected words.", None).unwrap();
+        assert_eq!(corrected.record.target_app, loaded.target_app);
+        assert_eq!(corrected.record.raw, loaded.raw);
+        let path = directory.join("dictations").join(format!("{}.json", record.id));
+        assert!(fs::read_to_string(&path).unwrap().contains("outlook.exe"));
+        store.delete_dictation(&record.id, true).unwrap();
+        assert!(!path.exists());
+
+        let record = store.commit_dictation_with_metadata(
+            store.privacy_generation(), "another raw", "Another result.",
+            RecognitionCompleteness::Complete, &[], None, None, None, Some("com.apple.mail"),
+        ).unwrap().unwrap();
+        assert_eq!(store.delete_all_dictations(true).unwrap(), 1);
+        assert!(store.get_dictation(&record.id).is_err());
+        assert_eq!(fs::read_dir(directory.join("dictations")).unwrap().count(), 0);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn target_app_uses_the_current_privacy_and_stale_job_save_gate() {
+        let (directory, store) = temp_store("target-app-privacy");
+        let mut settings = store.load_settings().unwrap();
+        settings.smart_layout_app_hint = true;
+        store.save_settings(&settings).unwrap();
+        assert!(store.load_settings().unwrap().smart_layout_app_hint);
+        let retained_generation = store.privacy_generation();
+        settings.do_not_save_dictations = true;
+        store.save_settings(&settings).unwrap();
+        let private_generation = store.privacy_generation();
+        for generation in [retained_generation, private_generation] {
+            assert!(store.commit_dictation_with_metadata(
+                generation, "private raw", "Private result.", RecognitionCompleteness::Complete,
+                &[], None, None, None, Some("outlook.exe"),
+            ).unwrap().is_none());
+        }
+        settings.do_not_save_dictations = false;
+        store.save_settings(&settings).unwrap();
+        // Turning saving back on cannot persist a job begun in private mode.
+        assert!(store.commit_dictation_with_metadata(
+            private_generation, "private raw", "Private result.", RecognitionCompleteness::Complete,
+            &[], None, None, None, Some("outlook.exe"),
+        ).unwrap().is_none());
+        assert_eq!(store.count_dictations().unwrap(), 0);
+        assert_eq!(fs::read_dir(directory.join("dictations")).unwrap().count(), 0);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

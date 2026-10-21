@@ -13,6 +13,12 @@ export type TranscriptBlock = {
 const clock = String.raw`\d{1,3}:\d{2}(?::\d{2})?`;
 const labels = String.raw`you|me|microphone|local speaker|other speakers?|system audio|remote speaker|speaker \d{1,2}`;
 const speakerLine = new RegExp(String.raw`^\s*(?:\[(${clock})\]\s*)?(${labels}):\s*(.*)$`, "i");
+// A person's name given to a speaker ("[0:12] Rachel Afant:"). Only counted
+// after a timecode, so prose like "Note: ship Friday" stays text.
+const namedLine = new RegExp(
+  String.raw`^\s*\[(${clock})\]\s*(\p{Lu}[\p{L}'’.\-]*(?: \p{Lu}[\p{L}'’.\-]*){0,3}):\s*(.*)$`,
+  "u",
+);
 const timecode = new RegExp(String.raw`^\s*\[(${clock})\]\s*`);
 
 function sideFor(speaker: string): TranscriptSide {
@@ -64,7 +70,8 @@ export function parseTranscript(value: string): TranscriptBlock[] {
 
   return paragraphs.map((paragraph, index) => {
     const line = paragraph.split("\n")[0] ?? paragraph;
-    const match = line.match(speakerLine);
+    const named = line.match(namedLine);
+    const match = line.match(speakerLine) ?? (named && named[2].length <= 48 ? named : null);
     if (match) {
       return {
         id: `block-${index}`,

@@ -23,6 +23,15 @@ fn speaker_side(label: &str) -> TranscriptSide {
     }
 }
 
+/// A person's name given to a speaker, such as `[0:12] Rachel Afant:`. Only
+/// counted after a timecode, so prose like "Note: ship Friday" stays text.
+fn named_speaker(label: &str) -> bool {
+    let words: Vec<&str> = label.split(' ').collect();
+    !label.is_empty() && label.len() <= 48 && words.len() <= 4
+        && words.iter().all(|word| word.chars().next().is_some_and(char::is_uppercase)
+            && word.chars().all(|c| c.is_alphabetic() || matches!(c, '\'' | '’' | '-' | '.')))
+}
+
 fn known_speaker(label: &str) -> bool {
     speaker_side(label) != TranscriptSide::Unknown
         || label.to_ascii_lowercase().strip_prefix("speaker ").is_some_and(|number| {
@@ -104,7 +113,7 @@ fn parse_transcript(value: &str) -> Option<Vec<TranscriptBlock>> {
             }
         }
         let (speaker, text) = match text.split_once(':') {
-            Some((label, rest)) if known_speaker(label) => (label, rest.trim()),
+            Some((label, rest)) if known_speaker(label) || (timecode.is_some() && named_speaker(label)) => (label, rest.trim()),
             _ => ("Transcript", text),
         };
         TranscriptBlock {
@@ -872,6 +881,10 @@ mod tests {
             assert_eq!(blocks[1].side, TranscriptSide::Other);
             assert_eq!(blocks[1].timecode.as_deref(), Some("1:00:03"));
         }
+        let blocks = parse_transcript("[0:01] Rachel Afant: Hi.\n\n[0:02] Cody Stevens: Hello.\n\nNote: plain prose.").unwrap();
+        assert_eq!((blocks[0].speaker.as_str(), blocks[0].text.as_str()), ("Rachel Afant", "Hi."));
+        assert_eq!(blocks[1].speaker, "Cody Stevens");
+        assert_eq!(blocks[2].speaker, "Transcript");
         let blocks = parse_transcript("You: Hello.\n\n[12:34] Unattributed.\n\n[laughter]").unwrap();
         assert_eq!(blocks[0].timecode, None);
         assert_eq!(blocks[1].speaker, "Transcript");

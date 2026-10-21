@@ -8,11 +8,11 @@
 //! delivery.
 
 use objc2::rc::{autoreleasepool, Retained};
-use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
+use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Imp, Sel};
 use objc2::{class, msg_send, sel};
 use std::ffi::{c_char, c_void, CStr, CString};
-use std::sync::atomic::{AtomicI32, AtomicU16, Ordering};
-use std::sync::Once;
+use std::sync::atomic::{AtomicI32, AtomicU16, AtomicUsize, Ordering};
+use std::sync::{Once, OnceLock};
 use std::time::Duration;
 
 /// `kVK_ANSI_V`: the V key on an ANSI keyboard, used when the layout lookup fails.
@@ -170,6 +170,24 @@ fn running_application(pid: i32) -> Option<Retained<AnyObject>> {
     }
 }
 
+/// The captured application's bundle ID; no activation or main-thread wait.
+pub fn app_bundle_identifier(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    autoreleasepool(|_| unsafe {
+        let application = running_application(pid)?;
+        let identifier: Option<Retained<AnyObject>> = msg_send![&*application, bundleIdentifier];
+        let identifier = identifier?;
+        let utf8: *const c_char = msg_send![&*identifier, UTF8String];
+        if utf8.is_null() {
+            return None;
+        }
+        let identifier = CStr::from_ptr(utf8).to_str().ok()?;
+        (!identifier.is_empty()).then(|| identifier.to_owned())
+    })
+}
+
 pub fn frontmost_pid() -> Option<i32> {
     autoreleasepool(|_| unsafe {
         let workspace: Option<Retained<AnyObject>> =
@@ -285,6 +303,69 @@ pub fn observe_activations() {
                 std::mem::forget(observer);
             })
         });
+    });
+}
+
+/// Nonzero while SonoJot builds a window that must not activate it.
+static QUIET_BUILDS: AtomicUsize = AtomicUsize::new(0);
+static ACTIVATE: OnceLock<Imp> = OnceLock::new();
+static ACTIVATE_IGNORING: OnceLock<Imp> = OnceLock::new();
+
+extern "C-unwind" fn quiet_activate(this: *mut AnyObject, cmd: Sel) {
+    if QUIET_BUILDS.load(Ordering::Acquire) > 0 {
+        return;
+    }
+    if let Some(original) = ACTIVATE.get() {
+        let original: extern "C-unwind" fn(*mut AnyObject, Sel) =
+            unsafe { std::mem::transmute(*original) };
+        original(this, cmd);
+    }
+}
+
+extern "C-unwind" fn quiet_activate_ignoring(this: *mut AnyObject, cmd: Sel, flag: Bool) {
+    if QUIET_BUILDS.load(Ordering::Acquire) > 0 {
+        return;
+    }
+    if let Some(original) = ACTIVATE_IGNORING.get() {
+        let original: extern "C-unwind" fn(*mut AnyObject, Sel, Bool) =
+            unsafe { std::mem::transmute(*original) };
+        original(this, cmd, flag);
+    }
+}
+
+/// wry activates the app every time it creates a webview, even for a window
+/// built unfocused. A shortcut press lets that activation through, which put
+/// SonoJot's windows in front of the app being dictated into and took its text
+/// field's focus. Between `begin_quiet_build` and `end_quiet_build`, both
+/// NSApplication activation calls do nothing; every other caller is unchanged.
+pub fn begin_quiet_build() {
+    static INSTALLED: Once = Once::new();
+    INSTALLED.call_once(|| unsafe {
+        let application = class!(NSApplication);
+        if let Some(method) = application.instance_method(sel!(activate)) {
+            // Keep the original first, so a call racing the swap still reaches it.
+            if ACTIVATE.set(method.implementation()).is_ok() {
+                method.set_implementation(std::mem::transmute::<
+                    extern "C-unwind" fn(*mut AnyObject, Sel),
+                    Imp,
+                >(quiet_activate));
+            }
+        }
+        if let Some(method) = application.instance_method(sel!(activateIgnoringOtherApps:)) {
+            if ACTIVATE_IGNORING.set(method.implementation()).is_ok() {
+                method.set_implementation(std::mem::transmute::<
+                    extern "C-unwind" fn(*mut AnyObject, Sel, Bool),
+                    Imp,
+                >(quiet_activate_ignoring));
+            }
+        }
+    });
+    QUIET_BUILDS.fetch_add(1, Ordering::AcqRel);
+}
+
+pub fn end_quiet_build() {
+    let _ = QUIET_BUILDS.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+        count.checked_sub(1)
     });
 }
 

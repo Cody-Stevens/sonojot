@@ -54,6 +54,8 @@ export const aiModelSchema = z.object({
   completionPrice: z.string().nullable(),
   description: z.string().nullable().default(null),
   inputModalities: z.array(z.string()).default([]),
+  supportedParameters: z.array(z.string()).default([]),
+  trainingRequired: z.boolean().default(false),
   /** Curated OpenRouter reasoning effort for a recommended model. */
   reasoningEffort: z.string().nullable().optional(),
 });

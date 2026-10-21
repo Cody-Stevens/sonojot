@@ -375,6 +375,11 @@ impl Verifier {
     }
 
     fn save(&self, root: &Path) {
+        // Replay may read the installed model store without changing receipts.
+        #[cfg(feature = "fidelity-eval")]
+        if std::env::var("SONOJOT_EVAL_READ_ONLY_MODELS").as_deref() == Ok("1") {
+            return;
+        }
         let _writer = self.persist.lock().unwrap_or_else(|e| e.into_inner());
         let receipts = {
             let state = self.state.lock().unwrap_or_else(|e| e.into_inner());

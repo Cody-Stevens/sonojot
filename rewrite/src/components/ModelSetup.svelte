@@ -104,6 +104,8 @@
             completionPrice: null,
             description: null,
             inputModalities: role === "speech" ? ["audio"] : ["text"],
+            supportedParameters: [],
+            trainingRequired: false,
           },
       );
   }
@@ -551,6 +553,8 @@
           completionPrice: null,
           description: null,
           inputModalities: [],
+          supportedParameters: [],
+          trainingRequired: false,
         },
       )}
     </p>

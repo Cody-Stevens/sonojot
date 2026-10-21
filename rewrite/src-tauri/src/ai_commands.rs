@@ -114,6 +114,14 @@ pub fn cancel_ai_connect() {
 }
 
 #[tauri::command]
+pub async fn open_openrouter_privacy() -> Result<(), String> {
+    crate::legal_links::open_https(
+        "https://openrouter.ai/settings/privacy".into(),
+        "OpenRouter privacy settings",
+    ).await
+}
+
+#[tauri::command]
 pub fn disconnect_openrouter(state: RuntimeState<'_>) -> Result<AiSettingsStatus, String> {
     cancel_job(&CONNECT);
     cancel_optional_jobs();
@@ -598,15 +606,18 @@ mod tests {
             created_at: "now".into(),
             raw: format!("{}abcdefghijk", "x ".repeat(MAX_SOURCE_BYTES / 2 - 2)),
             published: String::new(),
+            target_app: Some("outlook.exe".into()),
             pre_model_text: None,
             publication_stage: None,
             guard_reason: None,
+            cleanup_status: None,
             recognition_completeness: Default::default(),
             recognition_warnings: Vec::new(),
         }];
         let sources = bounded_source(&records);
         assert!(sources.iter().map(String::len).sum::<usize>() <= MAX_SOURCE_BYTES);
         assert!(!sources.join(" ").contains("abc"));
+        assert!(!sources.join(" ").contains("outlook.exe"));
         assert!(!sources.is_empty());
     }
 
@@ -633,9 +644,11 @@ mod tests {
                 created_at: "now".into(),
                 raw: format!("dictation{index} {}", "a word in context. ".repeat(31)),
                 published: String::new(),
+                target_app: Some("com.apple.mail".into()),
                 pre_model_text: None,
                 publication_stage: None,
                 guard_reason: None,
+                cleanup_status: None,
                 recognition_completeness: Default::default(),
                 recognition_warnings: Vec::new(),
             })

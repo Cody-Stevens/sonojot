@@ -31,6 +31,8 @@ mod smart_recovery_tests {
         assert_eq!(smart_original_text(&good, 7).unwrap(), "Send the summary the summary.");
         let shaped = Snapshot { publication_stage: Some("smart_layout".into()), ..good.clone() };
         assert_eq!(smart_original_text(&shaped, 7).unwrap(), "Send the summary the summary.");
+        let proofread = Snapshot { publication_stage: Some("proofread".into()), ..good.clone() };
+        assert_eq!(smart_original_text(&proofread, 7).unwrap(), "Send the summary the summary.");
         assert!(smart_original_text(&good, 6).is_err());
         for bad in [
             Snapshot { result_session_id: None, ..good.clone() },
@@ -424,7 +426,7 @@ pub(crate) fn smart_original_text(snapshot: &Snapshot, session: u64) -> Result<S
         || snapshot.meeting_recording
         || !matches!(snapshot.state, AppState::Idle | AppState::Error)
         || snapshot.recognition_completeness != Some(RecognitionCompleteness::Complete)
-        || !matches!(snapshot.publication_stage.as_deref(), Some("smart_cleanup" | "smart_layout"))
+        || !matches!(snapshot.publication_stage.as_deref(), Some("smart_cleanup" | "smart_layout" | "proofread"))
     {
         return Err("This cleaned dictation is no longer current. Review it in Recent dictations.".into());
     }
@@ -744,6 +746,7 @@ pub async fn start_meeting(
             snapshot.pre_model_text = None;
             snapshot.publication_stage = None;
             snapshot.guard_reason = None;
+            snapshot.cleanup_status = None;
             snapshot.meeting_source_status.clear();
             snapshot.meeting_system_audio = None;
             snapshot.active_meeting_id = Some(meeting.id.clone());
@@ -1064,6 +1067,43 @@ pub fn delete_meeting(app: AppHandle, state: AppStateHandle<'_>, id: String) -> 
     state.meetings.delete(&id)?;
     state.emit(&app);
     Ok(())
+}
+/// Joins saved recordings, in order, into a new meeting. The parts are kept.
+#[tauri::command]
+pub async fn join_meetings(
+    app: AppHandle,
+    state: AppStateHandle<'_>,
+    ids: Vec<String>,
+    title: Option<String>,
+) -> Result<MeetingDetail, String> {
+    let runtime = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _activity = crate::resource_manager::begin_update_activity(crate::resource_manager::UpdateActivity::Media)?;
+        let result = runtime.meetings.join(&ids, title.as_deref());
+        runtime.emit(&app);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub fn meeting_speakers(
+    state: AppStateHandle<'_>,
+    id: String,
+) -> Result<Vec<crate::meetings::SpeakerLabel>, String> {
+    state.meetings.speakers(&id)
+}
+#[tauri::command]
+pub fn rename_meeting_speaker(
+    app: AppHandle,
+    state: AppStateHandle<'_>,
+    id: String,
+    from: String,
+    to: String,
+) -> Result<MeetingDetail, String> {
+    let result = state.meetings.rename_speaker(&id, &from, &to)?;
+    state.emit(&app);
+    Ok(result)
 }
 #[tauri::command]
 pub async fn generate_notes(

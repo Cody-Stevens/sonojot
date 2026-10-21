@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
-        mpsc, Arc, Mutex, MutexGuard,
+        mpsc, Arc, Mutex, MutexGuard, OnceLock,
     },
     time::Instant,
 };
@@ -43,8 +43,31 @@ pub struct Control {
     generation: u64,
     publishing: bool,
     target: Option<platform::PasteTarget>,
+    target_app: Option<Arc<OnceLock<String>>>,
+    no_history: bool,
     last_meter: Instant,
     privacy_generation: u64,
+}
+
+/// Identity lookup never holds up audio startup or publication. A late or
+/// failed lookup leaves this session's optional metadata empty.
+fn lookup_target_app(
+    target: platform::PasteTarget,
+    category: Arc<OnceLock<Option<crate::app_context::Category>>>,
+) -> Arc<OnceLock<String>> {
+    let identity = Arc::new(OnceLock::new());
+    let result = identity.clone();
+    let _ = std::thread::Builder::new()
+        .name("dictation-app-identity".into())
+        .spawn(move || {
+            let app = platform::paste_target_app_identity(&target);
+            let hint = app.as_deref().and_then(crate::app_context::category_for_identity);
+            if let Some(app) = app {
+                let _ = result.set(app);
+            }
+            let _ = category.set(hint);
+        });
+    identity
 }
 
 /// A manual-copy publication claim owns the same start/cancel boundary as an
@@ -77,8 +100,11 @@ struct Publication {
     pre_model_text: Option<String>,
     publication_stage: Option<String>,
     guard_reason: Option<String>,
+    cleanup_status: String,
     target: Option<platform::PasteTarget>,
     auto_paste: bool,
+    target_app: Option<String>,
+    no_history: bool,
     /// Cleanup policy that produced `text`; recorded in the delivery log so
     /// the structured cleanup trial can verify it used the evaluated path.
     policy_version: String,
@@ -88,6 +114,31 @@ struct Publication {
 }
 
 impl Publication {
+    fn save(&self, store: &Store, privacy_generation: u64) -> Result<Option<DictationRecord>, String> {
+        if self.no_history
+            || (self.original_text.trim().is_empty()
+                && self.text.trim().is_empty()
+                && self.recognition_completeness != RecognitionCompleteness::Incomplete)
+        {
+            return Ok(None);
+        }
+        // Saved before delivery: target_app identifies the captured intended
+        // destination, not proof of a successful paste. The Store rechecks
+        // current retention and the privacy generation under its write lock.
+        store.commit_dictation_with_status(
+            privacy_generation,
+            &self.original_text,
+            &self.text,
+            self.recognition_completeness,
+            &self.recognition_warnings,
+            self.pre_model_text.as_deref(),
+            self.publication_stage.as_deref(),
+            self.guard_reason.as_deref(),
+            self.target_app.as_deref(),
+            Some(&self.cleanup_status),
+        )
+    }
+
     // Production injects platform::deliver_text; tests inject a local fake sink.
     // Keep the complete output, including whitespace, when delivery is needed.
     async fn deliver_with<'a, F, Fut>(
@@ -164,6 +215,7 @@ impl Control {
         }
         self.session = None;
         self.target = None;
+        self.target_app = None;
         state.state = AppState::Idle;
         state.interim_text.clear();
         state.original_text.clear();
@@ -171,6 +223,7 @@ impl Control {
         state.pre_model_text = None;
         state.publication_stage = None;
         state.guard_reason = None;
+        state.cleanup_status = None;
         state.result_session_id = None;
         state.recognition_completeness = None;
         state.recognition_warnings.clear();
@@ -268,6 +321,7 @@ impl Control {
                 state.pre_model_text = result.pre_model_text.clone();
                 state.publication_stage = result.publication_stage.clone();
                 state.guard_reason = result.guard_reason.clone();
+                state.cleanup_status = Some(result.cleanup_status.clone());
                 state.interim_text.clear();
                 state.preview_text.clear();
                 state.audio_level = 0.0;
@@ -288,8 +342,11 @@ impl Control {
                     pre_model_text: result.pre_model_text,
                     publication_stage: result.publication_stage,
                     guard_reason: result.guard_reason,
+                    cleanup_status: result.cleanup_status,
                     target: self.target.take(),
                     auto_paste: state.settings.auto_paste,
+                    target_app: self.target_app.take().and_then(|app| app.get().cloned()),
+                    no_history: self.no_history,
                     policy_version: result.policy_version,
                     policy_hash: result.policy_hash,
                     recognition_completeness: result.recognition_completeness,
@@ -299,6 +356,7 @@ impl Control {
             Event::Cancelled { .. } => {
                 self.session = None;
                 self.target = None;
+                self.target_app = None;
                 state.state = AppState::Idle;
                 state.audio_level = 0.0;
                 state.interim_text.clear();
@@ -328,6 +386,7 @@ impl Control {
                 }
                 self.session = None;
                 self.target = None;
+                self.target_app = None;
                 state.state = AppState::Error;
                 state.error = Some(message.clone());
                 state.audio_level = 0.0;
@@ -377,6 +436,7 @@ fn clear_review_text(state: &mut Snapshot) {
     state.pre_model_text = None;
     state.publication_stage = None;
     state.guard_reason = None;
+    state.cleanup_status = None;
     state.interim_text.clear();
     state.preview_text.clear();
     state.result_session_id = None;
@@ -501,6 +561,7 @@ impl Runtime {
             state.pre_model_text = saved.record.pre_model_text.clone();
             state.publication_stage = saved.record.publication_stage.clone();
             state.guard_reason = saved.record.guard_reason.clone();
+            state.cleanup_status = saved.record.cleanup_status.clone();
             if state.can_copy_last {
                 *lock(&self.last_published)? = saved.record.published.clone();
                 state.can_copy_last = !saved.record.published.trim().is_empty();
@@ -583,6 +644,8 @@ impl Runtime {
                 generation: 0,
                 publishing: false,
                 target: None,
+                target_app: None,
+                no_history: false,
                 last_meter: Instant::now(),
                 privacy_generation: 0,
             }),
@@ -935,6 +998,9 @@ impl Runtime {
             confirmed,
             Some(self.store.clone()),
         );
+        control.target_app = target.clone()
+            .map(|target| lookup_target_app(target, options.layout_app_category.clone()));
+        control.no_history = options.no_history;
         control.target = target;
         control.generation = generation;
         control.privacy_generation = self.store.privacy_generation();
@@ -957,6 +1023,7 @@ impl Runtime {
             state.pre_model_text = None;
             state.publication_stage = None;
             state.guard_reason = None;
+            state.cleanup_status = None;
             state.can_copy_last = false;
             state.recognition_completeness = None;
             state.recognition_warnings.clear();
@@ -978,6 +1045,8 @@ impl Runtime {
                 }
             }
             Err(error) => {
+                control.target = None;
+                control.target_app = None;
                 let mut state = lock(&self.snapshot)?;
                 state.state = AppState::Error;
                 state.capture_generation = None;
@@ -1071,23 +1140,7 @@ impl Runtime {
             SpeechUpdate::FinishCursor => windows::finish_cursor(app),
             SpeechUpdate::Publish(mut publication) => {
                 // Persist raw before attempting delivery. A storage error does not discard the clipboard result.
-                let saved = if !publication.original_text.trim().is_empty()
-                    || !publication.text.trim().is_empty()
-                    || publication.recognition_completeness == RecognitionCompleteness::Incomplete
-                {
-                    self.store.commit_dictation_with_metadata(
-                        control.privacy_generation,
-                        &publication.original_text,
-                        &publication.text,
-                        publication.recognition_completeness,
-                        &publication.recognition_warnings,
-                        publication.pre_model_text.as_deref(),
-                        publication.publication_stage.as_deref(),
-                        publication.guard_reason.as_deref(),
-                    )
-                } else {
-                    Ok(None)
-                };
+                let saved = publication.save(&self.store, control.privacy_generation);
                 *lock(&self.current_record_id)? = saved
                     .as_ref()
                     .ok()
@@ -1472,8 +1525,9 @@ pub fn shortcut_event(app: &AppHandle, key: ShortcutState) {
 mod publication_boundary_tests {
     // These tests exercise the production Control event/command gate and the
     // production delivery dispatch with synthetic events and an injected sink.
-    // They do not exercise capture, model generation, hotkeys, windows, history
-    // persistence, clipboard access, focus restoration, or OS paste delivery.
+    // History checks use isolated temporary stores. These tests do not exercise
+    // capture, model generation, hotkeys, windows, clipboard access, focus
+    // restoration, or OS paste delivery.
     use super::*;
     use speech::{DictationResult, Event};
 
@@ -1517,6 +1571,8 @@ mod publication_boundary_tests {
                 generation,
                 publishing: false,
                 target: None,
+                target_app: None,
+                no_history: false,
                 last_meter: Instant::now() - std::time::Duration::from_secs(1),
                 privacy_generation: 0,
             },
@@ -1546,6 +1602,66 @@ mod publication_boundary_tests {
     }
 
     #[test]
+    fn captured_target_is_saved_independently_of_paste_delivery() {
+        let directory = std::env::temp_dir().join(format!("sonojot-target-publication-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(directory.clone())).unwrap();
+        for completeness in [RecognitionCompleteness::Complete, RecognitionCompleteness::Incomplete] {
+            let (mut control, mut state) = active(7, 2, AppState::Cleaning);
+            control.target_app = Some(Arc::new(OnceLock::from(String::from("outlook.exe"))));
+            state.settings.auto_paste = false;
+            let mut event = completed(7, "raw words", "Published words.", "safe_formatting");
+            if let Event::Completed { result, .. } = &mut event {
+                result.recognition_completeness = completeness;
+            }
+            let SpeechUpdate::Publish(mut publication) = control.on_speech(&mut state, event) else { panic!("publication missing"); };
+            assert!(control.target_app.is_none());
+            assert_eq!(publication.target_app.as_deref(), Some("outlook.exe"));
+            let record = publication.save(&store, store.privacy_generation()).unwrap().unwrap();
+            let sink = FakeDelivery::default();
+            let outcome = executor().block_on(publication.deliver_with(|text, target, auto| sink.deliver(text, target, auto)));
+            match completeness {
+                RecognitionCompleteness::Complete => assert!(!outcome.unwrap().unwrap().paste_sent),
+                RecognitionCompleteness::Incomplete => assert!(outcome.is_none()),
+            }
+            let loaded = store.get_dictation(&record.id).unwrap();
+            assert_eq!(loaded.target_app.as_deref(), Some("outlook.exe"));
+            assert_eq!(loaded.raw, "raw words");
+            assert_eq!(loaded.published, "Published words.");
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn unfinished_app_lookup_does_not_hold_publication_or_leak_into_the_next_capture() {
+        let (mut control, mut state) = active(7, 2, AppState::Cleaning);
+        let pending = Arc::new(OnceLock::new());
+        control.target_app = Some(pending.clone());
+        let SpeechUpdate::Publish(publication) = control.on_speech(
+            &mut state, completed(7, "raw", "Published.", "safe_formatting"),
+        ) else { panic!("publication missing"); };
+        assert!(publication.target_app.is_none());
+        assert!(control.target_app.is_none());
+        pending.set("outlook.exe".into()).unwrap();
+        assert!(publication.target_app.is_none());
+        assert!(control.target_app.is_none());
+    }
+
+    #[test]
+    fn private_capture_snapshot_cannot_save_even_when_current_settings_allow_it() {
+        let directory = std::env::temp_dir().join(format!("sonojot-target-private-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(directory.clone())).unwrap();
+        assert!(!store.load_settings().unwrap().do_not_save_dictations);
+        let (mut control, mut state) = active(7, 2, AppState::Cleaning);
+        control.target_app = Some(Arc::new(OnceLock::from(String::from("outlook.exe"))));
+        control.no_history = true;
+        let SpeechUpdate::Publish(publication) = control.on_speech(&mut state, completed(7, "raw words", "Published words.", "safe_formatting")) else { panic!("publication missing"); };
+        assert!(publication.save(&store, store.privacy_generation()).unwrap().is_none());
+        assert_eq!(store.count_dictations().unwrap(), 0);
+        assert_eq!(std::fs::read_dir(directory.join("dictations")).unwrap().count(), 0);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn smart_publication_retains_recovery_and_cancel_clears_it() {
         let (mut control, mut state) = active(7, 2, AppState::Cleaning);
         let mut event = completed(7, "raw recognition", "Send the summary.", "local_model_validated");
@@ -1564,11 +1680,38 @@ mod publication_boundary_tests {
         assert!(state.pre_model_text.is_none());
         assert!(crate::commands::smart_original_text(&state, 7).is_err());
         let (mut control, mut state) = active(8, 3, AppState::Cleaning);
+        control.target_app = Some(Arc::new(OnceLock::from(String::from("outlook.exe"))));
         state.pre_model_text = Some("stale original".into());
         state.publication_stage = Some("smart_cleanup".into());
         state.guard_reason = Some("timeout".into());
         assert!(control.cancel((Some(8), 3), &mut state).unwrap());
+        assert!(control.target_app.is_none());
         assert!(state.pre_model_text.is_none() && state.publication_stage.is_none() && state.guard_reason.is_none());
+    }
+
+    #[test]
+    fn proofread_publication_keeps_status_and_late_cancelled_results_are_ignored() {
+        let status = "punctuation_model;proofreader_model=openai/gpt-6-luna;proofreader_outcome=accepted;proofreader_reason=ok";
+        let (mut control, mut state) = active(7, 2, AppState::Cleaning);
+        let mut event = completed(7, "send the the link", "Send the link.", status);
+        if let Event::Completed { result, .. } = &mut event {
+            result.pre_model_text = Some("Send the the link.".into());
+            result.publication_stage = Some("proofread".into());
+        }
+        let SpeechUpdate::Publish(publication) = control.on_speech(&mut state, event.clone()) else { panic!("publication missing"); };
+        assert_eq!(publication.cleanup_status, status);
+        assert_eq!(state.cleanup_status.as_deref(), Some(status));
+        assert_eq!(publication.original_text, "send the the link");
+        assert!(control.finish_publication(7, &mut state));
+        assert_eq!(crate::commands::smart_original_text(&state, 7).unwrap(), "Send the the link.");
+
+        let (mut control, mut state) = active(7, 2, AppState::Cleaning);
+        state.cleanup_status = Some(status.into());
+        assert!(control.cancel((Some(7), 2), &mut state).unwrap());
+        assert!(state.cleanup_status.is_none());
+        assert!(matches!(control.on_speech(&mut state, event), SpeechUpdate::Ignored));
+        assert!(!control.is_publishing());
+        assert!(state.output_text.is_empty());
     }
 
     #[test]

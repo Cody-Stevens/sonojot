@@ -4,7 +4,10 @@ import { SMART_CLEANUP_MODEL } from "./smart-cleanup";
 
 export const SMART_LAYOUT_LABEL = "Shape by type (experimental)";
 export const SMART_LAYOUT_HELP =
-  "Detects emails, lists, notes and steps, then lays them out. Uses your text model; your words stay the same.";
+  "Lays out emails, lists, notes and steps with a local text model.";
+export const SMART_LAYOUT_APP_HINT_LABEL = "Use the app I'm in (experimental)";
+export const SMART_LAYOUT_APP_HINT_HELP =
+  "Use the app's type as a hint when your words support it.";
 
 type LayoutSettings = Pick<
   Settings,
@@ -39,6 +42,6 @@ export function smartLayoutUnavailableReason(
   if (settings.cleanupMode === "original")
     return "Choose Format only or Clean to use Shape by type.";
   if (!smartLayoutModel(settings, models))
-    return "Select an installed local text model for Cleanup or Notes in Models. Smart cleanup alone cannot provide it.";
+    return "Choose a ready local text model for Cleanup or Notes.";
   return null;
 }

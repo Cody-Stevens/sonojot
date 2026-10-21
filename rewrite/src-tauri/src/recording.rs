@@ -866,7 +866,7 @@ fn retry_io<T>(mut operation: impl FnMut() -> std::io::Result<T>) -> std::io::Re
     operation().or_else(|_| operation())
 }
 
-fn pcm_header(frames: u64, rate: u32) -> std::io::Result<[u8; WAV_HEADER_BYTES as usize]> {
+pub(crate) fn pcm_header(frames: u64, rate: u32) -> std::io::Result<[u8; WAV_HEADER_BYTES as usize]> {
     let length = frames
         .checked_mul(2)
         .ok_or_else(|| std::io::Error::other("PCM length overflow"))?;

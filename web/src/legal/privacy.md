@@ -14,7 +14,7 @@ SonoJot is a free, open-source dictation and meeting-transcription app for Windo
 |---|---|
 | Dictation history (text), meeting recordings (audio), transcripts, notes, titles, vocabulary, learned corrections, settings, diagnostics, crash dumps | Update checks and update downloads (to the Studio's update server on Cloudflare; not on Linux) |
 | Your OpenRouter key, protected by Windows, macOS, or your Linux keyring | Model, runtime, and media-converter downloads (from Hugging Face, GitHub, Moonshine, PyPI, and an FFmpeg build host) |
-| | Only if you connect OpenRouter: meeting transcripts, dictation excerpts, or meeting audio for the online features you start |
+| | Only if you connect OpenRouter: meeting transcripts, dictation text or excerpts, vocabulary, or meeting audio for the online features you turn on or start |
 
 ## 1. Who we are and what this covers
 
@@ -24,7 +24,7 @@ Cody Stevens Studio LLC, a Texas limited liability company, makes SonoJot. This 
 
 SonoJot stores the following in its data folder: `%LOCALAPPDATA%\SonoJot` on Windows, `~/Library/Application Support/SonoJot` on macOS, or `~/.local/share/SonoJot` on Linux. Use **About → Troubleshooting → Open data folder** to see it.
 
-- **Dictation history.** The text of each dictation, including the raw recognized text and the cleaned text. SonoJot does not keep dictation audio. History is saved by default. Turn on "do not save dictations" to stop saving it, or delete single entries or all of them.
+- **Dictation history.** The text of each dictation, including the raw recognized text and the cleaned text. SonoJot does not keep dictation audio. Each saved dictation also records the identifier of the app it was meant for, such as `com.apple.mail` or `outlook.exe` (never a window title or document name), and, if online proofreading changed it, the text from before proofreading. History is saved by default. Turn on "do not save dictations" to stop saving it, or delete single entries or all of them.
 - **Meeting recordings.** Audio files of your microphone, your computer's audio output, and a mixed track, plus any recordings you import. Meetings record both your microphone and your computer's audio by default, so recordings contain other people's voices.
 - **Meeting transcripts, notes, titles, and speaker labels.**
 - **Vocabulary and learned corrections.** Words you add, and corrections SonoJot learns from your edits if you turn on learning (off by default). Learned entries are removed when the dictations they came from are deleted.
@@ -59,12 +59,13 @@ SonoJot sends nothing to OpenRouter unless you connect your own OpenRouter accou
 - **Signing in.** Your browser opens OpenRouter's sign-in page. OpenRouter returns a one-time code to `sonojot.com/connect/openrouter`, which passes it straight to SonoJot on your computer. SonoJot then exchanges it for a key. The relay page never sees your key.
 - **Choosing a model.** SonoJot downloads the Studio's list of recommended models from `sonojot.com` and OpenRouter's public model catalog. These requests contain none of your content.
 - **Meeting notes.** When you process notes with an online model, SonoJot sends the meeting transcript, in sections, together with the notes instructions.
+- **Proofreading.** When you turn on "Proofread with an online model", SonoJot sends the text of each dictation, after local cleanup, and the written forms of your enabled vocabulary to the model you choose.
 - **Vocabulary review.** When you run a vocabulary review with online processing selected, SonoJot sends excerpts of the recognized and cleaned text of up to your 20 most recent saved dictations.
 - **Online meeting transcription.** When you choose OpenRouter's speech model to transcribe a meeting, SonoJot sends the meeting audio in short chunks.
 
 SonoJot never sends dictation audio to OpenRouter, and automatic meeting titles always run locally.
 
-OpenRouter, Inc. receives this content and passes it to the model provider that serves your request. Your OpenRouter account's settings, OpenRouter's terms and privacy policy, and the provider's own policies govern how they handle it. SonoJot asks OpenRouter to use only providers that do not collect user data, which may make some models unavailable. The Studio cannot guarantee how OpenRouter or any provider handles your content. OpenRouter bills your account for usage. To stop, choose local processing and select Disconnect.
+OpenRouter, Inc. receives this content and passes it to the model provider that serves your request. Your OpenRouter account's settings, OpenRouter's terms and privacy policy, and the provider's own policies govern how they handle it. By default, SonoJot asks OpenRouter to use only providers that do not collect user data, which may make some models unavailable. For proofreading, you can allow data collection for one specific model after accepting its notice; that model's provider may then use your dictation text and vocabulary to train models. Your OpenRouter account's privacy settings still apply. The Studio cannot guarantee how OpenRouter or any provider handles your content. OpenRouter bills your account for usage. To stop, choose local processing and select Disconnect.
 
 If your content includes other people's voices or words, make sure you have their consent before you send it online. Section 4 of the SonoJot Terms of Use explains your responsibilities.
 

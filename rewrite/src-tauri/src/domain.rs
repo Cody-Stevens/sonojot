@@ -43,6 +43,13 @@ pub struct Settings {
     pub cleanup_trial: bool,
     /// Opt-in layout using a local generation model in Format only and Clean.
     pub smart_layout: bool,
+    /// Use a fixed category hint from the capture target when layout runs.
+    pub smart_layout_app_hint: bool,
+    /// Optional online proofreading for dictation only.
+    pub proofreader: bool,
+    pub proofreader_model: String,
+    /// Training notices accepted for these exact model identifiers only.
+    pub proofreader_training_models: Vec<String>,
     /// Conservative written numbers and model names in Clean dictation.
     pub written_form: bool,
     pub launch_at_login: bool,
@@ -95,6 +102,10 @@ impl Default for Settings {
             cleanup_mode: CleanupMode::Clean,
             cleanup_trial: false,
             smart_layout: false,
+            smart_layout_app_hint: false,
+            proofreader: false,
+            proofreader_model: "openai/gpt-6-luna".into(),
+            proofreader_training_models: Vec::new(),
             written_form: true,
             launch_at_login: false,
             hotkey: "Ctrl+Space".into(),
@@ -152,6 +163,12 @@ impl Settings {
         }
         if self.auto_stop_seconds > 300 {
             return Err("Auto-stop must be between 0 and 300 seconds.".into());
+        }
+        if !crate::ai::valid_model(&self.proofreader_model)
+            || self.proofreader_training_models.len() > 4000
+            || self.proofreader_training_models.iter().any(|id| !crate::ai::valid_model(id))
+        {
+            return Err("Choose a proofreader model from the OpenRouter catalog.".into());
         }
         for value in [&self.asr_model, &self.cleanup_model, &self.notes_model] {
             if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
@@ -251,6 +268,8 @@ pub struct Snapshot {
     pub publication_stage: Option<String>,
     #[serde(default)]
     pub guard_reason: Option<String>,
+    #[serde(default)]
+    pub cleanup_status: Option<String>,
     pub interim_text: String,
     /// Live-preview draft for audio the primary has not committed yet.
     /// Display only: never saved, published, copied or used as a fallback.
@@ -380,12 +399,18 @@ pub struct DictationRecord {
     pub created_at: String,
     pub raw: String,
     pub published: String,
+    /// Local app ID captured at start: the intended paste target, even if
+    /// delivery is disabled, fails or is withheld for incomplete recognition.
+    #[serde(default)]
+    pub target_app: Option<String>,
     #[serde(default)]
     pub pre_model_text: Option<String>,
     #[serde(default)]
     pub publication_stage: Option<String>,
     #[serde(default)]
     pub guard_reason: Option<String>,
+    #[serde(default)]
+    pub cleanup_status: Option<String>,
     #[serde(default)]
     pub recognition_completeness: RecognitionCompleteness,
     #[serde(default)]
@@ -611,7 +636,9 @@ mod smart_layout_settings_tests {
     #[test]
     fn smart_layout_defaults_off_without_changing_legacy_choices() {
         assert!(!Settings::default().smart_layout);
+        assert!(!Settings::default().smart_layout_app_hint);
         assert!(!serde_json::from_str::<Settings>("{}").unwrap().smart_layout);
+        assert!(!serde_json::from_str::<Settings>("{}").unwrap().smart_layout_app_hint);
         let legacy = serde_json::json!({
             "setupProfile": "custom",
             "cleanupMode": "format",
@@ -631,6 +658,35 @@ mod smart_layout_settings_tests {
             }
         );
         assert!(!settings.smart_layout);
+        assert!(!settings.smart_layout_app_hint);
+    }
+
+    #[test]
+    fn app_hint_round_trips_even_when_layout_is_inactive() {
+        for smart_layout_app_hint in [false, true] {
+            for smart_layout in [false, true] {
+                for cleanup_mode in [CleanupMode::Original, CleanupMode::Format, CleanupMode::Clean] {
+                    let settings = Settings {
+                        smart_layout_app_hint,
+                        smart_layout,
+                        cleanup_mode,
+                        cleanup_model: "local-rules".into(),
+                        notes_model: "off".into(),
+                        ..Settings::default()
+                    };
+                    assert!(settings.validate().is_ok());
+                    let saved = serde_json::to_value(&settings).unwrap();
+                    assert_eq!(saved["smartLayoutAppHint"], smart_layout_app_hint);
+                    assert!(saved.get("smart_layout_app_hint").is_none());
+                    assert_eq!(serde_json::from_value::<Settings>(saved).unwrap(), settings);
+                }
+            }
+        }
+        for value in [serde_json::json!("true"), serde_json::json!(1), serde_json::Value::Null] {
+            assert!(serde_json::from_value::<Settings>(serde_json::json!({
+                "smartLayoutAppHint": value
+            })).is_err());
+        }
     }
 
     #[test]
@@ -669,6 +725,49 @@ mod smart_layout_settings_tests {
                     .is_err()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod proofreader_settings_tests {
+    use super::Settings;
+
+    #[test]
+    fn legacy_settings_default_to_disabled_and_round_trip_exact_consent() {
+        let legacy: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.proofreader);
+        assert_eq!(legacy.proofreader_model, "openai/gpt-6-luna");
+        assert!(legacy.proofreader_training_models.is_empty());
+        for enabled in [false, true] {
+            let settings = Settings {
+                proofreader: enabled,
+                proofreader_model: "other/contributor".into(),
+                proofreader_training_models: vec!["other/contributor".into()],
+                ..Settings::default()
+            };
+            assert!(settings.validate().is_ok());
+            let saved = serde_json::to_value(&settings).unwrap();
+            assert_eq!(saved["proofreader"], enabled);
+            assert_eq!(saved["proofreaderModel"], "other/contributor");
+            assert_eq!(saved["proofreaderTrainingModels"], serde_json::json!(["other/contributor"]));
+            assert_eq!(serde_json::from_value::<Settings>(saved).unwrap(), settings);
+        }
+    }
+
+    #[test]
+    fn proofreader_settings_reject_invalid_types_and_identifiers() {
+        for invalid in [serde_json::json!({"proofreader": "true"}),
+            serde_json::json!({"proofreaderModel": null}),
+            serde_json::json!({"proofreaderTrainingModels": true})]
+        {
+            assert!(serde_json::from_value::<Settings>(invalid).is_err());
+        }
+        let mut settings = Settings::default();
+        settings.proofreader_model = "bad-model".into();
+        assert!(settings.validate().is_err());
+        settings.proofreader_model = "provider/model".into();
+        settings.proofreader_training_models.push("https://host/model".into());
+        assert!(settings.validate().is_err());
     }
 }
 

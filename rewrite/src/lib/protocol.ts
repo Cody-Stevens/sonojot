@@ -39,6 +39,10 @@ export const settingsSchema = z.object({
   cleanupMode: z.enum(["clean", "original", "format"]),
   cleanupTrial: z.boolean().default(false),
   smartLayout: z.boolean().default(false),
+  smartLayoutAppHint: z.boolean().default(false),
+  proofreader: z.boolean().default(false),
+  proofreaderModel: z.string().default("openai/gpt-6-luna"),
+  proofreaderTrainingModels: z.array(z.string()).default([]),
   writtenForm: z.boolean().default(true),
   launchAtLogin: z.boolean(),
   hotkey: z.string(),
@@ -164,6 +168,7 @@ export const snapshotSchema = z.object({
   outputText: z.string(),
   preModelText: z.string().nullable().default(null),
   publicationStage: z.string().nullable().default(null),
+  cleanupStatus: z.string().nullable().default(null),
   guardReason: z.string().nullable().default(null),
   interimText: z.string(),
   /** Live-preview draft after interimText. Never saved, copied or pasted. */
@@ -251,12 +256,14 @@ export const vocabularySchema = z.array(
 );
 export type VocabularyEntry = z.infer<typeof vocabularySchema>[number];
 export const dictationRecordSchema = z.object({
+  targetApp: z.string().nullable().default(null),
   id: z.string(),
   createdAt: z.string(),
   raw: z.string(),
   published: z.string(),
   preModelText: z.string().nullable().default(null),
   publicationStage: z.string().nullable().default(null),
+  cleanupStatus: z.string().nullable().default(null),
   guardReason: z.string().nullable().default(null),
   recognitionCompleteness: recognitionCompletenessSchema.default("complete"),
   recognitionWarnings: z.array(z.string()).default([]),
@@ -324,6 +331,7 @@ export const commandSchemas = {
   get_model_library: modelLibrarySchema,
   open_model_license: nothing,
   open_legal_link: nothing,
+  open_openrouter_privacy: nothing,
   get_download_requirements: z.array(downloadConsentSchema),
   acknowledge_download_terms: snapshotSchema,
   open_download_license: nothing,
@@ -431,6 +439,7 @@ export interface CommandArguments {
   get_model_library: undefined;
   open_model_license: { id: string };
   open_legal_link: { url: string };
+  open_openrouter_privacy: undefined;
   get_download_requirements: { ids: string[] };
   acknowledge_download_terms: {
     acknowledgments: { id: string; version: string }[];
@@ -586,6 +595,10 @@ export const previewSnapshot: Snapshot = {
     cleanupMode: "clean",
     cleanupTrial: false,
     smartLayout: false,
+    smartLayoutAppHint: false,
+    proofreader: false,
+    proofreaderModel: "openai/gpt-6-luna",
+    proofreaderTrainingModels: [],
     writtenForm: true,
     launchAtLogin: false,
     hotkey: "Ctrl+Space",
@@ -617,6 +630,7 @@ export const previewSnapshot: Snapshot = {
   outputText: "",
   preModelText: null,
   publicationStage: null,
+  cleanupStatus: null,
   guardReason: null,
   interimText: "",
   previewText: "",

@@ -3,6 +3,7 @@
   import Card from "../components/Card.svelte";
   import SettingRow from "../components/SettingRow.svelte";
   import Toggle from "../components/Toggle.svelte";
+  import ProofreaderSettings from "../components/ProofreaderSettings.svelte";
   import DictationHistory from "../components/DictationHistory.svelte";
   import TransientDictation from "../components/TransientDictation.svelte";
   import ModelSummary from "../components/ModelSummary.svelte";
@@ -12,6 +13,8 @@
   import {
     SMART_LAYOUT_HELP,
     SMART_LAYOUT_LABEL,
+    SMART_LAYOUT_APP_HINT_LABEL,
+    SMART_LAYOUT_APP_HINT_HELP,
     smartLayoutUnavailableReason,
   } from "../lib/smart-layout";
   import type { ModelRole } from "../lib/model-library";
@@ -129,6 +132,53 @@
           ></button
         >{/each}
     </div>
+    <div class="shape-options">
+      <ProofreaderSettings {active} />
+      <SettingRow
+        label={SMART_LAYOUT_LABEL}
+        help={layoutUnavailable ?? SMART_LAYOUT_HELP}
+      >
+        {#if layoutUnavailable}
+          <button
+            class="button quiet small"
+            disabled={!app.native ||
+              app.busy("settings") ||
+              active ||
+              (mode.value !== "original" && !onmanage)}
+            onclick={() =>
+              mode.value === "original"
+                ? app.saveSettings({ cleanupMode: "format" })
+                : onmanage?.("notes")}
+            >{mode.value === "original"
+              ? "Use Format only"
+              : "Choose text model"}</button
+          >
+        {:else}
+          <Toggle
+            label={SMART_LAYOUT_LABEL}
+            checked={app.snapshot.settings.smartLayout}
+            disabled={!app.native || app.busy("settings") || active}
+            onchange={(smartLayout) => app.saveSettings({ smartLayout })}
+          />
+        {/if}
+      </SettingRow>
+      <SettingRow
+        label={SMART_LAYOUT_APP_HINT_LABEL}
+        help={SMART_LAYOUT_APP_HINT_HELP}
+      >
+        <Toggle
+          label={SMART_LAYOUT_APP_HINT_LABEL}
+          checked={app.snapshot.settings.smartLayoutAppHint}
+          disabled={!app.native ||
+            app.busy("settings") ||
+            active ||
+            !app.snapshot.settings.smartLayout ||
+            !!layoutUnavailable}
+          onchange={(smartLayoutAppHint) =>
+            app.saveSettings({ smartLayoutAppHint })}
+        />
+      </SettingRow>
+    </div>
     <div class="paper-well">
       <div class="well-label" data-text-surface="flat">Example</div>
       <div class="example-output">{mode.sample}</div>
@@ -186,27 +236,6 @@
           onchange={(writtenForm) => app.saveSettings({ writtenForm })}
         /></SettingRow
       >
-      <SettingRow
-        label={SMART_LAYOUT_LABEL}
-        help={layoutUnavailable
-          ? `${SMART_LAYOUT_HELP} ${layoutUnavailable}`
-          : SMART_LAYOUT_HELP}
-        ><Toggle
-          label={SMART_LAYOUT_LABEL}
-          checked={app.snapshot.settings.smartLayout}
-          disabled={!app.native ||
-            app.busy("settings") ||
-            active ||
-            !!layoutUnavailable}
-          onchange={(smartLayout) => app.saveSettings({ smartLayout })}
-        /></SettingRow
-      >
-      <p class="field-help" data-text-surface="flat">
-        Shape by type works in Format only and Clean with a ready local text
-        model selected for Cleanup or Notes. It checks Cleanup first, then
-        Notes. SonoJot Punctuation, online models and Smart cleanup alone cannot provide
-        it. Short dictations stay unchanged.
-      </p>
       <div class="section-toolbar">
         <h3 data-text-surface="emboss">Models in use</h3>
         <button
@@ -223,6 +252,12 @@
 {/if}
 
 <style>
+  .shape-options {
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
   .dictation-views {
     max-width: 360px;
     margin-bottom: 18px;

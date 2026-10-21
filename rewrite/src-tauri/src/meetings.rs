@@ -1,5 +1,7 @@
 #[path = "meeting_export.rs"]
 mod export;
+mod join;
+pub use join::SpeakerLabel;
 pub use export::{render_export, render_pdf};
 mod outages {
     //! Meeting-only interpretation of capture and recognition diagnostics.
@@ -2788,6 +2790,27 @@ mod meeting_tests {
         assert!(!meetings.operations.lock().unwrap().contains_key(&detail.id));
         let reopened = Meetings::new(Store::open(Some(meetings.store.root().to_path_buf())).unwrap());
         assert_eq!(reopened.get(&detail.id).unwrap().cleaned_transcript, saved.cleaned_transcript);
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn meeting_cleanup_ignores_the_dictation_proofreader_choice() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let detail = recorded(&meetings);
+        let mut record = meetings.read(&detail.id).unwrap();
+        record.detail.transcript = "[0:00] You: keep these words".into();
+        meetings.write(&record).unwrap();
+        let before = meetings.clean_local(&detail.id, || {}).unwrap();
+        let mut settings = meetings.store.load_settings().unwrap();
+        settings.proofreader = true;
+        settings.proofreader_model = "meta/muse-spark-1.3-contributor".into();
+        settings.proofreader_training_models = vec![settings.proofreader_model.clone()];
+        meetings.store.save_settings(&settings).unwrap();
+        let after = meetings.clean_local(&detail.id, || {}).unwrap();
+        assert_eq!(after.cleaned_transcript, before.cleaned_transcript);
+        assert_eq!(after.transcript, record.detail.transcript);
+        assert!(!meetings.store.root().join("model-policy.json").exists());
         fs::remove_dir_all(meetings.store.root()).unwrap();
     }
 

@@ -58,3 +58,18 @@ test("the legacy two-column table becomes alternating passages", () => {
     ],
   );
 });
+
+test("named speakers count only after a timecode", () => {
+  const blocks = parseTranscript(
+    "[0:01] Rachel Afant: Hi.\n\n[0:02] Cody Stevens: Hello.\n\nNote: plain prose.",
+  );
+  assert.deepEqual(
+    blocks.map(({ speaker, side, text }) => ({ speaker, side, text })),
+    [
+      { speaker: "Rachel Afant", side: "unknown", text: "Hi." },
+      { speaker: "Cody Stevens", side: "unknown", text: "Hello." },
+      { speaker: "Transcript", side: "unknown", text: "Note: plain prose." },
+    ],
+  );
+  assert.equal(serializeTranscript(blocks).startsWith("[0:01] Rachel Afant: Hi."), true);
+});

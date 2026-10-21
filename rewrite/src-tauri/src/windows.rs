@@ -994,9 +994,8 @@ pub fn show_cursor(app: &AppHandle) -> Result<(), String> {
     .skip_taskbar(true)
     .focused(false)
     .focusable(false)
-    .visible(false)
-    .build()
-    .map_err(|e| e.to_string())?;
+    .visible(false);
+    let window = build_quiet(app, window).map_err(|e| e.to_string())?;
     // GTK has no native window to shape until show realizes it, and tao
     // panics on an unrealized one, so Linux makes it click-through after show.
     #[cfg(not(target_os = "linux"))]
@@ -1026,6 +1025,32 @@ pub fn show_cursor(app: &AppHandle) -> Result<(), String> {
         }
     });
     Ok(())
+}
+
+/// Build a window that must leave the user's current app in front. On macOS,
+/// wry activates SonoJot whenever it creates a webview; that brought an open
+/// SonoJot window forward and took focus from the field being dictated into.
+/// Tauri creates the window later on the main thread, so the guard is lifted
+/// by a main-thread task queued behind the creation.
+#[cfg(target_os = "macos")]
+pub fn build_quiet(
+    app: &AppHandle,
+    builder: WebviewWindowBuilder<'_, tauri::Wry, AppHandle>,
+) -> tauri::Result<tauri::WebviewWindow> {
+    crate::mac_paste::begin_quiet_build();
+    let built = builder.build();
+    if app.run_on_main_thread(crate::mac_paste::end_quiet_build).is_err() {
+        crate::mac_paste::end_quiet_build();
+    }
+    built
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn build_quiet(
+    _: &AppHandle,
+    builder: WebviewWindowBuilder<'_, tauri::Wry, AppHandle>,
+) -> tauri::Result<tauri::WebviewWindow> {
+    builder.build()
 }
 
 pub fn close_cursor(app: &AppHandle) {

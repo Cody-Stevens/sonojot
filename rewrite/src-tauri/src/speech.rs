@@ -13,7 +13,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Sender},
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, OnceLock,
     },
     thread,
     time::{Duration, Instant},
@@ -27,6 +27,12 @@ pub struct StartOptions {
     pub cleanup_mode: cleanup::Mode,
     /// Optional final formatting stage; model selection is snapshotted at start.
     pub smart_layout: bool,
+    pub smart_layout_app_hint: bool,
+    /// Online proofreading is an explicit, per-dictation choice.
+    pub proofreader: crate::proofreader::Options,
+    /// Non-blocking category from the capture-time lookup; the app identity
+    /// stays outside the speech engine and its model requests.
+    pub layout_app_category: Arc<OnceLock<Option<crate::app_context::Category>>>,
     pub written_form: bool,
     pub notes_model: String,
     pub vocabulary: Vec<cleanup::Vocabulary>,
@@ -62,6 +68,9 @@ impl Default for StartOptions {
             cleanup_model: "lfm2.5-1.2b".into(),
             cleanup_mode: cleanup::Mode::Clean,
             smart_layout: false,
+            smart_layout_app_hint: false,
+            proofreader: Default::default(),
+            layout_app_category: Arc::default(),
             written_form: true,
             notes_model: "qwen3-4b-instruct-2507".into(),
             vocabulary: Vec::new(),
@@ -104,6 +113,13 @@ impl StartOptions {
             asr_model: settings.asr_model.clone(),
             cleanup_model: settings.cleanup_model.clone(),
             smart_layout: settings.smart_layout,
+            smart_layout_app_hint: settings.smart_layout_app_hint,
+            proofreader: crate::proofreader::Options {
+                enabled: settings.proofreader,
+                model: settings.proofreader_model.clone(),
+                training_accepted: settings.proofreader_training_models.contains(&settings.proofreader_model),
+            },
+            layout_app_category: Arc::default(),
             written_form: settings.written_form,
             notes_model: settings.notes_model.clone(),
             cleanup_mode: match settings.cleanup_mode {
@@ -118,6 +134,19 @@ impl StartOptions {
             live_preview: settings.live_preview,
             no_history: settings.do_not_save_dictations,
             store,
+        }
+    }
+
+    fn layout_app_context(&self) -> Option<&'static str> {
+        if self.smart_layout
+            && self.smart_layout_app_hint
+            && self.cleanup_mode != cleanup::Mode::Original
+        {
+            self.layout_app_category
+                .get().copied().flatten()
+                .map(crate::app_context::Category::description)
+        } else {
+            None
         }
     }
 }
@@ -784,6 +813,62 @@ impl Drop for TextLease {
     }
 }
 
+/// Only the dictation owner calls this stage. Meetings retain their own
+/// transcription/cleanup path and never pass text to the proofreader.
+#[allow(clippy::too_many_arguments)]
+fn proofread_dictation(
+    options: &StartOptions,
+    completeness: RecognitionCompleteness,
+    cleaned: &mut cleanup::ResultText,
+    cancel: &AtomicBool,
+    stop: &AtomicBool,
+    on_cleaning: impl FnOnce(),
+    request: impl FnOnce(
+        &crate::store::Store, &crate::proofreader::Options, &str, &[String],
+        &AtomicBool, &AtomicBool,
+    ) -> crate::proofreader::Outcome,
+) {
+    if !options.proofreader.enabled {
+        return;
+    }
+    let reason = if completeness == RecognitionCompleteness::Incomplete {
+        Some("incomplete_recognition")
+    } else if cancel.load(Ordering::Acquire) {
+        Some("cancelled")
+    } else if stop.load(Ordering::Acquire) {
+        Some("stopped")
+    } else if options.store.is_none() {
+        Some("store_unavailable")
+    } else {
+        None
+    };
+    let outcome = if let Some(reason) = reason {
+        crate::proofreader::Outcome {
+            text: None,
+            outcome: match reason {
+                "cancelled" | "stopped" => reason,
+                _ => "skipped",
+            }.into(),
+            reason: reason.into(),
+            model: options.proofreader.model.clone(),
+        }
+    } else if let Some(store) = options.store.as_ref() {
+        // Send explicit written forms only. Learned history, aliases, app
+        // identities and local scope evidence stay on this computer.
+        let mut vocabulary: Vec<String> = options.vocabulary.iter()
+            .filter(|entry| entry.enabled && !entry.written.trim().is_empty())
+            .map(|entry| entry.written.clone())
+            .collect();
+        vocabulary.sort();
+        vocabulary.dedup();
+        on_cleaning();
+        request(store, &options.proofreader, &cleaned.text, &vocabulary, cancel, stop)
+    } else {
+        return;
+    };
+    crate::proofreader::apply(cleaned, outcome);
+}
+
 /// Layout owns a fail-open, non-queued use of the existing text worker after
 /// every cleanup stage has finished. Keep this call last when adding stages.
 fn shape_dictation(
@@ -839,7 +924,10 @@ fn shape_dictation(
         layout::apply_to_result(cleaned, outcome);
         return;
     };
-    let outcome = layout::run(root, &cleaned.text, options.cleanup_mode, model, cancel, stop);
+    let outcome = layout::run(
+        root, &cleaned.text, options.cleanup_mode, model, cancel, stop,
+        options.layout_app_context(),
+    );
     // Reflect actual residency; an expired request may have killed its worker
     // under the process guard while erasing KV.
     if let Some(resident) = cleanup::resident_model_id() {
@@ -1320,6 +1408,11 @@ fn run_job(
         }
         lease.finish();
     }
+    proofread_dictation(&job.options, recognition_completeness, &mut cleaned,
+        &control.cancel, &control.stop_cleanup, || callback(Event::Cleaning {
+            session_id: id,
+            original_text: guarded_text.clone(),
+        }), crate::proofreader::run);
     shape_dictation(root, &job.options, recognition_completeness, &mut cleaned,
         &control.cancel, &control.stop_cleanup, || callback(Event::Cleaning {
             session_id: id,
@@ -1426,6 +1519,7 @@ mod tests {
                     store.privacy_generation(), &original, &cleaned.text,
                     recognition.completeness, &recognition.warnings,
                     cleaned.pre_model_text.as_deref(), cleaned.publication_stage.as_deref(), cleaned.guard_reason.as_deref(),
+                    None,
                 ).unwrap().unwrap();
                 let saved = store.get_dictation(&saved.id).unwrap();
                 assert_eq!(saved.raw, source);
@@ -1446,6 +1540,140 @@ mod tests {
         assert!(StartOptions::default().policy.is_conservative());
         assert!(!StartOptions::default().no_history);
         assert!(!StartOptions::default().smart_layout);
+        assert!(!StartOptions::default().smart_layout_app_hint);
+        assert!(!StartOptions::default().proofreader.enabled);
+        assert!(StartOptions::default().layout_app_category.get().is_none());
+    }
+
+    #[test]
+    fn proofreader_snapshots_the_exact_model_and_its_training_choice() {
+        let mut settings = crate::domain::Settings::default();
+        settings.proofreader = true;
+        settings.proofreader_model = "meta/muse-spark-1.3-contributor".into();
+        settings.proofreader_training_models = vec![settings.proofreader_model.clone()];
+        let first = StartOptions::from_settings(settings.clone(), vec![], vec![]);
+        settings.proofreader_model = "another/contributor".into();
+        let next = StartOptions::from_settings(settings, vec![], vec![]);
+        assert!(first.proofreader.enabled);
+        assert!(first.proofreader.training_accepted);
+        assert_eq!(first.proofreader.model, "meta/muse-spark-1.3-contributor");
+        assert!(!next.proofreader.training_accepted);
+    }
+
+    #[test]
+    fn proofreader_skips_disabled_incomplete_and_interrupted_dictations() {
+        for (enabled, completeness, cancel, stop, reason) in [
+            (false, RecognitionCompleteness::Complete, false, false, None),
+            (true, RecognitionCompleteness::Incomplete, false, false, Some("incomplete_recognition")),
+            (true, RecognitionCompleteness::Complete, true, false, Some("cancelled")),
+            (true, RecognitionCompleteness::Complete, false, true, Some("stopped")),
+            (true, RecognitionCompleteness::Complete, false, false, Some("store_unavailable")),
+        ] {
+            let options = StartOptions {
+                proofreader: crate::proofreader::Options { enabled, ..Default::default() },
+                ..Default::default()
+            };
+            let mut result = cleanup::safe_format("Keep the the text.", cleanup::Mode::Original, &[]);
+            let before = result.clone();
+            proofread_dictation(&options, completeness, &mut result,
+                &AtomicBool::new(cancel), &AtomicBool::new(stop),
+                || panic!("Skipped proofreading must not start"),
+                |_, _, _, _, _, _| panic!("Skipped proofreading must not request a model"));
+            assert_eq!(result.text, before.text);
+            if let Some(reason) = reason {
+                assert!(result.status.contains(reason), "{}", result.status);
+            } else {
+                assert_eq!(result.status, before.status);
+                assert_eq!(result.pre_model_text, before.pre_model_text);
+            }
+        }
+    }
+
+    #[test]
+    fn proofreader_receives_cleaned_text_and_only_enabled_written_vocabulary() {
+        let directory = std::env::temp_dir().join(format!("sonojot-proofreader-pipeline-{}", uuid::Uuid::new_v4()));
+        let store = crate::store::Store::open(Some(directory.clone())).unwrap();
+        let options = StartOptions {
+            proofreader: crate::proofreader::Options { enabled: true, ..Default::default() },
+            store: Some(store),
+            vocabulary: vec![
+                cleanup::Vocabulary { heard: "tax sheet".into(), written: "Tacksheet".into(), enabled: true, context: vec!["private local context".into()] },
+                cleanup::Vocabulary { heard: "alias".into(), written: "Disabled name".into(), enabled: false, ..Default::default() },
+                cleanup::Vocabulary { written: "Tacksheet".into(), enabled: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut result = cleanup::safe_format("Send the the link.", cleanup::Mode::Original, &[]);
+        result.pre_model_text = Some("earlier local cleanup".into());
+        result.punctuation_stage = Some("punctuation_model".into());
+        let unproofread = result.text.clone();
+        let entered = AtomicBool::new(false);
+        proofread_dictation(&options, RecognitionCompleteness::Complete, &mut result,
+            &AtomicBool::new(false), &AtomicBool::new(false),
+            || entered.store(true, Ordering::Release),
+            |_, config, text, vocabulary, _, _| {
+                assert_eq!(text, unproofread);
+                assert_eq!(vocabulary, ["Tacksheet"]);
+                crate::proofreader::Outcome {
+                    text: Some("Send the link.".into()), outcome: "accepted".into(),
+                    reason: "accepted".into(), model: config.model.clone(),
+                }
+            });
+        assert!(entered.load(Ordering::Acquire));
+        assert_eq!(result.text, "Send the link.");
+        assert_eq!(result.pre_model_text.as_deref(), Some(unproofread.as_str()));
+        assert_eq!(result.publication_stage.as_deref(), Some("proofread"));
+        assert_eq!(result.punctuation_stage.as_deref(), Some("punctuation_model"));
+        // A later layout keeps the recovery baseline from before proofreading.
+        let mut layout = cleanup::layout::skip(&result.text, "accepted");
+        layout.text = "Send the link.\n".into();
+        layout.applied = true;
+        cleanup::layout::apply_to_result(&mut result, layout);
+        assert_eq!(result.pre_model_text.as_deref(), Some(unproofread.as_str()));
+        assert!(result.status.contains("proofreader"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn layout_context_requires_both_choices_and_a_known_target() {
+        use crate::app_context::{category_for_identity, Category};
+        for smart_layout in [false, true] {
+            for smart_layout_app_hint in [false, true] {
+                for cleanup_mode in [cleanup::Mode::Original, cleanup::Mode::Format, cleanup::Mode::Clean] {
+                    for (identity, category) in [
+                        (Some("outlook.exe"), Some(Category::Mail)),
+                        (Some("com.apple.reminders"), Some(Category::Tasks)),
+                        (Some("slack.exe"), Some(Category::Chat)),
+                        (Some("md.obsidian"), Some(Category::Notes)),
+                        (Some("chrome.exe"), None), (Some("unknown.exe"), None), (None, None),
+                    ] {
+                        let options = StartOptions {
+                            smart_layout, smart_layout_app_hint, cleanup_mode,
+                            layout_app_category: Arc::new(OnceLock::from(identity.and_then(category_for_identity))),
+                            ..Default::default()
+                        };
+                        let expected = if smart_layout && smart_layout_app_hint && cleanup_mode != cleanup::Mode::Original {
+                            category.map(Category::description)
+                        } else { None };
+                        assert_eq!(options.layout_app_context(), expected);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pending_app_lookup_skips_the_hint_without_waiting_and_is_session_local() {
+        let options = StartOptions {
+            smart_layout: true, smart_layout_app_hint: true, ..Default::default()
+        };
+        assert_eq!(options.layout_app_context(), None);
+        options.layout_app_category.set(Some(crate::app_context::Category::Mail)).unwrap();
+        assert_eq!(options.layout_app_context(), Some(crate::app_context::Category::Mail.description()));
+        let next = StartOptions {
+            smart_layout: true, smart_layout_app_hint: true, ..Default::default()
+        };
+        assert_eq!(next.layout_app_context(), None);
     }
 
     #[test]
@@ -1459,7 +1687,10 @@ mod tests {
             (true, cleanup::Mode::Clean, RecognitionCompleteness::Complete, false, true),
             (true, cleanup::Mode::Format, RecognitionCompleteness::Complete, false, false),
         ] {
-            let options = StartOptions { smart_layout: enabled, cleanup_mode: mode, ..Default::default() };
+            let options = StartOptions {
+                smart_layout: enabled, cleanup_mode: mode, smart_layout_app_hint: true,
+                layout_app_category: Arc::new(OnceLock::from(Some(crate::app_context::Category::Mail))), ..Default::default()
+            };
             let mut result = cleanup::run_interruptible_with_policy(
                 std::path::Path::new(""), text, cleanup::Mode::Original, &[], &[], "local-rules",
                 cleanup::CleanupPolicy::conservative(), &AtomicBool::new(false), &AtomicBool::new(false),
@@ -1473,6 +1704,8 @@ mod tests {
             if !enabled {
                 assert_eq!(result.status, prior_status);
                 assert!(result.publication_stage.is_none());
+            } else {
+                assert!(result.status.ends_with("layout_app_hint=none"));
             }
         }
     }
@@ -1482,14 +1715,19 @@ mod tests {
         settings.cleanup_trial = true;
         settings.do_not_save_dictations = true;
         settings.smart_layout = true;
+        settings.smart_layout_app_hint = true;
         settings.written_form = false;
         settings.notes_model = "qwen3-4b-instruct-2507".into();
-        let options = StartOptions::from_settings(settings, Vec::new(), Vec::new());
+        let options = StartOptions::from_settings(settings.clone(), Vec::new(), Vec::new());
+        settings.smart_layout_app_hint = false;
+        assert!(!settings.smart_layout_app_hint);
         // Saved trial bool is preserved in Settings for migration/evidence;
         // normal runtime uses the tested conservative host policy.
         assert!(options.policy.is_conservative());
         assert!(options.no_history);
         assert!(options.smart_layout);
+        assert!(options.smart_layout_app_hint);
+        assert!(options.layout_app_category.get().is_none());
         assert!(!options.written_form);
         assert_eq!(options.notes_model, "qwen3-4b-instruct-2507");
         let mut settings = crate::domain::Settings::default();
@@ -1499,6 +1737,7 @@ mod tests {
         assert!(options.policy.is_conservative());
         assert!(!options.no_history);
         assert!(!options.smart_layout);
+        assert!(!options.smart_layout_app_hint);
         assert!(options.written_form);
     }
     #[test]

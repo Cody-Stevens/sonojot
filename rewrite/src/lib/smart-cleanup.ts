@@ -1,4 +1,5 @@
 import type { DictationRecord, Settings, Snapshot } from "./protocol";
+import { proofreaderGuardLabel } from "./proofreader";
 
 export const SMART_CLEANUP_MODEL = "speakoflow-mini-q4_k_m";
 export const SMART_CLEANUP_HELP =
@@ -15,6 +16,7 @@ export function smartRecoverySession(snapshot: Snapshot): number | null {
     ["idle", "error"].includes(snapshot.state) &&
     snapshot.recognitionCompleteness === "complete" &&
     (snapshot.publicationStage === "smart_cleanup" ||
+      snapshot.publicationStage === "proofread" ||
       snapshot.publicationStage === "smart_layout") &&
     !!snapshot.preModelText?.trim() &&
     snapshot.preModelText !== snapshot.outputText
@@ -24,6 +26,8 @@ export function smartRecoverySession(snapshot: Snapshot): number | null {
 
 export function publicationLabel(stage: string | null): string | null {
   switch (stage) {
+    case "proofread":
+      return "Proofread";
     case "smart_cleanup":
       return "Smart cleanup";
     case "smart_layout":
@@ -46,6 +50,7 @@ export function publicationLabel(stage: string | null): string | null {
 }
 
 export function guardReasonLabel(reason: string): string {
+  if (reason.startsWith("proofreader:")) return proofreaderGuardLabel(reason);
   if (reason.startsWith("layout:")) {
     const labels: Record<string, string> = {
       as_heard: "As heard kept unchanged",
@@ -113,11 +118,13 @@ export function historyVersions(record: DictationRecord) {
     title:
       record.recognitionCompleteness === "incomplete"
         ? "Available text"
-        : record.publicationStage === "smart_cleanup"
-          ? "Cleaned"
-          : record.publicationStage === "smart_layout"
-            ? "Shaped"
-            : "Finished text",
+        : record.publicationStage === "proofread"
+          ? "Proofread"
+          : record.publicationStage === "smart_cleanup"
+            ? "Cleaned"
+            : record.publicationStage === "smart_layout"
+              ? "Shaped"
+              : "Finished text",
     text: record.published,
   };
   return record.preModelText === null

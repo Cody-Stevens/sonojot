@@ -1,5 +1,5 @@
-//! Optional OpenRouter settings and text generation. Capture and status never
-//! contact a provider; meeting speech requests use a separate explicit selection.
+//! Optional OpenRouter settings and generation. Recording and status never
+//! contact a provider; proofreading and meeting speech require explicit choices.
 use crate::store::Store;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
@@ -149,6 +149,8 @@ pub struct AiModel {
     pub description: Option<String>,
     /// Curated OpenRouter reasoning effort for a recommended model.
     pub reasoning_effort: Option<String>,
+    pub supported_parameters: Vec<String>,
+    pub training_required: bool,
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -692,6 +694,11 @@ fn http_error(status: reqwest::StatusCode, body: &[u8]) -> String {
     // when the provider payload itself names a data policy. Other statuses
     // keep their fixed meaning even when a body happens to mention privacy.
     if matches!(status.as_u16(), 400 | 404) {
+        if serde_json::from_slice::<serde_json::Value>(body).ok().is_some_and(|value| {
+            value.to_string().contains("paid-model-training-violation-by-account")
+        }) {
+            return PROOFREADER_ACCOUNT_PRIVACY.into();
+        }
         let data_policy_named = serde_json::from_slice::<serde_json::Value>(body)
             .ok()
             .and_then(|value| {
@@ -722,6 +729,200 @@ fn http_error(status: reqwest::StatusCode, body: &[u8]) -> String {
         503 => "The model's providers are temporarily unavailable. Try again later.",
         _ => "OpenRouter could not complete the request. Check the selected model and try again.",
     }.into()
+}
+
+pub(crate) const PROOFREADER_TIMEOUT: &str = "deadline_exceeded";
+pub(crate) const PROOFREADER_STOPPED: &str = "stopped";
+pub(crate) const PROOFREADER_ACCOUNT_PRIVACY: &str = "OpenRouter account privacy settings block this training-tier model. Choose another model or review https://openrouter.ai/settings/privacy.";
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+struct ProofreaderModelPolicy {
+    supported_parameters: Vec<String>,
+    training_required: bool,
+}
+
+fn supported_parameters(item: &serde_json::Value) -> Vec<String> {
+    item.get("supported_parameters")
+        .and_then(serde_json::Value::as_array)
+        .into_iter().flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|parameter| valid_effort(parameter))
+        .take(64).map(str::to_owned).collect()
+}
+
+/// Positive evidence requires a separate model notice. Missing metadata never
+/// grants training permission: requests still default to data_collection=deny.
+pub(crate) fn training_required(id: &str, item: &serde_json::Value) -> bool {
+    if id.to_ascii_lowercase().split(['/', '-', ':', '_', '.'])
+        .any(|part| part == "contributor" || part == "training")
+    {
+        return true;
+    }
+    for path in ["/training_required", "/trainingRequired", "/data_policy/training",
+        "/data_policy/training_required", "/privacy/training", "/top_provider/training"]
+    {
+        if item.pointer(path).is_some_and(|value| value.as_bool() == Some(true)
+            || matches!(value.as_str(), Some("allow" | "required" | "enabled")))
+        {
+            return true;
+        }
+    }
+    for path in ["/data_collection", "/data_policy/data_collection", "/top_provider/data_collection"] {
+        if item.pointer(path).and_then(serde_json::Value::as_str) == Some("allow") {
+            return true;
+        }
+    }
+    ["name", "description"].iter().any(|field| {
+        let text = item.get(*field).and_then(serde_json::Value::as_str)
+            .unwrap_or("").to_lowercase();
+        ["contributor", "used for training", "used to train", "may train",
+            "training on your", "training purposes", "train on prompts"]
+            .iter().any(|phrase| text.contains(phrase))
+    })
+}
+
+fn catalog_proofreader_policy(catalog: &serde_json::Value) -> HashMap<String, ProofreaderModelPolicy> {
+    catalog.get("data").and_then(serde_json::Value::as_array)
+        .into_iter().flatten().take(4000).filter_map(|item| {
+            let id = item.get("id")?.as_str().filter(|id| valid_model(id))?;
+            Some((id.to_owned(), ProofreaderModelPolicy {
+                supported_parameters: supported_parameters(item),
+                training_required: training_required(id, item),
+            }))
+        }).collect()
+}
+
+pub(crate) fn proofreader_cloud_accepted(settings: &crate::domain::Settings) -> bool {
+    settings.component_acknowledgments.get("openrouter-cloud").map(String::as_str) == Some("1")
+}
+
+fn proofreader_training_accepted(settings: &crate::domain::Settings, model: &str, accepted: bool) -> bool {
+    accepted && settings.proofreader_training_models.iter().any(|id| id == model)
+}
+
+pub(crate) fn proofreader_checkpoint(
+    cancel: &AtomicBool,
+    stop: &AtomicBool,
+    deadline: Instant,
+) -> Result<(), String> {
+    check_cancel(cancel)?;
+    if stop.load(Ordering::Acquire) {
+        return Err(PROOFREADER_STOPPED.into());
+    }
+    if Instant::now() >= deadline {
+        return Err(PROOFREADER_TIMEOUT.into());
+    }
+    Ok(())
+}
+
+/// One deadline covers preparation, catalog refresh, headers and body. The
+/// caller also bounds blocking store/key access outside this network future.
+pub(crate) fn proofreader_network<T>(
+    cancel: &AtomicBool,
+    stop: &AtomicBool,
+    deadline: Instant,
+    future: impl Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    proofreader_checkpoint(cancel, stop, deadline)?;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+        .map_err(|_| "connection_unavailable".to_string())?;
+    runtime.block_on(async {
+        let mut future = pin!(future);
+        let mut ticks = tokio::time::interval(Duration::from_millis(20));
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let expiry = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline));
+        let mut expiry = pin!(expiry);
+        poll_fn(|cx| {
+            if let Err(reason) = proofreader_checkpoint(cancel, stop, deadline) {
+                return Poll::Ready(Err(reason));
+            }
+            if expiry.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Err(PROOFREADER_TIMEOUT.into()));
+            }
+            while ticks.poll_tick(cx).is_ready() {}
+            match future.as_mut().poll(cx) {
+                Poll::Ready(result) => Poll::Ready(
+                    proofreader_checkpoint(cancel, stop, deadline).and(result)),
+                Poll::Pending => Poll::Pending,
+            }
+        }).await
+    })
+}
+
+fn proofreader_request_body(
+    model: &str,
+    system: &str,
+    text: &str,
+    policy: &ProofreaderModelPolicy,
+    exact_training_consent: bool,
+) -> Result<serde_json::Value, String> {
+    if policy.training_required && !exact_training_consent {
+        return Err("training_consent_required".into());
+    }
+    let effort = policy.supported_parameters.iter()
+        .any(|parameter| parameter == "reasoning")
+        .then(|| "low".to_owned());
+    let mut body = text_request_body(model, system, text, 8192, effort);
+    body["temperature"] = serde_json::json!(0);
+    if policy.training_required && exact_training_consent {
+        body["provider"]["data_collection"] = serde_json::json!("allow");
+    }
+    Ok(body)
+}
+
+/// Dictation-only caller supplies the prompt and exact model snapshot. This
+/// shares the connection, public catalog cache and bounded response reader.
+pub(crate) fn proofread(
+    store: &Store,
+    model: &str,
+    training_accepted: bool,
+    system: &str,
+    text: &str,
+    cancel: &AtomicBool,
+    stop: &AtomicBool,
+    deadline: Instant,
+) -> Result<serde_json::Value, String> {
+    proofreader_checkpoint(cancel, stop, deadline)?;
+    if !valid_model(model) {
+        return Err("invalid_model".into());
+    }
+    let (key, exact_consent) = {
+        let _guard = store.lock().map_err(|_| "settings_unavailable")?;
+        proofreader_checkpoint(cancel, stop, deadline)?;
+        let settings = store.settings_unlocked().map_err(|_| "settings_unavailable")?;
+        if !proofreader_cloud_accepted(&settings) {
+            return Err("cloud_consent_required".into());
+        }
+        let exact_consent = proofreader_training_accepted(&settings, model, training_accepted);
+        let key = load_key_unlocked(store).map_err(|_| "connection_required")?;
+        (key, exact_consent)
+    };
+    proofreader_checkpoint(cancel, stop, deadline)?;
+    let cached = load_policy(store);
+    proofreader_network(cancel, stop, deadline, async {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let client = client(remaining)?;
+        let stale = cached.as_ref().is_none_or(|cache|
+            now_unix().saturating_sub(cache.fetched_at) > POLICY_REFRESH_SECS
+                || !cache.proofreader_models.contains_key(model));
+        let mut policy = cached.as_ref().and_then(|cache| cache.proofreader_models.get(model)).cloned();
+        if stale {
+            // A failed lookup retains cached policy, or defaults to deny
+            // routing without reasoning. Its latency consumes this deadline.
+            if let Ok(catalog) = request_json(attribution(client.get(MODELS_URL)), 8 * 1024 * 1024).await {
+                policy = catalog_proofreader_policy(&catalog).remove(model);
+                proofreader_checkpoint(cancel, stop, deadline)?;
+                cache_model_policy(store, &catalog);
+            }
+        }
+        proofreader_checkpoint(cancel, stop, deadline)?;
+        let mut policy = policy.unwrap_or_default();
+        policy.training_required |= training_required(model, &serde_json::Value::Null);
+        let body = proofreader_request_body(model, system, text, &policy, exact_consent)?;
+        proofreader_checkpoint(cancel, stop, deadline)?;
+        request_json(attribution(client.post(COMPLETIONS_URL)).bearer_auth(key).json(&body), 512 * 1024).await
+    })
 }
 
 /// A failed public request keeps its HTTP status so callers can distinguish
@@ -1113,6 +1314,8 @@ pub(crate) fn parse_models(value: serde_json::Value) -> Result<Vec<AiModel>, Str
                 .map(str::to_owned)
         };
         models.push(AiModel {
+            supported_parameters: supported_parameters(item),
+            training_required: training_required(id, item),
             input_modalities,
             id: id.into(),
             name: item
@@ -1265,6 +1468,8 @@ struct PolicyCache {
     fetched_at: i64,
     #[serde(default)]
     models: HashMap<String, ModelReasoning>,
+    #[serde(default)]
+    proofreader_models: HashMap<String, ProofreaderModelPolicy>,
     /// Curated efforts from the last recommendations read, by model id. None
     /// until a list has been read; the bundled list stands in until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1366,6 +1571,7 @@ fn write_policy(
             version: 1,
             fetched_at: now_unix(),
             models: catalog_reasoning(catalog),
+            proofreader_models: catalog_proofreader_policy(catalog),
             recommended_efforts,
         },
     );
@@ -1555,10 +1761,12 @@ fn refresh_model_policy(store: &Store, cancel: &AtomicBool) {
         version: 1,
         fetched_at: 0,
         models: HashMap::new(),
+        proofreader_models: HashMap::new(),
         recommended_efforts: None,
     });
     if let Ok(catalog) = fetched {
         cache.models = catalog_reasoning(&catalog);
+        cache.proofreader_models = catalog_proofreader_policy(&catalog);
     }
     cache.fetched_at = now_unix();
     let _ = store.write(&store.root().join(POLICY_FILE), &cache);
@@ -1887,6 +2095,93 @@ mod tests {
     use super::*;
 
     #[test]
+    fn proofreader_request_requires_exact_training_consent_and_catalog_reasoning() {
+        let mut policy = ProofreaderModelPolicy::default();
+        let body = proofreader_request_body("openai/gpt-6-luna", "system", "dictation", &policy, false).unwrap();
+        assert_eq!(body["temperature"], 0);
+        assert_eq!(body["provider"]["data_collection"], "deny");
+        assert!(body.get("reasoning").is_none());
+        assert_eq!(body["messages"][1], serde_json::json!({"role":"user", "content":"dictation"}));
+        policy.supported_parameters.push("reasoning".into());
+        let body = proofreader_request_body("openai/gpt-6-luna", "system", "dictation", &policy, false).unwrap();
+        assert_eq!(body["reasoning"], serde_json::json!({"effort":"low"}));
+        policy.training_required = true;
+        assert_eq!(proofreader_request_body("other/contributor", "system", "dictation", &policy, false), Err("training_consent_required".into()));
+        let body = proofreader_request_body("other/contributor", "system", "dictation", &policy, true).unwrap();
+        assert_eq!(body["provider"]["data_collection"], "allow");
+        let settings = crate::domain::Settings {
+            proofreader_training_models: vec!["other/contributor".into()],
+            ..Default::default()
+        };
+        assert!(proofreader_training_accepted(&settings, "other/contributor", true));
+        assert!(!proofreader_training_accepted(&settings, "other/contributor", false));
+        assert!(!proofreader_training_accepted(&settings, "other/contributor:free", true));
+        assert!(!proofreader_training_accepted(&settings, "another/contributor", true));
+        policy.training_required = false;
+        assert_eq!(proofreader_request_body("other/model", "system", "dictation", &policy, true).unwrap()["provider"]["data_collection"], "deny");
+    }
+
+    #[test]
+    fn training_detection_uses_catalog_metadata_and_defaults_to_deny() {
+        assert!(training_required("meta/muse-spark-1.3-contributor", &serde_json::Value::Null));
+        assert!(training_required("other/model", &serde_json::json!({"training_required":true})));
+        assert!(training_required("other/model", &serde_json::json!({"data_policy":{"training":true}})));
+        assert!(training_required("other/model", &serde_json::json!({"description":"Your prompts may be used to train the model."})));
+        assert!(!training_required("other/model", &serde_json::Value::Null));
+        assert!(!training_required("other/model", &serde_json::json!({"description":"Pretrained language model", "training_required":false})));
+        let catalog = serde_json::json!({"data":[{
+            "id":"other/model", "name":"Other", "supported_parameters":["reasoning","temperature"],
+            "architecture":{"input_modalities":["text"],"output_modalities":["text"]},
+            "training_required":true
+        },{
+            "id":"other/plain", "architecture":{"input_modalities":["text"],"output_modalities":["text"]}
+        }]});
+        let models = parse_models(catalog.clone()).unwrap();
+        let model = models.iter().find(|model| model.id == "other/model").unwrap();
+        let json = serde_json::to_value(model).unwrap();
+        assert_eq!(json["trainingRequired"], true);
+        assert_eq!(json["supportedParameters"], serde_json::json!(["reasoning","temperature"]));
+        let plain = models.iter().find(|model| model.id == "other/plain").unwrap();
+        assert!(!plain.training_required);
+        assert!(plain.supported_parameters.is_empty());
+        let path = std::env::temp_dir().join(format!("sonojot-proofreader-policy-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(path.clone())).unwrap();
+        cache_model_policy(&store, &catalog);
+        let cache = load_policy(&store).unwrap();
+        assert!(cache.proofreader_models["other/model"].training_required);
+        assert_eq!(cache.proofreader_models["other/model"].supported_parameters, vec!["reasoning", "temperature"]);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn proofreader_cloud_notice_is_versioned_and_checked_before_key_or_network() {
+        let path = std::env::temp_dir().join(format!("sonojot-proofreader-consent-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(path.clone())).unwrap();
+        let cancel = AtomicBool::new(false);
+        let stop = AtomicBool::new(false);
+        assert_eq!(proofread(&store, "openai/gpt-6-luna", false, "system", "text", &cancel, &stop,
+            Instant::now() + Duration::from_secs(1)), Err("cloud_consent_required".into()));
+        let mut settings = crate::domain::Settings::default();
+        settings.component_acknowledgments.insert("openrouter-cloud".into(), "0".into());
+        assert!(!proofreader_cloud_accepted(&settings));
+        settings.component_acknowledgments.insert("openrouter-cloud".into(), "1".into());
+        assert!(proofreader_cloud_accepted(&settings));
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn training_account_error_is_actionable_and_never_echoes_provider_text() {
+        let error = http_error(reqwest::StatusCode::NOT_FOUND,
+            br#"{"error":{"message":"private transcript and secret key","metadata":{"reasons":["paid-model-training-violation-by-account"]}}}"#);
+        assert_eq!(error, PROOFREADER_ACCOUNT_PRIVACY);
+        assert!(error.contains("https://openrouter.ai/settings/privacy"));
+        assert!(!error.contains("private transcript"));
+        assert!(!error.contains("secret key"));
+        assert!(!http_error(reqwest::StatusCode::UNAUTHORIZED,
+            br#"{"error":{"message":"paid-model-training-violation-by-account"}}"#).contains("settings/privacy"));
+    }
+
+    #[test]
     fn pkce_is_random_and_matches_rfc7636_challenge() {
         let first = Pkce::new(54321);
         let second = Pkce::new(54321);
@@ -2067,6 +2362,7 @@ mod tests {
                         },
                     )]),
                     recommended_efforts: None,
+                    proofreader_models: HashMap::new(),
                 },
             )
             .unwrap();
@@ -2336,6 +2632,8 @@ mod tests {
     #[test]
     fn curated_models_follow_document_order_and_carry_effort() {
         let model = |id: &str, prompt: Option<&str>, completion: Option<&str>| AiModel {
+            supported_parameters: Vec::new(),
+            training_required: false,
             input_modalities: vec!["text".into()],
             id: id.into(),
             name: id.into(),

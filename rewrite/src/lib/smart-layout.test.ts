@@ -148,7 +148,7 @@ test("layout is unavailable in As heard and without a verified selected text mod
     assert.equal(smartLayoutUnavailableReason(selection, [cleanup]), null);
     assert.match(
       smartLayoutUnavailableReason(selection, []) ?? "",
-      /Select an installed local text model for Cleanup or Notes in Models\./,
+      /Choose a ready local text model for Cleanup or Notes\./,
     );
   }
 });

@@ -56,6 +56,59 @@ test("smart layout defaults off for legacy settings and preserves saved choices"
     );
   }
 });
+test("app hints default off and preserve choices while shape by type is inactive", () => {
+  const { smartLayoutAppHint, ...legacySettings } = previewSnapshot.settings;
+  assert.equal(smartLayoutAppHint, false);
+  assert.equal(
+    parseResponse("get_snapshot", {
+      ...previewSnapshot,
+      settings: legacySettings,
+    }).settings.smartLayoutAppHint,
+    false,
+  );
+  for (const enabled of [false, true]) {
+    for (const smartLayout of [false, true]) {
+      for (const cleanupMode of ["original", "format", "clean"] as const) {
+        const settings = {
+          ...legacySettings,
+          smartLayout,
+          cleanupMode,
+          smartLayoutAppHint: enabled,
+        };
+        assert.deepEqual(
+          parseResponse("save_settings", { ...previewSnapshot, settings }).settings,
+          settings,
+        );
+      }
+    }
+  }
+  for (const invalid of ["true", 1, null]) {
+    assert.throws(() =>
+      parseResponse("get_snapshot", {
+        ...previewSnapshot,
+        settings: { ...legacySettings, smartLayoutAppHint: invalid },
+      }),
+    );
+  }
+});
+test("dictation history accepts legacy records and preserves an optional target app", () => {
+  const legacy = {
+    id: "legacy",
+    createdAt: "2026-10-20",
+    raw: "hello",
+    published: "Hello.",
+  };
+  assert.equal(parseResponse("list_dictations", [legacy])[0].targetApp, null);
+  for (const targetApp of [null, "outlook.exe", "com.apple.mail"]) {
+    assert.equal(
+      parseResponse("list_dictations", [{ ...legacy, targetApp }])[0].targetApp,
+      targetApp,
+    );
+  }
+  assert.throws(() =>
+    parseResponse("list_dictations", [{ ...legacy, targetApp: 42 }]),
+  );
+});
 test("written form defaults on and validates saved choices", () => {
   const { writtenForm, ...legacySettings } = previewSnapshot.settings;
   assert.equal(writtenForm, true);

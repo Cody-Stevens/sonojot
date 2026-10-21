@@ -2,11 +2,11 @@ import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { installDesktopFixture } from "./desktop-fixture.js";
-import { goToPage, openApp, openMoreOptions } from "./app-helpers.js";
+import { goToPage, openApp } from "./app-helpers.js";
 
 const label = "Shape by type (experimental)";
-const help =
-  "Detects emails, lists, notes and steps, then lays them out. Uses your text model; your words stay the same.";
+const help = "Lays out emails, lists, notes and steps with a local text model.";
+const hintLabel = "Use the app I'm in (experimental)";
 const cleanupId = "lfm2.5-1.2b";
 const notesId = "qwen3-4b-instruct-2507";
 const savedSettings = (page) =>
@@ -20,8 +20,16 @@ test("Shape by type saves, survives navigation and keeps its choice in As heard"
   page,
 }) => {
   await openApp(page, {}, "/?page=dictation");
-  await openMoreOptions(page);
   const toggle = page.getByRole("switch", { name: label, exact: true });
+  const hint = page.getByRole("switch", { name: hintLabel, exact: true });
+  await expect(page.locator("details.more-options")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+  await expect(toggle).toBeVisible();
+  await expect(hint).toBeVisible();
+  await expect(hint).toBeDisabled();
+  await expect(hint).not.toBeChecked();
   await expect(toggle).toBeEnabled();
   await expect(toggle).not.toBeChecked();
   await expect(
@@ -29,6 +37,7 @@ test("Shape by type saves, survives navigation and keeps its choice in As heard"
   ).toContainText(help);
   await toggle.click();
   await expect(toggle).toBeChecked();
+  await expect(hint).toBeEnabled();
   expect(await savedSettings(page)).toEqual([
     expect.objectContaining({
       smartLayout: true,
@@ -36,25 +45,40 @@ test("Shape by type saves, survives navigation and keeps its choice in As heard"
       notesModel: notesId,
     }),
   ]);
+  await hint.click();
+  await expect(hint).toBeChecked();
+  expect((await savedSettings(page)).at(-1)).toMatchObject({
+    smartLayoutAppHint: true,
+  });
 
   await goToPage(page, "Models");
   await goToPage(page, "Dictation");
-  await openMoreOptions(page);
   await expect(toggle).toBeChecked();
+  await expect(hint).toBeChecked();
   const modes = page.getByRole("group", { name: "Dictation cleanup mode" });
   await modes.getByRole("button", { name: /^Format only/ }).click();
   await expect(toggle).toBeEnabled();
   await expect(toggle).toBeChecked();
   await modes.getByRole("button", { name: /^As heard/ }).click();
-  await expect(toggle).toBeDisabled();
-  await expect(toggle).toBeChecked();
+  await expect(toggle).toHaveCount(0);
+  await expect(hint).toBeDisabled();
+  await expect(hint).toBeChecked();
   await expect(
     page.getByRole("group", { name: label, exact: true }),
   ).toContainText("Choose Format only or Clean to use Shape by type.");
-  await modes.getByRole("button", { name: /^Clean/ }).click();
+  await page
+    .getByRole("button", { name: "Use Format only", exact: true })
+    .click();
+  await expect(
+    modes.getByRole("button", { name: /^Format only/ }),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(toggle).toBeEnabled();
+  await expect(toggle).toBeChecked();
+  await expect(hint).toBeEnabled();
   await toggle.click();
   await expect(toggle).not.toBeChecked();
+  await expect(hint).toBeDisabled();
+  await expect(hint).toBeChecked();
   expect((await savedSettings(page)).at(-1)).toMatchObject({
     smartLayout: false,
   });
@@ -64,19 +88,22 @@ test("Shape by type waits for a settings save and disables during dictation", as
   page,
 }) => {
   await openApp(page, { holdCommands: ["save_settings"] }, "/?page=dictation");
-  await openMoreOptions(page);
   const toggle = page.getByRole("switch", { name: label, exact: true });
+  const hint = page.getByRole("switch", { name: hintLabel, exact: true });
   await expect(toggle).toBeEnabled();
   await toggle.click();
   await expect.poll(async () => (await savedSettings(page)).length).toBe(1);
   await expect(toggle).toBeDisabled();
+  await expect(hint).toBeDisabled();
   await expect(toggle).not.toBeChecked();
   await page.evaluate(() => window.__testReleaseCommand("save_settings"));
   await expect(toggle).toBeEnabled();
   await expect(toggle).toBeChecked();
+  await expect(hint).toBeEnabled();
   for (const state of ["loading", "listening", "finishing", "cleaning"]) {
     await page.evaluate((state) => window.__testPushSnapshot({ state }), state);
     await expect(toggle).toBeDisabled();
+    await expect(hint).toBeDisabled();
     await expect(toggle).toBeChecked();
   }
   await page.evaluate(() => window.__testPushSnapshot({ state: "idle" }));
@@ -85,7 +112,7 @@ test("Shape by type waits for a settings save and disables during dictation", as
 });
 
 for (const modelState of ["checking", "not-installed"]) {
-  test(`Shape by type stays disabled while selected local models are ${modelState}`, async ({
+  test(`Shape by type offers model recovery while selected local models are ${modelState}`, async ({
     page,
   }) => {
     await installDesktopFixture(page, {
@@ -96,15 +123,15 @@ for (const modelState of ["checking", "not-installed"]) {
       },
     });
     await page.goto("/?page=dictation");
-    await openMoreOptions(page);
     const toggle = page.getByRole("switch", { name: label, exact: true });
-    await expect(toggle).toBeDisabled();
-    await expect(toggle).toBeChecked();
+    await expect(toggle).toHaveCount(0);
+    await expect(page.getByRole("switch", { name: hintLabel })).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Choose text model", exact: true }),
+    ).toBeEnabled();
     await expect(
       page.getByRole("group", { name: label, exact: true }),
-    ).toContainText(
-      "Select an installed local text model for Cleanup or Notes in Models.",
-    );
+    ).toContainText("Choose a ready local text model for Cleanup or Notes.");
     expect(await savedSettings(page)).toHaveLength(0);
 
     // A completed background check refreshes the mounted library without navigation.
@@ -133,7 +160,6 @@ test("Shape by type uses selected Notes with rules or Smart cleanup and excludes
     },
   });
   await page.goto("/?page=dictation");
-  await openMoreOptions(page);
   const toggle = page.getByRole("switch", { name: label, exact: true });
   await expect(toggle).toBeEnabled();
   await page.evaluate(() =>
@@ -153,22 +179,65 @@ test("Shape by type uses selected Notes with rules or Smart cleanup and excludes
       },
     }),
   );
-  await expect(toggle).toBeDisabled();
+  await expect(toggle).toHaveCount(0);
   await expect(
     page.getByRole("group", { name: label, exact: true }),
-  ).toContainText("Smart cleanup alone cannot provide it.");
+  ).toContainText("Choose a ready local text model for Cleanup or Notes.");
   expect(await savedSettings(page)).toHaveLength(0);
+  await page
+    .getByRole("button", { name: "Choose text model", exact: true })
+    .click();
+  await expect(page.locator("#setup-notes")).toBeFocused();
+  await page.getByRole("button", { name: "Notes model", exact: true }).click();
+  const picker = page.getByRole("dialog", {
+    name: "Notes models",
+    exact: true,
+  });
+  await expect(picker).toBeVisible();
+  const localNotes = picker.getByRole("option", { name: /Qwen 3 4B/ });
+  await expect(localNotes).toBeVisible();
+  await expect(
+    picker.getByRole("option", { name: /Moonshine|Smart cleanup/ }),
+  ).toHaveCount(0);
+  await localNotes.click();
+  await goToPage(page, "Dictation");
+  await expect(toggle).toBeEnabled();
+});
+
+test("the app hint saves with the keyboard and waits for the host reply", async ({
+  page,
+}) => {
+  await openApp(
+    page,
+    { settings: { smartLayout: true }, holdCommands: ["save_settings"] },
+    "/?page=dictation",
+  );
+  const toggle = page.getByRole("switch", { name: label, exact: true });
+  const hint = page.getByRole("switch", { name: hintLabel, exact: true });
+  await hint.focus();
+  await hint.press("Space");
+  await expect.poll(async () => (await savedSettings(page)).length).toBe(1);
+  expect((await savedSettings(page))[0]).toMatchObject({
+    smartLayout: true,
+    smartLayoutAppHint: true,
+  });
+  await expect(hint).toBeDisabled();
+  await expect(hint).not.toBeChecked();
+  await expect(toggle).toBeDisabled();
+  await page.evaluate(() => window.__testReleaseCommand("save_settings"));
+  await expect(hint).toBeEnabled();
+  await expect(hint).toBeChecked();
 });
 
 for (const theme of ["fog", "slate"]) {
   test(`Shape by type visual smoke: ${theme}`, async ({ page }) => {
-    const directory = new URL(
-      "../../../artifacts/smart-layout/",
-      import.meta.url,
-    );
+    const directory = new URL("../../../artifacts/app-hint/", import.meta.url);
     await mkdir(directory, { recursive: true });
-    await openApp(page, { settings: { smartLayout: true } }, `/?page=dictation&theme=${theme}`);
-    await openMoreOptions(page);
+    await openApp(
+      page,
+      { settings: { smartLayout: true, smartLayoutAppHint: true } },
+      `/?page=dictation&theme=${theme}`,
+    );
     await expect(
       page.getByRole("switch", { name: label, exact: true }),
     ).toBeChecked();
@@ -185,7 +254,7 @@ for (const theme of ["fog", "slate"]) {
         .click();
       await expect(
         page.getByRole("switch", { name: label, exact: true }),
-      ).toBeDisabled();
+      ).toHaveCount(0);
       await page.screenshot({
         animations: "disabled",
         path: fileURLToPath(new URL("narrow-as-heard.png", directory)),
@@ -202,7 +271,7 @@ for (const theme of ["fog", "slate"]) {
       );
       await expect(
         page.getByRole("group", { name: label, exact: true }),
-      ).toContainText("Select an installed local text model");
+      ).toContainText("Choose a ready local text model");
       await page.screenshot({
         animations: "disabled",
         path: fileURLToPath(new URL("narrow-no-model.png", directory)),

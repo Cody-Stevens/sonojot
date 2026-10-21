@@ -5,6 +5,13 @@
   import { scrollEdges } from "../lib/scroll-edges";
   import SettingRow from "./SettingRow.svelte";
   import Toggle from "./Toggle.svelte";
+  import ProofreaderPrivacyLink from "./ProofreaderPrivacyLink.svelte";
+  import {
+    proofreaderAccountBlocked,
+    proofreaderMetadata,
+    proofreaderOutcomeLabel,
+    proofreaderGuardLabel,
+  } from "../lib/proofreader";
   import { app } from "../lib/app.svelte";
   import { call } from "../lib/api";
   import type { DictationRecord } from "../lib/protocol";
@@ -25,6 +32,9 @@
   let comparing = $state(false);
   let addingWord = $state(false);
   let processingDetails = $state(false);
+  const proofreading = $derived(
+    proofreaderMetadata(selected?.cleanupStatus ?? null),
+  );
   const dirty = $derived(
     selected !== null &&
       (corrected !== selected.published ||
@@ -276,6 +286,9 @@
           ? "No text was recovered."
           : "No text was published.")}
     </div>
+    {#if proofreaderAccountBlocked(selected.guardReason) || proofreaderAccountBlocked(selected.cleanupStatus)}
+      <ProofreaderPrivacyLink />
+    {/if}
     <div class="actions">
       <button
         class="button primary"
@@ -505,6 +518,22 @@
               <dt>Guard reason</dt>
               <dd>{guardReasonLabel(selected.guardReason)}</dd>
             </div>{/if}
+          {#if proofreading}
+            <div>
+              <dt>Proofreading model</dt>
+              <dd class="diagnostic-code">{proofreading.model}</dd>
+            </div>
+            <div>
+              <dt>Proofreading outcome</dt>
+              <dd>{proofreaderOutcomeLabel(proofreading.outcome)}</dd>
+            </div>
+            {#if !["accepted", "unchanged"].includes(proofreading.outcome)}
+              <div>
+                <dt>Proofreading reason</dt>
+                <dd>{proofreaderGuardLabel(proofreading.reason)}</dd>
+              </div>
+            {/if}
+          {/if}
         </dl>
         {#if selected.guardReason}<p
             class="field-help diagnostic-code"
@@ -602,11 +631,7 @@
           : "Your completed dictations will appear here."}
       </p>
     {:else}
-      <ul
-        class="history-list"
-        aria-label="Recent dictations"
-        use:scrollEdges
-      >
+      <ul class="history-list" aria-label="Recent dictations" use:scrollEdges>
         {#each records as record (record.id)}
           <li class="history-row" class:latest-row={record.id === newestId}>
             <button

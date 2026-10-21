@@ -31,6 +31,10 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; Put sonojot-cli on the user PATH and point installed coding agents at it.
+  ; Skipped if the user removed it with `sonojot-cli agents remove`.
+  nsExec::Exec '"$INSTDIR\sonojot-cli.exe" agents ensure'
+  Pop $0
   ; Keep an older build's startup value pointing at the renamed binary. Only
   ; this installation's exact old command is replaced; another installation is
   ; untouched. At its next launch the app renames the value to "SonoJot" and
@@ -65,4 +69,12 @@
   Pop $1
   Pop $0
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+!macroend
+
+; Undo the PATH entry and agent registrations before the CLI is deleted.
+!macro NSIS_HOOK_PREUNINSTALL
+  ${If} ${FileExists} "$INSTDIR\sonojot-cli.exe"
+    nsExec::Exec '"$INSTDIR\sonojot-cli.exe" agents uninstall'
+    Pop $0
+  ${EndIf}
 !macroend

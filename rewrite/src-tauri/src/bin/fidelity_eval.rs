@@ -37,6 +37,8 @@ const HELP: &str = r#"fidelity_eval --input cases.jsonl --output results.jsonl -
   --smart-layout true|false  Text-only local rules then layout; default false
                           Requires a generation --cleanup-model; holds a text lease
                           Defaults to --variant model --cleanup-policy conservative
+                          Rows may supply app_context (single-line app description)
+                          Installed model verification receipts remain read-only
   --meeting-rules-only true|false  Route scope:meeting rows to local rules
   --resource-lease true|false  Exercise production text admission and lease hooks
   --cancel-after-ms N      Cancel cleanup after N ms; row override also accepted
@@ -403,6 +405,7 @@ struct Case {
     stop_after_ms: Option<u64>,
     cancel_after_ms: Option<u64>,
     scope: Option<String>,
+    app_context: Option<String>,
 }
 
 fn mode(value: &str) -> Result<cleanup::Mode, String> {
@@ -1002,6 +1005,13 @@ fn transcribe_stream(
 }
 
 fn validate_layout_case(args: &Args, case: &Case) -> Result<(), String> {
+    if let Some(context) = &case.app_context {
+        if !args.smart_layout || context.trim().is_empty() || context.len() > 200
+            || context.chars().any(char::is_control)
+        {
+            return Err(format!("{}: app_context requires smart layout and a single-line description of 1 to 200 bytes.", case.id));
+        }
+    }
     if args.smart_layout && (case.input_text.is_none()
         || case.scope.as_deref().is_some_and(|scope| scope != "dictation"))
     {
@@ -1054,14 +1064,15 @@ fn evaluate_layout(
     let outcome = if let Some(outcome) = early_outcome {
         outcome
     } else {
-        cleanup::layout::run(&args.root, &prior, selected_mode, &args.model, cancel, stop)
+        cleanup::layout::run(&args.root, &prior, selected_mode, &args.model, cancel, stop, case.app_context.as_deref())
     };
     row["smart_layout"] = json!(true);
     row["route"] = json!("local_rules_then_layout");
     row["fallback_text"] = json!(prior);
     row["layout"] = json!({
         "schema_version": 1, "requested_model": args.model,
-        "policy_sha256": cleanup::layout::policy_hash(),
+        "policy_sha256": cleanup::layout::policy_hash_with_context(case.app_context.as_deref()),
+        "app_context": case.app_context,
         "input_text": prior, "text": outcome.text, "class": outcome.class,
         "probabilities": outcome.probabilities, "applied": outcome.applied,
         "reason": outcome.reason, "elapsed_ms": outcome.elapsed_ms,
@@ -1411,6 +1422,9 @@ fn evaluate(
 }
 
 fn run(args: Args) -> Result<(), String> {
+    if args.smart_layout {
+        std::env::set_var("SONOJOT_EVAL_READ_ONLY_MODELS", "1");
+    }
     if let Some(directory) = &args.punctuation_model_dir {
         // Set once, before replay timers/workers. The production loader validates
         // all files and records model or rule fallback; no model is downloaded.
@@ -1991,6 +2005,24 @@ mod tests {
         assert!(row["layout"]["probabilities"].is_null());
         assert_eq!(row["resource_lease"]["acquired"], false);
         assert_eq!(row["final_text"], input["input_text"]);
+    }
+
+    #[test]
+    fn layout_app_context_is_optional_and_eval_only() {
+        let enabled = args(&["--smart-layout", "true", "--cleanup-model", "qwen3-4b-instruct-2507"]);
+        let (mut case, input) = text_case("Please keep this message unchanged.");
+        assert!(case.app_context.is_none());
+        case.app_context = Some("an email app (Mail, Outlook or Gmail)".into());
+        assert!(validate_layout_case(&enabled, &case).is_ok());
+        assert!(validate_layout_case(&args(&[]), &case).is_err());
+        let row = evaluate(&enabled, &case, &input, &mut None, 0, true);
+        assert_eq!(row["layout"]["app_context"], case.app_context.as_deref().unwrap());
+        assert_eq!(row["layout"]["policy_sha256"],
+            cleanup::layout::policy_hash_with_context(case.app_context.as_deref()));
+        for invalid in ["".to_owned(), "notes\nextra".to_owned(), "x".repeat(201)] {
+            case.app_context = Some(invalid);
+            assert!(validate_layout_case(&enabled, &case).is_err());
+        }
     }
 
     #[test]

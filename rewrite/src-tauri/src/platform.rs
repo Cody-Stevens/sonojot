@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
+#[cfg_attr(not(target_os = "linux"), derive(Debug, PartialEq, Eq))]
 pub struct PasteTarget {
     #[cfg(windows)]
     foreground: usize,
@@ -35,6 +36,31 @@ pub struct PasteTarget {
     pid: i64,
     #[cfg(target_os = "linux")]
     terminal: bool,
+    /// Captured with the window; metadata only, never a focus safeguard.
+    #[cfg(target_os = "linux")]
+    class: String,
+}
+
+// App metadata must neither change target equality nor enter diagnostic output.
+#[cfg(target_os = "linux")]
+impl PartialEq for PasteTarget {
+    fn eq(&self, other: &Self) -> bool {
+        self.address == other.address && self.pid == other.pid && self.terminal == other.terminal
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Eq for PasteTarget {}
+
+#[cfg(target_os = "linux")]
+impl std::fmt::Debug for PasteTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PasteTarget")
+            .field("address", &self.address)
+            .field("pid", &self.pid)
+            .field("terminal", &self.terminal)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +113,12 @@ impl FocusState {
 
 pub fn capture_paste_target() -> Option<PasteTarget> {
     native::capture_target()
+}
+
+/// Best-effort app identity for the captured target. Call at capture start;
+/// failures leave the target usable. Returns no path, title or document data.
+pub fn paste_target_app_identity(target: &PasteTarget) -> Option<String> {
+    native::target_app_identity(target)
 }
 
 /// For a click on the macOS menu bar sheet. The click can activate SonoJot
@@ -455,9 +487,13 @@ mod native {
     use super::*;
     use std::mem::size_of;
     use std::ptr::{null, null_mut};
-    use windows_sys::Win32::Foundation::{GlobalFree, HWND};
+    use windows_sys::Win32::Foundation::{CloseHandle, GlobalFree, HWND};
     use windows_sys::Win32::System::DataExchange::*;
     use windows_sys::Win32::System::Memory::*;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
     use winreg::{enums::*, RegKey};
@@ -529,6 +565,41 @@ mod native {
             focused_process_id,
             focused_thread_id,
         })
+    }
+
+    pub(super) fn target_app_identity(target: &PasteTarget) -> Option<String> {
+        // One query with the Windows path limit; no retries or target-process IPC.
+        let mut path = [0u16; 32_768];
+        let mut length = path.len() as u32;
+        let queried = unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, target.process_id);
+            if process.is_null() {
+                return None;
+            }
+            let queried = QueryFullProcessImageNameW(
+                process,
+                PROCESS_NAME_WIN32,
+                path.as_mut_ptr(),
+                &mut length,
+            );
+            CloseHandle(process);
+            queried
+        };
+        if queried == 0 {
+            return None;
+        }
+        executable_filename(path.get(..length as usize)?)
+    }
+
+    fn executable_filename(path: &[u16]) -> Option<String> {
+        let name = path
+            .rsplit(|&c| c == u16::from(b'\\') || c == u16::from(b'/'))
+            .next()?;
+        if name.is_empty() {
+            return None;
+        }
+        // Decode only the filename; the directory path never leaves this query.
+        String::from_utf16(name).ok().map(|name| name.to_lowercase())
     }
 
     fn target_valid(target: &PasteTarget) -> bool {
@@ -1008,6 +1079,25 @@ mod native {
             assert!(!hand_over_run_value(&empty.run, None, executable).unwrap());
         }
 
+        #[test]
+        fn app_identity_retains_only_the_lowercase_executable_filename() {
+            for (path, expected) in [
+                (r"C:\Program Files\Microsoft Office\OUTLOOK.EXE", "outlook.exe"),
+                (r"\\?\C:\Users\Person\AppData\Local\Slack\slack.exe", "slack.exe"),
+                (r"\\server\share\Notion.EXE", "notion.exe"),
+                ("C:/Apps/Obsidian.EXE", "obsidian.exe"),
+                ("NOTEPAD.EXE", "notepad.exe"),
+            ] {
+                assert_eq!(
+                    executable_filename(&path.encode_utf16().collect::<Vec<_>>()).as_deref(),
+                    Some(expected)
+                );
+            }
+            assert_eq!(executable_filename(&[]), None);
+            assert_eq!(executable_filename(&[u16::from(b'\\')]), None);
+            assert_eq!(executable_filename(&[0xD800]), None);
+        }
+
         fn captured_fixture() -> PasteTarget {
             PasteTarget {
                 foreground: 100,
@@ -1180,6 +1270,10 @@ mod native {
             .map(|pid| PasteTarget { pid })
     }
     #[cfg(target_os = "macos")]
+    pub(super) fn target_app_identity(target: &PasteTarget) -> Option<String> {
+        mac::app_bundle_identifier(target.pid)
+    }
+    #[cfg(target_os = "macos")]
     pub(super) fn focus_state(target: &PasteTarget) -> FocusState {
         classify_app_focus(
             target.pid,
@@ -1286,7 +1380,12 @@ mod native {
             terminal: window.is_terminal(),
             address: window.address,
             pid: window.pid,
+            class: window.class,
         })
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(super) fn target_app_identity(target: &PasteTarget) -> Option<String> {
+        (!target.class.trim().is_empty()).then(|| target.class.clone())
     }
     #[cfg(not(target_os = "macos"))]
     pub(super) fn focus_state(target: &PasteTarget) -> FocusState {
@@ -1709,6 +1808,28 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn app_identity_uses_the_captured_class_without_affecting_focus_identity() {
+        let target = PasteTarget {
+            address: "0x123".into(),
+            pid: 200,
+            terminal: false,
+            class: "org.gnome.Notes".into(),
+        };
+        assert_eq!(paste_target_app_identity(&target).as_deref(), Some("org.gnome.Notes"));
+        assert!(!format!("{target:?}").contains("org.gnome.Notes"));
+
+        let mut without_identity = target.clone();
+        without_identity.class.clear();
+        assert_eq!(paste_target_app_identity(&without_identity), None);
+        assert_eq!(target, without_identity);
+        without_identity.class = "  ".into();
+        assert_eq!(paste_target_app_identity(&without_identity), None);
+        without_identity.address = "0x456".into();
+        assert_ne!(target, without_identity);
+    }
 
     #[test]
     fn mac_focus_returns_only_from_our_app_to_the_captured_app() {
