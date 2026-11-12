@@ -817,6 +817,8 @@ mod tests {
                     Err(e) => panic!("local report listener: {e}"),
                 }
             };
+            // Windows sockets inherit the listener's non-blocking mode.
+            socket.set_nonblocking(false).unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();

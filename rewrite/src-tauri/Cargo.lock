@@ -4885,7 +4885,7 @@ dependencies = [
 
 [[package]]
 name = "sonojot"
-version = "0.28.8"
+version = "0.28.9"
 dependencies = [
  "base64 0.22.1",
  "block2",
