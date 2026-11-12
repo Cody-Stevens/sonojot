@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "next": [
+    "The Updates screen and the update prompt are tidier: buttons line up, and a long download no longer pushes the side bar out of place.",
+    "After an update, SonoJot no longer says it closed unexpectedly. It shows what's new instead.",
+    "See changes shows what an update brings before you install it, and What's new in Settings > Updates shows the notes for your version.",
+    "New speech model: SonoJot Parakeet, our own tuned version of Parakeet. It makes about a fifth fewer errors on dictation than Parakeet in our tests, at the same size and speed. It replaces Parakeet in the speech list and is the Balanced choice for new English setups on computers without an NVIDIA graphics card or Apple Silicon. If you use Parakeet now, nothing changes until you choose the new one."
+  ],
+  "releases": [
+    {
+      "version": "0.28.10-nightly.202611121621",
+      "date": "2026-11-12",
+      "notes": [
+        "A time such as \"2:30 PM on Friday\" no longer gets a stray period that starts a new sentence, and abbreviations such as \"e.g.\" and \"etc.\" keep their periods.",
+        "Times after words like \"until\" are written as times, for example \"until 10:50\".",
+        "Cleanup of long dictations is faster: it uses more of the processor when the computer is idle and less when it is busy."
+      ]
+    },
+    {
+      "version": "0.28.10-nightly.202611120800",
+      "date": "2026-11-12",
+      "notes": [
+        "The first nightly build after 0.28.9. It has the same features as 0.28.9."
+      ]
+    },
+    {
+      "version": "0.28.9",
+      "date": "2026-11-12",
+      "notes": [
+        "A new look. SonoJot now has four places down the left side: Dictation, Meetings, Words and Settings. Each list has a status band on top that shows what is ready and opens the right setting when something needs attention.",
+        "Speech models are compared on one chart of measured speed and memory, with the recommended choices shown first.",
+        "Choose your update channel in Settings > Updates: Stable, or Nightly for early test builds. Switch back to Stable at any time.",
+        "Meetings: rename a speaker or move a single passage to another speaker, search titles, notes and transcripts, and pick a notes style that is written automatically after each transcription.",
+        "Words: a word on its own is now a hint that helps SonoJot spell it without forcing a replacement. \"Heard as > written\" rules still replace exactly.",
+        "Dictation: export any dictation as Markdown, and choose to keep nothing, text, or text and audio. Audio stays on your computer for 30 days.",
+        "Fixes: pasted API keys stay hidden, shortcuts and notes instructions are checked before saving, and an update now finishes even when the command-line tool is running."
+      ]
+    },
+    {
+      "version": "0.28.8",
+      "date": "2026-10-21",
+      "notes": [
+        "New, experimental: proofread your dictations with an online model. Turn on \"Proofread with an online model\" in Dictation to fix misheard words, typos and false starts while keeping your wording. It uses your own OpenRouter account and is off unless you turn it on.",
+        "Shape by type is easier to find: it now has its own row in Dictation. A new option, \"Use the app I'm in\", lays out text to suit where you are typing.",
+        "Saved dictations now note which app they were meant for, on your computer only. The privacy notice and terms describe both changes."
+      ]
+    }
+  ]
+}

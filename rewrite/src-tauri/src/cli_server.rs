@@ -112,6 +112,9 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("download_update", ""),
     ("restart_to_update", ""),
     ("dismiss_update_notice", ""),
+    ("get_whats_new", ""),
+    ("dismiss_whats_new", ""),
+    ("get_update_changelog", ""),
     ("quit_app", ""),
 ];
 
@@ -310,6 +313,9 @@ async fn dispatch(app: AppHandle, command: &str, args: Value) -> Result<Value, S
         "download_update" => out(updater::download_update(h(), s())),
         "restart_to_update" => out(updater::restart_to_update(h(), s())),
         "dismiss_update_notice" => out(updater::dismiss_update_notice(h(), s())),
+        "get_whats_new" => out(crate::changelog::get_whats_new(h())),
+        "dismiss_whats_new" => out(crate::changelog::dismiss_whats_new(h())),
+        "get_update_changelog" => out(crate::changelog::get_update_changelog(h(), s()).await),
         "quit_app" => {
             crate::recognition_diagnostics::event("cli-quit-requested", "", std::process::id(), 0, 0, 0);
             crate::quit_app(h(), s().inner().clone());

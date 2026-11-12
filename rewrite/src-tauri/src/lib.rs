@@ -43,6 +43,8 @@ mod optional_llm;
 pub mod recognition;
 mod recognition_diagnostics;
 mod reports;
+mod changelog;
+mod system_language;
 #[cfg(feature = "fidelity-eval")]
 pub mod resource_manager;
 #[cfg(not(feature = "fidelity-eval"))]
@@ -190,6 +192,9 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             reports::get_pending_crash,
+            changelog::get_whats_new,
+            changelog::dismiss_whats_new,
+            changelog::get_update_changelog,
             reports::prepare_report,
             reports::send_report,
             reports::dismiss_crash,
@@ -312,6 +317,7 @@ pub fn run() {
                 .unwrap_or_else(crate::store::default_root).map_err(std::io::Error::other)?;
             let reports = reports::CrashReports::start(&report_root).map_err(std::io::Error::other)?;
             reports.install_hook();
+            let previous_version = reports.previous_version();
             app.manage(reports);
             recognition_diagnostics::event("desktop-start", "", std::process::id(), 0, 0, 0);
             let runtime = Runtime::create(app.handle()).map_err(std::io::Error::other)?;
@@ -327,6 +333,16 @@ pub fn run() {
                 runtime.report(app.handle(), error);
             }
             app.manage(runtime.clone());
+            // Needs the update channel from settings, so it starts after the runtime.
+            // A failure only loses What's new; it never stops SonoJot starting.
+            if let Ok(changelog) = changelog::Changelog::start(
+                &report_root,
+                env!("CARGO_PKG_VERSION"),
+                previous_version,
+                runtime.snapshot().map(|s| s.settings.update_channel).unwrap_or_default(),
+            ) {
+                app.manage(changelog);
+            }
             // Agents and scripts drive the app through `sonojot-cli` (see cli_protocol).
             cli_server::start(app.handle());
             // Once per install location: sonojot-cli on PATH, agents pointed at it.
@@ -578,6 +594,13 @@ pub fn run() {
                     // Crash evidence also opens the app when login used --startup.
                     // The frontend waits for onboarding/terms before showing it.
                     windows::show_settings_page(&setup_app, "report")
+                } else if setup_app
+                    .try_state::<changelog::Changelog>()
+                    .and_then(|c| c.get().ok())
+                    .is_some_and(|state| state.pending.is_some())
+                {
+                    // After an update, What's new shows over the page the window opens on.
+                    windows::show_settings(&setup_app)
                 } else if !std::env::args().any(|arg| arg == "--startup") {
                     windows::show_settings(&setup_app)
                 } else { Ok(()) };

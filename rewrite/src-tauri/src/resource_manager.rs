@@ -943,7 +943,8 @@ pub fn estimated_ram_interval(id: &str) -> Option<(u64, u64)> {
         "moonshine-small" => (400 * MIB, 800 * MIB),
         // Live preview helper beside dictation; see admit_live_preview.
         crate::live_preview::MODEL_ID => (PREVIEW_RAM_MIN, PREVIEW_RAM_MAX),
-        "parakeet-tdt-0.6b-v2" => (1200 * MIB, 2000 * MIB),
+        // The fine-tune has the base's architecture and int8 layout.
+        "parakeet-tdt-0.6b-v2" | crate::optional_asr::PARAKEET_FT2_ID => (1200 * MIB, 2000 * MIB),
         "qwen3-asr-1.7b" => (3000 * MIB, 4600 * MIB),
         crate::llama_asr::MODEL_ID => (900 * MIB, 1600 * MIB),
         crate::llama_asr::CPU_MODEL_ID => (2100 * MIB, 2800 * MIB),
@@ -1002,6 +1003,7 @@ pub fn estimated_vram_interval(id: &str) -> Option<(u64, u64)> {
         | "moonshine-small"
         | crate::live_preview::MODEL_ID
         | "parakeet-tdt-0.6b-v2"
+        | crate::optional_asr::PARAKEET_FT2_ID
         | "qwen3-asr-1.7b"
         | "whisper-small-metal"
         | "whisper-turbo-metal"
@@ -1080,7 +1082,7 @@ pub fn estimate_basis(id: &str) -> String {
         "moonshine-small" => format!(
             "Provisional estimate, not measured in SonoJot. Streaming ONNX bundle ({id}) + sherpa/Moonshine ORT CPU arena/activations (~30-50% of weights) + silero VAD + bounded audio backlog. Disk size is real and separate; it is not relabelled as RAM."
         ),
-        "parakeet-tdt-0.6b-v2" | "qwen3-asr-1.7b" => format!(
+        "parakeet-tdt-0.6b-v2" | crate::optional_asr::PARAKEET_FT2_ID | "qwen3-asr-1.7b" => format!(
             "Provisional estimate, not measured in SonoJot. Pinned int8 weights ({id}, HF LFS 2026-09-16) + ORT CPU arena/activations + conformer/transducer working buffers + VAD + audio backlog. See estimated interval; disk bytes shown separately."
         ),
         "whisper-tiny-fp32-cuda" => "Provisional estimate, partly observed. Host RAM covers VAD (CPU) + audio backlog + ORT host side. VRAM interval widens the isolated RTX 5070 observation (+705 MiB model decode, 1822->2527 MiB) with CUDA context variance. Same CUDA 13 stack proven end-to-end; not a fleet rating.".to_owned(),
@@ -1114,7 +1116,7 @@ pub fn estimate_evidence(id: &str) -> &'static str {
         crate::live_preview::MODEL_ID => "Observed 2026-10-14 debug-build preview worker, six 60 s TED clips fed in real time: 156-176 MB peak working set, 17-40% of one core. Upper bound adds headroom; one computer.",
         "whisper-tiny.en" => "Observed 2026-09-28 app-worker peak: 0.53 GB (BENCHMARK-WINDOWS-2026-09-28.md, holdout file mode). Upper bound adds headroom.",
         "whisper-small" => "Observed 2026-09-28 app-worker peak: 1.28 GB (BENCHMARK-WINDOWS-2026-09-28.md, holdout file mode). Upper bound adds headroom.",
-        "moonshine-small" | "parakeet-tdt-0.6b-v2" | "qwen3-asr-1.7b"
+        "moonshine-small" | "parakeet-tdt-0.6b-v2" | crate::optional_asr::PARAKEET_FT2_ID | "qwen3-asr-1.7b"
         | "whisper-tiny" | "whisper-base" | "whisper-base.en"
         | "whisper-small.en" | "whisper-medium" | "whisper-medium.en"
         | "whisper-large-v3" | "whisper-large-v3-turbo" | "whisper-large-v1"

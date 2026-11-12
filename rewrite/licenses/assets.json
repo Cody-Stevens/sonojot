@@ -96,6 +96,19 @@
       "issues": ["The written-form lexicon was supplied with the assignment; its provenance does not include an explicit license or ownership declaration. Confirm the right to redistribute the supplied data."]
     },
     {
+      "id": "asset:sonojot-authored-text",
+      "kind": "data",
+      "name": "SonoJot proofreading style brief and release notes",
+      "version": "bundled files identified by SHA-256",
+      "license": "Apache-2.0",
+      "requiresNotice": false,
+      "sources": ["src-tauri/src/proof_style_v2.txt", "changelog.json"],
+      "patterns": ["src-tauri/src/proof_style_v2.txt", "changelog.json"],
+      "distribution": "Compile-time text: the online proofreader's style brief and the bundled What's new notes",
+      "verification": "Written for SonoJot in this repository and covered by its Apache-2.0 licence.",
+      "issues": []
+    },
+    {
       "id": "asset:existing-rnnoise-notice",
       "kind": "notice-resource",
       "name": "Existing nnnoiseless attribution resource",

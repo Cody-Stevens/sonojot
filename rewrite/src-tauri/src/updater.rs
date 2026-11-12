@@ -172,6 +172,8 @@ struct State<R> {
     schedule: Schedule,
     /// Version most recently found by a check, kept through download.
     offered: Option<String>,
+    /// That version's manifest notes, for the changelog preview.
+    offered_notes: Option<String>,
     dismissed: Option<String>,
     install_problem: Option<String>,
 }
@@ -185,6 +187,7 @@ impl<R> Default for State<R> {
             installing: false,
             schedule: Schedule::new(Instant::now()),
             offered: None,
+            offered_notes: None,
             dismissed: None,
             install_problem: None,
         }
@@ -221,6 +224,21 @@ impl<R> Service<R> {
         })
     }
 
+    /// The offered version and its manifest notes, while one is available,
+    /// downloading or ready.
+    pub(crate) fn offer(&self) -> Result<Option<(String, Option<String>)>, String> {
+        let state = self.lock()?;
+        Ok(match state.status {
+            UpdateStatus::Available { .. }
+            | UpdateStatus::Downloading { .. }
+            | UpdateStatus::Ready { .. } => state
+                .offered
+                .clone()
+                .map(|version| (version, state.offered_notes.clone())),
+            _ => None,
+        })
+    }
+
     pub(crate) fn change_channel(
         &self,
         commit: impl FnOnce() -> Result<(), String>,
@@ -241,6 +259,7 @@ impl<R> Service<R> {
         state.available = None;
         state.package = None;
         state.offered = None;
+        state.offered_notes = None;
         state.dismissed = None;
         state.status = UpdateStatus::Idle;
         Ok(())
@@ -379,7 +398,7 @@ fn endpoints(channel: UpdateChannel) -> Vec<&'static str> {
 
 /// Whether the channel publishes `version`. Nightly also carries stable
 /// releases, because its feed falls back to the stable one.
-fn on_channel(version: &str, channel: UpdateChannel) -> bool {
+pub(crate) fn on_channel(version: &str, channel: UpdateChannel) -> bool {
     let Ok(version) = semver::Version::parse(version) else {
         return false;
     };
@@ -402,7 +421,7 @@ fn eligible(candidate: &str, current: &str, channel: UpdateChannel, reinstall: b
             || !on_channel(current, channel))
 }
 
-fn newer(candidate: &str, current: &str) -> bool {
+pub(crate) fn newer(candidate: &str, current: &str) -> bool {
     match (
         semver::Version::parse(candidate),
         semver::Version::parse(current),
@@ -557,6 +576,7 @@ async fn check<B: Backend>(service: &Service<B::Release>, backend: &B, emit: imp
         let mut state = service.lock().map_err(|_| ())?;
         state.available = Some(release);
         state.offered = Some(version.clone());
+        state.offered_notes = notes.clone();
         state.status = UpdateStatus::Available {
             version,
             notes,
@@ -765,6 +785,19 @@ pub(crate) fn download_update(
                 || runtime.emit(&app),
             )
             .await;
+            // Keep the channel's notes on disk so "What's new" works offline
+            // after the restart. Best effort; the manifest notes are a fallback.
+            if matches!(runtime.updater.snapshot().map(|s| s.status), Ok(UpdateStatus::Ready { .. })) {
+                let channel = runtime.snapshot().map(|s| s.settings.update_channel).unwrap_or_default();
+                let app = app.clone();
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    use tauri::Manager;
+                    if let Some(changelog) = app.try_state::<crate::changelog::Changelog>() {
+                        changelog.refresh(channel);
+                    }
+                })
+                .await;
+            }
         });
     }
     state.snapshot()
@@ -825,17 +858,46 @@ pub(crate) fn restart_to_update(
             &std::sync::atomic::AtomicBool::new(false),
             Duration::from_secs(10),
         );
-        if idle.is_ok() && package.release.install(&package.bytes).is_ok() {
-            // Windows normally exits inside install after /P /R /UPDATE.
-            // macOS returns after replacement, then Tauri restarts the app.
-            std::mem::forget(lease);
-            app.restart();
+        if idle.is_ok() {
+            // Windows exits inside install (std::process::exit, which skips
+            // RunEvent::Exit); macOS returns, then Tauri restarts the app.
+            // Either way, record the restart as intentional first so the next
+            // start doesn't report a crash, and keep the notes for What's new.
+            prepare_restart(&app, &runtime, &package.release.version);
+            if package.release.install(&package.bytes).is_ok() {
+                std::mem::forget(lease);
+                app.restart();
+            }
+            cancel_restart(&app);
         }
         runtime.updater.install_failed();
         drop(lease);
         runtime.emit(&app);
     });
     Ok(snapshot)
+}
+
+fn prepare_restart(app: &AppHandle, runtime: &Arc<Runtime>, version: &str) {
+    use tauri::Manager;
+    if let Some(reports) = app.try_state::<crate::reports::CrashReports>() {
+        reports.mark_update_restart(version);
+    }
+    if let Some(changelog) = app.try_state::<crate::changelog::Changelog>() {
+        let channel = runtime.snapshot().map(|s| s.settings.update_channel).unwrap_or_default();
+        let notes = runtime.updater.offer().ok().flatten().and_then(|(_, notes)| notes);
+        let offer = changelog.for_offer(None, env!("CARGO_PKG_VERSION"), version, notes.as_deref(), channel);
+        let _ = changelog.stage(offer.releases);
+    }
+}
+
+fn cancel_restart(app: &AppHandle) {
+    use tauri::Manager;
+    if let Some(reports) = app.try_state::<crate::reports::CrashReports>() {
+        reports.clear_update_restart();
+    }
+    if let Some(changelog) = app.try_state::<crate::changelog::Changelog>() {
+        changelog.unstage();
+    }
 }
 
 fn next_check_delay(jitter: u64) -> Duration {

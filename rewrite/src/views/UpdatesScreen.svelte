@@ -2,8 +2,10 @@
   import SettingRow from "../components/SettingRow.svelte";
   import UpdateAction from "../components/UpdateAction.svelte";
   import { app } from "../lib/app.svelte";
-  import { updateStatusLabel } from "../lib/updates";
+  import { updateOffered, updateStatusLabel } from "../lib/updates";
+  import { whatsNew } from "../lib/whats-new.svelte";
   const update = $derived(app.snapshot.update);
+  const offered = $derived(updateOffered(update.status));
   const channelLocked = $derived(
     !app.native ||
       app.busy("settings") ||
@@ -16,31 +18,48 @@
 
 <section class="stock paper-card quiet-settings">
   <SettingRow label="Version"
-    ><span>{app.snapshot.version}</span><span class="field-help"
-      >{updateStatusLabel(update.status)}</span
-    ><button
-      class="button"
-      disabled={!app.native ||
-        app.busy("update-check") ||
-        update.installing ||
-        ["checking", "downloading"].includes(update.status.state)}
-      onclick={() => app.checkForUpdates()}>Check now</button
-    ><UpdateAction
-      describedby={app.updateRestartBlockedReason
-        ? "restart-reason"
-        : undefined}
-    /></SettingRow
+    ><div class="update-summary">
+      <span class="update-version">{app.snapshot.version}</span>
+      <small data-text-surface="flat" role="status"
+        >{update.installing
+          ? "Restarting to update…"
+          : updateStatusLabel(update.status)}</small
+      >{#if update.installProblem}<small data-text-surface="flat" role="status"
+          >{update.installProblem}</small
+        >{/if}{#if app.updateRestartBlockedReason}<small
+          id="restart-reason"
+          data-text-surface="flat"
+          role="status">{app.updateRestartBlockedReason}</small
+        >{/if}
+    </div>
+    <div class="actions">
+      {#if offered}<button
+          type="button"
+          class="button"
+          onclick={() => void whatsNew.showOffer()}>See changes</button
+        >{:else}<button
+          type="button"
+          class="button"
+          disabled={!app.native ||
+            app.busy("update-check") ||
+            update.installing ||
+            update.status.state === "checking"}
+          onclick={() => app.checkForUpdates()}>Check now</button
+        >{/if}<UpdateAction
+        describedby={app.updateRestartBlockedReason
+          ? "restart-reason"
+          : undefined}
+      />
+    </div></SettingRow
   >
-  {#if update.installProblem}<p class="field-help" role="status">
-      {update.installProblem}
-    </p>{/if}
-  {#if app.updateRestartBlockedReason}<p
-      id="restart-reason"
-      class="field-help"
-      role="status"
-    >
-      {app.updateRestartBlockedReason}
-    </p>{/if}
+  <SettingRow label="What's new"
+    ><button
+      type="button"
+      class="button"
+      disabled={!whatsNew.installed}
+      onclick={() => whatsNew.showInstalled()}>Show</button
+    ></SettingRow
+  >
   <SettingRow label="Channel"
     ><div class="segments" aria-label="Update channel">
       <button
@@ -62,3 +81,23 @@
   newest build, even when that is older than this one. Your words and settings
   stay; features only in the newer build go away.
 </p>
+
+<style>
+  /* Version and status above the buttons, all in the control column.
+     Long nightly versions and progress wrap instead of widening the row. */
+  .update-summary {
+    flex: 1 0 100%;
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .update-version {
+    font-variant-numeric: tabular-nums;
+  }
+  .update-summary small {
+    color: var(--soft-ink);
+    font-size: 15px;
+    line-height: 1.35;
+  }
+</style>

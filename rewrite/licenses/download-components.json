@@ -437,6 +437,68 @@
       "verificationStatus": "pinned-card-only"
     },
     {
+      "id": "parakeet-tdt-0.6b-v2-sonojot-ft2",
+      "kind": "model",
+      "name": "SonoJot Parakeet (fine-tuned Parakeet TDT 0.6B v2)",
+      "version": "huggingface.co/SonoJot/sonojot-parakeet-v1@ff2638d470935675096725da78c4ad691fbde46a",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/LICENSE",
+      "catalogIds": [
+        "parakeet-tdt-0.6b-v2-sonojot-ft2"
+      ],
+      "sources": [
+        "rewrite/src-tauri/src/optional_asr.rs",
+        "docs/research/ParakeetFineTuneDesktop.md",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/README.md",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/NOTICE.md",
+        "https://creativecommons.org/licenses/by/4.0/legalcode.txt",
+        "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2/resolve/ae9ad07059c7c739ffaf932226a8fe64ae2620b0/README.md"
+      ],
+      "textFiles": [
+        "downloads/standard/cc-by-4.0.txt"
+      ],
+      "downloadUrls": [
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/encoder.int8.onnx",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/decoder.int8.onnx",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/joiner.int8.onnx",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/tokens.txt"
+      ],
+      "distribution": "SonoJot's own Hugging Face repository SonoJot/sonojot-parakeet-v1, pinned commit; the app downloads the int8 files.",
+      "attribution": "Modified from NVIDIA Parakeet TDT 0.6B v2 (CC BY 4.0) by Cody Stevens Studio LLC for SonoJot; NVIDIA does not endorse this modification. Training corpora and labelling models are credited in the model's NOTICE.md.",
+      "conditions": "Credit NVIDIA, link CC BY 4.0, state that the weights were modified, retain the NOTICE. No ShareAlike obligation or noncommercial restriction.",
+      "verification": "Weights produced by SonoJot (rewrite/evaluation/parakeet-ft-desktop-2026-11/export_ft.py); pins are the exported files' sizes and SHA-256. Base licence from NVIDIA's pinned model card.",
+      "issues": [],
+      "recommendation": "Keep the pinned commit; publish changed weights as a new repository version and re-pin.",
+      "repository": "SonoJot/sonojot-parakeet-v1",
+      "artifactPins": [
+        {
+          "file": "encoder.int8.onnx",
+          "bytes": 652184374,
+          "sha256": "623cb6020e8151afc86b1d0c02e17266e77c74de9bfcafaf99eb4cdbe988fbf5",
+          "url": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/encoder.int8.onnx"
+        },
+        {
+          "file": "decoder.int8.onnx",
+          "bytes": 7257753,
+          "sha256": "eb10992246617a09f8752a1b4b0a951fd99499740ca8ef9eeffe83adb0fc3940",
+          "url": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/decoder.int8.onnx"
+        },
+        {
+          "file": "joiner.int8.onnx",
+          "bytes": 1739080,
+          "sha256": "fcd749d846047b8ac98b41eaf0044b678e41503523e3ea9df039f863c1a1014f",
+          "url": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/joiner.int8.onnx"
+        },
+        {
+          "file": "tokens.txt",
+          "bytes": 9384,
+          "sha256": "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+          "url": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/tokens.txt"
+        }
+      ],
+      "verificationStatus": "pinned-card-only"
+    },
+    {
       "id": "qwen3-asr-1.7b",
       "kind": "model",
       "name": "Qwen3-ASR 1.7B",

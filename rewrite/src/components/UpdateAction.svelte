@@ -3,7 +3,7 @@
   import { updateAction, updateActionDisabled } from "../lib/updates";
 
   // The same next step as the sidebar update button, as an ordinary button
-  // for About's update row and the main-window notice.
+  // for the Updates screen and the update sheet. Same size as its neighbours.
   let { describedby }: { describedby?: string } = $props();
   const update = $derived(app.snapshot.update);
   const action = $derived(updateAction(update.status, update.installing));
@@ -26,9 +26,8 @@
 
 {#if action}<button
     type="button"
-    class="button small"
+    class="button"
     class:primary={!disabled}
-    class:quiet={disabled}
     aria-describedby={describedby}
     {disabled}
     onclick={activate}>{action.label}</button

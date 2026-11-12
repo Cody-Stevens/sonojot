@@ -153,7 +153,20 @@
             ? "!"
             : "↓"}</span
         >
-        <span>{updateLabel}</span>
+        {#if update.status.state === "downloading" && !update.installing}
+          <!-- The rail is too narrow for "Downloading"; the arrow, figure
+               and channel say it, the label and tooltip spell it out. -->
+          {#if update.status.percent === null}<span aria-hidden="true"
+              >Starting download</span
+            >{:else}<strong aria-hidden="true"
+              >{Math.floor(update.status.percent)}%</strong
+            >{/if}
+          <span class="ticket-progress" aria-hidden="true"
+            ><span style:width={`${update.status.percent ?? 0}%`}></span></span
+          >
+        {:else}
+          <span>{updateLabel}</span>
+        {/if}
       </button>
     {/if}
   </div>
@@ -223,6 +236,8 @@
   .rail-tickets {
     margin-top: auto;
     display: grid;
+    /* Never let a ticket's longest word widen the rail. */
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     width: 100%;
   }
@@ -235,8 +250,11 @@
     gap: 6px;
     padding: 10px 4px;
     width: 100%;
+    min-width: 0;
     font-size: 0.7rem;
     line-height: 1.25;
+    text-align: center;
+    overflow-wrap: anywhere;
     box-shadow: var(--raise-sm);
   }
   .rail-ticket:active {
@@ -245,6 +263,22 @@
   .rail-ticket strong {
     font-variant-numeric: tabular-nums;
     font-size: 0.85rem;
+  }
+  /* The first-run step channel: pressed well, ink fill. */
+  .ticket-progress {
+    display: block;
+    width: calc(100% - 12px);
+    height: 6px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--well);
+    box-shadow: var(--press);
+  }
+  .ticket-progress > span {
+    display: block;
+    height: 100%;
+    background: var(--ink);
+    border-radius: 5px;
   }
   .update-mark {
     color: var(--dye);

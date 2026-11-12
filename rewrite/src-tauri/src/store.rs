@@ -1915,6 +1915,31 @@ mod tests {
     }
 
     #[test]
+    fn upgrading_keeps_stock_parakeet_and_same_as_dictation_meetings() {
+        // A 0.28.9 Balanced user on stock Parakeet with meetings "Same as
+        // dictation" (empty): SonoJot Parakeet must not replace either choice,
+        // and the file is not rewritten.
+        let (directory, store) = temp_store("parakeet-upgrade");
+        let original = serde_json::json!({ "schemaVersion": 1, "settings": {
+            "setupProfile": "balanced", "asrModel": "parakeet-tdt-0.6b-v2",
+            "meetingAsrModel": "", "cleanupModel": "local-rules",
+            "notesModel": "qwen3-4b-instruct-2507", "meetingSourceMigrated": true
+        }});
+        let bytes = serde_json::to_vec_pretty(&original).unwrap();
+        fs::write(directory.join("settings.json"), &bytes).unwrap();
+        let loaded = store.load_settings().unwrap();
+        assert_eq!(loaded.asr_model, "parakeet-tdt-0.6b-v2");
+        assert!(loaded.meeting_asr_model.is_empty());
+        assert_eq!(loaded.setup_profile, Some(crate::domain::SetupProfile::Balanced));
+        assert_eq!(fs::read(directory.join("settings.json")).unwrap(), bytes);
+        // Stock Parakeet stays in the catalogue with its published pins, so its
+        // installed files keep verifying and nothing is downloaded again.
+        let stock = crate::optional_asr::find("parakeet-tdt-0.6b-v2").unwrap();
+        assert!(crate::optional_asr::published(stock));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn setup_migration_fresh_install_and_explicit_null_stay_unfinished() {
         let (directory, store) = temp_store("setup-fresh");
         assert_eq!(store.load_settings().unwrap().setup_profile, None);

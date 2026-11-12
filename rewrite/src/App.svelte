@@ -32,6 +32,8 @@
   import Sheet from "./components/quiet/Sheet.svelte";
   import StageHeader from "./components/quiet/StageHeader.svelte";
   import UpdateSheet from "./components/quiet/UpdateSheet.svelte";
+  import WhatsNewSheet from "./components/quiet/WhatsNewSheet.svelte";
+  import { whatsNew } from "./lib/whats-new.svelte";
   import {
     createRouter,
     resolveRoute,
@@ -110,6 +112,25 @@
       });
     }
   });
+  // After an update, What's new takes the place the crash notice used to,
+  // once, after setup and terms. A real crash report still comes first.
+  let whatsNewShown = false;
+  $effect(() => {
+    if (
+      !whatsNewShown &&
+      whatsNew.state.pending &&
+      setupChecked &&
+      onboardingMode === null &&
+      !termsRequired &&
+      !app.pendingCrash &&
+      !overlay &&
+      !cursor &&
+      !helper
+    ) {
+      whatsNewShown = true;
+      whatsNew.showInstalled();
+    }
+  });
   let dismissedError = $state("");
   const error = $derived(
     app.error ||
@@ -167,6 +188,11 @@
           await app.checkPendingCrash();
         } catch (failure: unknown) {
           app.error = errorMessage(failure);
+        }
+        try {
+          await whatsNew.check();
+        } catch {
+          // What's new is a courtesy; the app works without it.
         }
       }
       setupChecked = true;
@@ -522,5 +548,6 @@
     {#if route.sheet === "update" && !overlay && !helper}
       <UpdateSheet onclose={() => void navigate(backRoute(route))} />
     {/if}
+    {#if whatsNew.mode && !overlay && !helper}<WhatsNewSheet />{/if}
   </div>
 {/if}

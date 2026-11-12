@@ -221,6 +221,43 @@
       "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
     }
   },
+  "parakeet-tdt-0.6b-v2-sonojot-ft2": {
+    "ted": {
+      "value": 3.89,
+      "source": "docs/research/ParakeetFineTuneDesktop.md",
+      "note": "int8 export, sherpa-onnx 1.13.8, full clips (stock Parakeet int8: 3.97)"
+    },
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1.26,
+        2.1
+      ],
+      "measuredPeak": 1.09,
+      "estimated": false,
+      "source": "docs/research/ParakeetFineTuneDesktop.md",
+      "note": "Peak working set, sherpa-onnx 1.13.8, 2 threads, 5 min clip, Windows (same as stock Parakeet int8)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 0.15,
+      "label": "0.15 s",
+      "basis": "Same network as Parakeet; decode times matched within noise on Windows and an M4 Mac",
+      "source": [
+        "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+        "docs/research/ParakeetFineTuneDesktop.md"
+      ]
+    }
+  },
   "moonshine-medium": {
     "ted": {
       "value": 6.5,

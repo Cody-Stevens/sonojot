@@ -19,6 +19,7 @@
     memoryObservation,
     secondaryMemory,
     gpuModel,
+    SONOJOT_PARAKEET,
   } from "../lib/speech-chart";
   import {
     checking,
@@ -176,6 +177,9 @@
     else void speechChoice.use(model, meeting ? "meeting" : "dictation");
   }
   function caption(model: ModelEntry) {
+    // Before the recommended captions, which describe Qwen and stock Parakeet.
+    if (model.id === SONOJOT_PARAKEET)
+      return "English only · tuned by SonoJot for dictation · leaves the GPU free.";
     if (model.id === recommended)
       return mac
         ? "The same measured word errors as Q8, with less memory and a shorter wait."

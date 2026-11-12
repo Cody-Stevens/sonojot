@@ -413,7 +413,7 @@ impl Engine {
             config.model_config.whisper.enable_segment_timestamps = 0;
             config.model_config.tokens = path(&mut keep, dir.join("tokens.txt"))?;
             config.model_config.model_type = intern(&mut keep, "whisper");
-        } else if requested == "parakeet-tdt-0.6b-v2" {
+        } else if optional_asr::is_parakeet(requested) {
             config.model_config.transducer.encoder =
                 path(&mut keep, dir.join("encoder.int8.onnx"))?;
             config.model_config.transducer.decoder =
@@ -435,7 +435,7 @@ impl Engine {
         }
         // Resolve every fallible path before allocating native resources.
         let mut vad_config: VadModelConfig = unsafe { std::mem::zeroed() };
-        vad_config.silero_vad.model = path(&mut keep, optional_asr::vad_path(root))?;
+        vad_config.silero_vad.model = path(&mut keep, optional_asr::sherpa_vad_path(root))?;
         vad_config.silero_vad.threshold = if is_qwen(requested) { crate::qwen_window::vad_threshold() } else { 0.25 };
         vad_config.silero_vad.min_silence_duration = 0.5;
         vad_config.silero_vad.min_speech_duration = 0.25;
@@ -2897,6 +2897,91 @@ mod tests {
         let samples = [0.0, 0.5, -1.0];
         assert_eq!(resample(&samples, 16_000, 16_000), samples);
         assert!(resample(&samples, 48_000, 16_000).len() <= 2);
+    }
+
+    /// Opt-in, like the test below: stage `rewrite/.live-asr` with the sherpa
+    /// runtime, `optional/parakeet-tdt-0.6b-v2-sonojot-ft2` (the pinned int8
+    /// export, e.g. installed from SONOJOT_DEV_MODEL_DIR) and `ft2-clips/` holding
+    /// public WAVs plus `expected.json` ({file: text}) written by the reference
+    /// export (docs/research/ParakeetFineTuneDesktop.md). The app's own worker,
+    /// VAD sections and runtime must give the same words up to one edit in ten
+    /// (VAD trims the clip edges, which can change a word), and timings print.
+    #[test]
+    fn live_sonojot_parakeet_matches_its_export_when_staged() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.live-asr");
+        let clips = root.join("ft2-clips");
+        let id = crate::optional_asr::PARAKEET_FT2_ID;
+        if !crate::optional_asr::model_ready(&root, id) || !clips.join("expected.json").is_file() {
+            eprintln!("Skipping SonoJot Parakeet: stage rewrite/.live-asr with {id} and ft2-clips/expected.json");
+            return;
+        }
+        let expected: BTreeMap<String, String> =
+            serde_json::from_str(&std::fs::read_to_string(clips.join("expected.json")).unwrap()).unwrap();
+        let words = |text: &str| -> Vec<String> {
+            text.to_lowercase()
+                .split(|c: char| !(c.is_alphanumeric() || c == '\''))
+                .filter(|w| !w.is_empty())
+                .map(str::to_owned)
+                .collect()
+        };
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        let mut recognizer = crate::asr::Recognizer::load(&root, id).expect("SonoJot Parakeet should load");
+        eprintln!("{id}: load {:?}", started.elapsed());
+        for (file, want) in &expected {
+            let started = std::time::Instant::now();
+            let got = crate::asr::transcribe_file_with(&mut recognizer, &clips.join(file), &cancel)
+                .expect("SonoJot Parakeet should transcribe the staged clip");
+            let (got, want) = (words(&got), words(want));
+            // Word-level edit distance between the app's text and the export's.
+            let mut row: Vec<usize> = (0..=want.len()).collect();
+            for (i, g) in got.iter().enumerate() {
+                let mut previous = row[0];
+                row[0] = i + 1;
+                for (j, w) in want.iter().enumerate() {
+                    let substitute = previous + usize::from(g != w);
+                    previous = row[j + 1];
+                    row[j + 1] = substitute.min(row[j] + 1).min(previous + 1);
+                }
+            }
+            let edits = row[want.len()];
+            eprintln!("{id}: {file} in {:?}, {edits} word edits from the export", started.elapsed());
+            assert!(edits * 10 <= want.len().max(1), "{file}: {got:?} vs {want:?}");
+        }
+    }
+
+    /// Opt-in timings through the app's own worker: set SONOJOT_LIVE_SPEED_MODELS
+    /// to comma-separated model ids staged in `rewrite/.live-asr`, with
+    /// `ft2-clips/librispeech-1089-10s.wav` and `-300s.wav`. Prints one JSON line
+    /// per model: load, the 10 s clip twice (cold and warm) and the 5 min clip.
+    #[test]
+    fn live_speech_speed_when_staged() {
+        let Ok(ids) = std::env::var("SONOJOT_LIVE_SPEED_MODELS") else {
+            eprintln!("Skipping speech timings: set SONOJOT_LIVE_SPEED_MODELS");
+            return;
+        };
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.live-asr");
+        let clips = root.join("ft2-clips");
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        for id in ids.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+            let started = std::time::Instant::now();
+            let mut recognizer = crate::asr::Recognizer::load(&root, id).expect("staged model should load");
+            let load = started.elapsed().as_secs_f64();
+            let mut run = |file: &str| {
+                let started = std::time::Instant::now();
+                let text = crate::asr::transcribe_file_with(&mut recognizer, &clips.join(file), &cancel)
+                    .expect("staged clip should transcribe");
+                (started.elapsed().as_secs_f64(), text.split_whitespace().count())
+            };
+            let cold = run("librispeech-1089-10s.wav");
+            let warm = run("librispeech-1089-10s.wav");
+            let long = run("librispeech-1089-300s.wav");
+            println!(
+                "{}",
+                serde_json::json!({"model": id, "load_s": load, "cold_10s_s": cold.0, "warm_10s_s": warm.0,
+                    "words_10s": warm.1, "long_300s_s": long.0, "words_300s": long.1})
+            );
+        }
     }
 
     #[test]

@@ -1016,6 +1016,16 @@ export async function installDesktopFixture(page, options = {}) {
         window.__testCalls.push({ command, args: clone(args) });
         if (heldCommands.has(command)) await heldCommands.get(command).promise;
         switch (command) {
+          // Mock-only What's new: options.whatsNew seeds { pending, latest };
+          // options.updateChangelog answers the offer preview.
+          case "get_whats_new":
+            return clone(options.whatsNew ?? { pending: null, latest: null });
+          case "dismiss_whats_new":
+            options.whatsNew = { ...(options.whatsNew ?? { latest: null }), pending: null };
+            return clone(options.whatsNew);
+          case "get_update_changelog":
+            if (!["available", "downloading", "ready"].includes(state.update.status.state)) return null;
+            return clone(options.updateChangelog ?? null);
           case "get_pending_crash":
             return clone(options.pendingCrash ?? null);
           case "dismiss_crash":

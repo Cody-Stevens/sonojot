@@ -24,6 +24,15 @@ export function updateStatusLabel(status: UpdateStatus): string {
   }
 }
 
+/** An update is on offer: available, downloading or ready to restart. */
+export function updateOffered(status: UpdateStatus): boolean {
+  return (
+    status.state === "available" ||
+    status.state === "downloading" ||
+    status.state === "ready"
+  );
+}
+
 /** Installing the offer replaces this build with an older one. */
 function switching(status: UpdateStatus): boolean {
   return (

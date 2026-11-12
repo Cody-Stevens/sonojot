@@ -1621,6 +1621,7 @@ mod tests {
             "whisper-tiny",
             "whisper-large-v3-turbo",
             "parakeet-tdt-0.6b-v2",
+            crate::optional_asr::PARAKEET_FT2_ID,
             "qwen3-asr-1.7b",
             "moonshine-medium",
         ] {

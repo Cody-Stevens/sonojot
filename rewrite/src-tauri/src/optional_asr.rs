@@ -86,6 +86,144 @@ const PARAKEET: OptionalModel = OptionalModel {
     ],
 };
 
+/// SonoJot's own fine-tune of Parakeet TDT 0.6B v2 (`ft2`, accepted by the
+/// owner on 2026-11-11), exported to the same sherpa-onnx int8 layout as
+/// `PARAKEET` so the existing runtime loads it unchanged. Same architecture,
+/// tokenizer (`tokens.txt` is byte-identical) and decoding as the base.
+/// Export and measurements: docs/research/ParakeetFineTuneDesktop.md.
+pub const PARAKEET_FT2_ID: &str = "parakeet-tdt-0.6b-v2-sonojot-ft2";
+
+const PARAKEET_FT2: OptionalModel = OptionalModel {
+    id: PARAKEET_FT2_ID,
+    name: "SonoJot Parakeet",
+    description: "English · SonoJot's fine-tune of NVIDIA Parakeet TDT 0.6B v2",
+    // Published November 12, 2026 under CC BY 4.0 (model card and NOTICE in
+    // rewrite/evaluation/parakeet-ft-desktop-2026-11/). Pinned to the commit
+    // that added the int8 files; the fp16 GPU build in `fp16/` is not wired.
+    repo: "SonoJot/sonojot-parakeet-v1",
+    revision: "ff2638d470935675096725da78c4ad691fbde46a",
+    files: &[
+        PinnedFile {
+            relative: "encoder.int8.onnx",
+            bytes: 652_184_374,
+            sha256: "623cb6020e8151afc86b1d0c02e17266e77c74de9bfcafaf99eb4cdbe988fbf5",
+        },
+        PinnedFile {
+            relative: "decoder.int8.onnx",
+            bytes: 7_257_753,
+            sha256: "eb10992246617a09f8752a1b4b0a951fd99499740ca8ef9eeffe83adb0fc3940",
+        },
+        PinnedFile {
+            relative: "joiner.int8.onnx",
+            bytes: 1_739_080,
+            sha256: "fcd749d846047b8ac98b41eaf0044b678e41503523e3ea9df039f863c1a1014f",
+        },
+        PinnedFile {
+            relative: "tokens.txt",
+            bytes: 9_384,
+            sha256: "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+        },
+    ],
+};
+
+/// Developer-only source for models whose weights are not published yet:
+/// a folder holding `<model id>/<file>`. Files still have to match the pinned
+/// sizes and SHA-256, so this cannot install anything else. Published models
+/// ignore it and always download from their pinned repository.
+pub(crate) const DEV_MODEL_DIR_ENV: &str = "SONOJOT_DEV_MODEL_DIR";
+
+pub fn published(model: &OptionalModel) -> bool {
+    !model.revision.is_empty()
+}
+
+pub fn is_parakeet(id: &str) -> bool {
+    id == PARAKEET.id || id == PARAKEET_FT2_ID
+}
+
+fn dev_model_dir() -> Option<PathBuf> {
+    std::env::var_os(DEV_MODEL_DIR_ENV)
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute() && dir.is_dir())
+}
+
+/// Where a pinned file comes from: its Hugging Face revision when published,
+/// otherwise a `file:` URL in the developer folder, otherwise nowhere.
+pub(crate) fn download_url(model: &OptionalModel, file: &PinnedFile) -> Option<String> {
+    download_url_from(model, file, dev_model_dir().as_deref())
+}
+
+fn download_url_from(model: &OptionalModel, file: &PinnedFile, dev_dir: Option<&Path>) -> Option<String> {
+    if published(model) {
+        return Some(format!(
+            "https://huggingface.co/{}/resolve/{}/{}",
+            model.repo, model.revision, file.relative
+        ));
+    }
+    let path = dev_dir?.join(model.id).join(file.relative);
+    reqwest::Url::from_file_path(path).ok().map(String::from)
+}
+
+/// Can this model be installed here (published, or a developer folder set)?
+pub fn obtainable(model: &OptionalModel) -> bool {
+    model.files.iter().all(|file| download_url(model, file).is_some())
+}
+
+pub(crate) const COMPATIBILITY: &str = if cfg!(target_os = "macos") {
+    "Apple Silicon Mac CPU via the sherpa-onnx runtime. No GPU offload."
+} else {
+    "Windows x64 CPU via sherpa-onnx runtime. No GPU offload in this build; AMD acceleration is not supported."
+};
+
+pub(crate) const UNPUBLISHED: &str =
+    "Not published yet. SonoJot has not released these weights for download.";
+
+/// Copy a developer `file:` source with the same size and checksum rules as a
+/// download. `None` when `url` is not a local file URL.
+pub(crate) fn copy_local_source(
+    url: &str,
+    dest: &Path,
+    expected_bytes: u64,
+    expected_sha256: &str,
+    cancel: &AtomicBool,
+    progress: &dyn Fn(u64, u64),
+) -> Option<Result<(), String>> {
+    let source = reqwest::Url::parse(url).ok().filter(|u| u.scheme() == "file")?.to_file_path().ok()?;
+    Some((|| {
+        let mut input = File::open(&source)
+            .map_err(|e| format!("Cannot open the developer model file {}: {e}", source.display()))?;
+        let mut out = std::io::BufWriter::new(
+            File::create(dest).map_err(|e| format!("Cannot stage the model file: {e}"))?,
+        );
+        let mut buffer = vec![0u8; 1 << 20];
+        let mut total = 0u64;
+        progress(0, expected_bytes);
+        loop {
+            if cancel.load(Ordering::Acquire) {
+                return Err("Install cancelled.".into());
+            }
+            let read = input.read(&mut buffer).map_err(|e| format!("Cannot read the model file: {e}"))?;
+            if read == 0 {
+                break;
+            }
+            total += read as u64;
+            if total > expected_bytes {
+                return Err("The developer model file is larger than the pinned file.".into());
+            }
+            out.write_all(&buffer[..read]).map_err(|e| format!("Cannot save the model file: {e}"))?;
+            progress(total, expected_bytes);
+        }
+        out.flush().map_err(|e| format!("Cannot save the model file: {e}"))?;
+        drop(out);
+        if total != expected_bytes {
+            return Err(format!("The developer model file has {total} bytes, not the pinned {expected_bytes}."));
+        }
+        if !sha256_file(dest, expected_bytes)?.eq_ignore_ascii_case(expected_sha256) {
+            return Err("The developer model file did not match its pinned checksum. Nothing was installed.".into());
+        }
+        Ok(())
+    })())
+}
+
 const QWEN: OptionalModel = OptionalModel {
     id: "qwen3-asr-1.7b",
     name: "Qwen3-ASR 1.7B",
@@ -126,7 +264,7 @@ const QWEN: OptionalModel = OptionalModel {
     ],
 };
 
-pub const MODELS: &[OptionalModel] = &[PARAKEET, QWEN];
+pub const MODELS: &[OptionalModel] = &[PARAKEET, PARAKEET_FT2, QWEN];
 
 #[cfg(target_os = "linux")]
 const RUNTIME_ARCHIVE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib.tar.bz2";
@@ -144,21 +282,40 @@ pub(crate) const RUNTIME_FILES: &[PinnedFile] = &[
     PinnedFile { relative: "silero_vad.onnx", bytes: VAD_BYTES, sha256: VAD_SHA256 },
 ];
 
-#[cfg(not(target_os = "linux"))]
+// Apple Silicon: the same sherpa-onnx 1.13.8 C API that Windows and Linux use,
+// for Parakeet on the CPU. `libsherpa-onnx-c-api.dylib` finds
+// `@rpath/libonnxruntime.dylib` through its own `@loader_path` rpath.
+#[cfg(target_os = "macos")]
+const RUNTIME_ARCHIVE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-osx-arm64-shared-no-tts-lib.tar.bz2";
+#[cfg(target_os = "macos")]
+const RUNTIME_ARCHIVE_SHA256: &str = "f3e0cbd86cc3f38dad30c97921b40e9a8bcc6f2c943777eb76ad77176993e417";
+#[cfg(target_os = "macos")]
+const RUNTIME_ARCHIVE_BYTES: u64 = 8_292_111;
+#[cfg(target_os = "macos")]
+const RUNTIME_ARCHIVE_ROOT: &str = "sherpa-onnx-v1.13.8-osx-arm64-shared-no-tts-lib";
+
+#[cfg(target_os = "macos")]
+pub(crate) const RUNTIME_FILES: &[PinnedFile] = &[
+    PinnedFile { relative: "libonnxruntime.dylib", bytes: 28_775_120, sha256: "3567d114f7299d559993e536d605a6f46d7bc9d2542004accc80ee9bf5457f0b" },
+    PinnedFile { relative: "libsherpa-onnx-c-api.dylib", bytes: 2_999_920, sha256: "ae729669633008692c670d4e4c942db7ea5bdc38abc2f479516062d48849e9d1" },
+    PinnedFile { relative: "silero_vad.onnx", bytes: VAD_BYTES, sha256: VAD_SHA256 },
+];
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 const RUNTIME_ARCHIVE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-no-tts-lib.tar.bz2";
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 const RUNTIME_ARCHIVE_SHA256: &str =
     "a1253e665c4f236119c443c8932a8acfca32a546c78c05962d483c9a0eae21b7";
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 const RUNTIME_ARCHIVE_BYTES: u64 = 7_536_080;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 const RUNTIME_ARCHIVE_ROOT: &str = "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-no-tts-lib";
 const VAD_URL: &str =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx";
 pub(crate) const VAD_SHA256: &str = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6";
 pub(crate) const VAD_BYTES: u64 = 643_854;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub(crate) const RUNTIME_FILES: &[PinnedFile] = &[
     PinnedFile {
         relative: "onnxruntime.dll",
@@ -217,8 +374,33 @@ pub fn runtime_dir(models_root: &Path) -> PathBuf {
     optional_root(models_root).join(RUNTIME_DIR)
 }
 
+/// The sherpa-onnx speech runtime. On a Mac, `runtime_dir` already holds the
+/// ONNX Runtime that punctuation and speaker labels share, so the sherpa
+/// library gets a folder of its own there; elsewhere they are one folder.
+pub fn sherpa_runtime_dir(models_root: &Path) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        optional_root(models_root).join(MAC_SHERPA_RUNTIME_DIR)
+    } else {
+        runtime_dir(models_root)
+    }
+}
+
+const MAC_SHERPA_RUNTIME_DIR: &str = "sherpa-asr-runtime";
+
 pub fn runtime_library(models_root: &Path) -> PathBuf {
-    runtime_dir(models_root).join(if cfg!(target_os = "linux") { "libsherpa-onnx-c-api.so" } else { "sherpa-onnx-c-api.dll" })
+    sherpa_runtime_dir(models_root).join(if cfg!(target_os = "linux") {
+        "libsherpa-onnx-c-api.so"
+    } else if cfg!(target_os = "macos") {
+        "libsherpa-onnx-c-api.dylib"
+    } else {
+        "sherpa-onnx-c-api.dll"
+    })
+}
+
+/// Silero VAD beside the sherpa runtime (the same file as `vad_path` except on
+/// a Mac, where Qwen's Metal path keeps its own copy).
+pub fn sherpa_vad_path(models_root: &Path) -> PathBuf {
+    sherpa_runtime_dir(models_root).join("silero_vad.onnx")
 }
 
 pub fn vad_path(models_root: &Path) -> PathBuf {
@@ -339,7 +521,7 @@ pub fn runtime_ready(models_root: &Path) -> bool {
 }
 
 pub(crate) fn runtime_status(root: &Path, check: crate::model_verification::Check) -> crate::model_verification::Status {
-    check.files(root, &runtime_dir(root), RUNTIME_FILES)
+    check.files(root, &sherpa_runtime_dir(root), RUNTIME_FILES)
 }
 
 pub fn model_ready(root: &Path, id: &str) -> bool {
@@ -449,33 +631,33 @@ fn uninstall(runtime: &Runtime, id: &str) -> Result<(), String> {
     Err("Confirm removal in Setup before deleting model files. Use the guarded model library removal with confirmation; nothing was deleted.".into())
 }
 
-#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
+#[cfg(not(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
 fn install_platform(_runtime: &Runtime, _id: &str) -> Result<(), String> {
-    Err("Automatic speech-model install is available only on Windows x64 or Linux x64.".into())
+    Err("Automatic speech-model install is available only on Windows x64, Linux x64 or an Apple Silicon Mac.".into())
 }
 
-#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
+#[cfg(not(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
 fn install_platform_with_progress(
     _runtime: &Runtime,
     _id: &str,
     _cancel: &AtomicBool,
     _progress: &dyn Fn(u64, u64),
 ) -> Result<(), String> {
-    Err("Automatic speech-model install is available only on Windows x64 or Linux x64.".into())
+    Err("Automatic speech-model install is available only on Windows x64, Linux x64 or an Apple Silicon Mac.".into())
 }
 
-#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
+#[cfg(not(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
 fn uninstall_platform(_runtime: &Runtime, _id: &str) -> Result<(), String> {
-    Err("Automatic speech-model install is available only on Windows x64 or Linux x64.".into())
+    Err("Automatic speech-model install is available only on Windows x64, Linux x64 or an Apple Silicon Mac.".into())
 }
 
-#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
+#[cfg(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn install_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
     static NEVER: AtomicBool = AtomicBool::new(false);
     install_platform_with_progress(runtime, id, &NEVER, &|_, _| {})
 }
 
-#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
+#[cfg(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn install_platform_with_progress(
     runtime: &Runtime,
     id: &str,
@@ -514,10 +696,7 @@ fn install_platform_with_progress(
                 fs::create_dir_all(parent)
                     .map_err(|e| format!("Cannot prepare {}: {e}", file.relative))?;
             }
-            let url = format!(
-                "https://huggingface.co/{}/resolve/{}/{}",
-                model.repo, model.revision, file.relative
-            );
+            let url = download_url(model, file).ok_or(UNPUBLISHED)?;
             download_with_cancel_progress(
                 &url,
                 &path,
@@ -588,6 +767,9 @@ pub(crate) fn download_with_cancel_progress(
     use std::io::{Read, Write};
     if cancel.load(Ordering::Acquire) {
         return Err("Install cancelled.".into());
+    }
+    if let Some(copied) = copy_local_source(url, dest, expected_bytes, expected_sha256, cancel, progress) {
+        return copied;
     }
     let client = reqwest::blocking::Client::builder()
         .user_agent(concat!("SonoJot/", env!("CARGO_PKG_VERSION")))
@@ -681,7 +863,7 @@ pub(crate) fn download_with_cancel_progress(
     Ok(())
 }
 
-#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
+#[cfg(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn uninstall_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
     // Whisper and speaker labels also share the sherpa CPU runtime.
     // Guarded subset of model_manager::remove_model (no silent fallback, no
@@ -743,7 +925,7 @@ fn uninstall_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
             .map_err(|e| format!("The speech model files could not be removed: {e}"))?;
     }
     if !cpu_runtime_still_used(&runtime.models_root, &resolved) {
-        let runtime_dir = runtime_dir(&runtime.models_root);
+        let runtime_dir = sherpa_runtime_dir(&runtime.models_root);
         if runtime_dir.exists() {
             ensure_within(&runtime.models_root, &runtime_dir)?;
             fs::remove_dir_all(&runtime_dir)
@@ -754,7 +936,7 @@ fn uninstall_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(any(test, all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
+#[cfg(any(test, all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn cpu_runtime_still_used(models_root: &Path, removed_id: &str) -> bool {
     MODELS
         .iter()
@@ -771,13 +953,13 @@ fn cpu_runtime_still_used(models_root: &Path, removed_id: &str) -> bool {
         })
 }
 
-#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
+#[cfg(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn ensure_runtime(models_root: &Path) -> Result<(), String> {
     static NEVER: AtomicBool = AtomicBool::new(false);
     ensure_runtime_with_cancel(models_root, &NEVER, &|_, _| {})
 }
 
-#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
+#[cfg(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 pub(crate) fn ensure_runtime_with_cancel(
     models_root: &Path,
     cancel: &AtomicBool,
@@ -789,7 +971,7 @@ pub(crate) fn ensure_runtime_with_cancel(
     if runtime_ready(models_root) {
         return Ok(());
     }
-    let dest = runtime_dir(models_root);
+    let dest = sherpa_runtime_dir(models_root);
     // Keep the live runtime until verified staging can replace it atomically.
     let staging_root = optional_root(models_root);
     fs::create_dir_all(&staging_root)
@@ -856,6 +1038,17 @@ pub(crate) fn ensure_runtime_with_cancel(
         #[cfg(target_os = "linux")]
         fs::write(runtime_staging.join("NOTICES.txt"), include_str!("../../licenses/linux/sherpa-onnx-linux-cpu.txt"))
             .map_err(|e| format!("Cannot retain sherpa runtime notices: {e}"))?;
+        // The osx-arm64 package is built by the same 1.13.8 release from the
+        // same sources, so the Linux package's source notices apply unchanged.
+        #[cfg(target_os = "macos")]
+        fs::write(runtime_staging.join("NOTICES.txt"), concat!(
+            "sherpa-onnx v1.13.8 macOS arm64 CPU (sherpa-onnx-v1.13.8-osx-arm64-shared-no-tts-lib).
+",
+            "Built by the same upstream release from the same sources as the Linux x64 package; its notices follow.
+
+",
+            include_str!("../../licenses/linux/sherpa-onnx-linux-cpu.txt")))
+            .map_err(|e| format!("Cannot retain sherpa runtime notices: {e}"))?;
         transactional_activate(models_root, &runtime_staging, &dest, "shared CPU runtime")?;
         progress(total, total);
         Ok(())
@@ -864,7 +1057,7 @@ pub(crate) fn ensure_runtime_with_cancel(
     installed
 }
 
-#[cfg(not(all(any(windows, target_os = "linux"), target_arch = "x86_64")))]
+#[cfg(not(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
 pub(crate) fn ensure_runtime_with_cancel(
     _models_root: &Path,
     cancel: &AtomicBool,
@@ -873,7 +1066,7 @@ pub(crate) fn ensure_runtime_with_cancel(
     if cancel.load(Ordering::Acquire) {
         return Err("Install cancelled.".into());
     }
-    Err("The shared CPU runtime is not available on this platform. Use Windows x64.".into())
+    Err("The shared CPU runtime is not available on this platform. Use Windows x64 or an Apple Silicon Mac.".into())
 }
 
 pub(crate) fn ensure_punctuation_runtime(
@@ -1121,7 +1314,7 @@ fn allowed_host(host: &str, class: HostClass) -> bool {
     }
 }
 
-#[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))]
+#[cfg(any(all(any(windows, target_os = "linux"), target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn unpack_runtime(archive: &Path, staging: &Path) -> Result<(), String> {
     let file = File::open(archive)
         .map_err(|e| format!("The speech runtime package could not be opened: {e}"))?;
@@ -1325,8 +1518,70 @@ mod tests {
     }
 
     #[test]
+    fn sonojot_parakeet_is_pinned_like_the_stock_package_and_published() {
+        let ft2 = find(PARAKEET_FT2_ID).expect("SonoJot Parakeet is in the catalogue");
+        assert_eq!(ft2.name, "SonoJot Parakeet");
+        assert!(is_parakeet(ft2.id) && is_parakeet(PARAKEET.id) && !is_parakeet(QWEN.id));
+        // Same sherpa-onnx int8 layout and byte-identical tokenizer as the stock model.
+        let names = |m: &OptionalModel| m.files.iter().map(|f| f.relative).collect::<Vec<_>>();
+        assert_eq!(names(ft2), names(&PARAKEET));
+        let tokens = |m: &OptionalModel| *m.files.iter().find(|f| f.relative == "tokens.txt").unwrap();
+        assert_eq!(tokens(ft2).sha256, tokens(&PARAKEET).sha256);
+        // Different weights, so different pins.
+        assert_ne!(ft2.files[0].sha256, PARAKEET.files[0].sha256);
+        assert!((600_000_000..700_000_000).contains(&package_bytes(ft2)));
+        // Published at a pinned 40-hex commit of SonoJot's own repository.
+        assert!(published(ft2));
+        assert_eq!(ft2.repo, "SonoJot/sonojot-parakeet-v1");
+        assert!(ft2.revision.len() == 40 && ft2.revision.chars().all(|c| c.is_ascii_hexdigit()));
+        let dev = std::env::temp_dir().join("sonojot-dev-models");
+        // A published model ignores the developer folder.
+        for model in [ft2, &PARAKEET] {
+            let url = download_url_from(model, &model.files[0], Some(&dev)).unwrap();
+            assert_eq!(url, format!("https://huggingface.co/{}/resolve/{}/{}", model.repo, model.revision, model.files[0].relative));
+        }
+        assert!(obtainable(ft2));
+    }
+
+    #[test]
+    fn unpublished_models_come_only_from_a_developer_folder() {
+        let unpublished = OptionalModel { revision: "", ..PARAKEET_FT2 };
+        assert!(!published(&unpublished));
+        assert!(download_url_from(&unpublished, &unpublished.files[0], None).is_none());
+        let dev = std::env::temp_dir().join("sonojot-dev-models");
+        let url = download_url_from(&unpublished, &unpublished.files[0], Some(&dev)).unwrap();
+        assert!(url.starts_with("file:///"), "{url}");
+        assert!(url.ends_with("/parakeet-tdt-0.6b-v2-sonojot-ft2/encoder.int8.onnx"), "{url}");
+    }
+
+    #[test]
+    fn developer_model_files_must_match_their_pins() {
+        let dir = std::env::temp_dir().join(format!("sonojot-dev-copy-{}", store::new_id()));
+        fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.bin");
+        fs::write(&source, b"abc").unwrap();
+        let url = String::from(reqwest::Url::from_file_path(&source).unwrap());
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let never = AtomicBool::new(false);
+        let dest = dir.join("dest.bin");
+        assert!(copy_local_source(&url, &dest, 3, abc, &never, &|_, _| {}).unwrap().is_ok());
+        assert_eq!(fs::read(&dest).unwrap(), b"abc");
+        // Wrong size or wrong checksum installs nothing usable.
+        assert!(copy_local_source(&url, &dest, 4, abc, &never, &|_, _| {}).unwrap().is_err());
+        fs::write(&source, b"abd").unwrap();
+        let error = copy_local_source(&url, &dest, 3, abc, &never, &|_, _| {}).unwrap().unwrap_err();
+        assert!(error.contains("checksum"), "{error}");
+        // Cancellation stops the copy.
+        let cancelled = AtomicBool::new(true);
+        assert!(copy_local_source(&url, &dest, 3, abc, &cancelled, &|_, _| {}).unwrap().is_err());
+        // Network URLs are not local sources.
+        assert!(copy_local_source("https://huggingface.co/x", &dest, 3, abc, &never, &|_, _| {}).is_none());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn catalog_covers_requested_models_without_loading_them() {
-        assert_eq!(MODELS.len(), 2);
+        assert_eq!(MODELS.len(), 3);
         assert_eq!(PARAKEET.id, "parakeet-tdt-0.6b-v2");
         assert_eq!(QWEN.id, "qwen3-asr-1.7b");
         assert!(package_bytes(&PARAKEET) > 600_000_000);

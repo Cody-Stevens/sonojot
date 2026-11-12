@@ -533,7 +533,13 @@ fn optional_asr_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
         } else {
             package
         };
-        let (state, dl, total, error) = status_entry_state(model.id, status, true);
+        // Unpublished weights (no pinned revision) are listed but cannot be
+        // downloaded; a verified copy that is already installed still works.
+        let obtainable = crate::optional_asr::obtainable(model);
+        let (state, dl, total, mut error) = status_entry_state(model.id, status, obtainable || ready);
+        if !obtainable && !ready && error.is_none() {
+            error = Some(crate::optional_asr::UNPUBLISHED.into());
+        }
         let (downloaded, total) = if ready && dl == 0 && total == 0 {
             (disk, disk)
         } else if total == 0 {
@@ -541,6 +547,7 @@ fn optional_asr_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
         } else {
             (dl, total)
         };
+        let fine_tune = model.id == crate::optional_asr::PARAKEET_FT2_ID;
         let (family, languages) = if model.id.contains("parakeet") {
             ("Parakeet", vec!["en".into()])
         } else {
@@ -566,15 +573,19 @@ fn optional_asr_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
                 resource_manager::estimate_basis(model.id),
                 model.files.len()
             ),
-            guidance: "Provisional estimate in SonoJot. Install only for its language need; it loads on dictation start and releases per retention.".into(),
+            guidance: if fine_tune {
+                "English only. SonoJot's fine-tune of Parakeet TDT 0.6B v2: same size, speed and runtime as Parakeet, with fewer word errors on dictation. Loads on dictation start and releases per retention.".into()
+            } else {
+                "Provisional estimate in SonoJot. Install only for its language need; it loads on dictation start and releases per retention.".into()
+            },
             evidence: resource_manager::estimate_evidence(model.id).into(),
             backend: "sherpa-onnx-cpu".into(),
-            compatibility: "Windows x64 CPU via sherpa-onnx runtime. No GPU offload in this build; AMD acceleration is not supported.".into(),
+            compatibility: crate::optional_asr::COMPATIBILITY.into(),
             state,
             downloaded_bytes: downloaded,
             total_bytes: total,
             error,
-            installable: true,
+            installable: obtainable || ready,
             removable: ready,
             used_by: used_by(settings, model.id),
             revision: model.revision.into(),
@@ -1108,9 +1119,15 @@ pub fn asr_worker_extra_entries(models_root: &Path, settings: &Settings) -> Vec<
 }
 
 /// Only native, supported engines are offered for installation on this host.
+/// Apple Silicon installs fetch the sherpa-onnx runtime with the first Parakeet
+/// model, as Linux does; Windows gets it with punctuation or Setup.
+const MAC_SHERPA: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+
 fn mac_supported(id: &str) -> bool {
     crate::mac_speech::find(id).is_some()
         || crate::llama_asr::is_metal(id)
+        // Parakeet runs on the Mac CPU through the sherpa-onnx osx-arm64 runtime.
+        || crate::optional_asr::is_parakeet(id)
         || matches!(
             id,
             "lfm2.5-1.2b" | "lfm2.5-2.6b" | "qwen3-4b-instruct-2507" | "local-rules"
@@ -1221,7 +1238,9 @@ pub fn build_library(models_root: &Path, settings: &Settings) -> ModelLibrary {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         models.splice(0..0, mac_entries(models_root, settings));
         for model in &mut models {
-            if !mac_supported(&model.id) {
+            if crate::optional_asr::is_parakeet(&model.id) {
+                if model.state == "not-installed" { model.total_bytes += crate::optional_asr::runtime_download_bytes(models_root); }
+            } else if !mac_supported(&model.id) {
                 // Files may exist (removable), but this Mac cannot run them.
                 model.supported = false;
                 model.installable = false;
@@ -1450,18 +1469,18 @@ fn describe_target(models_root: &Path, id: &str) -> Result<InstallTarget, String
         let files = model
             .files
             .iter()
-            .map(|f| PinnedDownload {
-                relative: f.relative,
-                bytes: f.bytes,
-                sha256: f.sha256,
-                url: format!(
-                    "https://huggingface.co/{}/resolve/{}/{}",
-                    model.repo, model.revision, f.relative
-                ),
+            .map(|f| {
+                Ok(PinnedDownload {
+                    relative: f.relative,
+                    bytes: f.bytes,
+                    sha256: f.sha256,
+                    url: crate::optional_asr::download_url(model, f)
+                        .ok_or(crate::optional_asr::UNPUBLISHED)?,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, String>>()?;
         let total = files.iter().map(|f| f.bytes).sum::<u64>()
-            + if linux_runtime::AVAILABLE { crate::optional_asr::runtime_download_bytes(models_root) } else { 0 };
+            + if linux_runtime::AVAILABLE || MAC_SHERPA { crate::optional_asr::runtime_download_bytes(models_root) } else { 0 };
         return Ok(InstallTarget {
             id: id.to_owned(),
             dest_dir: crate::optional_asr::model_dir(models_root, model.id),
@@ -1541,6 +1560,11 @@ fn download_cancellable(
     use sha2::{Digest, Sha256};
     use std::io::{Read, Write};
     check_cancel(cancel)?;
+    if let Some(copied) = crate::optional_asr::copy_local_source(url, dest, expected_bytes, expected_sha256, cancel,
+        &|got, _| set_download_progress(id, base_done.saturating_add(got), total))
+    {
+        return copied;
+    }
     let host_is_moonshine = url.starts_with("https://download.moonshine.ai/");
     let host_is_pythonhosted = url.starts_with("https://files.pythonhosted.org/");
     let client = reqwest::blocking::Client::builder()
@@ -1826,7 +1850,7 @@ fn install_inner(models_root: &Path, id: &str, cancel: &AtomicBool) -> Result<()
         require_moonshine_runtime(models_root)?;
     }
     let is_diarization = id == diarization_model::ID;
-    if linux_runtime::AVAILABLE && target.needs_runtime && !is_diarization {
+    if (linux_runtime::AVAILABLE || MAC_SHERPA) && target.needs_runtime && !is_diarization {
         crate::optional_asr::ensure_runtime_with_cancel(models_root, cancel, &|done, _| {
             set_download_progress(id, done, target.total_bytes);
         })?;
@@ -3665,7 +3689,7 @@ mod tests {
         // Existing CPU/text packages plus the sherpa and llama GPU catalogs.
         assert_eq!(
             library.models.len(),
-            2 + 1 + 2 + 1 + crate::punctuation_model::Package::ALL.len() // punctuation packages
+            2 + 1 + crate::optional_asr::catalog().len() + 1 + crate::punctuation_model::Package::ALL.len() // punctuation packages
                 + crate::optional_llm::catalog().len() + 2 + 12 + crate::gpu_asr::GPU_MODELS.len()
                 + crate::llama_asr::catalog().len()
                 + if mac { crate::mac_speech::catalog().len() } else { 0 }
@@ -4194,6 +4218,51 @@ mod tests {
         assert_eq!(clamp_gpu_progress(qwen_dl, qwen_dl), (qwen_dl, qwen_dl));
         assert_eq!(clamp_gpu_progress(u64::MAX, qwen_dl), (qwen_dl, qwen_dl));
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Opt-in end-to-end install from a developer folder: set
+    /// SONOJOT_DEV_MODEL_DIR to a folder holding `parakeet-tdt-0.6b-v2-sonojot-ft2/`
+    /// and stage `rewrite/.live-asr` with the sherpa runtime. The real installer
+    /// copies, verifies every pin and activates the model there.
+    #[test]
+    fn live_dev_folder_installs_sonojot_parakeet_when_staged() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.live-asr");
+        let id = crate::optional_asr::PARAKEET_FT2_ID;
+        if std::env::var_os(crate::optional_asr::DEV_MODEL_DIR_ENV).is_none()
+            || !crate::optional_asr::runtime_ready(&root)
+        {
+            eprintln!("Skipping: set SONOJOT_DEV_MODEL_DIR and stage rewrite/.live-asr with the sherpa runtime");
+            return;
+        }
+        if crate::optional_asr::model_ready(&root, id) {
+            eprintln!("{id} is already installed in rewrite/.live-asr; remove it to rerun the install");
+            return;
+        }
+        let started = std::time::Instant::now();
+        install_inner(&root, id, &AtomicBool::new(false)).expect("developer-folder install");
+        eprintln!("{id} installed and verified in {:?}", started.elapsed());
+        assert!(crate::optional_asr::model_ready(&root, id));
+    }
+
+    #[test]
+    fn published_sonojot_parakeet_is_listed_and_installable() {
+        let root = isolated_root("ft2-published");
+        let id = crate::optional_asr::PARAKEET_FT2_ID;
+        let entries = optional_asr_entries(&root, &Settings::default());
+        let entry = entries.iter().find(|e| e.id == id).expect("SonoJot Parakeet is listed");
+        assert_eq!(entry.name, "SonoJot Parakeet");
+        assert_eq!(entry.family, "Parakeet");
+        assert_eq!(entry.languages, ["en"]);
+        assert_eq!(entry.quantization, "int8");
+        assert!(entry.installable);
+        assert!(entry.error.is_none());
+        // Same memory plan as the stock model it was fine-tuned from.
+        assert_eq!(estimate_pair(id), estimate_pair("parakeet-tdt-0.6b-v2"));
+        assert!(describe_target(&root, id).is_ok());
+        // The stock model is untouched.
+        let stock = entries.iter().find(|e| e.id == "parakeet-tdt-0.6b-v2").unwrap();
+        assert!(stock.installable);
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

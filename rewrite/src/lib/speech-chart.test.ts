@@ -10,7 +10,11 @@ import {
 import { profileChanges } from "./setup-profiles";
 import { previewSnapshot } from "./protocol";
 import { modelName } from "./model-names";
-import { primarySpeechPool } from "./speech-chart";
+import {
+  primarySpeechPool,
+  shortSpeechName,
+  SONOJOT_PARAKEET,
+} from "./speech-chart";
 
 test("each speech backend belongs to one panel, including unified-memory Metal", () => {
   for (const [backend, pool] of [
@@ -100,4 +104,8 @@ test("setup differences use the active SonoJot cleanup before an inactive online
   };
   const changes = profileChanges(settings, settings, null, true);
   assert.equal(changes[0].current, "SonoJot cleanup");
+});
+test("SonoJot Parakeet keeps its own short name, apart from stock Parakeet", () => {
+  assert.equal(shortSpeechName(SONOJOT_PARAKEET, "x"), "SonoJot Parakeet");
+  assert.equal(shortSpeechName("parakeet-tdt-0.6b-v2", "x"), "Parakeet");
 });

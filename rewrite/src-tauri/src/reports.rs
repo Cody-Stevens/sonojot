@@ -83,6 +83,17 @@ struct Session {
     started_at: String,
 }
 
+/// Written just before SonoJot installs an update and restarts. The Windows
+/// updater ends the process with `std::process::exit`, which skips the clean
+/// exit, so without this the next start would report a crash.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateRestart {
+    from_version: String,
+    to_version: String,
+    at: String,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PanicEvidence {
@@ -99,6 +110,7 @@ struct PanicEvidence {
 pub struct CrashReports {
     directory: PathBuf,
     pending: Mutex<Option<PendingCrash>>,
+    previous_version: Option<String>,
 }
 
 fn now() -> String {
@@ -208,14 +220,31 @@ fn remove_if_present(path: &Path) -> Result<(), String> {
 impl CrashReports {
     /// Called only from desktop setup, after workers and secondary instances exit.
     pub fn start(root: &Path) -> Result<Self, String> {
+        Self::start_as(root, env!("CARGO_PKG_VERSION"))
+    }
+
+    /// `current` is this build's version; tests start other versions.
+    fn start_as(root: &Path, current: &str) -> Result<Self, String> {
         let directory = root.join("crash");
         fs::create_dir_all(&directory).map_err(|_| "Could not create the crash report folder.")?;
         let panic_path = directory.join("last-panic.json");
         let session_path = directory.join("session.json");
+        let update_path = directory.join("update-restart.json");
         let mut pending = read_json::<PendingCrash>(&directory.join("pending.json"));
-        if panic_path.exists() || (pending.is_none() && session_path.exists()) {
+        let session = read_json::<Session>(&session_path);
+        let update = read_json::<UpdateRestart>(&update_path);
+        // The last session ended because SonoJot was being replaced: by an
+        // update it started itself, or by an installer that closed it (a
+        // different version is running now). Neither is a crash. A panic
+        // is still reported.
+        let replaced = update.is_some()
+            || session.as_ref().is_some_and(|session| session.version != current);
+        let previous_version = update
+            .as_ref()
+            .map(|update| capped(&update.from_version, 80))
+            .or_else(|| session.as_ref().map(|session| capped(&session.version, 80)));
+        if panic_path.exists() || (pending.is_none() && session_path.exists() && !replaced) {
             let panic = read_json::<PanicEvidence>(&panic_path);
-            let session = read_json::<Session>(&session_path);
             let mut app = report_app();
             if let Some(ref panic) = panic {
                 app.version = capped(&panic.version, 80);
@@ -247,11 +276,12 @@ impl CrashReports {
         // Move the previous evidence into pending.json before writing this run's
         // marker. Dismissal must never erase the current session or a new panic.
         remove_if_present(&panic_path)?;
+        remove_if_present(&update_path)?;
         crate::store::atomic_write(
             &session_path,
             &serde_json::to_vec(&Session {
                 pid: std::process::id(),
-                version: env!("CARGO_PKG_VERSION").into(),
+                version: current.into(),
                 started_at: now(),
             })
             .map_err(|e| e.to_string())?,
@@ -259,7 +289,30 @@ impl CrashReports {
         Ok(Self {
             directory,
             pending: Mutex::new(pending),
+            previous_version,
         })
+    }
+
+    /// The version the last session ran, when it ended for an update or
+    /// without a clean exit. A clean exit leaves no record here.
+    pub fn previous_version(&self) -> Option<String> {
+        self.previous_version.clone()
+    }
+
+    /// Called just before installing an update that ends this process.
+    pub fn mark_update_restart(&self, to_version: &str) {
+        if let Ok(bytes) = serde_json::to_vec(&UpdateRestart {
+            from_version: env!("CARGO_PKG_VERSION").into(),
+            to_version: capped(to_version, 80),
+            at: now(),
+        }) {
+            let _ = crate::store::atomic_write(&self.directory.join("update-restart.json"), &bytes);
+        }
+    }
+
+    /// The installer did not start; this session carries on as before.
+    pub fn clear_update_restart(&self) {
+        let _ = remove_if_present(&self.directory.join("update-restart.json"));
     }
 
     pub fn install_hook(&self) {
@@ -721,6 +774,74 @@ mod tests {
             .pending()
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn update_restart_is_not_reported_as_a_crash() {
+        let root = Temp::new();
+        let old = CrashReports::start_as(&root.0, "0.28.9").unwrap();
+        // Windows: the updater calls std::process::exit, so clean_exit never runs.
+        old.mark_update_restart("0.28.10");
+        drop(old);
+        let new = CrashReports::start_as(&root.0, "0.28.10").unwrap();
+        assert!(new.pending().unwrap().is_none());
+        assert_eq!(new.previous_version().as_deref(), Some("0.28.9"));
+        assert!(!new.directory.join("update-restart.json").exists());
+        // The marker is consumed: a later unclean exit is reported again.
+        drop(new);
+        let after = CrashReports::start_as(&root.0, "0.28.10").unwrap();
+        assert_eq!(after.pending().unwrap().unwrap().reason, CrashReason::UnexpectedExit);
+    }
+
+    #[test]
+    fn update_restart_to_the_same_version_is_intentional_too() {
+        // A repair reinstalls the running version.
+        let root = Temp::new();
+        let old = CrashReports::start_as(&root.0, "0.28.9").unwrap();
+        old.mark_update_restart("0.28.9");
+        drop(old);
+        assert!(CrashReports::start_as(&root.0, "0.28.9").unwrap().pending().unwrap().is_none());
+    }
+
+    #[test]
+    fn installer_closing_the_app_is_not_a_crash() {
+        // A silent or manual install closes the running copy without any marker.
+        let root = Temp::new();
+        drop(CrashReports::start_as(&root.0, "0.28.9").unwrap());
+        let new = CrashReports::start_as(&root.0, "0.28.10-nightly.202611121621").unwrap();
+        assert!(new.pending().unwrap().is_none());
+        assert_eq!(new.previous_version().as_deref(), Some("0.28.9"));
+    }
+
+    #[test]
+    fn cancelled_update_restart_keeps_crash_detection() {
+        let root = Temp::new();
+        let old = CrashReports::start_as(&root.0, "0.28.9").unwrap();
+        old.mark_update_restart("0.28.10");
+        old.clear_update_restart();
+        drop(old);
+        let next = CrashReports::start_as(&root.0, "0.28.9").unwrap();
+        assert_eq!(next.pending().unwrap().unwrap().reason, CrashReason::UnexpectedExit);
+    }
+
+    #[test]
+    fn panic_during_an_update_is_still_reported() {
+        let root = Temp::new();
+        let old = CrashReports::start_as(&root.0, "0.28.9").unwrap();
+        old.mark_update_restart("0.28.10");
+        fs::write(old.directory.join("last-panic.json"), b"{}").unwrap();
+        drop(old);
+        let next = CrashReports::start_as(&root.0, "0.28.10").unwrap();
+        assert_eq!(next.pending().unwrap().unwrap().reason, CrashReason::Panic);
+    }
+
+    #[test]
+    fn clean_exit_leaves_no_previous_version() {
+        let root = Temp::new();
+        CrashReports::start_as(&root.0, "0.28.9").unwrap().clean_exit();
+        let next = CrashReports::start_as(&root.0, "0.28.9").unwrap();
+        assert!(next.pending().unwrap().is_none());
+        assert!(next.previous_version().is_none());
     }
 
     #[test]

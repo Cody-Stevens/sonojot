@@ -60,7 +60,11 @@ test("Updates checks explicitly and offers each next step beside Check now", asy
   await expect(about(page).getByRole("button")).toHaveCount(1);
   await pushUpdate(page, { status: { state: "downloading", percent: 42 } });
   await expect(about(page).getByText("Downloading update · 42%")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Check now" })).toBeDisabled();
+  // Nothing to check while an update is on offer; its changes stay one press away.
+  await expect(page.getByRole("button", { name: "Check now" })).toHaveCount(0);
+  await expect(
+    about(page).getByRole("button", { name: "See changes" }),
+  ).toBeVisible();
   await pushUpdate(page, { status: ready });
   await expect(about(page).getByText("SonoJot 0.23.0 is ready.")).toBeVisible();
   await expect(
@@ -68,6 +72,99 @@ test("Updates checks explicitly and offers each next step beside Check now", asy
   ).toBeEnabled();
   await expect(page.locator(".update-ticket")).toBeEnabled();
   expect(await calls(page, "restart_to_update")).toHaveLength(0);
+});
+
+const release = (version, date, notes) => ({ version, date, notes });
+const twoVersions = {
+  from: "0.22.0",
+  to: "0.23.0",
+  releases: [
+    release("0.23.0", "2026-11-12", [
+      "Faster cleanup.",
+      "<b>Literal</b> text.",
+    ]),
+    release("0.22.1", "2026-11-01", ["Fixed a paste problem."]),
+  ],
+};
+
+test("What's new opens once after an update and stays in Updates", async ({
+  page,
+}) => {
+  await installDesktopFixture(page, {
+    whatsNew: { pending: twoVersions, latest: twoVersions },
+  });
+  await page.goto("/?page=dictation");
+  const sheet = page.getByRole("dialog", { name: "What's new" });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByText("Changes since 0.22.0.")).toBeVisible();
+  const headings = sheet.getByRole("heading", { level: 3 });
+  await expect(headings).toHaveText(["SonoJot 0.23.0", "SonoJot 0.22.1"]);
+  // Notes are text, never markup.
+  await expect(sheet.getByText("<b>Literal</b> text.")).toBeVisible();
+  await expect(sheet.locator("b")).toHaveCount(0);
+  // No crash notice took its place.
+  await expect(
+    page.getByRole("heading", { name: /SonoJot (crashed|closed)/ }),
+  ).toHaveCount(0);
+  await sheet.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(sheet).toHaveCount(0);
+  expect(await calls(page, "dismiss_whats_new")).toHaveLength(1);
+  // Seen once; the backend keeps it dismissed across launches (changelog.rs).
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: /^Updates / }).click();
+  await expect(page.getByRole("dialog", { name: "What's new" })).toHaveCount(0);
+  await page
+    .getByRole("group", { name: "What's new" })
+    .getByRole("button", { name: "Show" })
+    .click();
+  await expect(
+    page
+      .getByRole("dialog", { name: "What's new" })
+      .getByRole("heading", { level: 3 }),
+  ).toHaveCount(2);
+  expect(await calls(page, "dismiss_whats_new")).toHaveLength(1);
+});
+
+test("the update prompt previews the changes before downloading", async ({
+  page,
+}) => {
+  await installDesktopFixture(page, {
+    update: { status: available },
+    updateChangelog: twoVersions,
+  });
+  await page.goto("/?page=dictation");
+  await page.locator(".update-ticket").click();
+  const prompt = page.getByRole("dialog", { name: "Updates" });
+  await prompt.getByRole("button", { name: "See changes" }).click();
+  const changes = page.getByRole("dialog", { name: "What's new" });
+  await expect(changes.getByRole("heading", { level: 3 })).toHaveText([
+    "SonoJot 0.23.0",
+    "SonoJot 0.22.1",
+  ]);
+  expect(await calls(page, "get_update_changelog")).toHaveLength(1);
+  expect(await calls(page, "download_update")).toHaveLength(0);
+  await changes.getByRole("button", { name: "Download update" }).click();
+  expect(await calls(page, "download_update")).toHaveLength(1);
+});
+
+test("a long nightly download never widens the rail", async ({ page }) => {
+  await installDesktopFixture(page, {
+    update: { status: { state: "downloading", percent: 99 } },
+  });
+  await page.setViewportSize({ width: 740, height: 540 });
+  await page.goto("/?page=dictation");
+  const ticket = page.locator(".update-ticket");
+  await expect(ticket).toHaveAccessibleName("Downloading… 99%");
+  await expect(ticket.getByText("99%")).toBeVisible();
+  const [rail, box] = await Promise.all([
+    page.locator(".quiet-rail").boundingBox(),
+    ticket.boundingBox(),
+  ]);
+  expect(box.x + box.width).toBeLessThanOrEqual(rail.x + rail.width);
+  const overflow = await page
+    .locator(".quiet-rail")
+    .evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(overflow).toBe(0);
 });
 
 test("network errors stay in Updates and permit retry", async ({ page }) => {

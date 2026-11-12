@@ -29,6 +29,23 @@ const QWEN_Q8_METAL: &str = crate::llama_asr::METAL_Q8_MODEL_ID;
 const QWEN_Q4_METAL: &str = crate::llama_asr::METAL_Q4_MODEL_ID;
 const MOONSHINE_MEDIUM: &str = "moonshine-medium";
 const PARAKEET: &str = "parakeet-tdt-0.6b-v2";
+const PARAKEET_FT2: &str = crate::optional_asr::PARAKEET_FT2_ID;
+/// SonoJot Parakeet (the fine-tuned `ft2`) defaults, approved by the owner on
+/// November 12, 2026 (docs/research/ParakeetFineTuneDesktop.md):
+/// - It replaces stock Parakeet wherever Parakeet is offered. Stock Parakeet
+///   stays installable under All models and keeps working for anyone using it.
+/// - When the system language is English, Balanced recommends it where stock
+///   Parakeet was the recommendation (CPU-only Windows and Linux, and the
+///   memory guard's step down from Qwen 0.6B). Parakeet is English only, so
+///   other languages keep today's recommendation.
+/// - Where Balanced recommends Qwen (an NVIDIA GPU, Apple Silicon) it stays
+///   Qwen. Meetings follow the dictation model ("Same as dictation"), so moving
+///   dictation there would move meetings off Qwen too; keeping meetings on Qwen
+///   while dictation moves needs a separate meeting choice that can hold a Qwen
+///   model, which this pass leaves off.
+/// Recommendations only apply when a profile is applied (first run or a preset);
+/// saved choices never change.
+const FT2_REASON: &str = "SonoJot Parakeet is tuned for dictation, nearly as accurate as Qwen on the CPU, and finishes moments after you stop speaking.";
 const MOONSHINE_SMALL: &str = "moonshine-small";
 const WHISPER_SMALL_METAL: &str = "whisper-small-metal";
 const QWEN_NOTES: &str = "qwen3-4b-instruct-2507";
@@ -50,6 +67,9 @@ pub struct HardwareProfile {
     /// Dedicated memory only; Apple Silicon uses `total_ram_bytes` once.
     pub total_vram_bytes: Option<u64>,
     pub cuda_ok: bool,
+    /// Primary subtag of the system's preferred language ("en", "de"), when
+    /// known. Only English moves the Balanced speech default to SonoJot Parakeet.
+    pub system_language: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -85,18 +105,46 @@ pub struct SpeechFrontier {
     pub other_languages: String,
 }
 
+/// SonoJot Parakeet can be offered on this build: its weights are published
+/// (or a developer folder supplies them) and the platform runs sherpa-onnx.
+fn ft2_offered(hardware: &HardwareProfile) -> bool {
+    let platform = match hardware.platform.as_str() {
+        "windows" | "linux" => true,
+        "macos" => hardware.apple_silicon,
+        _ => false,
+    };
+    platform && crate::optional_asr::find(PARAKEET_FT2).is_some_and(crate::optional_asr::obtainable)
+}
+
+fn english(hardware: &HardwareProfile) -> bool {
+    hardware.system_language.as_deref() == Some("en")
+}
+
+/// Balanced recommends SonoJot Parakeet instead of stock Parakeet here.
+fn ft2_default(hardware: &HardwareProfile) -> bool {
+    ft2_offered(hardware) && english(hardware)
+}
+
 /// November 2026 product-model tiers, constrained by the existing RAM guard.
 /// This is display policy; it does not restrict installation through the CLI.
+/// When SonoJot Parakeet is offered, the main choice is SonoJot Parakeet
+/// against Qwen3-ASR (owner request, November 12, 2026; awaiting director
+/// review). Stock Parakeet, Moonshine and Whisper Small stay under All models.
 fn speech_frontier(hardware: &HardwareProfile) -> SpeechFrontier {
+    speech_frontier_with(hardware, ft2_offered(hardware), ft2_default(hardware))
+}
+
+fn speech_frontier_with(hardware: &HardwareProfile, ft2: bool, ft2_default: bool) -> SpeechFrontier {
     let mac = hardware.platform == "macos" && hardware.apple_silicon;
     let cuda = hardware.platform == "windows" && hardware.cuda_ok
         && hardware.total_vram_bytes.is_some_and(|bytes| bytes >= CUDA_SPEECH_MIN_VRAM);
     let supported = mac || matches!(hardware.platform.as_str(), "windows" | "linux");
     let mut candidates = if mac {
-        let mut ids = vec![WHISPER_SMALL_METAL, QWEN_Q4_METAL];
+        let mut ids = if ft2 { vec![PARAKEET_FT2, QWEN_Q4_METAL] } else { vec![WHISPER_SMALL_METAL, QWEN_Q4_METAL] };
         if hardware.total_ram_bytes.is_some_and(|bytes| bytes >= 16 * GIB) { ids.push(QWEN_Q8_METAL); }
         ids
-    } else if cuda { vec![PARAKEET, QWEN_CUDA] }
+    } else if cuda { vec![if ft2 { PARAKEET_FT2 } else { PARAKEET }, QWEN_CUDA] }
+    else if supported && ft2 { vec![PARAKEET_FT2, QWEN_CPU] }
     else if supported { vec![MOONSHINE_MEDIUM, PARAKEET, QWEN_CPU] }
     else { Vec::new() };
     let fits = |id: &str| {
@@ -107,7 +155,7 @@ fn speech_frontier(hardware: &HardwareProfile) -> SpeechFrontier {
         })
     };
     candidates.retain(|id| fits(id));
-    let recommended = recommend(hardware, SetupProfile::Balanced).asr_model;
+    let recommended = recommend_with(hardware, SetupProfile::Balanced, ft2 && ft2_default).asr_model;
     if !recommended.is_empty() && !candidates.contains(&recommended.as_str()) { candidates.push(&recommended); }
     let other = if mac { QWEN_Q4_METAL } else if cuda { QWEN_CUDA }
         else if supported && hardware.total_ram_bytes.is_some_and(|ram| ram > 8 * GIB) { QWEN_CPU }
@@ -140,6 +188,7 @@ pub fn inspect(models_root: &Path) -> HardwareProfiles {
         gpu_compute_capability: probe.gpu.as_ref().and_then(|gpu| gpu.compute_capability.clone()),
         total_vram_bytes: probe.gpu.as_ref().and_then(|gpu| gpu.total_bytes),
         cuda_ok: false,
+        system_language: crate::system_language::primary(),
     };
     // Reuse acceleration's hidden, cached --list-devices probe. The bundled
     // CUDA 13.3 runtime must actually accept the driver/device; driver branch
@@ -175,6 +224,10 @@ fn strong_cpu(hardware: &HardwareProfile) -> bool {
 /// Pure recommendation only. Custom returns the Balanced suggestion with an
 /// explanation; applying Custom must preserve the user's actual selections.
 pub fn recommend(hardware: &HardwareProfile, profile: SetupProfile) -> Selection {
+    recommend_with(hardware, profile, ft2_default(hardware))
+}
+
+fn recommend_with(hardware: &HardwareProfile, profile: SetupProfile, ft2_default: bool) -> Selection {
     let custom = profile == SetupProfile::Custom;
     let profile = if custom { SetupProfile::Balanced } else { profile };
     let mut reasons = Vec::new();
@@ -224,6 +277,10 @@ pub fn recommend(hardware: &HardwareProfile, profile: SetupProfile) -> Selection
                 }
                 // Without a known RAM size the memory guard cannot check
                 // Parakeet, so Balanced keeps the lighter streaming model.
+                (_, SetupProfile::Balanced) if hardware.total_ram_bytes.is_some() && ft2_default => {
+                    reasons.push(FT2_REASON.into());
+                    PARAKEET_FT2
+                }
                 (_, SetupProfile::Balanced) if hardware.total_ram_bytes.is_some() => {
                     reasons.push("Parakeet is nearly as accurate as Qwen on the CPU and finishes moments after you stop speaking.".into());
                     PARAKEET
@@ -253,7 +310,7 @@ pub fn recommend(hardware: &HardwareProfile, profile: SetupProfile) -> Selection
         notes_model: notes_model.into(),
         reasons,
     };
-    apply_memory_guard(hardware, &mut selection);
+    apply_memory_guard(hardware, &mut selection, ft2_default);
     if matches!(selection.asr_model.as_str(), MOONSHINE_MEDIUM | MOONSHINE_SMALL) {
         selection.reasons.push("Moonshine uses less memory and shows words while you speak.".into());
     }
@@ -303,18 +360,19 @@ fn dictation_exceeds(selection: &Selection, ram: u64) -> bool {
 
 /// The next lighter speech model, in measured accuracy order. Qwen steps
 /// down within its family before leaving it.
-fn lighter_speech(id: &str) -> Option<(&'static str, &'static str)> {
+fn lighter_speech(id: &str, ft2_default: bool) -> Option<(&'static str, &'static str)> {
     match id {
         QWEN_CPU => Some((QWEN_SMALL_CPU, "Qwen 0.6B replaces Qwen 1.7B")),
+        QWEN_SMALL_CPU if ft2_default => Some((PARAKEET_FT2, "SonoJot Parakeet replaces Qwen speech")),
         QWEN_SMALL_CPU => Some((PARAKEET, "Parakeet replaces Qwen speech")),
-        PARAKEET => Some((MOONSHINE_MEDIUM, "Moonshine replaces Parakeet")),
+        PARAKEET | PARAKEET_FT2 => Some((MOONSHINE_MEDIUM, "Moonshine replaces Parakeet")),
         QWEN_Q8_METAL => Some((QWEN_Q4_METAL, "Qwen Q4 replaces Q8")),
         QWEN_Q4_METAL => Some((WHISPER_SMALL_METAL, "Whisper Small replaces Qwen speech")),
         _ => None,
     }
 }
 
-fn apply_memory_guard(hardware: &HardwareProfile, selection: &mut Selection) {
+fn apply_memory_guard(hardware: &HardwareProfile, selection: &mut Selection, ft2_default: bool) {
     let Some(ram) = hardware.total_ram_bytes.filter(|ram| *ram > 0) else {
         selection.reasons.push("RAM capacity is unknown; the memory estimate could not be checked.".into());
         return;
@@ -323,7 +381,7 @@ fn apply_memory_guard(hardware: &HardwareProfile, selection: &mut Selection) {
     // Only the dictation set depends on the speech choice. A smaller speech
     // model cannot reduce the Notes peak, so Notes never forces a downgrade.
     while dictation_exceeds(selection, ram) {
-        let Some((lighter, replacement)) = lighter_speech(&selection.asr_model) else { break };
+        let Some((lighter, replacement)) = lighter_speech(&selection.asr_model, ft2_default) else { break };
         selection.asr_model = lighter.into();
         selection.reasons.push(format!("{replacement} because dictation memory would exceed 45% of {memory}."));
     }
@@ -354,7 +412,12 @@ mod profiles_tests {
             gpu_compute_capability: None,
             total_vram_bytes: None,
             cuda_ok: false,
+            system_language: None,
         }
+    }
+
+    fn english(hardware: HardwareProfile) -> HardwareProfile {
+        HardwareProfile { system_language: Some("en".into()), ..hardware }
     }
 
     fn nvidia() -> HardwareProfile {
@@ -370,22 +433,93 @@ mod profiles_tests {
 
     #[test]
     fn speech_frontiers_follow_hardware_and_keep_granite_meeting_only() {
-        let gpu = speech_frontier(&nvidia());
+        // Without SonoJot Parakeet on offer (independent of a developer folder).
+        let frontier = |hardware: &HardwareProfile| speech_frontier_with(hardware, false, false);
+        let gpu = frontier(&nvidia());
         assert_eq!(gpu.dictation, [PARAKEET, QWEN_CUDA]);
         assert!(gpu.meetings.contains(&crate::granite_model::GRANITE_ID.into()));
         assert_eq!(gpu.other_languages, QWEN_CUDA);
-        let cpu = speech_frontier(&windows(16, Some(4), Some(8)));
+        let cpu = frontier(&windows(16, Some(4), Some(8)));
         assert_eq!(cpu.dictation, [MOONSHINE_MEDIUM, PARAKEET, QWEN_CPU]);
         assert_eq!(cpu.meetings, cpu.dictation);
-        assert_eq!(speech_frontier(&windows(8, Some(4), Some(8))).other_languages, QWEN_SMALL_CPU);
+        assert_eq!(frontier(&windows(8, Some(4), Some(8))).other_languages, QWEN_SMALL_CPU);
         let small_gpu = HardwareProfile { total_vram_bytes: Some(4 * GIB), ..nvidia() };
-        assert!(!speech_frontier(&small_gpu).dictation.contains(&QWEN_CUDA.into()));
+        assert!(!frontier(&small_gpu).dictation.contains(&QWEN_CUDA.into()));
         for ram in [8, 16, 24, 32, 64] {
-            let report = profiles_for(apple(ram));
-            assert_eq!(report.recommendations.balanced.asr_model, QWEN_Q4_METAL);
-            assert!(report.frontier.dictation.contains(&QWEN_Q4_METAL.into()));
-            assert_eq!(report.frontier.dictation.contains(&QWEN_Q8_METAL.into()), ram >= 16);
+            assert_eq!(recommend_with(&apple(ram), SetupProfile::Balanced, false).asr_model, QWEN_Q4_METAL);
+            let dictation = frontier(&apple(ram)).dictation;
+            assert!(dictation.contains(&QWEN_Q4_METAL.into()));
+            assert_eq!(dictation.contains(&QWEN_Q8_METAL.into()), ram >= 16);
         }
+    }
+
+    #[test]
+    fn sonojot_parakeet_is_the_main_choice_against_qwen_only_when_offered() {
+        // Not offered (no published weights, no developer folder): today's frontier.
+        let gpu = speech_frontier_with(&nvidia(), false, false);
+        assert_eq!(gpu.dictation, [PARAKEET, QWEN_CUDA]);
+        // Offered: SonoJot Parakeet replaces stock Parakeet against Qwen.
+        let gpu = speech_frontier_with(&nvidia(), true, false);
+        assert_eq!(gpu.dictation, [PARAKEET_FT2, QWEN_CUDA]);
+        let mac = speech_frontier_with(&apple(16), true, false);
+        assert_eq!(mac.dictation, [PARAKEET_FT2, QWEN_Q4_METAL, QWEN_Q8_METAL]);
+        // Not the default (another language): stock Parakeet stays recommended, so it stays visible.
+        let cpu = speech_frontier_with(&windows(16, Some(4), Some(8)), true, false);
+        assert_eq!(cpu.dictation, [PARAKEET_FT2, QWEN_CPU, PARAKEET]);
+        let cpu = speech_frontier_with(&windows(16, Some(4), Some(8)), true, true);
+        assert_eq!(cpu.dictation, [PARAKEET_FT2, QWEN_CPU]);
+    }
+
+    #[test]
+    fn sonojot_parakeet_replaces_stock_parakeet_as_the_balanced_default() {
+        // Rule (b): where Balanced recommended stock Parakeet (CPU-only), it now
+        // recommends SonoJot Parakeet; Accurate and Light do not change.
+        let cpu = windows(16, Some(4), Some(8));
+        assert_eq!(recommend_with(&cpu, SetupProfile::Balanced, false).asr_model, PARAKEET);
+        assert_eq!(recommend_with(&cpu, SetupProfile::Balanced, true).asr_model, PARAKEET_FT2);
+        let linux = HardwareProfile { platform: "linux".into(), ..windows(32, Some(8), Some(16)) };
+        assert_eq!(recommend_with(&linux, SetupProfile::Balanced, true).asr_model, PARAKEET_FT2);
+        for profile in [SetupProfile::Accurate, SetupProfile::Light] {
+            assert_eq!(recommend_with(&cpu, profile, true).asr_model, recommend_with(&cpu, profile, false).asr_model);
+        }
+        // Unknown RAM keeps the lighter streaming model, as before.
+        let unknown = HardwareProfile { total_ram_bytes: None, ..windows(32, None, None) };
+        assert_eq!(recommend_with(&unknown, SetupProfile::Balanced, true).asr_model, MOONSHINE_MEDIUM);
+        // The memory guard steps Qwen 0.6B down to SonoJot Parakeet when it is the default.
+        assert_eq!(lighter_speech(QWEN_SMALL_CPU, true).unwrap().0, PARAKEET_FT2);
+        assert_eq!(lighter_speech(QWEN_SMALL_CPU, false).unwrap().0, PARAKEET);
+        assert_eq!(lighter_speech(PARAKEET_FT2, true).unwrap().0, MOONSHINE_MEDIUM);
+    }
+
+    #[test]
+    fn qwen_defaults_stay_so_meetings_stay_on_qwen() {
+        // Rule (c): meetings follow dictation, so wherever Balanced recommended
+        // Qwen it still does, even on an English system with SonoJot Parakeet on offer.
+        assert_eq!(recommend_with(&nvidia(), SetupProfile::Balanced, true).asr_model, QWEN_CUDA);
+        for ram in [8, 16, 32] {
+            assert_eq!(recommend_with(&apple(ram), SetupProfile::Balanced, true).asr_model, QWEN_Q4_METAL);
+        }
+        // Without a usable GPU the old fallback applies unchanged.
+        let no_cuda = HardwareProfile { cuda_ok: false, ..nvidia() };
+        assert_eq!(recommend_with(&no_cuda, SetupProfile::Balanced, true).asr_model, PARAKEET_FT2);
+        assert_eq!(recommend_with(&no_cuda, SetupProfile::Balanced, false).asr_model, PARAKEET);
+    }
+
+    #[test]
+    fn only_an_english_system_gets_the_new_default() {
+        // Rule (b): English only. ft2_default also needs the weights on offer,
+        // so check the language half directly.
+        assert!(super::english(&english(windows(16, Some(4), Some(8)))));
+        for language in [None, Some("de"), Some("fr"), Some("pt")] {
+            let hardware = HardwareProfile { system_language: language.map(String::from), ..windows(16, Some(4), Some(8)) };
+            assert!(!super::english(&hardware), "{language:?}");
+            assert!(!ft2_default(&hardware), "{language:?}");
+            assert_eq!(recommend(&hardware, SetupProfile::Balanced).asr_model, PARAKEET, "{language:?}");
+        }
+        // With the weights published, an English CPU-only computer gets SonoJot Parakeet.
+        let english_cpu = english(windows(16, Some(4), Some(8)));
+        let expected = if ft2_offered(&english_cpu) { PARAKEET_FT2 } else { PARAKEET };
+        assert_eq!(recommend(&english_cpu, SetupProfile::Balanced).asr_model, expected);
     }
 
     fn apple(ram_gib: u64) -> HardwareProfile {

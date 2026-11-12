@@ -3204,6 +3204,32 @@
       "version": "2020.12.07"
     },
     {
+      "distribution": "Compile-time text: the online proofreader's style brief and the bundled What's new notes",
+      "files": [
+        {
+          "path": "changelog.json",
+          "sha256": "e7af0f6f1670d7765c2743af972aeac4e9abc151c543f724da7ccfdb82b2e6bd"
+        },
+        {
+          "path": "src-tauri/src/proof_style_v2.txt",
+          "sha256": "892ce32396c69a1fc41f6da1558f0a447abe737e9cd2055dabc389dca8803c7f"
+        }
+      ],
+      "id": "asset:sonojot-authored-text",
+      "issues": [],
+      "kind": "data",
+      "license": "Apache-2.0",
+      "name": "SonoJot proofreading style brief and release notes",
+      "requiresNotice": false,
+      "sources": [
+        "src-tauri/src/proof_style_v2.txt",
+        "changelog.json"
+      ],
+      "texts": [],
+      "verification": "Written for SonoJot in this repository and covered by its Apache-2.0 licence.",
+      "version": "bundled files identified by SHA-256"
+    },
+    {
       "distribution": "App, tray, favicon and installer artwork; inventory also retains unused icon family members",
       "files": [
         {
@@ -33643,14 +33669,14 @@
   ],
   "counts": {
     "artwork": 2,
-    "assetFiles": 39,
+    "assetFiles": 41,
     "buildOnlyRust": 86,
-    "data": 2,
+    "data": 3,
     "dictionary": 1,
     "embedded-javascript": 1,
     "font": 1,
     "installer": 3,
-    "models": 43,
+    "models": 44,
     "native": 4,
     "native-derived": 1,
     "notice-resource": 3,
@@ -37508,6 +37534,79 @@
       "verification": "Pinned repository metadata and available card/license files were fetched at the exact catalog commit; large model files were not downloaded.",
       "verificationStatus": "pinned-card-only",
       "version": "a6cc4e24ed264a93a17575dad416dacc4238497a"
+    },
+    {
+      "artifactPins": [
+        {
+          "bytes": 652184374,
+          "file": "encoder.int8.onnx",
+          "sha256": "623cb6020e8151afc86b1d0c02e17266e77c74de9bfcafaf99eb4cdbe988fbf5",
+          "url": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/encoder.int8.onnx"
+        },
+        {
+          "bytes": 7257753,
+          "file": "decoder.int8.onnx",
+          "sha256": "eb10992246617a09f8752a1b4b0a951fd99499740ca8ef9eeffe83adb0fc3940",
+          "url": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/decoder.int8.onnx"
+        },
+        {
+          "bytes": 1739080,
+          "file": "joiner.int8.onnx",
+          "sha256": "fcd749d846047b8ac98b41eaf0044b678e41503523e3ea9df039f863c1a1014f",
+          "url": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/joiner.int8.onnx"
+        },
+        {
+          "bytes": 9384,
+          "file": "tokens.txt",
+          "sha256": "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+          "url": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/tokens.txt"
+        }
+      ],
+      "attribution": "Modified from NVIDIA Parakeet TDT 0.6B v2 (CC BY 4.0) by Cody Stevens Studio LLC for SonoJot; NVIDIA does not endorse this modification. Training corpora and labelling models are credited in the model's NOTICE.md.",
+      "catalogIds": [
+        "parakeet-tdt-0.6b-v2-sonojot-ft2"
+      ],
+      "conditions": "Credit NVIDIA, link CC BY 4.0, state that the weights were modified, retain the NOTICE. No ShareAlike obligation or noncommercial restriction.",
+      "distribution": "SonoJot's own Hugging Face repository SonoJot/sonojot-parakeet-v1, pinned commit; the app downloads the int8 files.",
+      "downloadUrls": [
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/encoder.int8.onnx",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/decoder.int8.onnx",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/joiner.int8.onnx",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/resolve/ff2638d470935675096725da78c4ad691fbde46a/tokens.txt"
+      ],
+      "id": "parakeet-tdt-0.6b-v2-sonojot-ft2",
+      "issues": [],
+      "kind": "model",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/LICENSE",
+      "name": "SonoJot Parakeet (fine-tuned Parakeet TDT 0.6B v2)",
+      "noticeTexts": [
+        {
+          "bytes": 18657,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/standard/cc-by-4.0.txt",
+          "path": "licenses/texts/9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411.txt",
+          "role": "license",
+          "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411",
+          "source": "https://creativecommons.org/licenses/by/4.0/legalcode.txt"
+        }
+      ],
+      "recommendation": "Keep the pinned commit; publish changed weights as a new repository version and re-pin.",
+      "repository": "SonoJot/sonojot-parakeet-v1",
+      "sources": [
+        "rewrite/src-tauri/src/optional_asr.rs",
+        "docs/research/ParakeetFineTuneDesktop.md",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/README.md",
+        "https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/NOTICE.md",
+        "https://creativecommons.org/licenses/by/4.0/legalcode.txt",
+        "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2/resolve/ae9ad07059c7c739ffaf932226a8fe64ae2620b0/README.md"
+      ],
+      "textFiles": [
+        "downloads/standard/cc-by-4.0.txt"
+      ],
+      "verification": "Weights produced by SonoJot (rewrite/evaluation/parakeet-ft-desktop-2026-11/export_ft.py); pins are the exported files' sizes and SHA-256. Base licence from NVIDIA's pinned model card.",
+      "verificationStatus": "pinned-card-only",
+      "version": "huggingface.co/SonoJot/sonojot-parakeet-v1@ff2638d470935675096725da78c4ad691fbde46a"
     },
     {
       "artifactPins": [
@@ -42800,12 +42899,13 @@
     }
   ],
   "inputs": {
+    "changelog.json": "e7af0f6f1670d7765c2743af972aeac4e9abc151c543f724da7ccfdb82b2e6bd",
     "evaluation/build_punctuation_wordlist.py": "5e7a4da846c4a07d31845121c30b301009174c67fa076feb56154ccaf2025f48",
     "index.html": "9712eb6cccb3387405cbd8aad0a217585fc4e6c33bfe168d156509dc20da8097",
     "legal/download-consent.json": "41195659db80517da221249ecdd256d9d8c302fdaad686f178dad73b6ea7816f",
     "legal/terms-of-use.md": "ecf41869a8e80260c7785a05564d7453dd2cc104266fe57d0d51fabffbf66177",
-    "licenses/assets.json": "d590549bbfacad8125b778bde152794d9212214cf0689a81653ce41f822d6c7e",
-    "licenses/download-components.json": "e468bfab85e504cc02890bada6eb3b3159df72ea6b2bf714ee403c1efe9a0528",
+    "licenses/assets.json": "b045dc95b39eb1fb11dee168afc2fe7bca774b2f2bc2c49a7a63176785166171",
+    "licenses/download-components.json": "cc1d66abe441955c17b26f111faa9fd1bfafdf68f82b250c507c86240c36bcb6",
     "licenses/downloads/archives/llama-cpp-macos-metal/llama-b10964/LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
     "licenses/downloads/archives/nvidia-cublas-13.7.0.27/nvidia_cublas-13.7.0.27.dist-info/METADATA": "55319adb28b995dde623062f5db4942656c18795737e046841cc01c179098a87",
     "licenses/downloads/archives/nvidia-cublas-13.7.0.27/nvidia_cublas-13.7.0.27.dist-info/licenses/License.txt": "ad6f5853fba0ca0d159d0f58d49ae49830c2f8c93f7a92648b9ce90adb4c6ccd",
@@ -43008,24 +43108,25 @@
     "licenses/sources/selectors-0.36.1.crate": "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c",
     "licenses/supplements.json": "64cab7ef5206c4f5a948461b064fb86d1c4a03f7276bebc05de9760cba6a851d",
     "licenses/upstream-evidence.json": "4ae4296502aeddbfd767d9528750f8ba70969343afa1f9afb44fb40913f756eb",
-    "package-lock.json": "de67777cc166b059395f496a3cde7fd7c5372dbb2682491c8352087b715e4bcc",
-    "package.json": "626bb0095641a21b4e6b2b5d8487527ba1db768ee2f97a00beef2e7461a4c184",
+    "package-lock.json": "a386167f4d23b92d0fe413a620de5ab1a59880ea2d605cd2f93b94c210aeb812",
+    "package.json": "f28680ce845b7ccc39963bac7da5e0d49c708cd20574758acea51f67dbff3d1f",
     "scripts/generate_notices.py": "75893e4e28e00b97dedec538c35a880fed6157491938c8a2801b75478a006fda",
-    "src-tauri/Cargo.lock": "4514e92600a7b791810653a78b99c2edd8382f803e9ca54b33f1bd266839e718",
-    "src-tauri/Cargo.toml": "13ae532a3f94c50822f7b909602eeed97dbe7359132f282584738fabfb131db7",
+    "src-tauri/Cargo.lock": "1c1c4ca1409f695ae559cd3ccac52ace63ecc26030499ef60ab28ba23d275825",
+    "src-tauri/Cargo.toml": "c762f34429c7a016695fe377349fd89251c2c8f9c085e806237ceab931c641b4",
     "src-tauri/assets/linux-llama-identities.json": "241ef86caeec95c627db16a22a9d78787f8dce33c8f08ff907ac32fa08e2880e",
     "src-tauri/assets/model-identities.json": "97a174c8b3f0eb815a8b1ceedce3c63c322f099cb1dc1dc1bb8ccb867528fde0",
     "src-tauri/build.rs": "33126a7f3f8ac762d07234d15f37f837ee82804763bb74f5141a8dcdc6294ca0",
     "src-tauri/licenses/nnnoiseless-0.5.2.txt": "6550b9b34d95e28ea8f7c16bf3c08c4b6bee81bef5d62c9c1ea12ff1aaea032b",
     "src-tauri/licenses/scowl-2020.12.07.txt": "384a59022be3b0deac5770e72f1f255f1dc7e1279159ab768bf0cc5ee140f714",
     "src-tauri/src/audio.rs": "9c039c0b4b64320046a6ef1a1b35db32ac67f1c07586d20d89842bb5cac42561",
+    "src-tauri/src/proof_style_v2.txt": "892ce32396c69a1fc41f6da1558f0a447abe737e9cd2055dabc389dca8803c7f",
     "src-tauri/src/punctuation_lowercase.txt": "b2045a2460991c60ec730bc627113368929828e274dc3eee272babbea78533de",
     "src-tauri/src/written_form/PROVENANCE.md": "3794045ad752dd0ec9cc3b4723757fd82cceb7392c860ea518865c176bc8689d",
     "src-tauri/src/written_form/models.json": "ee30a67479540b2df24846ddc8aa82fb5315a5991ab0b2bcd92fa429b158e111",
     "src-tauri/src/written_form/terms.json": "e0dd661df054c328db7cc51229a91b31c638458ed411b3bb3b2a34ef978990be",
-    "src-tauri/tauri.conf.json": "729c1955738baf0945d423c3b5f7614894011339760f2ad90aa9060065363399",
+    "src-tauri/tauri.conf.json": "6289589d0b533516394cbffd26b0d0f8c9265ec8c4e896d5ead3511dc6064318",
     "src-tauri/windows/README.md": "67ff7b9f09a46be101cfdeac39b3776d3b3190827ac6f491a867ab58cf5b834f",
-    "src-tauri/windows/brand-hooks.nsh": "823a4e60e601e20ba56c0622a57659a65b8c9062d05bfca1e56cb23d56847e18",
+    "src-tauri/windows/brand-hooks.nsh": "363c655e2a40ee00232a106c4e94269d3ffe5d9865999db120e09256fecc5974",
     "src-tauri/windows/installer.nsi": "3cfd12da9629a2be541f558673bc945fe7f560a6f5eab4dc15f21a1501c04d15",
     "src/brand/GUIDE.md": "244b20d754002e79cd90b54fd7358dd3265b2cfaf85227a6be451df8ea03bae3",
     "src/brand/fonts/SourceSerif-LICENSE.md": "c21d7293d87b6d7ab1d0229a2f55b77f33a7613a6a4e66f6693d68d7d8d09464",

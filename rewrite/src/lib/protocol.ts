@@ -155,6 +155,29 @@ export const updateSchema = z.object({
   installProblem: z.string().nullable().default(null),
 });
 
+/** One version's user-facing notes. Plain text, rendered as text only. */
+export const releaseNotesSchema = z.object({
+  version: z.string().min(1),
+  /** YYYY-MM-DD, or empty when only the update manifest's notes are known. */
+  date: z.string(),
+  notes: z.array(z.string()),
+});
+export type ReleaseNotes = z.infer<typeof releaseNotesSchema>;
+export const whatsNewSchema = z.object({
+  from: z.string().nullable(),
+  to: z.string(),
+  /** Newest first. */
+  releases: z.array(releaseNotesSchema),
+});
+export type WhatsNew = z.infer<typeof whatsNewSchema>;
+export const whatsNewStateSchema = z.object({
+  /** Notes for the update just installed, not yet seen. */
+  pending: whatsNewSchema.nullable(),
+  /** The most recent update's notes, kept for Updates after dismissal. */
+  latest: whatsNewSchema.nullable(),
+});
+export type WhatsNewState = z.infer<typeof whatsNewStateSchema>;
+
 export const snapshotSchema = z.object({
   localProofreaderAvailable: z.boolean().default(false),
   revision: z.number().int().nonnegative().default(0),
@@ -354,6 +377,9 @@ export const commandSchemas = {
   download_update: snapshotSchema,
   restart_to_update: snapshotSchema,
   dismiss_update_notice: snapshotSchema,
+  get_whats_new: whatsNewStateSchema,
+  dismiss_whats_new: whatsNewStateSchema,
+  get_update_changelog: whatsNewSchema.nullable(),
   test_microphone: snapshotSchema,
   get_hardware_profile: hardwareProfileSchema,
   apply_setup_profile: snapshotSchema,
@@ -487,6 +513,9 @@ export interface CommandArguments {
   download_update: undefined;
   restart_to_update: undefined;
   dismiss_update_notice: undefined;
+  get_whats_new: undefined;
+  dismiss_whats_new: undefined;
+  get_update_changelog: undefined;
   test_microphone: undefined;
   get_hardware_profile: undefined;
   apply_setup_profile: { profile: SetupProfile };

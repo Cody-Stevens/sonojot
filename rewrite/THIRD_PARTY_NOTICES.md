@@ -5255,6 +5255,15 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Conditions: Retain all component copyright and permission notices; identify SonoJot's modified subset.
 - Text: [src-tauri/licenses/scowl-2020.12.07.txt](#text-033ca2150894cf7deccdc248f42acc68e3b937afd4cfb5b50636a29103a16706) (SHA-256 `033ca2150894cf7deccdc248f42acc68e3b937afd4cfb5b50636a29103a16706`)
 
+### SonoJot proofreading style brief and release notes bundled files identified by SHA-256
+
+- Inventory ID: `asset:sonojot-authored-text`
+- License: `Apache-2.0`
+- Source: src-tauri/src/proof_style_v2.txt
+- Source: changelog.json
+- Distribution: Compile-time text: the online proofreader's style brief and the bundled What's new notes
+- Verification: Written for SonoJot in this repository and covered by its Apache-2.0 licence.
+
 ### SonoJot brand marks and installer icons bundled files identified by SHA-256
 
 - Inventory ID: `asset:sonojot-brand`
@@ -5943,6 +5952,23 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Conditions: Credit NVIDIA and the sherpa ONNX converter, link CC BY 4.0, retain supplied notices and indicate conversion/quantization changes. No ShareAlike obligation or noncommercial restriction is imposed by CC BY 4.0.
 - Verification: Pinned repository metadata and available card/license files were fetched at the exact catalog commit; large model files were not downloaded.
 - Review: Pinned converter README contains only license metadata, without a detailed attribution/NOTICE or exact NVIDIA base revision. The vendor card captured here is current-only.
+- Text: [licenses/downloads/standard/cc-by-4.0.txt](#text-9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411) (SHA-256 `9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411`)
+
+### SonoJot Parakeet (fine-tuned Parakeet TDT 0.6B v2) huggingface.co/SonoJot/sonojot-parakeet-v1@ff2638d470935675096725da78c4ad691fbde46a
+
+- Inventory ID: `parakeet-tdt-0.6b-v2-sonojot-ft2`
+- License: `CC-BY-4.0`
+- Source: rewrite/src-tauri/src/optional_asr.rs
+- Source: docs/research/ParakeetFineTuneDesktop.md
+- Source: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/README.md
+- Source: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/NOTICE.md
+- Source: https://creativecommons.org/licenses/by/4.0/legalcode.txt
+- Source: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2/resolve/ae9ad07059c7c739ffaf932226a8fe64ae2620b0/README.md
+- License details: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/LICENSE
+- Distribution: SonoJot's own Hugging Face repository SonoJot/sonojot-parakeet-v1, pinned commit; the app downloads the int8 files.
+- Attribution: Modified from NVIDIA Parakeet TDT 0.6B v2 (CC BY 4.0) by Cody Stevens Studio LLC for SonoJot; NVIDIA does not endorse this modification. Training corpora and labelling models are credited in the model's NOTICE.md.
+- Conditions: Credit NVIDIA, link CC BY 4.0, state that the weights were modified, retain the NOTICE. No ShareAlike obligation or noncommercial restriction.
+- Verification: Weights produced by SonoJot (rewrite/evaluation/parakeet-ft-desktop-2026-11/export_ft.py); pins are the exported files' sizes and SHA-256. Base licence from NVIDIA's pinned model card.
 - Text: [licenses/downloads/standard/cc-by-4.0.txt](#text-9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411) (SHA-256 `9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411`)
 
 ### Qwen3-4B-Instruct-2507 ae44f08e1392f39c0e474af10c3ff8355c8b6688
@@ -32855,6 +32881,7 @@ Used by:
 
 - parakeet-tdt-0.6b-v2 — licenses/downloads/standard/cc-by-4.0.txt — https://creativecommons.org/licenses/by/4.0/legalcode.txt
 - parakeet-tdt-0.6b-v2-fp16-cuda — licenses/downloads/standard/cc-by-4.0.txt — https://creativecommons.org/licenses/by/4.0/legalcode.txt
+- parakeet-tdt-0.6b-v2-sonojot-ft2 — licenses/downloads/standard/cc-by-4.0.txt — https://creativecommons.org/licenses/by/4.0/legalcode.txt
 
 ```text
 Attribution 4.0 International

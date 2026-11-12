@@ -25,6 +25,8 @@ export type SpeechMeasurement = {
   } | null;
 };
 const observations: Record<string, SpeechMeasurement> = measurements;
+/** SonoJot's fine-tune of Parakeet TDT 0.6B v2 (`ft2`). */
+export const SONOJOT_PARAKEET = "parakeet-tdt-0.6b-v2-sonojot-ft2";
 export function speechMeasurement(id: string): SpeechMeasurement | undefined {
   return observations[id];
 }
@@ -65,6 +67,7 @@ export function secondaryMemory(model: ModelEntry): string {
 export function shortSpeechName(id: string, fallback: string): string {
   if (id.startsWith("qwen3-asr"))
     return `Qwen ${id.includes("0.6b") ? "0.6B" : "1.7B"} ${id.includes("q4") ? "Q4" : "Q8"}`;
+  if (id === SONOJOT_PARAKEET) return "SonoJot Parakeet";
   if (id.startsWith("parakeet")) return "Parakeet";
   if (id.startsWith("granite")) return "Granite";
   if (id === "moonshine-medium") return "Moonshine";

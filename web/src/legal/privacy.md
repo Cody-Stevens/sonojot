@@ -42,7 +42,7 @@ When SonoJot pastes dictated text, it uses your system clipboard. If you use cli
 
 ### Update checks and updates
 
-About 30 seconds after it starts, then about every six hours, and when you open or return to its window if it has not checked in the past hour, SonoJot requests a small file from `releases.sonojot.com`, which the Studio hosts on Cloudflare R2. The request includes your IP address and standard request information, but none of your content. If an update is available, SonoJot tells you. It downloads the update from the same host only when you choose, and installs it only when you restart to update. SonoJot currently has no setting to turn off update checks. On Linux, SonoJot makes no update checks; you update it by installing a newer package.
+About 30 seconds after it starts, then about every six hours, and when you open or return to its window if it has not checked in the past hour, SonoJot requests a small file from `releases.sonojot.com`, which the Studio hosts on Cloudflare R2. The request includes your IP address and standard request information, but none of your content. If an update is available, SonoJot tells you. It downloads the update from the same host only when you choose, and installs it only when you restart to update. When it finds an update or downloads one, SonoJot also downloads a small release-notes file from the same host to show what changed. SonoJot currently has no setting to turn off update checks. On Linux, SonoJot makes no update checks; you update it by installing a newer package.
 
 ### Model, runtime, and media-converter downloads
 

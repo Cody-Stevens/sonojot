@@ -74,6 +74,14 @@
     },
     {
       "catalogIds": [
+        "parakeet-tdt-0.6b-v2-sonojot-ft2"
+      ],
+      "kind": "model",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/LICENSE"
+    },
+    {
+      "catalogIds": [
         "qwen3-4b-instruct-2507"
       ],
       "kind": "model",

@@ -269,7 +269,7 @@ fn speech_detail(root: &Path) -> String {
     {
         installed.push("Moonshine (CPU)");
     }
-    if is_ready("parakeet-tdt-0.6b-v2") {
+    if is_ready("parakeet-tdt-0.6b-v2") | is_ready(crate::optional_asr::PARAKEET_FT2_ID) {
         installed.push("Parakeet (CPU)");
     }
     if is_ready("qwen3-asr-1.7b") {
