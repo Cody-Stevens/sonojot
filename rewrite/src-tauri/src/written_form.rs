@@ -296,7 +296,44 @@ fn render_with_guard(
     if !guard(core, &candidate, class) {
         return None;
     }
-    Some(format!("{}{}{}", &text[..start], candidate, &text[end..]))
+    let mut suffix = &text[end..];
+    // "p.m." has one period of its own. "PM" is written without it, so the
+    // period stays only where it also ends the sentence.
+    if class == Class::Time
+        && suffix.starts_with('.')
+        && core
+            .rsplit(char::is_whitespace)
+            .next()
+            .is_some_and(|last| matches!(last.to_ascii_lowercase().as_str(), "a.m" | "p.m"))
+        && after.is_some_and(|after| !sentence_follows(after))
+    {
+        suffix = &suffix[1..];
+    }
+    Some(format!("{}{}{}", &text[..start], candidate, suffix))
+}
+
+/// Whether the words after a time with "a.m."/"p.m." start a new sentence.
+/// Lowercase words, days, months and zones ("EST", "Pacific") continue it.
+fn sentence_follows(after: &str) -> bool {
+    let Some(next) = after.split_whitespace().next() else {
+        return true;
+    };
+    let word: String = next
+        .trim_start_matches(|c: char| !c.is_alphanumeric())
+        .chars()
+        .take_while(|c| c.is_alphabetic())
+        .collect();
+    if !word.chars().next().is_some_and(char::is_uppercase) {
+        return false;
+    }
+    let lower = word.to_lowercase();
+    const CONTINUES: [&str; 11] = [
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "eastern", "pacific", "central", "mountain",
+    ];
+    !(CONTINUES.contains(&lower.as_str())
+        || numbers::month(&lower).is_some()
+        || (word.len() >= 2 && word.chars().all(|c| c.is_ascii_uppercase())))
 }
 
 /// Write cued protected terms (terms.json) in their canonical spelling, e.g.

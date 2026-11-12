@@ -142,6 +142,9 @@ pub(super) fn render_clean(
         .collect();
     let mut out = doc.text[..words[0].start].to_owned();
     let mut cap = true;
+    // After an abbreviation's own period ("etc.", "U.S.", "p.m.") the next
+    // word keeps the recognizer's casing, as in rebuild_gaps.
+    let mut keep_case = false;
     for (k, &i) in indices.iter().enumerate() {
         let word = &words[i];
         let mut w = word.text.to_owned();
@@ -151,7 +154,8 @@ pub(super) fn render_clean(
                 w = first.to_uppercase().collect::<String>() + &w[first.len_utf8()..];
             // Same rule as rebuild_gaps: never lowercase an unfamiliar
             // title-cased word just because a sentence end was removed.
-            } else if !names.contains(word.text)
+            } else if !keep_case
+                && !names.contains(word.text)
                 && !w.chars().skip(1).any(char::is_uppercase)
                 && common_lowercase(&lower[i])
                 && !doc.proper.contains(&lower[i])
@@ -169,6 +173,7 @@ pub(super) fn render_clean(
             out += &w;
             out += gap;
             cap = false;
+            keep_case = false;
             continue;
         }
         let quotes: String = gap
@@ -176,7 +181,12 @@ pub(super) fn render_clean(
             .filter(|c| ['"', '“', '”', ')'].contains(c))
             .collect();
         out += &w;
-        if last && !labels[i].terminal() {
+        // An abbreviation keeps its own period whatever the label says, as
+        // rebuilt_gap keeps it on the rules path ("e.g. apples", "etc. for").
+        let abbreviation = !last && doc.abbreviation(i);
+        if abbreviation {
+            out.push('.');
+        } else if last && !labels[i].terminal() {
             let final_gap = doc.text[words.last().unwrap().end..].trim();
             out += if i + 1 == words.len() && !final_gap.is_empty() {
                 final_gap
@@ -190,7 +200,14 @@ pub(super) fn render_clean(
         if !last {
             out.push(' ');
         }
-        cap = labels[i].terminal();
+        // The models label an abbreviation's own period "." too; it ends the
+        // sentence only on the same evidence the rules path uses.
+        cap = if abbreviation {
+            doc.abbreviation_ends(i, gap, Some(labels[i]))
+        } else {
+            labels[i].terminal()
+        };
+        keep_case = abbreviation && !cap;
     }
     Ok((cleanup_house_style(&out), kept))
 }

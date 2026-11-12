@@ -67,8 +67,8 @@ fn configure(retention: ModelRetention) {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 5 || !matches!(args[0].as_str(), "labels" | "benchmark" | "clean") {
-        return Err("Use punctuation_probe labels|benchmark MODELS_ROOT PACKAGE_DIR INPUT.jsonl OUTPUT.jsonl".into());
+    if args.len() != 5 || !matches!(args[0].as_str(), "labels" | "benchmark" | "clean" | "timing") {
+        return Err("Use punctuation_probe labels|benchmark|clean|timing MODELS_ROOT PACKAGE_DIR INPUT.jsonl OUTPUT.jsonl".into());
     }
     let root = Path::new(&args[1]);
     std::env::set_var("SONOJOT_PUNCT_MODEL_DIR", &args[2]);
@@ -90,6 +90,33 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut rows = 0;
     for line in input.lines() {
         let case: Case = serde_json::from_str(&line?)?;
+        if args[0] == "timing" {
+            // Any length: one cold run (helper start + model load), then warm
+            // runs split into model time (labels only) and the full stage.
+            configure(ModelRetention::OnExit);
+            punctuation::release_cached();
+            let start = Instant::now();
+            let cold = punctuation::run(root, &case.input_text, &[], &cancel);
+            let cold_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let mut model_ms = Vec::new();
+            let mut stage_ms = Vec::new();
+            let mut words = 0;
+            for _ in 0..5 {
+                let start = Instant::now();
+                words = punctuation::evaluation_labels(root, &case.input_text, &cancel)?.len();
+                model_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+                let start = Instant::now();
+                let warm = punctuation::run_with_written_form(root, &case.input_text, &[], &cancel, true);
+                stage_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+                if warm.stage != "punctuation_model" {
+                    return Err("Warm model fell back to rules".into());
+                }
+            }
+            writeln!(output, "{}", json!({"id":case.id, "words":words, "cold_stage":cold.stage,
+                "cold_ms":cold_ms, "warm_model_ms":model_ms, "warm_stage_ms":stage_ms}))?;
+            output.flush()?;
+            continue;
+        }
         if args[0] == "clean" {
             let actual = punctuation::evaluation_cleanup_render(root, &case.input_text, &cancel)?;
             let equal = case.expected.as_deref() == Some(actual.as_str());

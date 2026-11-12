@@ -320,30 +320,60 @@ fn lock_client(cancel: &dyn Fn() -> bool) -> Result<MutexGuard<'static, Option<C
         }
     }
 }
+/// Why a warm helper was stopped. Metadata only: recorded so a slow first
+/// cleanup after a dictation can be traced to the code path that caused it.
+#[derive(Clone, Copy)]
+enum Released {
+    Idle = 1,
+    Requested = 2,
+    SelectionChanged = 3,
+    Exited = 4,
+    Failed = 5,
+}
+fn released(worker: &Connection, reason: Released, caller: &str) {
+    crate::recognition_diagnostics::event(
+        "punctuation-helper-released",
+        caller,
+        std::process::id(),
+        0,
+        worker.last_used.elapsed().as_millis() as u64,
+        reason as u64,
+    );
+}
+/// Returns whether a helper had to be started (a cold load).
 fn ensure_loaded(
     slot: &mut Option<Connection>,
     selection: &Selection,
     cancel: &dyn Fn() -> bool,
-) -> Result<()> {
-    if slot.as_mut().is_some_and(|worker| {
-        worker.selection != *selection || !matches!(worker._child.try_wait(), Ok(None))
-    }) {
-        slot.take();
+) -> Result<bool> {
+    if let Some(worker) = slot.as_mut() {
+        let reason = if worker.selection != *selection {
+            Some(Released::SelectionChanged)
+        } else if !matches!(worker._child.try_wait(), Ok(None)) {
+            Some(Released::Exited)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            released(worker, reason, selection.label());
+            slot.take();
+        }
     }
     if slot.is_none() {
         *slot = Some(Connection::load(selection, cancel)?);
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 pub(crate) fn wait_ready(selection: &Selection, cancel: &AtomicBool) -> Result<RuntimeEvidence> {
-    prepare(selection, &|| cancel.load(Ordering::Acquire))
+    prepare(selection, &|| cancel.load(Ordering::Acquire)).map(|(evidence, _)| evidence)
 }
-fn prepare(selection: &Selection, cancel: &dyn Fn() -> bool) -> Result<RuntimeEvidence> {
+fn prepare(selection: &Selection, cancel: &dyn Fn() -> bool) -> Result<(RuntimeEvidence, bool)> {
     let mut slot = lock_client(cancel)?;
-    ensure_loaded(&mut slot, selection, cancel)?;
+    let loaded = ensure_loaded(&mut slot, selection, cancel)?;
     let worker = slot.as_mut().ok_or(Failure::Load)?;
     worker.last_used = Instant::now();
-    Ok(worker.evidence.clone())
+    Ok((worker.evidence.clone(), loaded))
 }
 pub(crate) fn predict(
     selection: &Selection,
@@ -364,7 +394,9 @@ pub(crate) fn predict(
         .and_then(|reply| prediction_reply(reply, count));
     // A failed/cancelled exchange cannot leave a late response for the next job.
     if result.is_err() {
-        slot.take();
+        if let Some(worker) = slot.take() {
+            released(&worker, Released::Failed, selection.label());
+        }
     }
     result
 }
@@ -392,17 +424,18 @@ pub fn prewarm(root: &Path, cancel: Arc<AtomicBool>) -> Prewarm {
             let result = prepare(&selection, &|| {
                 stopped.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire)
             });
+            // value 1: the helper was started (cold); 0: it was already warm.
             crate::recognition_diagnostics::event(
                 if result.is_ok() {
                     "punctuation-prewarm-ready"
                 } else {
                     "punctuation-prewarm-unavailable"
                 },
-                crate::punctuation_model::ID,
+                selection.label(),
                 std::process::id(),
                 0,
                 start.elapsed().as_millis() as u64,
-                0,
+                u64::from(result.is_ok_and(|(_, loaded)| loaded)),
             );
         })
         .ok();
@@ -426,18 +459,29 @@ impl Drop for Prewarm {
         }
     }
 }
+#[track_caller]
 pub(crate) fn release_idle(retention: ModelRetention) -> bool {
-    release_if(|worker| crate::punctuation::expired(worker.last_used.elapsed(), retention))
+    release_if(Released::Idle, |worker| crate::punctuation::expired(worker.last_used.elapsed(), retention))
 }
+#[track_caller]
 pub(crate) fn release_cached() -> bool {
-    release_if(|_| true)
+    release_if(Released::Requested, |_| true)
 }
-fn release_if(eligible: impl FnOnce(&Connection) -> bool) -> bool {
+#[track_caller]
+fn release_if(reason: Released, eligible: impl FnOnce(&Connection) -> bool) -> bool {
+    let caller = std::panic::Location::caller();
     let Ok(mut slot) = client().try_lock() else {
         return false;
     };
     if PINS.load(Ordering::Acquire) == 0 && slot.as_ref().is_some_and(eligible) {
-        slot.take(); // OwnedChild kills, waits and closes its Windows job.
+        if let Some(worker) = slot.take() {
+            // The source location names the code path; it holds no user data.
+            let file = std::path::Path::new(caller.file())
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            released(&worker, reason, &format!("{file}:{}", caller.line()));
+        } // OwnedChild kills, waits and closes its Windows job.
         true
     } else {
         false

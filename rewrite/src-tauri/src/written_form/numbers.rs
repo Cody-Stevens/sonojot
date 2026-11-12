@@ -706,13 +706,15 @@ fn time(mut t: &[&str], before: &str) -> Option<String> {
     } else {
         None
     };
-    if period.is_none()
-        && prefix.is_empty()
-        && tokens(before).last().map(String::as_str) != Some("at")
-    {
+    let cue = tokens(before).last().cloned().unwrap_or_default();
+    // Rules propose times only after "at" or with AM/PM. A time span from the
+    // model may also follow "until ten fifty"; such a clock reads 1-12 only,
+    // so "until twenty twenty" stays a year.
+    let clock_cue = matches!(cue.as_str(), "until" | "till" | "by" | "before" | "after" | "around");
+    if period.is_none() && prefix.is_empty() && cue != "at" && !clock_cue {
         return None;
     }
-    let limit = if period.is_some() { 12 } else { 23 };
+    let limit = if period.is_some() || (prefix.is_empty() && cue != "at") { 12 } else { 23 };
     let hour = integer(t, false);
     if let Some(h) = hour {
         return if period.is_some() && (1..=limit).contains(&h) {

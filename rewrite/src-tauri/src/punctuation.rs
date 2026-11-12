@@ -116,14 +116,14 @@ fn check(cancel: &AtomicBool) -> Result<()> {
     }
 }
 
-fn event(kind: &'static str, ms: f64) {
+fn event(kind: &'static str, model: &str, ms: f64, value: u64) {
     crate::recognition_diagnostics::event(
         kind,
-        crate::punctuation_model::ID,
+        model,
         std::process::id(),
         0,
         ms.round() as u64,
-        0,
+        value,
     );
 }
 
@@ -151,23 +151,27 @@ pub fn run_with_written_form_mode(
 /// `model` off is the user's "SonoJot punctuation and formatting" switch:
 /// the package is never loaded and the rules run as if it were absent.
 pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], cancel: &AtomicBool, mode: WrittenFormMode, clean: bool, model: bool) -> Outcome {
-    let written_form = mode != WrittenFormMode::Off;
     let started = Instant::now();
     let selection = Selection::new(
         root,
         std::env::var_os("SONOJOT_PUNCT_MODEL_DIR").map(PathBuf::from),
     );
+    let label = selection.label();
     event(
         if selection.overridden {
             "punctuation-source-override"
         } else {
             "punctuation-source-installed"
         },
+        label,
         0.0,
+        0,
     );
     // Capture guards pin a prewarmed helper until this job finishes.
     let retention = crate::resource_manager::current_retention();
     let document = Document::new(text, vocabulary, cancel);
+    let words = document.as_ref().map_or(0, |document| document.words.len() as u64);
+    let predicting = Instant::now();
     let prediction = match &document {
         Ok(_) if !model => Err(Failure::Disabled),
         Ok(document) if !document.words.is_empty() => {
@@ -176,22 +180,54 @@ pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], ca
         Ok(_) => Err(Failure::Missing),
         Err(error) => Err(*error),
     };
+    // Model time includes any wait for a helper still loading; value = words.
+    if model && words > 0 {
+        event("punctuation-predict", label, predicting.elapsed().as_secs_f64() * 1000.0, words);
+    }
     if retention == ModelRetention::Immediately {
         release_idle(retention);
     }
+    let finishing = Instant::now();
+    let (output, stage, reason) =
+        finish_prediction(text, document.as_ref(), prediction, vocabulary, cancel, mode, clean);
+    event("punctuation-finish", label, finishing.elapsed().as_secs_f64() * 1000.0, words);
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+    if let Some(reason) = reason {
+        event(reason.event(), label, elapsed_ms, 0);
+    }
+    event(stage, label, elapsed_ms, words);
+    Outcome {
+        text: output,
+        stage,
+        elapsed_ms,
+    }
+}
+
+/// Everything after inference: the clean render or the rules rebuild, then
+/// written forms. Pure, so tests can feed it labels without a model.
+fn finish_prediction(
+    text: &str,
+    document: std::result::Result<&Document<'_>, &Failure>,
+    prediction: Result<Prediction>,
+    vocabulary: &[Vocabulary],
+    cancel: &AtomicBool,
+    mode: WrittenFormMode,
+    clean: bool,
+) -> (String, &'static str, Option<Failure>) {
+    let written_form = mode != WrittenFormMode::Off;
     let (marks, mut spans, deletes) = match prediction {
         Ok(prediction) => (Ok(prediction.labels), prediction.spans, prediction.deletes),
         Err(error) => (Err(error), None, None),
     };
     let cleaned = if clean {
-        document.as_ref().ok().zip(marks.as_ref().ok()).zip(deletes.as_ref())
+        document.ok().zip(marks.as_ref().ok()).zip(deletes.as_ref())
             .and_then(|((doc, marks), deletes)| render_clean(doc, marks, deletes).ok())
     } else { None };
     if let Some((_, kept)) = &cleaned {
         if let Some(labels) = &mut spans { *labels = labels.iter().zip(kept).filter_map(|(l,k)| k.then_some(*l)).collect(); }
     }
     let (mut output, stage, reason) = finish_inner(
-        text, document.as_ref().ok(), marks, cancel, !written_form,
+        text, document.ok(), marks, cancel, !written_form,
     );
     if let Some((text, _)) = cleaned { output = text; }
     if written_form && check(cancel).is_ok() {
@@ -204,16 +240,7 @@ pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], ca
     if check(cancel).is_err() {
         output = text.into();
     }
-    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
-    if let Some(reason) = reason {
-        event(reason.event(), elapsed_ms);
-    }
-    event(stage, elapsed_ms);
-    Outcome {
-        text: output,
-        stage,
-        elapsed_ms,
-    }
+    (output, stage, reason)
 }
 
 /// Per-word predictions through exactly the production worker route. No rebuild
@@ -717,6 +744,14 @@ impl Selection {
     pub(crate) fn available(&self) -> bool {
         self.stamps.iter().all(Option::is_some)
     }
+
+    /// The package folder name for diagnostics ("sonojot-cleanup-v4").
+    pub(crate) fn label(&self) -> &str {
+        if self.overridden {
+            return "override";
+        }
+        self.directory.file_name().and_then(|name| name.to_str()).unwrap_or("")
+    }
 }
 
 struct Cached {
@@ -804,10 +839,12 @@ pub(crate) fn expired(age: Duration, retention: ModelRetention) -> bool {
 }
 
 /// Parent idle/pressure workers own scheduling. Never wait for active inference.
+#[track_caller]
 pub fn release_idle(retention: ModelRetention) -> bool {
     crate::punctuation_worker::release_idle(retention)
 }
 
+#[track_caller]
 pub fn release_cached() -> bool {
     crate::punctuation_worker::release_cached()
 }
@@ -905,10 +942,104 @@ fn merge_window<T: Copy>(
     Ok(())
 }
 
+/// Most threads the cleanup model uses. On a 12-thread PC, 1,500 words took
+/// 1.10 s at 2 threads and 0.80 s at 4; more threads gained almost nothing.
+#[cfg_attr(not(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))), allow(dead_code))]
+const MAX_CLEANUP_THREADS: usize = 4;
+
+/// Cleanup threads for `logical` CPU threads of which `busy` are in use:
+/// all free threads but one, between 1 and the cap. Unknown load uses half.
+#[cfg_attr(not(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))), allow(dead_code))]
+fn cleanup_threads(logical: usize, busy: Option<f64>) -> usize {
+    let logical = logical.max(1);
+    match busy.filter(|busy| busy.is_finite()) {
+        Some(busy) => {
+            let busy = (busy.max(0.0).round() as usize).min(logical);
+            (logical - busy).saturating_sub(1).clamp(1, MAX_CLEANUP_THREADS)
+        }
+        None => (logical / 2).clamp(1, MAX_CLEANUP_THREADS),
+    }
+}
+
+/// A cheap reading of how busy the CPUs are. Windows compares two snapshots
+/// of system CPU time; Unix uses the one-minute load average.
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
+struct CpuLoad {
+    #[cfg(windows)]
+    first: Option<(u64, u64)>,
+    #[cfg(windows)]
+    taken: Instant,
+}
+
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
+impl CpuLoad {
+    fn start() -> Self {
+        Self {
+            #[cfg(windows)]
+            first: Self::times(),
+            #[cfg(windows)]
+            taken: Instant::now(),
+        }
+    }
+
+    /// (idle, total) CPU time in 100 ns units, summed over all CPUs.
+    #[cfg(windows)]
+    fn times() -> Option<(u64, u64)> {
+        use windows_sys::Win32::{Foundation::FILETIME, System::Threading::GetSystemTimes};
+        let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut idle, mut kernel, mut user) = (zero, zero, zero);
+        if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
+            return None;
+        }
+        let value = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+        // Kernel time already includes idle time.
+        Some((value(idle), value(kernel).checked_add(value(user))?))
+    }
+
+    /// Busy logical threads since `start`, or `None` when unreadable.
+    #[cfg(windows)]
+    fn busy(self, logical: usize) -> Option<f64> {
+        // A very short window is noise; wait at most 50 ms for a usable one.
+        let waited = self.taken.elapsed();
+        if waited < Duration::from_millis(50) {
+            std::thread::sleep(Duration::from_millis(50) - waited);
+        }
+        let (idle0, total0) = self.first?;
+        let (idle1, total1) = Self::times()?;
+        let total = total1.checked_sub(total0).filter(|total| *total > 0)?;
+        let idle = idle1.checked_sub(idle0)?.min(total);
+        Some((total - idle) as f64 / total as f64 * logical as f64)
+    }
+
+    #[cfg(unix)]
+    fn busy(self, logical: usize) -> Option<f64> {
+        let mut load = [0f64; 1];
+        (unsafe { libc::getloadavg(load.as_mut_ptr(), 1) } == 1)
+            .then(|| load[0].min(logical as f64))
+    }
+}
+
+/// Threads for a new cleanup session. `SONOJOT_PUNCT_THREADS` fixes the
+/// count for measurements.
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
+fn session_threads(load: CpuLoad) -> usize {
+    if let Some(fixed) = std::env::var("SONOJOT_PUNCT_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| (1..=64).contains(value))
+    {
+        return fixed;
+    }
+    let logical = std::thread::available_parallelism().map_or(1, usize::from);
+    cleanup_threads(logical, load.busy(logical))
+}
+
 #[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 impl Engine {
     fn load(selection: &Selection, cancel: &AtomicBool) -> Result<Self> {
         use crate::model_verification::Check;
+        // Measure CPU load across the file checks below, before the session.
+        let load = CpuLoad::start();
         check(cancel)?;
         if !crate::punctuation_worker::is_worker() {
             return Err(Failure::Runtime);
@@ -959,6 +1090,9 @@ impl Engine {
             return Err(Failure::Runtime);
         }
         crate::punctuation_worker::initialize_runtime(&selection.root)?;
+        // Fixed for the session's life; the helper keeps it across dictations.
+        let threads = session_threads(load);
+        event("punctuation-threads", selection.label(), 0.0, threads as u64);
         let session = ort::session::Session::builder()
             .map_err(|_| Failure::Load)?
             // Native messages can contain paths; diagnostics above record only
@@ -967,7 +1101,7 @@ impl Engine {
             .map_err(|_| Failure::Load)?
             .with_execution_providers([ort::ep::CPU::default().build().error_on_failure()])
             .map_err(|_| Failure::Load)?
-            .with_intra_threads(2)
+            .with_intra_threads(threads)
             .map_err(|_| Failure::Load)?
             .with_inter_threads(1)
             .map_err(|_| Failure::Load)?
@@ -1544,26 +1678,46 @@ impl<'a> Document<'a> {
         if word.chars().count() == 1 && word != "I" && word.chars().all(char::is_uppercase) {
             return true;
         }
-        index > 0
-            && self.gap(index - 1) == "."
-            && matches!(
-                (
-                    self.words[index - 1].text.to_lowercase().as_str(),
-                    lower.as_str()
-                ),
-                ("e", "g") | ("i", "e")
-            )
+        self.meridiem(index)
+            || index > 0
+                && self.gap(index - 1) == "."
+                && matches!(
+                    (
+                        self.words[index - 1].text.to_lowercase().as_str(),
+                        lower.as_str()
+                    ),
+                    ("e", "g") | ("i", "e")
+                )
     }
 
-    fn end_in_gap(&self, index: usize, gap: &str, prediction: Option<Mark>) -> bool {
-        if gap.contains(['?', '!']) {
-            return true;
-        }
-        if !gap.contains('.') {
-            return false;
-        }
-        if !self.abbreviation(index) {
-            return true;
+    /// The "m" of a glued "a.m." or "p.m.". Both models label its own period
+    /// as "." whether or not a sentence ends there, so the label is no evidence.
+    fn meridiem(&self, index: usize) -> bool {
+        index > 0
+            && self.words[index].text.eq_ignore_ascii_case("m")
+            && self.gap(index - 1) == "."
+            && matches!(self.words[index - 1].text, "a" | "p" | "A" | "P")
+    }
+
+    /// The recognizer started a sentence: a capitalised common word that is
+    /// not known to be a name elsewhere in the text.
+    fn next_starts_sentence(&self, index: usize) -> bool {
+        self.words.get(index + 1).is_some_and(|next| {
+            let lower = next.text.to_lowercase();
+            // Unknown title-cased words, known proper names and another
+            // initial may belong to a name such as J. Smith or J. A. Smith.
+            next.text.len() > 1
+                && next.text.chars().next().is_some_and(char::is_uppercase)
+                && !next.protected
+                && !self.proper.contains(&lower)
+                && common_lowercase(&lower)
+        })
+    }
+
+    /// Whether a period after an abbreviation also ends the sentence.
+    fn abbreviation_ends(&self, index: usize, gap: &str, prediction: Option<Mark>) -> bool {
+        if self.meridiem(index) {
+            return self.next_starts_sentence(index);
         }
         let word = self.words[index].text;
         // A standalone letter can end a sentence ("R and D. But ...").
@@ -1576,17 +1730,20 @@ impl<'a> Document<'a> {
         {
             return false;
         }
-        prediction.is_some_and(Mark::terminal)
-            || self.words.get(index + 1).is_some_and(|next| {
-                let lower = next.text.to_lowercase();
-                // Unknown title-cased words, known proper names and another
-                // initial may belong to a name such as J. Smith or J. A. Smith.
-                next.text.len() > 1
-                    && next.text.chars().next().is_some_and(char::is_uppercase)
-                    && !next.protected
-                    && !self.proper.contains(&lower)
-                    && common_lowercase(&lower)
-            })
+        prediction.is_some_and(Mark::terminal) || self.next_starts_sentence(index)
+    }
+
+    fn end_in_gap(&self, index: usize, gap: &str, prediction: Option<Mark>) -> bool {
+        if gap.contains(['?', '!']) {
+            return true;
+        }
+        if !gap.contains('.') {
+            return false;
+        }
+        if !self.abbreviation(index) {
+            return true;
+        }
+        self.abbreviation_ends(index, gap, prediction)
     }
 
     fn rebuilt_gap(&self, index: usize, prediction: Option<Mark>) -> String {
@@ -1848,6 +2005,25 @@ fn literal_spans(text: &str) -> Vec<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn cleanup_threads_use_free_threads_but_one_up_to_the_cap() {
+        use super::{cleanup_threads, MAX_CLEANUP_THREADS as CAP};
+        assert_eq!(cleanup_threads(8, Some(4.0)), 3);
+        assert_eq!(cleanup_threads(16, Some(4.0)), CAP);
+        assert_eq!(cleanup_threads(12, Some(0.2)), CAP);
+        assert_eq!(cleanup_threads(2, Some(0.0)), 1);
+        assert_eq!(cleanup_threads(2, None), 1);
+        assert_eq!(cleanup_threads(12, Some(12.0)), 1);
+        assert_eq!(cleanup_threads(12, Some(30.0)), 1);
+        assert_eq!(cleanup_threads(12, Some(9.6)), 1);
+        assert_eq!(cleanup_threads(12, Some(8.4)), 3);
+        // Unreadable load: half the threads, capped.
+        assert_eq!(cleanup_threads(12, None), CAP);
+        assert_eq!(cleanup_threads(6, None), 3);
+        assert_eq!(cleanup_threads(12, Some(f64::NAN)), CAP);
+        assert_eq!(cleanup_threads(0, Some(0.0)), 1);
+    }
+
+    #[test]
     fn written_form_finishes_casing_after_absorbing_internal_periods() {
         let cancel = std::sync::atomic::AtomicBool::new(false);
         for (source, expected) in [
@@ -1961,6 +2137,135 @@ mod tests {
         let (text, _, _) = super::finish_inner(source, Some(&document), Ok(marks), &cancel, false);
         assert!(text.contains("the feature"), "{text}");
         assert!(super::written_form_finish(&text, &[], None, &cancel).starts_with("Use the feature"));
+    }
+
+    /// The production finish path after inference, for v3 (rules rebuild) and
+    /// v4 (clean render, nothing deleted). Labels mimic both models: "." on the
+    /// listed words and on the last word, and a TIME span where given.
+    fn finished(text: &str, periods: &[&str], time: &[&str], mode: super::WrittenFormMode, clean: bool) -> String {
+        use crate::written_form::{BioLabel, Class};
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let document = super::Document::new(text, &[], &cancel).unwrap();
+        let count = document.words.len();
+        let mut labels = vec![super::Mark::None; count];
+        let mut spans = vec![BioLabel::O; count];
+        let mut previous_time = false;
+        for (index, word) in document.words.iter().enumerate() {
+            if periods.contains(&word.text) || index + 1 == count {
+                labels[index] = super::Mark::Period;
+            }
+            let timed = time.contains(&word.text);
+            if timed {
+                spans[index] = if previous_time { BioLabel::I(Class::Time) } else { BioLabel::B(Class::Time) };
+            }
+            previous_time = timed;
+        }
+        let prediction = super::Prediction {
+            labels,
+            spans: Some(spans),
+            deletes: clean.then(|| vec![false; count]),
+        };
+        let (output, stage, _) =
+            super::finish_prediction(text, Ok(&document), Ok(prediction), &[], &cancel, mode, clean);
+        assert_eq!(stage, "punctuation_model");
+        output
+    }
+
+    #[test]
+    fn meridiem_periods_do_not_start_a_sentence() {
+        use super::WrittenFormMode::{Model, Off};
+        let time = ["two", "nine", "thirty", "p", "a", "m", "pm", "PM"];
+        for clean in [false, true] {
+            for (text, expected) in [
+                ("let's meet at two thirty p.m. on Friday to review the plan",
+                    "Let's meet at 2:30 PM on Friday to review the plan."),
+                ("the train leaves at nine a.m.", "The train leaves at 9 AM."),
+                ("the train leaves at nine a.m. Then we drive home",
+                    "The train leaves at 9 AM. Then we drive home."),
+                ("the call is at two p.m. Tuesday with the vendor",
+                    "The call is at 2 PM Tuesday with the vendor."),
+                ("the call is at two p.m. EST with the vendor",
+                    "The call is at 2 PM EST with the vendor."),
+                ("we start at nine a.m. Maria brings the slides",
+                    "We start at 9 AM. Maria brings the slides."),
+            ] {
+                assert_eq!(finished(text, &["m"], &time, Model, clean), expected, "clean={clean}");
+            }
+            // Undotted forms carry no period; both models label them "0".
+            for text in [
+                "let's meet at two thirty pm on Friday",
+                "let's meet at two thirty p m on Friday",
+                "let's meet at two thirty PM on Friday",
+            ] {
+                assert_eq!(finished(text, &[], &time, Model, clean),
+                    "Let's meet at 2:30 PM on Friday.", "clean={clean}");
+            }
+            // Without written forms "p.m." stays as spoken and the next word stays lowercase.
+            assert_eq!(
+                finished("let's meet at two thirty p.m. on Friday", &["m"], &[], Off, clean),
+                "Let's meet at two thirty p.m. on Friday.",
+                "clean={clean}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_time_spans_render_after_until_and_similar_cues() {
+        use super::WrittenFormMode::Model;
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        for clean in [false, true] {
+            assert_eq!(finished("the banner says wait until ten fifty before you deploy", &[],
+                &["ten", "fifty"], Model, clean), "The banner says wait until 10:50 before you deploy.");
+            assert_eq!(finished("we close around eleven thirty tonight", &[], &["eleven", "thirty"], Model, clean),
+                "We close around 11:30 tonight.");
+            // A 24-hour reading stays words: this is a year, not a clock.
+            assert_eq!(finished("wait until twenty twenty", &[], &["twenty"], Model, clean),
+                "Wait until twenty twenty.");
+        }
+        // Rules alone still need "at" or AM/PM before proposing a time.
+        assert_eq!(super::written_form_finish("wait until ten fifty.", &[], None, &cancel),
+            "Wait until ten fifty.");
+    }
+
+    #[test]
+    fn abbreviation_periods_survive_comma_and_empty_labels_on_both_paths() {
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let text = "bring fruit e.g. apples and pears etc. for the trip";
+        let document = super::Document::new(text, &[], &cancel).unwrap();
+        let mut labels = vec![super::Mark::None; document.words.len()];
+        labels[3] = super::Mark::Comma; // "g" of e.g.; "etc" keeps no label
+        *labels.last_mut().unwrap() = super::Mark::Period;
+        for clean in [false, true] {
+            let prediction = super::Prediction {
+                labels: labels.clone(),
+                spans: None,
+                deletes: clean.then(|| vec![false; labels.len()]),
+            };
+            let (output, _, _) = super::finish_prediction(text, Ok(&document), Ok(prediction), &[],
+                &cancel, super::WrittenFormMode::Off, clean);
+            assert_eq!(output, "Bring fruit e.g. apples and pears etc. for the trip.", "clean={clean}");
+        }
+    }
+
+    #[test]
+    fn abbreviation_periods_keep_the_next_word_case_on_both_paths() {
+        use super::WrittenFormMode::Off;
+        for clean in [false, true] {
+            for (text, periods, expected) in [
+                ("bring fruit e.g. apples and tools i.e. hammers to the U.S. office",
+                    &["g", "e", "S"][..],
+                    "Bring fruit e.g. apples and tools i.e. hammers to the U.S. office."),
+                ("pack apples pears etc. for the trip", &["etc"][..],
+                    "Pack apples pears etc. for the trip."),
+                ("pack apples pears etc. Then we leave", &["etc"][..],
+                    "Pack apples pears etc. Then we leave."),
+                ("compare red vs. blue on the chart", &["vs"][..],
+                    "Compare red vs. blue on the chart."),
+                ("ask Dr. Smith about it", &["Dr"][..], "Ask Dr. Smith about it."),
+            ] {
+                assert_eq!(finished(text, periods, &[], Off, clean), expected, "clean={clean}");
+            }
+        }
     }
 
     #[test]
