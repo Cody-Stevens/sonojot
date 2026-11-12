@@ -137,7 +137,7 @@ pub(super) fn run_with_limit(
         cancel,
         stop,
         duration.min(limit),
-        |text, control| complete_local(root, text, control),
+        |text, control| complete_local(root, &super::with_vocabulary_hints(text.to_owned(), vocabulary), control),
     )
 }
 
@@ -156,7 +156,7 @@ pub(super) fn run_prepared(
     { CUDA_BUDGET } else { CPU_BUDGET };
     let budget = Budget::new(duration, &SystemClock);
     pipeline_prepared(prepared, mode, vocabulary, cancel, stop, &budget,
-        |text, control| complete_local(root, text, control))
+        |text, control| complete_local(root, &super::with_vocabulary_hints(text.to_owned(), vocabulary), control))
 }
 
 /// The exact production preparation/publication path with an injectable model.

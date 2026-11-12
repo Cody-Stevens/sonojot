@@ -34,49 +34,6 @@ body,
   grid-template-columns: 12rem minmax(0, 1fr);
 }
 
-.paper-nav {
-  padding: var(--space-3) var(--space-2);
-  gap: var(--space-2);
-  --edge-gap: var(--space-2);
-  scroll-padding-block: var(--space-2);
-}
-/* The gap belongs to the nav's own lips. Custom properties inherit, so a
-   scroller inside the nav (the update tooltip) would otherwise pull its lips
-   in by the nav's gap too and collapse to a sliver. */
-.paper-nav * {
-  --edge-gap: 0px;
-}
-
-.paper-nav nav {
-  flex: 1 0 auto;
-  gap: var(--space-3);
-}
-
-.nav-primary,
-.nav-settings {
-  display: flex;
-  flex-direction: column;
-  flex: none;
-  gap: var(--space-1);
-}
-
-.nav-settings {
-  margin-top: auto;
-}
-
-.nav-group-label {
-  padding-inline: var(--space-2);
-  font-size: 0.78rem;
-  color: var(--soft-ink);
-}
-
-.nav-item,
-.nav-item.selected {
-  min-height: 3rem;
-  padding: var(--space-1) var(--space-2);
-  gap: var(--space-1);
-}
-
 /* A fixed frame keeps the scroll rectangle clear of both rounded corners.
    Page content is the only scrolling owner for whole-page content. */
 .page-frame {
@@ -117,17 +74,6 @@ body,
 }
 .page-frame::after {
   bottom: var(--pocket-end);
-}
-.dictation-guide > p {
-  font-size: 1rem;
-  max-width: none;
-  line-height: 1.65;
-}
-.dictation-guide kbd {
-  display: inline-block;
-  padding: 1px 7px;
-  white-space: nowrap;
-  font-size: 0.88em;
 }
 .folio {
   display: flex;
@@ -252,7 +198,6 @@ body,
 .body-copy,
 .mode-help,
 .two-fields,
-.theme-options,
 .microphone-well {
   margin-bottom: var(--space-2);
 }
@@ -326,21 +271,16 @@ select {
   padding-block: var(--space-1);
 }
 
-.two-fields,
-.theme-options,
-.history-comparison {
+.two-fields {
   gap: var(--space-2);
 }
 
-.vocabulary-entry,
 .keyboard-list > div,
-.details-list > div,
-.model-row {
+.details-list > div {
   padding-block: var(--space-2);
   gap: var(--space-2);
 }
 
-.vocabulary-entry:last-child,
 .keyboard-list > div:last-child,
 .details-list > div:last-child {
   border-bottom: 0;
@@ -350,103 +290,11 @@ select {
   margin-top: var(--space-3);
 }
 
-.theme-choice {
-  padding: var(--space-1) var(--space-1) var(--space-2);
-}
-
-.theme-choice strong,
-.theme-choice small {
-  margin-inline: var(--space-1);
-}
-
-.material-sample {
-  padding: var(--space-3);
-}
-
-.material-sample h3 {
-  margin-top: 0;
-}
-
-.material-sample p {
-  margin-bottom: var(--space-2);
-}
-
 .back-button {
   gap: var(--space-1);
   padding: var(--space-1);
   margin-bottom: var(--space-2);
   border-radius: 8px;
-}
-
-/* List dividers sit in the gap, outside the hover/keyboard target. */
-.meeting-item {
-  position: relative;
-  border: 0;
-  border-radius: 12px;
-  margin-block: var(--space-2);
-  padding: var(--space-2);
-  gap: var(--space-2);
-}
-
-.meeting-item::before {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-  inset-inline: 0;
-  top: calc(-1 * var(--space-1));
-  border-top: 1px solid var(--line);
-}
-
-.history-list {
-  list-style: none;
-  max-height: none;
-  overflow: visible;
-  padding: 0;
-  margin: 0;
-}
-
-.history-list > li {
-  border-top: 1px solid var(--line);
-  padding-block: var(--space-1);
-}
-
-.history-list > li:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.history-list > li:last-child {
-  padding-bottom: 0;
-}
-
-.history-item {
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border: 0;
-  border-radius: 12px;
-}
-
-.history-item:hover,
-.history-item:focus-visible {
-  background: var(--well);
-}
-
-.history-item:focus-visible > span {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.history-comparison .section-toolbar {
-  margin: 0 0 var(--space-2);
-}
-
-.history-comparison h3 {
-  margin: 0;
-}
-
-.history-comparison .transcript {
-  max-height: none;
-  overflow: visible;
 }
 
 .license summary {
@@ -508,10 +356,6 @@ select {
 .window-button,
 .icon-button,
 .back-button,
-.nav-item,
-.history-item,
-.meeting-item,
-.theme-choice,
 .segments button,
 .text-tabs button {
   transition:
@@ -566,8 +410,7 @@ select {
   display: block;
 }
 
-.status-dot.recording,
-.nav-recording {
+.status-dot.recording {
   animation: recording-pulse 1600ms ease-in-out infinite;
 }
 
@@ -660,18 +503,11 @@ select {
   .sheet-body {
     grid-template-columns: 10.5rem minmax(0, 1fr);
   }
-  .nav-item,
-  .nav-item.selected {
-    padding-inline: var(--space-1);
-  }
 }
 
 @media (max-width: 800px) {
   .sheet-body {
     grid-template-columns: 9rem minmax(0, 1fr);
-  }
-  .paper-nav {
-    padding-inline: var(--space-1);
   }
   .page-frame {
     --pocket-start: var(--space-2);
@@ -708,37 +544,6 @@ select {
   .sheet-body {
     grid-template-columns: 1fr;
   }
-  .paper-nav {
-    padding: var(--space-1);
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-  .paper-nav nav {
-    padding: var(--space-1);
-    gap: var(--space-1);
-    overflow: visible;
-  }
-  .nav-primary,
-  .nav-settings {
-    flex-direction: row;
-    align-items: center;
-    margin-top: 0;
-  }
-  .nav-settings {
-    padding-left: var(--space-2);
-    border-left: 1px solid var(--line);
-  }
-  .nav-group-label {
-    padding-inline: var(--space-1);
-  }
-  .nav-item,
-  .nav-item.selected {
-    min-height: 2.5rem;
-    padding: var(--space-1);
-  }
   .page-frame > .paper-footer {
     padding-inline: var(--space-1);
     gap: var(--space-1);
@@ -752,9 +557,6 @@ select {
   }
   .two-fields {
     grid-template-columns: 1fr;
-  }
-  .model-row {
-    flex-wrap: wrap;
   }
   .segments button,
   .segments button:first-child,
@@ -781,5 +583,51 @@ select {
   .icon-button:active:not(:disabled),
   .back-button:active:not(:disabled) {
     transform: none;
+  }
+}
+
+/* Four-item rail; the page remains the only whole-page scroll owner. */
+.sheet-body {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+.sheet-head {
+  min-height: 72px;
+  padding: 9px 27px;
+}
+.brand .sono-mark.lockup {
+  width: 10rem;
+}
+.page-frame {
+  border-radius: 26px 0 0 0;
+}
+.page-flow {
+  width: 100%;
+  max-width: 860px;
+  margin-inline: auto;
+}
+.stage-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 24px;
+}
+@media (max-width: 640px) {
+  .sheet-body {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+  .quiet-rail {
+    padding-inline: 2px;
+  }
+  .sheet-head {
+    padding-inline: 12px;
+  }
+  .brand .sono-mark.lockup {
+    width: 7rem;
+  }
+  .header-end {
+    gap: 9px;
+  }
+  .folio {
+    display: none;
   }
 }

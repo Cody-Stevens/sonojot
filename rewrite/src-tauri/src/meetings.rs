@@ -1,6 +1,8 @@
 #[path = "meeting_export.rs"]
 mod export;
 mod join;
+mod timed;
+pub use timed::validate_speaker as validate_transcription_speaker;
 pub use join::SpeakerLabel;
 pub use export::{render_export, render_pdf};
 mod outages {
@@ -217,6 +219,7 @@ mod outages {
         #[test]
         fn collapse_mixed_with_a_failure_is_a_stop_and_omissions_keep_known_bounds() {
             let mut result = RecognitionResult {
+                word_confidence: Vec::new(),
                 original_text: None, text: "Retained words.".into(),
                 segments: vec![crate::asr::Segment {
                     id: 1, start_seconds: 40.0, end_seconds: Some(50.0), speaker: None,
@@ -271,7 +274,7 @@ mod clean {
             let mut vocabulary = Vec::new();
             let mut confirmed = Vec::new();
             for entry in self.store.get_vocabulary()?.into_iter().filter(|entry| entry.enabled) {
-                if let Some(scope) = entry.scope.as_deref().map(str::trim).filter(|scope| !scope.is_empty()) {
+                if let Some(scope) = entry.scope.as_deref().map(str::trim).filter(|scope| !scope.is_empty() && entry.kind != crate::domain::VocabularyKind::Hint) {
                     confirmed.push(crate::structured_clean::VocabularyEntry {
                         id: Some(entry.id.clone()), canonical: entry.written.clone(),
                         aliases: vec![entry.heard.clone()], scope: scope.into(),
@@ -280,7 +283,9 @@ mod clean {
                     });
                 }
                 vocabulary.push(crate::cleanup::Vocabulary {
-                    heard: entry.heard, written: entry.written, enabled: true, context: Vec::new(),
+                    kind: entry.kind,
+                    aliases: entry.aliases,
+                    heard: entry.heard, written: entry.written, enabled: true, context: entry.context,
                 });
             }
             self.clean_with(id, |transcript, cancel| {
@@ -291,10 +296,11 @@ mod clean {
                     crate::ai::check_cancel(cancel)?;
                     // Public entry point owns punctuation's resource admission and
                     // worker. local-rules avoids acquiring an optional LLM lease.
-                    let result = crate::cleanup::run_dictation_interruptible_with_options(
+                    let result = crate::cleanup::run_with_delete_policy(
                         &self.store.models_dir(), passage, crate::cleanup::Mode::Clean,
                         &vocabulary, &confirmed, "local-rules", crate::cleanup::CleanupPolicy::conservative(),
-                        cancel, &stop, settings.written_form,
+                        cancel, &stop, if settings.written_form { crate::punctuation::WrittenFormMode::Model } else { crate::punctuation::WrittenFormMode::Off }, false,
+                        settings.sonojot_punctuation,
                     );
                     crate::ai::check_cancel(cancel)?;
                     Ok(result.text)
@@ -408,6 +414,9 @@ pub struct RecordingPaths {
 /// confirmed cached-recognizer drop before the closure loads, so no two
 /// native Engines coexist in one process.
 pub struct MeetingTranscription {
+    queue_notes: bool,
+    notes_preset: Option<crate::meeting_ai::NotesPreset>,
+    notes_instructions: String,
     meetings: Meetings,
     id: String,
     audio: PathBuf,
@@ -417,10 +426,36 @@ pub struct MeetingTranscription {
     remote: Option<crate::meeting_speech::Snapshot>,
     /// Setting, availability and models directory captured with the speech model.
     diarization_root: Option<PathBuf>,
+    /// Explicit job or imported-media identity; never inferred from the voice.
+    known_speaker: Option<String>,
     _update_activity: crate::resource_manager::UpdateActivityLease,
 }
 
 impl MeetingTranscription {
+    pub fn notes_settings(&self) -> (Option<crate::meeting_ai::NotesPreset>, String) {
+        (self.notes_preset, self.notes_instructions.clone())
+    }
+    pub fn run_with_notes<F, N>(mut self, recognize: F, preset: Option<crate::meeting_ai::NotesPreset>, instructions: &str, infer: N) -> Result<MeetingDetail, String>
+    where
+        F: FnMut(&Path, &str, &AtomicBool) -> Result<crate::asr::RecognitionResult, String>,
+        N: FnOnce(&str, crate::meeting_ai::NotesPreset, &str, &AtomicBool) -> Result<String, String>,
+    {
+        self.queue_notes = preset.is_some();
+        let meetings = self.meetings.clone();
+        let id = self.id.clone();
+        let cancel = self.cancel.clone();
+        let detail = self.run_recognition(recognize)?;
+        let Some(preset) = preset.filter(|_| detail.status == "processingNotes") else { return Ok(detail); };
+        // The transcription token stays current through the handoff. No idle
+        // title or cancellation can slip between publishing and starting notes.
+        let result = crate::ai::check_cancel(&cancel)
+            .and_then(|_| infer(&detail.transcript, preset, instructions, &cancel));
+        match meetings.finish_operation(&id, &cancel, result, true, None) {
+            Ok(detail) => Ok(detail),
+            Err(error) if cancel.load(Ordering::Acquire) => Err(error),
+            Err(_) => meetings.get(&id),
+        }
+    }
     /// Snapshotted model accessor for callers that need it before `run`.
     pub fn asr_model(&self) -> &str {
         &self.asr_model
@@ -432,6 +467,7 @@ impl MeetingTranscription {
     {
         self.run_recognition(move |path, model, cancel| {
             recognize(path, model, cancel).map(|text| crate::asr::RecognitionResult {
+                word_confidence: Vec::new(),
                 original_text: None,
                 segments: Vec::new(),
                 text,
@@ -533,7 +569,7 @@ impl MeetingTranscription {
             guard.finish();
         }
         self.meetings
-            .finish_recognition_operation(&self.id, &self.cancel, result, &asr_model)
+            .finish_recognition_with_notes(&self.id, &self.cancel, result, &asr_model, self.queue_notes)
     }
 
     fn run_remote<F>(mut self, recognize: F) -> Result<MeetingDetail, String>
@@ -541,7 +577,7 @@ impl MeetingTranscription {
         // Remote jobs own only their meeting token, never the local ASR stage.
         self.diarization_root = None;
         let result = self.recognize_audio(recognize);
-        self.meetings.finish_recognition_operation(&self.id, &self.cancel, result, &self.asr_model)
+        self.meetings.finish_recognition_with_notes(&self.id, &self.cancel, result, &self.asr_model, self.queue_notes)
     }
 
     fn recognize_audio<F>(&self, recognize: F) -> Result<MeetingRecognition, String>
@@ -595,13 +631,23 @@ impl MeetingTranscription {
         crate::ai::check_cancel(&self.cancel)?;
         drop(recognize);
         self.label_source(&self.audio, &mut raw, true, &mut diarize)?;
-        Ok(MeetingRecognition { published: publish(&raw, true), raw })
+        let published = if let Some(speaker) = &self.known_speaker {
+            if raw.segments.is_empty() && !raw.text.trim().is_empty() { format!("{speaker}: {}", tidy_spaces(&raw.text)) }
+            else if raw.segments.is_empty() { String::new() }
+            else { speaker_passages(&raw.segments) }
+        } else { publish(&raw, true) };
+        Ok(MeetingRecognition { published, raw, known_speaker: self.known_speaker.clone() })
     }
 
     fn label_source<D>(
         &self, audio: &Path, raw: &mut crate::asr::RecognitionResult, mixed: bool, diarize: &mut D,
     ) -> Result<(), String>
     where D: FnMut(&Path, &Path, &AtomicBool) -> Result<Vec<crate::diarization::Turn>, String> {
+        crate::ai::check_cancel(&self.cancel)?;
+        if let Some(speaker) = &self.known_speaker {
+            for segment in &mut raw.segments { segment.speaker = Some(speaker.clone()); }
+            return Ok(());
+        }
         let Some(root) = &self.diarization_root else { return Ok(()); };
         if raw.text.trim().is_empty() && raw.segments.iter().all(|segment| segment.text.trim().is_empty()) {
             return Ok(());
@@ -626,10 +672,12 @@ impl MeetingTranscription {
 struct MeetingRecognition {
     raw: crate::asr::RecognitionResult,
     published: String,
+    known_speaker: Option<String>,
 }
 
 fn empty_recognition() -> crate::asr::RecognitionResult {
     crate::asr::RecognitionResult {
+        word_confidence: Vec::new(),
         original_text: None,
         text: String::new(), segments: Vec::new(),
         completeness: crate::domain::RecognitionCompleteness::Complete, warnings: Vec::new(),
@@ -726,7 +774,7 @@ fn merge_stems(mut mic: crate::asr::RecognitionResult, mut system: crate::asr::R
     mic.text = mic.segments.iter().filter(|s| !s.text.is_empty())
         .map(|s| s.text.as_str()).collect::<Vec<_>>().join(" ");
     mic.original_text = original_text;
-    MeetingRecognition { published: publish(&mic, true), raw: mic }
+    MeetingRecognition { published: publish(&mic, true), raw: mic, known_speaker: None }
 }
 
 fn numbered_voice(label: &str) -> bool {
@@ -825,6 +873,31 @@ impl Drop for MeetingAsrLease {
     }
 }
 
+/// List metadata comes from the same saved record, without loading full text in the UI.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingListItem {
+    #[serde(flatten)]
+    pub summary: MeetingSummary,
+    pub missing_seconds: f64,
+    pub speaker_count: u32,
+    pub auto_named: bool,
+    pub source: String,
+    pub has_notes: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingSearchMatch {
+    pub id: String,
+    pub line: String,
+}
+
+impl std::ops::Deref for MeetingListItem {
+    type Target = MeetingSummary;
+    fn deref(&self) -> &Self::Target { &self.summary }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MeetingRecord {
@@ -832,6 +905,9 @@ struct MeetingRecord {
     detail: MeetingDetail,
     /// The first completed ASR result is never replaced by user edits or subsequent decodes.
     raw_transcript: Option<String>,
+    /// Names for this recognition's speaker labels; raw recognition is unchanged.
+    #[serde(default)]
+    speaker_names: std::collections::BTreeMap<String, String>,
     /// Old records default to protected: their title may have been deliberately edited.
     #[serde(default = "protected_title")]
     title_user_edited: bool,
@@ -850,6 +926,9 @@ struct MeetingRecord {
     /// speaker labels can be switched without recognizing again.
     #[serde(default)]
     recognition_file: Option<String>,
+    /// User-provided identity for a single-speaker imported recording.
+    #[serde(default)]
+    import_speaker: Option<String>,
     #[serde(default)]
     outages_recorded: bool,
 }
@@ -861,6 +940,10 @@ pub(crate) struct TitleCandidate {
 }
 
 impl MeetingRecord {
+    fn auto_named(&self) -> bool {
+        !self.title_user_edited && !self.automatic_title_pending
+            && !matches!(self.detail.title.as_str(), "Untitled meeting" | "Imported meeting")
+    }
     fn needs_automatic_title(&self) -> bool {
         !self.title_user_edited
             && !busy(&self.detail.status)
@@ -1014,6 +1097,7 @@ impl Meetings {
                 serde_json::from_value(history["segments"].clone()).ok()
             }).unwrap_or_default();
             let recognition = crate::asr::RecognitionResult {
+                word_confidence: Vec::new(),
                 original_text: None, text: record.detail.transcript.clone(), segments,
                 completeness: record.detail.recognition_completeness,
                 warnings: record.detail.recognition_warnings.clone(),
@@ -1046,7 +1130,7 @@ impl Meetings {
         let _guard = self.store.lock()?;
         Ok(self.read(id)?.detail)
     }
-    pub fn list(&self) -> Result<Vec<MeetingSummary>, String> {
+    pub fn list(&self) -> Result<Vec<MeetingListItem>, String> {
         let _guard = self.store.lock()?;
         let mut rows = Vec::new();
         for entry in fs::read_dir(self.store.meetings_dir())
@@ -1062,7 +1146,15 @@ impl Meetings {
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .ok_or("A meeting filename is invalid.")?;
-            rows.push(self.read(id)?.detail.summary);
+            let record = self.read(id)?;
+            rows.push(MeetingListItem {
+                auto_named: record.auto_named(),
+                missing_seconds: record.detail.missing_seconds,
+                speaker_count: record.detail.speaker_count,
+                source: record.detail.source,
+                has_notes: !record.detail.notes.trim().is_empty(),
+                summary: record.detail.summary,
+            });
             if rows.len() > 20_000 {
                 return Err("The meeting library exceeds the 20,000-record limit.".into());
             }
@@ -1073,6 +1165,31 @@ impl Meetings {
                 .then_with(|| a.id.cmp(&b.id))
         });
         Ok(rows)
+    }
+
+    pub fn search(&self, query: &str) -> Result<Vec<MeetingSearchMatch>, String> {
+        let query = query.trim().to_lowercase();
+        if query.is_empty() { return Ok(Vec::new()); }
+        if query.len() > 1024 { return Err("Search is limited to 1,024 bytes.".into()); }
+        let _guard = self.store.lock()?;
+        let mut matches = Vec::new();
+        let mut count = 0;
+        for entry in fs::read_dir(self.store.meetings_dir()).map_err(|e| format!("Cannot search meetings: {e}"))? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") { continue; }
+            count += 1;
+            if count > 20_000 { return Err("The meeting library exceeds the 20,000-record limit.".into()); }
+            let record = self.read(path.file_stem().and_then(|s| s.to_str()).ok_or("A meeting filename is invalid.")?)?;
+            if let Some(line) = [&record.detail.title, &record.detail.notes, &record.detail.transcript]
+                .into_iter().flat_map(|text| text.lines()).find(|line| line.to_lowercase().contains(&query)) {
+                let folded = line.to_lowercase();
+                let offset = folded.find(&query).unwrap();
+                let start = folded[..offset].chars().count().saturating_sub(70);
+                let excerpt: String = line.chars().skip(start).take(240).collect();
+                matches.push(MeetingSearchMatch { id: record.detail.id.clone(), line: format!("{}{excerpt}", if start > 0 { "…" } else { "" }) });
+            };
+        }
+        Ok(matches)
     }
     pub fn recording_paths(&self, id: &str) -> Result<RecordingPaths, String> {
         validate_id(id)?;
@@ -1129,6 +1246,7 @@ impl Meetings {
                 transcription_model: None, speaker_count: 0, speaker_labels: true,
             },
             raw_transcript: None,
+            speaker_names: Default::default(),
             title_user_edited,
             automatic_title_pending: false,
             legacy_audio: None,
@@ -1136,6 +1254,7 @@ impl Meetings {
             legacy_system_audio: None,
             source_media: media,
             recognition_file: None,
+            import_speaker: None,
             outages_recorded: false,
         };
         self.write(&record)?;
@@ -1328,6 +1447,7 @@ impl Meetings {
         let path = self.store.meetings_dir().join(format!("{id}.asr")).join(file);
         let saved: Value = self.store.read(&path)?;
         let raw = crate::asr::RecognitionResult {
+            word_confidence: Vec::new(),
             original_text: None,
             // New history stores raw speech separately. An explicitly empty
             // guarded string is authoritative; never fall back to raw for it.
@@ -1342,12 +1462,12 @@ impl Meetings {
             return Err("Speaker labels need at least two detected voices.".into());
         }
         // Transcripts published before spaces were tidied still count as unedited.
-        let current = publish(&raw, record.detail.speaker_labels);
+        let current = join::apply_speaker_names(&publish(&raw, record.detail.speaker_labels), &record.speaker_names);
         if !confirmed && (record.detail.cleaned_transcript.is_some()
             || tidy_spaces(&record.detail.transcript) != tidy_spaces(&current)) {
             return Err(SPEAKER_LABELS_REPLACE_EDITS.into());
         }
-        record.detail.transcript = publish(&raw, enabled);
+        record.detail.transcript = join::apply_speaker_names(&publish(&raw, enabled), &record.speaker_names);
         record.detail.cleaned_transcript = None;
         record.detail.speaker_labels = enabled;
         record.detail.summary.has_transcript = !record.detail.transcript.trim().is_empty();
@@ -1502,7 +1622,20 @@ impl Meetings {
         id: &str,
         model: Option<&str>,
     ) -> Result<MeetingTranscription, String> {
+        self.begin_transcription_with_options(id, model, None, false)
+    }
+
+    /// Job options do not alter the saved Speech settings. A known speaker also
+    /// bypasses two-source inference and diarization for this transcription.
+    pub fn begin_transcription_with_options(
+        &self,
+        id: &str,
+        model: Option<&str>,
+        speaker: Option<&str>,
+        no_diarize: bool,
+    ) -> Result<MeetingTranscription, String> {
         let activity = crate::resource_manager::begin_update_activity(crate::resource_manager::UpdateActivity::Meeting)?;
+        let requested_speaker = timed::validate_speaker(speaker)?;
         if model.is_some_and(|m| m.is_empty() || m.len() > 128 || m.contains('\0')) {
             return Err("Choose an installed speech model.".into());
         }
@@ -1520,18 +1653,23 @@ impl Meetings {
             (_, None) if !settings.meeting_asr_model.is_empty() => settings.meeting_asr_model,
             (_, None) => settings.asr_model,
         };
-        let models = self.store.models_dir();
-        let diarization_root = (remote.is_none() && settings.meeting_speaker_labels
-            && crate::diarization_model::installed(&models)).then_some(models);
-        let stems = {
+        let (stems, known_speaker) = {
             let _guard = self.store.lock()?;
             let record = self.read(id)?;
-            if matches!(record.detail.source.as_str(), "both" | "legacy") && record.source_media.is_none() {
+            let known_speaker = requested_speaker.or_else(|| record.import_speaker.clone());
+            let stems = if known_speaker.is_none() && matches!(record.detail.source.as_str(), "both" | "legacy") && record.source_media.is_none() {
                 self.audio_for(&record, "microphone")?.zip(self.audio_for(&record, "system")?)
-            } else { None }
+            } else { None };
+            (stems, known_speaker)
         };
+        let models = self.store.models_dir();
+        let diarization_root = (remote.is_none() && !no_diarize && known_speaker.is_none()
+            && settings.meeting_speaker_labels && crate::diarization_model::installed(&models)).then_some(models);
         let (_, cancel) = self.begin(id, "transcribing")?;
         Ok(MeetingTranscription {
+            queue_notes: false,
+            notes_preset: settings.meeting_notes_preset,
+            notes_instructions: settings.meeting_notes_instructions.clone(),
             _update_activity: activity,
             meetings: self.clone(),
             id: id.into(),
@@ -1541,6 +1679,7 @@ impl Meetings {
             asr_model,
             remote,
             diarization_root,
+            known_speaker,
         })
     }
     pub fn generate_notes<F>(
@@ -1656,12 +1795,18 @@ impl Meetings {
             }
         }
     }
-    fn finish_recognition_operation(
+    #[cfg(test)]
+    fn finish_recognition_operation(&self, id: &str, token: &Arc<AtomicBool>, result: Result<MeetingRecognition, String>, model: &str) -> Result<MeetingDetail, String> {
+        self.finish_recognition_with_notes(id, token, result, model, false)
+    }
+
+    fn finish_recognition_with_notes(
         &self,
         id: &str,
         token: &Arc<AtomicBool>,
         result: Result<MeetingRecognition, String>,
         model: &str,
+        queue_notes: bool,
     ) -> Result<MeetingDetail, String> {
         let result = result.and_then(|result| {
             validate_text(&result.raw.text, "Guarded transcript")?;
@@ -1689,6 +1834,7 @@ impl Meetings {
             return Err("Meeting operation cancelled.".into());
         }
         let recognition = result.raw;
+        let known_speaker = result.known_speaker;
         let incomplete = recognition.completeness == crate::domain::RecognitionCompleteness::Incomplete
             && !outages::collapse_only(&recognition);
         let stopped = outages::genuine_stop(recognition.completeness, &recognition.warnings);
@@ -1699,6 +1845,7 @@ impl Meetings {
         let mut saved = serde_json::json!({
             "createdAt":now(), "raw":recognition.original_text(), "segments":recognition.segments,
             "completeness":recognition.completeness, "warnings":recognition.warnings, "model":model,
+            "knownSpeaker": known_speaker,
         });
         if recognition.original_text.is_some() {
             saved["guarded"] = serde_json::json!(&recognition.text);
@@ -1708,14 +1855,19 @@ impl Meetings {
         let keep_previous = incomplete && !record.detail.transcript.trim().is_empty();
         if !keep_previous {
             // The meeting's own speaker-label choice survives transcribing again.
-            record.detail.transcript = if record.detail.speaker_labels {
+            record.detail.transcript = if record.detail.speaker_labels || known_speaker.is_some() {
                 result.published
             } else {
                 publish(&recognition, false)
             };
             record.detail.transcription_model = Some(model.into());
-            record.detail.speaker_count = detected_voices(&recognition.segments) as u32;
+            record.detail.speaker_count = if known_speaker.is_some() && !record.detail.transcript.trim().is_empty() {
+                1
+            } else { detected_voices(&recognition.segments) as u32 };
             record.recognition_file = Some(history);
+            // A new decode can number voices differently. Names belong to the
+            // previous recognition until that document is actually replaced.
+            record.speaker_names.clear();
             // A completed replacement is a new source for Clean. Incomplete
             // retries keep the existing edited document and its cleaned copy.
             if !incomplete { record.detail.cleaned_transcript = None; }
@@ -1745,6 +1897,10 @@ impl Meetings {
         record.detail.error = if let Some(at) = record.detail.transcription_stopped_at_seconds {
             Some(format!("Transcription stopped at {}. Saved audio is available to transcribe again.", outages::clock(at)))
         } else { None };
+        if queue_notes && !incomplete && !stopped && record.detail.has_transcript && record.detail.notes.trim().is_empty() {
+            record.detail.summary.status = "processingNotes".into();
+            operations.insert(id.into(), token.clone());
+        }
         self.write(&record)?;
         Ok(record.detail)
     }
@@ -1816,6 +1972,7 @@ impl Meetings {
                 record.raw_transcript = Some(text.clone());
             }
             record.detail.transcript = text;
+            record.speaker_names.clear();
             record.detail.transcription_model = model.map(Into::into);
             record.detail.summary.has_transcript = true;
             record.automatic_title_pending = !record.title_user_edited;
@@ -2033,6 +2190,9 @@ impl Meetings {
         self.export_version(id, path, format, None)
     }
     pub fn export_version(&self, id: &str, path: &Path, format: &str, transcript_version: Option<&str>) -> Result<(), String> {
+        if matches!(format, "json" | "srt" | "vtt") {
+            return self.export_timed(id, path, format, transcript_version);
+        }
         if meeting_audio_export::is_audio_format(format) {
             self.export_audio(id, path).map(|_| ())?;
             return Ok(());
@@ -2092,6 +2252,7 @@ mod meeting_tests {
 
     fn recognition(text: &str, start: f32, end: f32) -> crate::asr::RecognitionResult {
         crate::asr::RecognitionResult {
+            word_confidence: Vec::new(),
             original_text: None,
             text: text.into(), completeness: crate::domain::RecognitionCompleteness::Complete,
             warnings: Vec::new(), segments: vec![crate::asr::Segment {
@@ -2103,6 +2264,261 @@ mod meeting_tests {
 
     fn turn(start: f64, end: f64, speaker: usize) -> crate::diarization::Turn {
         crate::diarization::Turn { start, end, speaker }
+    }
+
+    #[test]
+    fn timed_export_preserves_saved_recognition_after_edits_cleanup_and_incomplete_retry() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let detail = recorded(&meetings);
+        let (_, token) = meetings.begin(&detail.id, "transcribing").unwrap();
+        let mut raw = recognition("  guarded  speech ", 12.125, 18.75);
+        raw.original_text = Some("  original  speech with guarded repetition ".into());
+        raw.segments[0].speaker = Some("Cody".into());
+        meetings.finish_recognition_operation(&detail.id, &token, Ok(MeetingRecognition {
+            published: "Cody: guarded speech".into(), raw, known_speaker: Some("Cody".into()),
+        }), "qwen3-asr-test").unwrap();
+        let record = meetings.read(&detail.id).unwrap();
+        let history = meetings.store.meetings_dir().join(format!("{}.asr", detail.id)).join(record.recognition_file.unwrap());
+        let before = fs::read(&history).unwrap();
+        meetings.save(&detail.id, "Edited title", "Editable document.", "").unwrap();
+        meetings.clean_for_test(&detail.id, |_, _| Ok("Cleaned document.".into())).unwrap();
+        let (_, retry_token) = meetings.begin(&detail.id, "transcribing").unwrap();
+        let mut partial = recognition("Partial replacement.", 1.0, 2.0);
+        partial.completeness = crate::domain::RecognitionCompleteness::Incomplete;
+        partial.warnings.push("Worker stopped.".into());
+        meetings.finish_recognition_operation(&detail.id, &retry_token, Ok(MeetingRecognition {
+            published: partial.text.clone(), raw: partial, known_speaker: None,
+        }), "different-model").unwrap();
+        let revision = meetings.revision();
+        let value = meetings.timed_transcript(&detail.id).unwrap();
+        assert_eq!(value["rawTranscript"], "  original  speech with guarded repetition ");
+        assert_eq!(value["guardedTranscript"], "  guarded  speech ");
+        assert_eq!(value["recognizedTranscript"], "Editable document.");
+        assert_eq!(value["cleanedTranscript"], "Cleaned document.");
+        assert_eq!(value["segments"][0]["text"], "  guarded  speech ");
+        assert_eq!(value["segments"][0]["start"], 12.125);
+        assert_eq!(value["segments"][0]["end"], 18.75);
+        assert_eq!(value["segments"][0]["speaker"], "Cody");
+        assert_eq!(value["model"], "qwen3-asr-test");
+        assert_eq!(value["knownSpeaker"], "Cody");
+        assert_eq!(value["timing"]["precision"], "audioWindow");
+        assert_eq!(value["completeness"], "complete");
+        assert_eq!(value["meetingCompleteness"], "incomplete");
+        assert!(value["warnings"].as_array().unwrap().is_empty());
+        assert_eq!(value["meetingWarnings"][0], "Worker stopped.");
+        assert_eq!(value["publishedTranscriptUsesLatestAttempt"], false);
+        assert_eq!(value["latestAttempt"]["segments"][0]["text"], "Partial replacement.");
+        assert_eq!(value["latestAttempt"]["completeness"], "incomplete");
+        assert!(value["latestAttempt"]["recognizedTranscript"].is_null());
+        let latest = meetings.timed_transcript_attempt(&detail.id, true).unwrap();
+        assert_eq!(latest["segments"], value["latestAttempt"]["segments"]);
+        assert!(value["words"].is_null());
+        assert!(value["wordTimestamps"]["reason"].as_str().unwrap().contains("unavailable"));
+        assert_eq!(fs::read(&history).unwrap(), before);
+        assert_eq!(meetings.revision(), revision);
+
+        let output = export_dir();
+        for format in ["json", "srt", "vtt"] {
+            let path = output.join(format!("timed.{format}"));
+            meetings.export_version(&detail.id, &path, format, if format == "json" { Some("cleaned") } else { None }).unwrap();
+            let first = fs::read(&path).unwrap();
+            assert!(!first.is_empty());
+            assert!(meetings.export(&detail.id, &path, format).unwrap_err().contains("already exists"));
+            assert_eq!(fs::read(&path).unwrap(), first);
+        }
+        let subtitle = fs::read_to_string(output.join("timed.srt")).unwrap();
+        assert!(subtitle.contains("00:00:12,125 --> 00:00:18,750"));
+        assert!(subtitle.contains("Cody: guarded  speech"));
+        let latest_subtitle = output.join("latest.srt");
+        meetings.export_version(&detail.id, &latest_subtitle, "srt", Some("latestAttempt")).unwrap();
+        assert!(fs::read_to_string(latest_subtitle).unwrap().contains("Partial replacement."));
+        assert!(!subtitle.contains("Editable document"));
+        let cleaned = output.join("cleaned.srt");
+        assert!(meetings.export_version(&detail.id, &cleaned, "srt", Some("cleaned")).unwrap_err().contains("no word alignment"));
+        assert!(!cleaned.exists());
+        let source = meetings.select_audio(&detail.id, "mixed").unwrap();
+        let linked = output.join("source.json");
+        let source_before = fs::read(&source).unwrap();
+        fs::hard_link(&source, &linked).unwrap();
+        assert!(meetings.export(&detail.id, &linked, "json").is_err());
+        assert_eq!(fs::read(&source).unwrap(), source_before);
+        fs::remove_dir_all(output).unwrap();
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn timed_export_reports_absent_history_without_aligning_plain_text() {
+        let meetings = library();
+        let detail = recorded(&meetings);
+        meetings.save(&detail.id, &detail.title, "A transcript without timing.", "").unwrap();
+        let value = meetings.timed_transcript(&detail.id).unwrap();
+        assert_eq!(value["timing"]["available"], false);
+        assert_eq!(value["timing"]["precision"], "unavailable");
+        assert!(value["timing"]["reason"].as_str().unwrap().contains("No structured recognition history"));
+        assert!(value["segments"].as_array().unwrap().is_empty());
+        assert!(value["words"].is_null());
+        let output = export_dir();
+        assert!(meetings.export(&detail.id, &output.join("missing.srt"), "srt").is_err());
+        assert!(!output.join("missing.srt").exists());
+        meetings.export(&detail.id, &output.join("missing.json"), "json").unwrap();
+        fs::remove_dir_all(output).unwrap();
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn timed_known_speaker_persists_for_imports_and_overrides_the_job_only() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let detail = recorded(&meetings);
+        let mut record = meetings.read(&detail.id).unwrap();
+        record.detail.source = "import".into();
+        record.detail.speaker_labels = false;
+        meetings.write(&record).unwrap();
+        meetings.set_import_speaker(&detail.id, Some("  Cody  ")).unwrap();
+        let settings_before = fs::read(meetings.store.root().join("settings.json")).ok();
+        let reopened = Meetings::new(Store::open(Some(meetings.store.root().to_path_buf())).unwrap());
+        let mut job = reopened.begin_transcription(&detail.id, None).unwrap();
+        assert_eq!(job.known_speaker.as_deref(), Some("Cody"));
+        assert!(job.stems.is_none());
+        assert!(job.diarization_root.is_none());
+        // Even a stale root cannot cause a known-speaker job to call a diarizer.
+        job.diarization_root = Some(PathBuf::from("must-not-run"));
+        let result = job.recognize_audio_with(|_, _, _| Ok(recognition("  My words. ", 2.25, 4.5)),
+            |_, _, _| panic!("Known speaker must bypass diarization")).unwrap();
+        assert_eq!(result.raw.segments[0].speaker.as_deref(), Some("Cody"));
+        assert_eq!(result.raw.segments[0].text, "  My words. ");
+        let saved = reopened.finish_recognition_operation(&detail.id, &job.cancel, Ok(result), &job.asr_model).unwrap();
+        assert!(saved.transcript.contains("Cody: My words."));
+        assert_eq!(reopened.timed_transcript(&detail.id).unwrap()["segments"][0]["speaker"], "Cody");
+
+        let overridden = reopened.begin_transcription_with_options(&detail.id, None, Some("Speaker 1"), false).unwrap();
+        assert_eq!(overridden.known_speaker.as_deref(), Some("Speaker 1"));
+        let result = overridden.recognize_audio_with(|_, _, _| Ok(recognition("Override.", 0.0, 1.0)),
+            |_, _, _| panic!("Explicit speaker must bypass diarization")).unwrap();
+        let saved = reopened.finish_recognition_operation(&detail.id, &overridden.cancel, Ok(result), &overridden.asr_model).unwrap();
+        assert!(saved.transcript.contains("Speaker 1: Override."));
+        assert_eq!(reopened.read(&detail.id).unwrap().import_speaker.as_deref(), Some("Cody"));
+        reopened.set_import_speaker(&detail.id, None).unwrap();
+        let disabled = reopened.begin_transcription_with_options(&detail.id, None, None, true).unwrap();
+        assert!(disabled.known_speaker.is_none());
+        assert!(disabled.diarization_root.is_none());
+        let result = disabled.recognize_audio_with(|_, _, _| Ok(recognition("Unlabeled.", 0.0, 1.0)),
+            |_, _, _| panic!("no-diarize must bypass diarization")).unwrap();
+        assert!(result.raw.segments[0].speaker.is_none());
+        reopened.finish_recognition_operation(&detail.id, &disabled.cancel, Ok(result), &disabled.asr_model).unwrap();
+        assert_eq!(fs::read(meetings.store.root().join("settings.json")).ok(), settings_before);
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn timed_cancelled_known_speaker_job_cannot_replace_history() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let detail = recorded(&meetings);
+        let job = meetings.begin_transcription_with_options(&detail.id, None, Some("Cody"), false).unwrap();
+        let result = job.recognize_audio_with(|_, _, _| Ok(recognition("Original.", 1.0, 2.0)),
+            |_, _, _| panic!("must not diarize")).unwrap();
+        meetings.finish_recognition_operation(&detail.id, &job.cancel, Ok(result), &job.asr_model).unwrap();
+        let original = meetings.timed_transcript(&detail.id).unwrap();
+        let job = meetings.begin_transcription_with_options(&detail.id, None, Some("Other"), true).unwrap();
+        let result = job.recognize_audio_with(|_, _, _| {
+            meetings.cancel(&detail.id)?;
+            Ok(recognition("Late result.", 10.0, 12.0))
+        }, |_, _, _| panic!("must not diarize"));
+        assert!(result.is_err());
+        assert!(meetings.finish_recognition_operation(&detail.id, &job.cancel, result, &job.asr_model).is_err());
+        let after = meetings.timed_transcript(&detail.id).unwrap();
+        assert_eq!(after["segments"], original["segments"]);
+        assert_eq!(after["recognitionFile"], original["recognitionFile"]);
+        assert_eq!(after["rawTranscript"], "Original.");
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    /// Copies saved records into a temporary store; the source library is read-only.
+    #[test]
+    #[ignore]
+    fn timed_saved_history_replay() {
+        let source = PathBuf::from(std::env::var_os("SONOJOT_TIMING_RECORD").expect("SONOJOT_TIMING_RECORD"));
+        let output = PathBuf::from(std::env::var_os("SONOJOT_TIMING_OUTPUT").expect("SONOJOT_TIMING_OUTPUT"));
+        let id = source.file_stem().unwrap().to_str().unwrap();
+        let meetings = library();
+        let result = (|| -> Result<(), String> {
+            fs::copy(&source, meetings.path(id)?).map_err(|e| e.to_string())?;
+            let target = meetings.store.meetings_dir().join(format!("{id}.asr"));
+            fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+            for entry in fs::read_dir(source.with_extension("asr")).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                if entry.file_type().map_err(|e| e.to_string())?.is_file()
+                    && entry.path().extension().is_some_and(|ext| ext == "json") {
+                    fs::copy(entry.path(), target.join(entry.file_name())).map_err(|e| e.to_string())?;
+                }
+            }
+            meetings.export(id, &output, "json")?;
+            meetings.export_version(id, &output.with_extension("latest.srt"), "srt", Some("latestAttempt"))?;
+            let value = meetings.timed_transcript(id)?;
+            eprintln!("Saved history replay: published={}, latest={}, same={}, output={}",
+                value["recognitionFile"], value["latestAttempt"]["recognitionFile"],
+                value["publishedTranscriptUsesLatestAttempt"], output.display());
+            Ok(())
+        })();
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn timed_real_media() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let audio = PathBuf::from(std::env::var_os("SONOJOT_TIMING_AUDIO").expect("SONOJOT_TIMING_AUDIO"));
+        let output = PathBuf::from(std::env::var_os("SONOJOT_TIMING_OUTPUT").expect("SONOJOT_TIMING_OUTPUT"));
+        let model = std::env::var("SONOJOT_TIMING_MODEL").unwrap_or_else(|_| crate::llama_asr::SMALL_CPU_MODEL_ID.into());
+        let speaker = std::env::var("SONOJOT_TIMING_SPEAKER").unwrap_or_else(|_| "Cody".into());
+        // Real punctuation must use a deliberately supplied helper, never a
+        // discovered installed application or a connection to its UI process.
+        let worker = PathBuf::from(std::env::var_os("SONOJOT_PUNCT_TEST_WORKER").expect("Set SONOJOT_PUNCT_TEST_WORKER to the worktree-built executable"));
+        assert!(worker.is_file());
+        struct Cleanup(Meetings);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                crate::punctuation::release_cached();
+                let _ = fs::remove_dir_all(self.0.store.root());
+            }
+        }
+        let meetings = library();
+        let _cleanup = Cleanup(meetings.clone());
+        let mut settings = meetings.store.load_settings().unwrap();
+        settings.sonojot_punctuation = true;
+        settings.written_form = false;
+        settings.auto_meeting_titles = false;
+        meetings.store.save_settings(&settings).unwrap();
+        let imported = meetings.begin_import(&audio).unwrap();
+        meetings.set_import_speaker(&imported.id, Some(&speaker)).unwrap();
+        let imported = meetings.finish_import(&imported.id, None).unwrap();
+        let models = meetings.store.models_dir();
+        let started = Instant::now();
+        let mut recognizer = None;
+        let saved = meetings.begin_transcription_with_options(&imported.id, Some(&model), None, true).unwrap()
+            .run_recognition(move |audio, model, cancel| {
+                if recognizer.is_none() {
+                    recognizer = Some(crate::asr::Recognizer::load_interruptible(&models, model, cancel)?);
+                }
+                crate::asr::transcribe_file_recognition_with(recognizer.as_mut().unwrap(), audio, cancel)
+            }).unwrap();
+        let raw_before = meetings.timed_transcript(&saved.id).unwrap();
+        let cleaned = meetings.clean_local(&saved.id, || {}).unwrap();
+        let timed = meetings.timed_transcript(&saved.id).unwrap();
+        assert_eq!(timed["segments"], raw_before["segments"]);
+        assert_eq!(timed["rawTranscript"], raw_before["rawTranscript"]);
+        assert_eq!(timed["cleanedTranscript"], serde_json::json!(cleaned.cleaned_transcript));
+        assert!(timed["segments"].as_array().is_some_and(|segments| !segments.is_empty()
+            && segments.iter().all(|segment| segment["speaker"] == speaker)));
+        assert!(timed["words"].is_null());
+        for format in ["json", "srt", "vtt"] {
+            meetings.export(&saved.id, &output.with_extension(format), format).unwrap();
+        }
+        eprintln!("Timed media smoke: model={model}, audio={:.3}s, elapsed={:.1}s, segments={}, output={}",
+            saved.duration_seconds, started.elapsed().as_secs_f64(), timed["segments"].as_array().unwrap().len(), output.display());
     }
 
     #[test]
@@ -2122,7 +2538,7 @@ mod meeting_tests {
         raw.warnings.push("Loop omitted.".into());
         let labeled = publish(&raw, true);
         let plain = raw.text.clone();
-        let result = MeetingRecognition { published: labeled.clone(), raw };
+        let result = MeetingRecognition { published: labeled.clone(), raw, known_speaker: None };
         let saved = meetings.finish_recognition_operation(&job.id, &job.cancel, Ok(result), &job.asr_model).unwrap();
         assert_eq!(saved.transcript, labeled);
         let record = meetings.read(&detail.id).unwrap();
@@ -2327,6 +2743,154 @@ mod meeting_tests {
         let rebuilt = meetings.set_speaker_labels(&detail.id, false, true).unwrap();
         assert_eq!(rebuilt.transcript, sides);
         assert!(rebuilt.cleaned_transcript.is_none());
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn automatic_notes_handoff_is_cancelable_and_keeps_existing_notes() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        for scenario in ["summary", "off", "existing", "cancel", "incomplete", "failure"] {
+            let meetings = library();
+            let detail = recorded(&meetings);
+            if scenario == "existing" {
+                meetings.save(&detail.id, &detail.title, "Earlier transcript.", "Handwritten notes.").unwrap();
+            }
+            let preset = (scenario != "off").then_some(crate::meeting_ai::NotesPreset::Summary);
+            let called = AtomicBool::new(false);
+            let result = meetings.begin_transcription(&detail.id, None).unwrap().run_with_notes(
+                |_, _, _| {
+                    let mut raw = recognition("Discuss the launch.", 0.0, 1.0);
+                    if scenario == "incomplete" {
+                        raw.completeness = crate::domain::RecognitionCompleteness::Incomplete;
+                        raw.warnings.push("Missing speech.".into());
+                    }
+                    Ok(raw)
+                }, preset, "Decisions", |transcript, preset, instructions, cancel| {
+                    called.store(true, Ordering::Release);
+                    assert!(transcript.contains("Discuss the launch."));
+                    assert_eq!(preset, crate::meeting_ai::NotesPreset::Summary);
+                    assert_eq!(instructions, "Decisions");
+                    assert_eq!(meetings.get(&detail.id).unwrap().status, "processingNotes");
+                    assert!(meetings.save(&detail.id, "Changed", transcript, "").is_err());
+                    if scenario == "cancel" {
+                        meetings.cancel(&detail.id).unwrap();
+                        assert!(cancel.load(Ordering::Acquire));
+                    }
+                    if scenario == "failure" { Err("Notes model unavailable.".into()) }
+                    else { Ok("## Summary\nDiscussed the launch.".into()) }
+                });
+            let saved = meetings.get(&detail.id).unwrap();
+            assert!(saved.transcript.contains("Discuss the launch.") || scenario == "existing");
+            assert!(meetings.raw_transcript(&detail.id).unwrap().is_some() || scenario == "incomplete");
+            assert_eq!(called.load(Ordering::Acquire), matches!(scenario, "summary" | "cancel" | "failure"));
+            if scenario == "summary" { assert!(saved.notes.starts_with("## Summary")); }
+            else if scenario == "existing" { assert_eq!(saved.notes, "Handwritten notes."); }
+            else { assert!(saved.notes.is_empty()); }
+            assert_eq!(result.is_err(), scenario == "cancel");
+            if scenario == "failure" { assert!(saved.error.unwrap().contains("Notes model unavailable")); }
+            fs::remove_dir_all(meetings.store.root()).unwrap();
+        }
+    }
+
+    #[test]
+    fn meeting_search_matches_titles_notes_and_published_text_only() {
+        let meetings = library();
+        let detail = recorded(&meetings);
+        meetings.save(&detail.id, "Planning Ω", "Published launch details", "Decide Kubernetes migration").unwrap();
+        for query in ["planning ω", "KUBERNETES", "launch"] {
+            let found = meetings.search(query).unwrap();
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].id, detail.id);
+            assert!(found[0].line.to_lowercase().contains(&query.to_lowercase()));
+        }
+        let mut record = meetings.read(&detail.id).unwrap();
+        record.raw_transcript = Some("secret original recognition".into());
+        meetings.write(&record).unwrap();
+        assert!(meetings.search("secret").unwrap().is_empty());
+        assert!(meetings.search("   ").unwrap().is_empty());
+        assert!(meetings.search(&"x".repeat(1025)).is_err());
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn passage_reassignment_preserves_raw_history_and_requires_unique_matches() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let detail = recorded(&meetings);
+        let job = meetings.begin_transcription(&detail.id, None).unwrap();
+        let mut raw = recognition("First words.", 0.0, 1.0);
+        raw.segments[0].speaker = Some("Speaker 1".into());
+        let mut second = recognition("Second words.", 2.0, 3.0).segments.remove(0);
+        second.speaker = Some("Speaker 2".into());
+        raw.segments.push(second);
+        raw.text = "First words. Second words.".into();
+        let published = publish(&raw, true);
+        let saved = meetings.finish_recognition_operation(&job.id, &job.cancel,
+            Ok(MeetingRecognition { published, raw, known_speaker: None }), &job.asr_model).unwrap();
+        let record = meetings.read(&detail.id).unwrap();
+        let history_path = meetings.store.meetings_dir().join(format!("{}.asr", detail.id)).join(record.recognition_file.unwrap());
+        let history = fs::read(&history_path).unwrap();
+        let raw_before = meetings.raw_transcript(&detail.id).unwrap();
+        meetings.save_with_cleaned(&detail.id, &saved.title, &saved.transcript, "Keep these notes.", Some(&saved.transcript)).unwrap();
+        let reassigned = meetings.reassign_passage(&detail.id, "0:02", "Speaker 2", "Rachel").unwrap();
+        assert!(reassigned.transcript.contains("[0:02] Rachel: Second words."));
+        assert_eq!(reassigned.cleaned_transcript.as_deref(), Some(reassigned.transcript.as_str()));
+        assert_eq!(reassigned.notes, "Keep these notes.");
+        let renamed = meetings.rename_speaker(&detail.id, "Rachel", "Rachel Green").unwrap();
+        assert!(renamed.transcript.contains("Rachel Green:"));
+        assert!(meetings.reassign_passage(&detail.id, "0:02", "Speaker 2", "You").is_err());
+        assert!(meetings.reassign_passage(&detail.id, "0:02", "Rachel Green", "bad:name").is_err());
+        assert_eq!(meetings.set_speaker_labels(&detail.id, false, false).unwrap_err(), SPEAKER_LABELS_REPLACE_EDITS);
+        let (busy, token) = meetings.begin(&detail.id, "processingNotes").unwrap();
+        assert!(meetings.reassign_passage(&detail.id, "0:02", "Rachel Green", "You").is_err());
+        meetings.finish_operation(&detail.id, &token, Ok(busy.detail.notes), true, None).unwrap();
+        let duplicate = format!("{}\n\n[0:02] Rachel Green: Another passage.", renamed.transcript);
+        meetings.save(&detail.id, &saved.title, &duplicate, "Keep these notes.").unwrap();
+        assert!(meetings.reassign_passage(&detail.id, "0:02", "Rachel Green", "You").is_err());
+        assert_eq!(meetings.get(&detail.id).unwrap().transcript, duplicate);
+        assert_eq!(meetings.raw_transcript(&detail.id).unwrap().as_deref().map(str::as_bytes), raw_before.as_deref().map(str::as_bytes));
+        assert_eq!(fs::read(history_path).unwrap(), history);
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn speaker_names_survive_labels_off_on_without_changing_recognition() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let detail = stems(&meetings, "both", Some(8192));
+        let paths = meetings.recording_paths(&detail.id).unwrap();
+        let mut job = meetings.begin_transcription(&detail.id, None).unwrap();
+        job.diarization_root = Some(PathBuf::from("models"));
+        let result = job.recognize_audio_with(|path, _, _| {
+            Ok(if path == paths.microphone { recognition("Mine.", 2.0, 3.0) } else { theirs() })
+        }, |_, _, _| Ok(vec![turn(1.0, 2.0, 5), turn(4.0, 5.0, 2)])).unwrap();
+        let saved = meetings.finish_recognition_operation(&job.id, &job.cancel, Ok(result), &job.asr_model).unwrap();
+        let raw = meetings.raw_transcript(&detail.id).unwrap();
+        let timed = meetings.timed_transcript(&detail.id).unwrap();
+        let rows = meetings.list().unwrap();
+        let row = rows.iter().find(|row| row.id == detail.id).unwrap();
+        assert_eq!(row.speaker_count, 2);
+        assert_eq!(row.source, "both");
+        assert!(!row.auto_named && !row.has_notes);
+        assert_eq!(row.missing_seconds, saved.missing_seconds);
+        let json = serde_json::to_value(row).unwrap();
+        assert_eq!(json["id"], detail.id);
+        assert!(json.get("transcript").is_none() && json.get("notes").is_none());
+        meetings.rename_speaker(&detail.id, "Speaker 1", "Dana").unwrap();
+        let named = meetings.rename_speaker(&detail.id, "Dana", "Dana Reed").unwrap();
+        assert!(named.transcript.contains("] Dana Reed:"));
+        let reopened = Meetings::new(meetings.store.clone());
+        let off = reopened.set_speaker_labels(&detail.id, false, false).unwrap();
+        assert!(!off.transcript.contains("Dana Reed"));
+        let on = reopened.set_speaker_labels(&detail.id, true, false).unwrap();
+        assert_eq!(on.transcript, named.transcript);
+        assert_eq!(on.notes, saved.notes);
+        assert_eq!(reopened.raw_transcript(&detail.id).unwrap(), raw);
+        assert_eq!(reopened.timed_transcript(&detail.id).unwrap()["segments"], timed["segments"]);
+        reopened.save(&detail.id, &on.title, &format!("{}\n\nEdited.", on.transcript), "").unwrap();
+        assert_eq!(reopened.set_speaker_labels(&detail.id, false, false).unwrap_err(), SPEAKER_LABELS_REPLACE_EDITS);
+        reopened.set_speaker_labels(&detail.id, false, true).unwrap();
+        assert_eq!(reopened.set_speaker_labels(&detail.id, true, false).unwrap().transcript, named.transcript);
         fs::remove_dir_all(meetings.store.root()).unwrap();
     }
 
@@ -2614,6 +3178,7 @@ mod meeting_tests {
             .unwrap()
             .run_recognition(|_, _, _| {
                 Ok(crate::asr::RecognitionResult {
+                    word_confidence: Vec::new(),
                     original_text: None,
                     segments: Vec::new(),
                     text: "Acknowledged words.".into(),
@@ -2659,7 +3224,7 @@ mod meeting_tests {
         raw.warnings = vec!["Qwen3-ASR returned a repeating loop. Repeated text was reduced to its first occurrence; review the recording.".into()];
         raw.warnings.push("Speaker labeling failed: worker unavailable".into());
         let saved = meetings.finish_recognition_operation(&detail.id, &token,
-            Ok(MeetingRecognition { published: raw.text.clone(), raw }), "qwen").unwrap();
+            Ok(MeetingRecognition { published: raw.text.clone(), raw, known_speaker: None }), "qwen").unwrap();
         assert_eq!(saved.status, "transcribed");
         assert_eq!(saved.recognition_completeness, crate::domain::RecognitionCompleteness::Complete);
         assert!(saved.error.is_none());
@@ -2692,7 +3257,7 @@ mod meeting_tests {
             raw.segments[0].complete = false;
             raw.warnings.push(warning.into());
             let saved = meetings.finish_recognition_operation(&detail.id, &token,
-                Ok(MeetingRecognition { published: raw.text.clone(), raw }), "qwen").unwrap();
+                Ok(MeetingRecognition { published: raw.text.clone(), raw, known_speaker: None }), "qwen").unwrap();
             assert_eq!(saved.status, if stopped { "interrupted" } else { "transcribed" });
             assert_eq!(saved.transcription_stopped_at_seconds, stopped.then_some(30.0));
             assert_eq!(saved.missing_seconds, 0.0);
@@ -2723,7 +3288,7 @@ mod meeting_tests {
         raw.segments[0].complete = false;
         raw.warnings.push("Qwen3-ASR reached its output token limit.".into());
         let saved = meetings.finish_recognition_operation(&detail.id, &token,
-            Ok(MeetingRecognition { published: raw.text.clone(), raw }), "qwen").unwrap();
+            Ok(MeetingRecognition { published: raw.text.clone(), raw, known_speaker: None }), "qwen").unwrap();
         assert_eq!(saved.transcript, "Original edits.");
         assert_eq!(saved.cleaned_transcript.as_deref(), Some("Cleaned edits."));
         assert_eq!(saved.notes, "Notes.");
@@ -3476,6 +4041,7 @@ mod meeting_tests {
                 let (_, token) = meetings.begin(&detail.id, "transcribing").unwrap();
                 meetings.finish_recognition_operation(&detail.id, &token, Ok(MeetingRecognition {
                     raw: recognition(transcript, 0.0, 1.0), published: transcript.into(),
+                    known_speaker: None,
                 }), "test-model").unwrap();
                 let record = meetings.read(&detail.id).unwrap();
                 assert!(record.needs_automatic_title(), "{source}");
@@ -3871,6 +4437,7 @@ mod meeting_tests {
 fn validate_record(record: &MeetingRecord) -> Result<(), String> {
     validate_id(&record.detail.id)?;
     validate_title(&record.detail.title)?;
+    timed::validate_speaker(record.import_speaker.as_deref())?;
     validate_text(&record.detail.transcript, "Transcript")?;
     validate_text(&record.detail.notes, "Notes")?;
     if let Some(cleaned) = &record.detail.cleaned_transcript {
@@ -3996,6 +4563,7 @@ pub(crate) fn import_legacy_meetings(store: &Store, legacy_root: &Path) -> Resul
                 transcription_model: None, speaker_count: 0, speaker_labels: true,
             },
             raw_transcript: (!transcript.is_empty()).then_some(transcript),
+            speaker_names: Default::default(),
             title_user_edited: true,
             automatic_title_pending: false,
             legacy_audio: audio,
@@ -4003,6 +4571,7 @@ pub(crate) fn import_legacy_meetings(store: &Store, legacy_root: &Path) -> Resul
             legacy_system_audio: system,
             source_media: legacy_audio_path(&value, "SourceMediaPath", legacy_root),
             recognition_file: None,
+            import_speaker: None,
             outages_recorded: false,
         };
         meetings.write(&record)?;

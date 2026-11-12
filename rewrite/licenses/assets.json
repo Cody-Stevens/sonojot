@@ -17,11 +17,11 @@
       "id": "asset:punctuation-attribution",
       "kind": "notice-resource",
       "name": "SonoJot punctuation model attribution and CC BY-SA terms",
-      "version": "v1 and v2 pinned model revisions",
+      "version": "v1, v2 and v3 pinned model revisions",
       "license": "CC-BY-SA-4.0",
-      "sources": ["licenses/download-components.json", "licenses/punctuation/NOTICE-v1.txt", "licenses/punctuation/NOTICE-v2.txt"],
+      "sources": ["licenses/download-components.json", "licenses/punctuation/NOTICE-v1.txt", "licenses/punctuation/NOTICE-v2.txt", "licenses/punctuation/NOTICE-v3.txt"],
       "patterns": ["licenses/punctuation/*.txt", "licenses/downloads/standard/cc-by-sa-4.0.txt"],
-      "textFiles": ["licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt", "licenses/punctuation/NOTICE-v1.txt", "licenses/punctuation/NOTICE-v2.txt"],
+      "textFiles": ["licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt", "licenses/punctuation/NOTICE-v1.txt", "licenses/punctuation/NOTICE-v2.txt", "licenses/punctuation/NOTICE-v3.txt"],
       "distribution": "Attribution and terms embedded for retention beside downloaded punctuation models; optional-download records preserve the pinned cards and dataset notices",
       "issues": []
     },
@@ -90,7 +90,7 @@
       "license": "LicenseRef-Project-Data",
       "requiresNotice": false,
       "sources": ["src-tauri/src/written_form/PROVENANCE.md", "src-tauri/assets/model-identities.json"],
-      "patterns": ["src-tauri/assets/model-identities.json", "src-tauri/assets/linux-llama-identities.json", "src-tauri/src/written_form/models.json", "src/brand/recommendations.json"],
+      "patterns": ["src-tauri/assets/model-identities.json", "src-tauri/assets/linux-llama-identities.json", "src-tauri/src/written_form/models.json", "src-tauri/src/written_form/terms.json", "src/brand/recommendations.json"],
       "provenanceFiles": ["src-tauri/src/written_form/PROVENANCE.md"],
       "distribution": "Compile-time data tables; written-form model names retain their per-entry source URLs",
       "issues": ["The written-form lexicon was supplied with the assignment; its provenance does not include an explicit license or ownership declaration. Confirm the right to redistribute the supplied data."]

@@ -2,6 +2,10 @@
 import { readFileSync } from "node:fs";
 const downloadConsentCatalog = JSON.parse(readFileSync(new URL("../../legal/download-consent.json", import.meta.url), "utf8"));
 export const proofreaderCatalog = [
+  ...[ ["anthropic/claude-opus-5.5", "Claude Opus 5.5"], ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"], ["anthropic/claude-haiku-5.5", "Claude Haiku 5.5"] ].map(([id, name]) => ({
+    id, name, contextLength: 32000, promptPrice: "0.000001", completionPrice: "0.000002",
+    inputModalities: ["text"], supportedParameters: ["reasoning", "temperature"], trainingRequired: false,
+  })),
   {
     id: "openai/gpt-6-luna", name: "GPT-6 Luna", contextLength: 32000,
     promptPrice: "0.000001", completionPrice: "0.000002",
@@ -73,6 +77,7 @@ export function macProfileFixture(ramGiB = 16) {
     settings: { setupProfile: null, asrModel: small, cleanupModel: "local-rules", notesModel },
     capabilities: { platform: "macos", autoPaste: true, systemAudio: false },
     hardwareProfile: {
+      frontier: { dictation: tight ? [small, q4] : [small, q4, q8], meetings: tight ? [small, q4] : [small, q4, q8], otherLanguages: q4 },
       hardware: { platform: "macos", appleSilicon: true, totalRamBytes: ramGiB * GiB,
         physicalCores: 8, logicalCores: 8, gpuName: null, gpuDriverVersion: null,
         gpuComputeCapability: null, totalVramBytes: null, cudaOk: false },
@@ -155,6 +160,7 @@ export async function installDesktopFixture(page, options = {}) {
       initialTheme = "fog";
     }
     const state = {
+      localProofreaderAvailable: Boolean(options.localProofreaderAvailable),
       revision: 1,
       meetingsRevision: 1,
       sessionId: null,
@@ -174,6 +180,7 @@ export async function installDesktopFixture(page, options = {}) {
         setupProfile: "custom",
         punctuationRecommendationAcknowledged: false,
         punctuationV2RecommendationAcknowledged: false,
+        punctuationV3RecommendationAcknowledged: false,
         theme: initialTheme,
         material: true,
         cleanupMode: "clean",
@@ -184,6 +191,7 @@ export async function installDesktopFixture(page, options = {}) {
         proofreaderModel: "openai/gpt-6-luna",
         proofreaderTrainingModels: [],
         writtenForm: true,
+        sonojotPunctuation: true,
         launchAtLogin: false,
         hotkey: "Ctrl+Shift+D",
         hotkeyMode: "toggle",
@@ -198,6 +206,8 @@ export async function installDesktopFixture(page, options = {}) {
         notesModel: "qwen3-4b-instruct-2507",
         textAcceleration: "auto",
         doNotSaveDictations: false,
+        keepDictationAudio: false,
+        updateChannel: "stable",
         learnFromCorrections: false,
         memoryMode: "overlap",
         modelRetention: "10m",
@@ -207,7 +217,10 @@ export async function installDesktopFixture(page, options = {}) {
         meetingSourceMigrated: true,
         systemAudioDefaultApplied: true,
         autoMeetingTitles: true,
+        meetingNotesPreset: null,
+        meetingNotesInstructions: "",
         meetingSpeakerLabels: true,
+        localProofreader: false,
         ...options.settings,
         ...(options.firstRun ? { setupProfile: null, hotkey: "Ctrl+Space", microphone: null } : {}),
       },
@@ -256,7 +269,7 @@ export async function installDesktopFixture(page, options = {}) {
         ...options.update,
       },
     };
-    let vocabulary = [];
+    let vocabulary = structuredClone(options.vocabulary ?? []);
     const seed = {
       id: "meeting-one",
       title: "Design review",
@@ -297,10 +310,18 @@ export async function installDesktopFixture(page, options = {}) {
       error: null,
     };
     let meetings = options.meetings ? structuredClone(options.meetings) : [structuredClone(seed), outageMeeting];
+    const meetingRaw = new Map(
+      meetings.map((meeting) => [
+        meeting.id,
+        meeting.rawTranscript ?? meeting.transcript,
+      ]),
+    );
+    const speakerNames = new Map();
     // Mock Round 6 model library for UI tests only. Sizes and memory ranges
     // are illustrative placeholders, not measurements from this machine.
     const GB = 1024 * 1024 * 1024;
     const hardwareProfile = options.hardwareProfile ?? {
+      frontier: { dictation: ["moonshine-medium", "mock-whisper-small-cuda"], meetings: ["moonshine-medium", "mock-whisper-small-cuda", "granite-speech-4.1-2b-nar-q8"], otherLanguages: "mock-whisper-small-cuda" },
       hardware: {
         platform: "windows", appleSilicon: false, totalRamBytes: 32 * GB,
         physicalCores: 8, logicalCores: 16, gpuName: "NVIDIA test GPU",
@@ -719,12 +740,12 @@ export async function installDesktopFixture(page, options = {}) {
     // Installed by default so unrelated profile cases isolate their own downloads.
     // Punctuation tests explicitly request available/failed/checking states.
     if (options.punctuation !== null) library.models.push({
-      id: "sonojot-punct-v2", name: "SonoJot Punctuation v2", kind: "punctuation", roles: ["punctuation"],
+      id: "sonojot-punct-v3", name: "SonoJot Punctuation v3", kind: "punctuation", roles: ["punctuation"],
       family: "SonoJot Punctuation", languages: ["English"], older: false,
-      diskBytes: 302728954, totalBytes: 302728954, downloadedBytes: 302728954,
+      diskBytes: 302728863, totalBytes: 302728863, downloadedBytes: 302728863,
       ramMinBytes: null, ramMaxBytes: null, vramMinBytes: 0, vramMaxBytes: 0,
       memoryBasis: "Unmeasured; fixture only", guidance: "Fixes punctuation and helps write numbers and symbols in Clean dictation; runs on CPU",
-      evidence: "CC BY-SA 4.0; https://huggingface.co/SonoJot/sonojot-punct-v2",
+      evidence: "CC BY-SA 4.0; https://huggingface.co/SonoJot/sonojot-punct-v3",
       backend: "CPU · ONNX Runtime", compatibility: "Windows x64 and Apple Silicon CPU",
       state: "installed", error: null, installable: true, removable: true,
       usedBy: [], revision: "fixture", quantization: "int8", contextTokens: null,
@@ -831,13 +852,14 @@ export async function installDesktopFixture(page, options = {}) {
       const choice = profile === "custom" ? state.settings : hardwareProfile.recommendations[profile];
       Object.assign(state.settings, { asrModel: choice.asrModel, cleanupModel: choice.cleanupModel, notesModel: choice.notesModel,
         setupProfile: onboardingRequired && !defaults ? null : profile,
-        punctuationRecommendationAcknowledged: true, punctuationV2RecommendationAcknowledged: true });
+        punctuationRecommendationAcknowledged: true, punctuationV2RecommendationAcknowledged: true,
+        punctuationV3RecommendationAcknowledged: true });
       if (defaults) Object.assign(state.settings, { microphone: null, hotkey: "Ctrl+Space", hotkeyMode: "toggle" });
       onboardingProfile = profile;
       // Mirrors onboarding.rs: unchecked profile downloads are skipped and
       // optional extras already queued stay behind the new profile's models.
       const extras = onboardingQueue.filter((id) => id === "nemotron-3-diarization");
-      onboardingQueue.splice(0, onboardingQueue.length, ...new Set([choice.asrModel, "sonojot-punct-v2", choice.notesModel]
+      onboardingQueue.splice(0, onboardingQueue.length, ...new Set([choice.asrModel, "sonojot-punct-v3", choice.notesModel]
         .filter((id) => id !== "openrouter" && !skip.includes(id)).concat(extras)));
       let downloading = false;
       for (const id of onboardingQueue) {
@@ -870,6 +892,8 @@ export async function installDesktopFixture(page, options = {}) {
       }
       emit();
     };
+    // Kept dictation audio (the backend contract: count and bytes on disk).
+    let dictationAudio = { count: 0, bytes: 0, ...options.dictationAudio };
     let history = options.history ?? [
       {
         id: "dictation-one",
@@ -958,6 +982,10 @@ export async function installDesktopFixture(page, options = {}) {
     window.__testPushSnapshot = (patch) => {
       Object.assign(state, clone(patch));
       emit();
+    };
+    window.__testNavigatePage = (page) => {
+      const handler = handlers.get("navigate-page");
+      if (handler) callbacks.get(handler)?.({ event: "navigate-page", id: 1, payload: page });
     };
     window.__testSnapshot = () => clone(state);
     // Drive checks, unknown/known download progress, ready and errors without timers.
@@ -1173,10 +1201,17 @@ export async function installDesktopFixture(page, options = {}) {
               if (state.settings.setupProfile === null) {
                 state.settings.punctuationRecommendationAcknowledged = true;
                 state.settings.punctuationV2RecommendationAcknowledged = true;
+                state.settings.punctuationV3RecommendationAcknowledged = true;
               }
               state.settings.asrModel = choice.asrModel;
               state.settings.cleanupModel = choice.cleanupModel;
               state.settings.notesModel = choice.notesModel;
+              state.settings.proofreader = false;
+              state.settings.localProofreader = false;
+              state.settings.meetingAsrModel = "";
+              aiSettings.backend = "local";
+              aiSettings.model = "";
+              aiSettings.speechModel = "";
             }
             state.settings.setupProfile = args.profile;
             syncUsedBy();
@@ -1216,6 +1251,8 @@ export async function installDesktopFixture(page, options = {}) {
             emit();
             return clone(state);
           case "show_page":
+            window.__testNavigatePage(args.page);
+            return null;
           case "copy_last_dictation":
             return null;
           case "copy_smart_original":
@@ -1319,6 +1356,15 @@ export async function installDesktopFixture(page, options = {}) {
           case "open_download_license":
           case "export_meeting":
             return null;
+          case "export_dictation": {
+            const record = history.find((record) => record.id === args.id);
+            if (!record) throw new Error("This dictation is no longer saved.");
+            window.__testDictationExport = { id: record.id, path: args.path, text: record.published };
+            return null;
+          }
+          case "copy_shortcut_command":
+            window.__testClipboard = "sonojot --shortcut press";
+            return null;
           case "export_meeting_audio": {
             if (audioExportError) {
               const message = audioExportError;
@@ -1343,6 +1389,7 @@ export async function installDesktopFixture(page, options = {}) {
             };
             return clone(aiSettings);
           case "connect_openrouter":
+          case "connect_openrouter_key":
             checkAiError(command);
             if (!aiSettings.supported) throw new Error(aiSettings.help);
             if (options.aiConnectPending) {
@@ -1378,7 +1425,7 @@ export async function installDesktopFixture(page, options = {}) {
               activeRoutes: 0,
             });
           case "suggest_vocabulary":
-            return [];
+            return clone(options.vocabularySuggestions ?? []);
           case "cancel_vocabulary_suggestions":
             return null;
           case "get_model_library":
@@ -1463,6 +1510,13 @@ export async function installDesktopFixture(page, options = {}) {
           }
           case "count_dictations":
             return history.length;
+          case "get_dictation_audio_usage":
+            return clone(dictationAudio);
+          case "delete_dictation_audio": {
+            const deleted = dictationAudio.count;
+            dictationAudio = { count: 0, bytes: 0 };
+            return { deleted };
+          }
           case "save_dictation_correction": {
             const record = history.find((item) => item.id === args.id);
             if (!record)
@@ -1505,6 +1559,7 @@ export async function installDesktopFixture(page, options = {}) {
             return clone(vocabulary);
           case "learn_correction":
             vocabulary.push({
+              aliases: [], context: [],
               id: "learned",
               heard: args.heard,
               written: args.written,
@@ -1514,6 +1569,99 @@ export async function installDesktopFixture(page, options = {}) {
             return clone(vocabulary);
           case "list_meetings":
             return clone(meetings);
+          case "search_meetings": {
+            const query = args.query.trim().toLowerCase();
+            return query ? meetings.flatMap((meeting) => {
+              const line = [meeting.title, meeting.notes, meeting.transcript].flatMap((text) => (text ?? "").split("\n"))
+                .find((line) => line.toLowerCase().includes(query));
+              return line ? [{ id: meeting.id, line }] : [];
+            }) : [];
+          }
+          case "reassign_meeting_passage": {
+            const meeting = meetings.find((meeting) => meeting.id === args.id);
+            const relabel = (text, from) => text?.split("\n").map((line) => {
+              const match = line.match(/^\[([\d:]+)\] ([^:]+):(.*)$/);
+              return match && match[1] === args.clock && (!from || match[2] === from)
+                ? `[${match[1]}] ${args.to}:${match[3]}` : line;
+            }).join("\n");
+            meeting.transcript = relabel(meeting.transcript, args.from);
+            meeting.cleanedTranscript = relabel(meeting.cleanedTranscript);
+            state.meetingsRevision += 1;
+            emit();
+            return clone(meeting);
+          }
+          case "get_timed_transcript":
+            return { rawTranscript: meetingRaw.get(args.id) ?? null };
+          case "meeting_speakers": {
+            const meeting = meetings.find(
+              (meeting) => meeting.id === args.id,
+            );
+            return [
+              ...new Set(
+                [
+                  ...meeting.transcript.matchAll(/^\[[\d:]+\] ([^:]+):/gm),
+                ].map((match) => match[1]),
+              ),
+            ].map((label) => ({ label, passages: 1 }));
+          }
+          case "rename_meeting_speaker": {
+            const meeting = meetings.find(
+              (meeting) => meeting.id === args.id,
+            );
+            const rename = (text) =>
+              text?.replace(
+                /^(\[[\d:]+\] )([^:]+):/gm,
+                (line, clock, name) =>
+                  name === args.from ? `${clock}${args.to}:` : line,
+              );
+            meeting.transcript = rename(meeting.transcript);
+            meeting.cleanedTranscript = rename(meeting.cleanedTranscript);
+            const names = speakerNames.get(args.id) ?? {};
+            for (const name of Object.keys(names))
+              if (names[name] === args.from) names[name] = args.to;
+            names[args.from] = args.to;
+            speakerNames.set(args.id, names);
+            state.meetingsRevision += 1;
+            emit();
+            return clone(meeting);
+          }
+          case "join_meetings": {
+            const parts = args.ids.map((id) =>
+              meetings.find((meeting) => meeting.id === id),
+            );
+            const joined = {
+              ...clone(parts[0]),
+              id: "joined-meeting",
+              title: args.title ?? "Joined meeting",
+              source: "joined",
+              durationSeconds: parts.reduce(
+                (sum, part) => sum + part.durationSeconds,
+                0,
+              ),
+              transcript: parts.map((part) => part.transcript).join("\n\n"),
+              notes: "",
+              cleanedTranscript: null,
+            };
+            meetings.unshift(joined);
+            state.meetingsRevision += 1;
+            emit();
+            return clone(joined);
+          }
+          case "discard_meeting": {
+            if (!args.confirmed)
+              throw new Error("Confirm before discarding the recording.");
+            if (state.activeMeetingId !== args.id)
+              throw new Error("The recording changed.");
+            meetings = meetings.filter((meeting) => meeting.id !== args.id);
+            state.meetingRecording = false;
+            state.activeMeetingId = null;
+            state.meetingLevels = null;
+            state.meetingSystemAudio = null;
+            state.meetingSourceStatus = [];
+            state.meetingsRevision += 1;
+            emit();
+            return null;
+          }
           case "get_meeting":
             return clone(meetings.find((meeting) => meeting.id === args.id));
           case "save_meeting": {
@@ -1524,8 +1672,14 @@ export async function installDesktopFixture(page, options = {}) {
             return clone(meeting);
           }
           case "set_meeting_speaker_labels": {
-            const meeting = meetings.find((meeting) => meeting.id === args.id);
-            if (!args.confirmed && (meeting.cleanedTranscript != null || meeting.transcript.includes("Edited.")))
+            const meeting = meetings.find(
+              (meeting) => meeting.id === args.id,
+            );
+            if (
+              !args.confirmed &&
+              (meeting.cleanedTranscript != null ||
+                meeting.transcript.includes("Edited."))
+            )
               throw new Error(
                 "Changing speaker labels rebuilds the transcript and replaces your edits.",
               );
@@ -1534,6 +1688,12 @@ export async function installDesktopFixture(page, options = {}) {
             meeting.transcript = args.enabled
               ? "[0:01] Speaker 1: Theirs.\n\n[0:02] You: Mine.\n\n[0:04] Speaker 2: Reply."
               : "[0:01] Other speakers: Theirs.\n\n[0:02] You: Mine.\n\n[0:04] Other speakers: Reply.";
+            const names = speakerNames.get(args.id) ?? {};
+            meeting.transcript = meeting.transcript.replace(
+              /^(\[[\d:]+\] )([^:]+):/gm,
+              (line, clock, name) =>
+                names[name] ? `${clock}${names[name]}:` : line,
+            );
             state.meetingsRevision += 1;
             emit();
             return clone(meeting);
@@ -1595,39 +1755,60 @@ export async function installDesktopFixture(page, options = {}) {
             return null;
           case "screen_tab_meeting":
           case "start_meeting": {
-            if (state.settings.termsAcceptedVersion < 1 || !state.settings.termsAcceptedAt) {
-              throw new Error("TERMS_REQUIRED: Open SonoJot and review the Terms of Use to continue.");
+            if (
+              state.settings.termsAcceptedVersion < 1 ||
+              !state.settings.termsAcceptedAt
+            ) {
+              throw new Error(
+                "TERMS_REQUIRED: Open SonoJot and review the Terms of Use to continue.",
+              );
             }
             if (state.settings.setupProfile === null) {
-              state.error = "SETUP_INCOMPLETE: Finish setup to record meetings.";
+              state.error =
+                "SETUP_INCOMPLETE: Finish setup to record meetings.";
               emit();
               throw new Error(state.error);
             }
             if (!state.settings.meetingConsentAcknowledged) {
-              throw new Error("MEETING_CONSENT_REQUIRED: Review the recording reminder before starting a meeting.");
+              throw new Error(
+                "MEETING_CONSENT_REQUIRED: Review the recording reminder before starting a meeting.",
+              );
             }
             // Mirrors system_audio::recording_source and the recorder's notice.
             const status = state.capabilities.systemAudioStatus;
             const saved = state.settings.meetingSource;
             if (command === "start_meeting" && args.source !== saved) {
-              throw new Error("Meeting audio source changed. Review Record from before starting.");
+              throw new Error(
+                "Meeting audio source changed. Review Record from before starting.",
+              );
             }
             if (saved === "system" && status === "unsupported") {
-              throw new Error("Recording system audio needs macOS 14.2 or later. Choose Microphone only in Meetings.");
+              throw new Error(
+                "Recording system audio needs macOS 14.2 or later. Choose Microphone only in Meetings.",
+              );
             }
-            const recorded = saved === "both" && status === "unsupported" ? "microphone" : saved;
-            state.meetingSystemAudio = recorded !== saved
-              ? "unsupported"
-              : recorded !== "microphone" && (status === "notDetermined" || status === "denied")
-                ? "permission"
-                : null;
-            state.meetingSourceStatus = state.meetingSystemAudio === "permission"
-              ? ["System audio is off. Allow it in System Settings."]
-              : [];
+            const recorded =
+              saved === "both" && status === "unsupported"
+                ? "microphone"
+                : saved;
+            state.meetingSystemAudio =
+              recorded !== saved
+                ? "unsupported"
+                : recorded !== "microphone" &&
+                    (status === "notDetermined" || status === "denied")
+                  ? "permission"
+                  : null;
+            state.meetingSourceStatus =
+              state.meetingSystemAudio === "permission"
+                ? ["System audio is off. Allow it in System Settings."]
+                : [];
             const meeting = {
               ...clone(seed),
               id: "new-meeting",
+              createdAt: new Date().toISOString(),
               title: args.title || "Untitled meeting",
+              autoNamed: false,
+              speakerCount: 0,
               source: recorded,
               status: "recording",
               durationSeconds: 0,
@@ -1687,6 +1868,11 @@ export async function installDesktopFixture(page, options = {}) {
             }
             return "C:/fixture-export.pdf";
           }
+          case "get_cli_path":
+            return "C:/Program Files/Eavesdropper Next/sonojot-cli.exe";
+          case "copy_cli_path":
+            window.__testClipboard = "C:/Program Files/Eavesdropper Next/sonojot-cli.exe";
+            return null;
           case "get_diagnostics":
             return "Isolated UI fixture. No native service was contacted.";
           default:
@@ -1694,5 +1880,5 @@ export async function installDesktopFixture(page, options = {}) {
         }
       },
     };
-  }, { ...options, downloadConsentGroups: downloadConsentCatalog.groups });
+  }, { ...options, downloadConsentGroups: options.downloadConsentGroups ?? downloadConsentCatalog.groups });
 }

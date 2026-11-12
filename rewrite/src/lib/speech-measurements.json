@@ -1,0 +1,1044 @@
+{
+  "qwen3-asr-1.7b-q8-cuda": {
+    "ted": {
+      "value": 2.51,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "Direct llama-server, full clips"
+    },
+    "mac": {
+      "value": 5.09,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": "Production worker, VAD, 20 s sections"
+    },
+    "ami": {
+      "value": 8.81,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "ram": {
+      "planningRange": [
+        0.94,
+        1.68
+      ],
+      "measuredPeak": 1,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": "Worker + llama-server host memory, ctx 2048, no mmap"
+    },
+    "vram": {
+      "planningRange": [
+        3.36,
+        4.4
+      ],
+      "measuredPeak": 3.43,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": "Whole-device increase incl. CUDA context; the October direct-server run saw 3.77 GiB (REPORT.md)"
+    },
+    "wait": {
+      "seconds": 0.229,
+      "label": "0.11–0.23 s",
+      "basis": "Two Windows app-worker clips; range after speech",
+      "source": [
+        "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+        "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md"
+      ]
+    }
+  },
+  "qwen3-asr-1.7b-q4-cpu": {
+    "ted": {
+      "value": 3,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": "Linux 4-core VM, production worker, file mode"
+    },
+    "mac": {
+      "value": 4.78,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": "12-thread desktop follow-up"
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        2.2,
+        2.94
+      ],
+      "measuredPeak": 2.14,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": "Worker + server peak, 12 threads; the Linux 4-core run did not measure server RSS"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 2,
+      "label": "2.00 s",
+      "basis": "Median after speech on a 4-core Linux CPU",
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    }
+  },
+  "qwen3-asr-0.6b-q8-cpu": {
+    "ted": {
+      "value": 4.1,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1.47,
+        2.41
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Provisional; the Linux run reports RAM 'in llama-server, not measured'"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 1.52,
+      "label": "1.52 s",
+      "basis": "Median after speech on a 4-core Linux CPU",
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    }
+  },
+  "qwen3-asr-1.7b-q8-metal": {
+    "ted": null,
+    "mac": {
+      "value": 5.25,
+      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
+      "note": "Selected sectioner A"
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        2.8,
+        3.77
+      ],
+      "measuredPeak": 2.91,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
+      "note": "Unified memory, M1 Pro 16 GB, evaluator + worker + server; counted once"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Unified memory; see ramGB"
+    },
+    "wait": {
+      "seconds": 0.777,
+      "label": "0.78 s",
+      "basis": "Median final delay on Apple Silicon",
+      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md"
+    }
+  },
+  "qwen3-asr-1.7b-q4-metal": {
+    "ted": null,
+    "mac": {
+      "value": 5.25,
+      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
+      "note": "Selected sectioner A"
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        2.36,
+        3.15
+      ],
+      "measuredPeak": 2.35,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
+      "note": "M1 Pro 16 GB; an M4 16 GB run saw 2.16 GB"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Unified memory; see ramGB"
+    },
+    "wait": {
+      "seconds": 0.685,
+      "label": "0.69 s",
+      "basis": "Median final delay on Apple Silicon",
+      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md"
+    }
+  },
+  "parakeet-tdt-0.6b-v2": {
+    "ted": {
+      "value": 4,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": "Long clips 3.3%; most short-clip errors are dropped disfluencies"
+    },
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1.26,
+        2.1
+      ],
+      "measuredPeak": 1.31,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": "1.22 GiB worker peak on a 4-core Linux VM"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 0.15,
+      "label": "0.15 s",
+      "basis": "Median after speech on a 4-core Linux CPU",
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    }
+  },
+  "moonshine-medium": {
+    "ted": {
+      "value": 6.5,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": ""
+    },
+    "mac": {
+      "value": 8.8,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": ""
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        0.56,
+        0.84
+      ],
+      "measuredPeak": 0.56,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": "Windows 0.56 GB; Linux 0.82 GiB (0.88 GB)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 0.29,
+      "label": "0.29 s",
+      "basis": "Median after speech on a 4-core Linux CPU",
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    }
+  },
+  "moonshine-small": {
+    "ted": {
+      "value": 8.4,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        0.42,
+        0.84
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Provisional; not measured"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 0.11,
+      "label": "0.11 s",
+      "basis": "Median after speech on a 4-core Linux CPU",
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    }
+  },
+  "granite-speech-4.1-2b-nar-q8": {
+    "ted": {
+      "value": 3.81,
+      "source": "rewrite/evaluation/asr-bench-2026-10/NAR-TRANSCRIBECPP.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": {
+      "value": 7.24,
+      "source": "rewrite/evaluation/asr-bench-2026-10/NAR-TRANSCRIBECPP.md",
+      "note": ""
+    },
+    "ram": {
+      "planningRange": [
+        2.36,
+        3.67
+      ],
+      "measuredPeak": 2.35,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/NAR-TRANSCRIBECPP.md",
+      "note": "2.19 GiB process-tree RSS on Windows. The Mac planning range (4.0-6.0 GiB) is provisional"
+    },
+    "vram": {
+      "planningRange": [
+        4.13,
+        5.03
+      ],
+      "measuredPeak": 4.13,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/NAR-TRANSCRIBECPP.md",
+      "note": "3941 MiB device increase, RTX 5070; Mac uses unified memory"
+    },
+    "wait": null
+  },
+  "whisper-tiny": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        0.31,
+        0.63
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-tiny.en": {
+    "ted": {
+      "value": 5.9,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": ""
+    },
+    "mac": {
+      "value": 7.87,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": ""
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        0.53,
+        0.73
+      ],
+      "measuredPeak": 0.53,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 0.19,
+      "label": "0.19 s",
+      "basis": "Median after speech on a 4-core Linux CPU",
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    }
+  },
+  "whisper-base": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        0.47,
+        0.89
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-base.en": {
+    "ted": {
+      "value": 5.8,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        0.47,
+        0.89
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 0.39,
+      "label": "0.39 s",
+      "basis": "Median after speech on a 4-core Linux CPU",
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    }
+  },
+  "whisper-small": {
+    "ted": null,
+    "mac": {
+      "value": 7.72,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": ""
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1.28,
+        1.68
+      ],
+      "measuredPeak": 1.28,
+      "estimated": false,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-small.en": {
+    "ted": {
+      "value": 5.1,
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        0.89,
+        1.52
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 1.19,
+      "label": "1.19 s",
+      "basis": "Median after speech on a 4-core Linux CPU",
+      "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    }
+  },
+  "whisper-medium": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1.57,
+        2.73
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-medium.en": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1.57,
+        2.73
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-large-v3": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        2.73,
+        4.3
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-large-v3-turbo": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1.78,
+        2.83
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-large-v1": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        2.73,
+        4.3
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-large-v2": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        2.73,
+        4.3
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "qwen3-asr-1.7b": {
+    "ted": null,
+    "mac": {
+      "value": 5.56,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": ""
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        3.15,
+        4.82
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "qwen3-asr-1.7b-fp16-cuda": {
+    "ted": null,
+    "mac": {
+      "value": 4.78,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": ""
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        9.44,
+        12.58
+      ],
+      "measuredPeak": 10.51,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Private host peak; working set 2.60 GB; one clip"
+    },
+    "vram": {
+      "planningRange": [
+        7.44,
+        8.81
+      ],
+      "measuredPeak": 7.56,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 3.255,
+      "label": "3.02–3.25 s",
+      "basis": "Two Windows app-worker clips; range after speech",
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md"
+    }
+  },
+  "whisper-large-v3-turbo-fp32-cuda": {
+    "ted": null,
+    "mac": {
+      "value": 8.64,
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md",
+      "note": "Row labelled 'Whisper Large v3 Turbo CUDA (user's setting)'; mapping to this ID is inferred"
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        4.19,
+        8.91
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        4.72,
+        7.86
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": {
+      "seconds": 0.4,
+      "label": "0.30–0.40 s",
+      "basis": "Two Windows app-worker clips; range after speech",
+      "source": "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md"
+    }
+  },
+  "whisper-small-fp32-cuda": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1.57,
+        3.67
+      ],
+      "measuredPeak": 3.29,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Private host peak, one clip"
+    },
+    "vram": {
+      "planningRange": [
+        1.89,
+        3.67
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "parakeet-tdt-0.6b-v2-fp16-cuda": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        4.19,
+        6.29
+      ],
+      "measuredPeak": 4.29,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Private host peak, one clip"
+    },
+    "vram": {
+      "planningRange": [
+        2.31,
+        4.72
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "wait": null
+  },
+  "whisper-tiny-fp32-cuda": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        0.52,
+        1.26
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)"
+    },
+    "vram": {
+      "planningRange": [
+        0.63,
+        1.15
+      ],
+      "measuredPeak": 0.74,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "+705 MiB decode on RTX 5070"
+    },
+    "wait": null
+  },
+  "whisper-small-metal": {
+    "ted": null,
+    "mac": {
+      "value": 7.72,
+      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
+      "note": "Original sectioner, new run"
+    },
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        1,
+        2
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/mac_speech.rs",
+      "note": "Unified memory"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Unified memory; see ramGB"
+    },
+    "wait": {
+      "seconds": 0.635,
+      "label": "0.64 s",
+      "basis": "Median final delay on Apple Silicon",
+      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md"
+    }
+  },
+  "whisper-turbo-metal": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": [
+        2.5,
+        4
+      ],
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/src-tauri/src/mac_speech.rs",
+      "note": "Unified memory"
+    },
+    "vram": {
+      "planningRange": [
+        0,
+        0
+      ],
+      "measuredPeak": 0,
+      "estimated": false,
+      "source": "rewrite/src-tauri/src/resource_manager.rs (estimated_ram_interval / estimated_vram_interval / estimate_basis)",
+      "note": "Unified memory; see ramGB"
+    },
+    "wait": null
+  },
+  "granite-speech-4.1-2b": {
+    "ted": {
+      "value": 3.89,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": {
+      "value": 6.39,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "ram": {
+      "planningRange": null,
+      "measuredPeak": 2.25,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark process RSS, not a shipping runtime"
+    },
+    "vram": {
+      "planningRange": null,
+      "measuredPeak": 5.29,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark device increase, not a shipping runtime"
+    },
+    "wait": null
+  },
+  "granite-4.0-1b-speech": {
+    "ted": {
+      "value": 3.33,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": {
+      "value": 7.6,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "ram": {
+      "planningRange": null,
+      "measuredPeak": 2.62,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark process RSS, not a shipping runtime"
+    },
+    "vram": {
+      "planningRange": null,
+      "measuredPeak": 5.33,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark device increase, not a shipping runtime"
+    },
+    "wait": null
+  },
+  "canary-qwen-2.5b": {
+    "ted": {
+      "value": 6.24,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": {
+      "value": 9.17,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "ram": {
+      "planningRange": null,
+      "measuredPeak": 6.35,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark process RSS, not a shipping runtime"
+    },
+    "vram": {
+      "planningRange": null,
+      "measuredPeak": 5.87,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark device increase, not a shipping runtime"
+    },
+    "wait": null
+  },
+  "parakeet-tdt-0.6b-v3": {
+    "ted": {
+      "value": 6.97,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": {
+      "value": 7,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "ram": {
+      "planningRange": null,
+      "measuredPeak": 3.61,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark process RSS, not a shipping runtime"
+    },
+    "vram": {
+      "planningRange": null,
+      "measuredPeak": 5.65,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark device increase, not a shipping runtime"
+    },
+    "wait": null
+  },
+  "cohere-transcribe-03-2026": {
+    "ted": {
+      "value": 4.14,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "mac": null,
+    "ami": {
+      "value": 6.39,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": ""
+    },
+    "ram": {
+      "planningRange": null,
+      "measuredPeak": 1.89,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark process RSS, not a shipping runtime"
+    },
+    "vram": {
+      "planningRange": null,
+      "measuredPeak": 4.79,
+      "estimated": false,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark device increase, not a shipping runtime"
+    },
+    "wait": null
+  },
+  "nemotron-transcribe": {
+    "ted": null,
+    "mac": null,
+    "ami": null,
+    "ram": {
+      "planningRange": null,
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark process RSS, not a shipping runtime"
+    },
+    "vram": {
+      "planningRange": null,
+      "measuredPeak": null,
+      "estimated": true,
+      "source": "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
+      "note": "HF/NeMo benchmark device increase, not a shipping runtime"
+    },
+    "wait": null
+  }
+}

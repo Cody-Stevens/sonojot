@@ -209,14 +209,11 @@ impl Meetings {
         Ok(labels)
     }
 
-    /// Renames one speaker in the transcript and cleaned transcript. This is an
-    /// edit: switching speaker labels later asks before replacing it.
+    /// Renames one speaker in published text and remembers the name when labels
+    /// are hidden and shown. Saved recognition keeps its original labels.
     pub fn rename_speaker(&self, id: &str, from: &str, to: &str) -> Result<MeetingDetail, String> {
         let to = to.trim();
-        if to.is_empty() || to.len() > MAX_SPEAKER_NAME_BYTES
-            || to.chars().any(|c| c.is_control() || matches!(c, ':' | '[' | ']')) {
-            return Err(format!("Speaker names must be 1–{MAX_SPEAKER_NAME_BYTES} bytes without colons, brackets or control characters."));
-        }
+        validate_speaker_name(to)?;
         let _guard = self.store.lock()?;
         let mut record = self.read(id)?;
         if busy(&record.detail.status) {
@@ -238,9 +235,56 @@ impl Meetings {
         if let Some(cleaned) = &record.detail.cleaned_transcript {
             record.detail.cleaned_transcript = Some(rename_label(cleaned, from, to).0);
         }
+        for name in record.speaker_names.values_mut() {
+            if name == from { *name = to.into(); }
+        }
+        record.speaker_names.insert(from.into(), to.into());
         self.write(&record)?;
         Ok(record.detail)
     }
+
+    pub fn reassign_passage(&self, id: &str, clock: &str, from: &str, to: &str) -> Result<MeetingDetail, String> {
+        let to = to.trim();
+        validate_speaker_name(to)?;
+        let _guard = self.store.lock()?;
+        let mut record = self.read(id)?;
+        if busy(&record.detail.status) {
+            return Err("Finish or cancel the current meeting operation before editing.".into());
+        }
+        let transcript = reassign_line(&record.detail.transcript, clock, Some(from), to, true)?;
+        let cleaned = record.detail.cleaned_transcript.as_deref()
+            .map(|text| reassign_line(text, clock, None, to, false)).transpose()?;
+        validate_text(&transcript, "Transcript")?;
+        if let Some(text) = &cleaned { validate_text(text, "Cleaned transcript")?; }
+        record.detail.transcript = transcript;
+        record.detail.cleaned_transcript = cleaned;
+        self.write(&record)?;
+        Ok(record.detail)
+    }
+}
+
+fn validate_speaker_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > MAX_SPEAKER_NAME_BYTES
+        || name.chars().any(|c| c.is_control() || matches!(c, ':' | '[' | ']')) {
+        return Err(format!("Speaker names must be 1–{MAX_SPEAKER_NAME_BYTES} bytes without colons, brackets or control characters."));
+    }
+    Ok(())
+}
+
+fn reassign_line(text: &str, clock: &str, from: Option<&str>, to: &str, required: bool) -> Result<String, String> {
+    let prefix = format!("[{clock}]");
+    let mut count = 0;
+    let next = text.split('\n').map(|line| {
+        if line.starts_with(&prefix) && passage_label(line).is_some_and(|label| from.is_none_or(|from| label == from)) {
+            count += 1;
+            let (_, rest) = line.split_once(']').unwrap();
+            let (_, words) = rest.split_once(':').unwrap();
+            format!("{prefix} {to}:{words}")
+        } else { line.to_owned() }
+    }).collect::<Vec<_>>().join("\n");
+    if count > 1 { return Err("Several passages match this clock. Edit the transcript instead.".into()); }
+    if required && count == 0 { return Err("This passage changed. Reopen it before assigning its speaker.".into()); }
+    Ok(next)
 }
 
 /// `[0:12] Label: text` → `Label`.
@@ -251,6 +295,20 @@ fn passage_label(line: &str) -> Option<&str> {
     let (label, _) = rest.trim_start().split_once(':')?;
     let label = label.trim();
     (!label.is_empty() && label.len() <= 64).then_some(label)
+}
+
+pub(super) fn apply_speaker_names(transcript: &str, names: &std::collections::BTreeMap<String, String>) -> String {
+    transcript.split('\n').map(|line| {
+        let renamed = passage_label(line.trim_end_matches('\r')).and_then(|label| names.get(label));
+        match renamed {
+            Some(name) => {
+                let (head, rest) = line.split_once(']').unwrap();
+                let (_, text) = rest.split_once(':').unwrap();
+                format!("{head}] {name}:{text}")
+            }
+            None => line.to_owned(),
+        }
+    }).collect::<Vec<_>>().join("\n")
 }
 
 fn rename_label(transcript: &str, from: &str, to: &str) -> (String, usize) {

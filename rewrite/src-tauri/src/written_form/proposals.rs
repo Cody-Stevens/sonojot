@@ -85,7 +85,44 @@ impl SpanProposer for ModelProposer<'_> {
         });
         routed.extend(fallback);
         routed.sort_unstable_by_key(|span| span.start);
+        cued_years(words, &mut routed);
         routed
+    }
+}
+
+/// After "<month|season> of", a CARDINAL or YEAR span is a year. It becomes a
+/// YEAR span, extended over up to three following unrouted words when that
+/// completes the year ("August of [twenty] four" -> '24). Mirrors
+/// routing_policy.cued_years.
+fn cued_years(words: &[&str], spans: &mut [Span]) {
+    for i in 0..spans.len() {
+        let span = spans[i];
+        if !matches!(span.class, Class::Cardinal | Class::Year) {
+            continue;
+        }
+        let before = words[span.start.saturating_sub(3)..span.start].join(" ");
+        if numbers::year_cue(&before).is_none() {
+            continue;
+        }
+        let limit = spans.get(i + 1).map_or(words.len(), |next| next.start);
+        for end in (span.end..=limit.min(span.end + 3)).rev() {
+            let after = words[end..words.len().min(end + 3)].join(" ");
+            if render_span(
+                &words[span.start..end].join(" "),
+                Class::Year,
+                Some(&before),
+                Some(&after),
+            )
+            .is_some()
+            {
+                spans[i] = Span {
+                    start: span.start,
+                    end,
+                    class: Class::Year,
+                };
+                break;
+            }
+        }
     }
 }
 
@@ -221,10 +258,12 @@ impl SpanProposer for RulesProposer {
                 i += 1;
                 continue;
             }
+            let before = words[i.saturating_sub(3)..i].join(" ");
+            // "oh five" after a number or "<month|season> of" is not o5.
             let model = models::anchor(&prefix)
                 && !(matches!(first.as_str(), "oh" | "o" | "0")
                     && i > 0
-                    && plain_number(words[i - 1]));
+                    && (plain_number(words[i - 1]) || numbers::year_cue(&before).is_some()));
             let version = matches!(first.as_str(), "version" | "v" | ".net" | "python");
             let date = numbers::month(&first).is_some()
                 || first == "the"
@@ -263,13 +302,13 @@ impl SpanProposer for RulesProposer {
                 i += 1;
                 continue;
             }
-            let before = words[i.saturating_sub(3)..i].join(" ");
             let prev = i
                 .checked_sub(1)
                 .map(|i| clean(words[i]))
                 .unwrap_or_default();
             let cued_year = matches!(prev.as_str(), "in" | "since" | "fiscal" | "year")
-                || numbers::month(&prev).is_some();
+                || numbers::month(&prev).is_some()
+                || numbers::year_cue(&before).is_some();
             let mut best = None;
             for end in (i + 1..=words.len().min(i + 28)).rev() {
                 if complete_range_end.is_some_and(|required| end < required) {
@@ -374,8 +413,10 @@ impl SpanProposer for RulesProposer {
                         continue;
                     }
                     // A failed complete numeric expression must not be truncated
-                    // just before its next numeric word or magnitude.
+                    // just before its next numeric word or magnitude. A mark the
+                    // speaker produced already ends the expression there.
                     if end < words.len()
+                        && !super::crosses_mark(&format!("{} {}", words[end - 1], words[end]))
                         && plain_number(words[end])
                         && (clean(words[end]) != "and"
                             || end + 1 < words.len() && numeric_start(words[end + 1]))

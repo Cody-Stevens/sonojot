@@ -610,6 +610,17 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Text: [LICENSE-APACHE](#text-a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5) (SHA-256 `a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5`)
 - Text: [LICENSE-MIT](#text-73b9dc2e79c7308998dd30296e073aefaefb944a68fb89aa412c23c0edcabcaa) (SHA-256 `73b9dc2e79c7308998dd30296e073aefaefb944a68fb89aa412c23c0edcabcaa`)
 
+### crc-catalog 2.5.0
+
+- Inventory ID: `rust:crc-catalog@2.5.0`
+- License: `MIT OR Apache-2.0`
+- Targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc
+- Source: https://crates.io/crates/crc-catalog/2.5.0
+- Source: https://docs.rs/crate/crc-catalog/2.5.0/source/Cargo.toml
+- Distribution: normal dependency closure; bundled application
+- Verification: Published crate omits license files. MIT license retained from the exact upstream revision recorded in .cargo_vcs_info.json.
+- Text: [licenses/sources/crc-catalog-2.5.0-LICENSE-MIT](#text-5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5) (SHA-256 `5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5`)
+
 ### crc32fast 1.5.1
 
 - Inventory ID: `rust:crc32fast@1.5.1`
@@ -620,6 +631,17 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Distribution: normal dependency closure; bundled application
 - Text: [LICENSE-APACHE](#text-c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08) (SHA-256 `c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08`)
 - Text: [LICENSE-MIT](#text-61d383b05b87d78f94d2937e2580cce47226d17823c0430fbcad09596537efcf) (SHA-256 `61d383b05b87d78f94d2937e2580cce47226d17823c0430fbcad09596537efcf`)
+
+### crc 3.4.0
+
+- Inventory ID: `rust:crc@3.4.0`
+- License: `MIT OR Apache-2.0`
+- Targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc
+- Source: https://crates.io/crates/crc/3.4.0
+- Source: https://docs.rs/crate/crc/3.4.0/source/Cargo.toml
+- Distribution: normal dependency closure; bundled application
+- Text: [LICENSE-APACHE](#text-470355a7eed93fcc4281ec2e0f82ca3b94e7af1e4d83629f91de8cfac34d750e) (SHA-256 `470355a7eed93fcc4281ec2e0f82ca3b94e7af1e4d83629f91de8cfac34d750e`)
+- Text: [LICENSE-MIT](#text-3488679340a49ecc34d342c4009d2dabf76f4a21f12aec2ca99b15805d656544) (SHA-256 `3488679340a49ecc34d342c4009d2dabf76f4a21f12aec2ca99b15805d656544`)
 
 ### crossbeam-channel 0.5.17
 
@@ -1143,6 +1165,16 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Text: [LICENSE-APACHE](#text-a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2) (SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`)
 - Text: [LICENSE-MIT](#text-378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397) (SHA-256 `378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397`)
 
+### flacenc 0.5.1
+
+- Inventory ID: `rust:flacenc@0.5.1`
+- License: `Apache-2.0`
+- Targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc
+- Source: https://crates.io/crates/flacenc/0.5.1
+- Source: https://docs.rs/crate/flacenc/0.5.1/source/Cargo.toml
+- Distribution: normal dependency closure; bundled application
+- Text: [LICENSE](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+
 ### flate2 1.1.10
 
 - Inventory ID: `rust:flate2@1.1.10`
@@ -1394,6 +1426,17 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Text: [LICENSE-MIT](#text-2ab5537b8c0cb1d475e2145b6a7994b04e7c71e6e5bd836f7f9c47c221a5ad9a) (SHA-256 `2ab5537b8c0cb1d475e2145b6a7994b04e7c71e6e5bd836f7f9c47c221a5ad9a`)
 - Text: [LICENSE.spdx](#text-3b3a242fa1704327a51563c614c1043deab014f58ebbbdd173262c990104497e) (SHA-256 `3b3a242fa1704327a51563c614c1043deab014f58ebbbdd173262c990104497e`)
 
+### hash32 0.3.1
+
+- Inventory ID: `rust:hash32@0.3.1`
+- License: `MIT OR Apache-2.0`
+- Targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc
+- Source: https://crates.io/crates/hash32/0.3.1
+- Source: https://docs.rs/crate/hash32/0.3.1/source/Cargo.toml
+- Distribution: normal dependency closure; bundled application
+- Text: [LICENSE-APACHE](#text-a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2) (SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`)
+- Text: [LICENSE-MIT](#text-c986bcdb83103d4ddf58aeb7b5302359782e54dc4eea14a0cc27c62dcbd50729) (SHA-256 `c986bcdb83103d4ddf58aeb7b5302359782e54dc4eea14a0cc27c62dcbd50729`)
+
 ### hashbrown 0.12.3
 
 - Inventory ID: `rust:hashbrown@0.12.3`
@@ -1415,6 +1458,17 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Distribution: normal dependency closure; bundled application
 - Text: [LICENSE-APACHE](#text-a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2) (SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`)
 - Text: [LICENSE-MIT](#text-ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2) (SHA-256 `ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2`)
+
+### heapless 0.8.0
+
+- Inventory ID: `rust:heapless@0.8.0`
+- License: `MIT OR Apache-2.0`
+- Targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc
+- Source: https://crates.io/crates/heapless/0.8.0
+- Source: https://docs.rs/crate/heapless/0.8.0/source/Cargo.toml
+- Distribution: normal dependency closure; bundled application
+- Text: [LICENSE-APACHE](#text-a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2) (SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`)
+- Text: [LICENSE-MIT](#text-035e70219855119df4273b3c5b97543ae82e0dd60c520416e759107c602f651b) (SHA-256 `035e70219855119df4273b3c5b97543ae82e0dd60c520416e759107c602f651b`)
 
 ### heck 0.5.0
 
@@ -1977,6 +2031,17 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Distribution: normal dependency closure; bundled application
 - Text: [LICENSE-APACHE](#text-a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2) (SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`)
 - Text: [LICENSE-MIT](#text-792d075c7bad6dac258a44e799eb64cbf465e24d9932d27669be08c5ec957e27) (SHA-256 `792d075c7bad6dac258a44e799eb64cbf465e24d9932d27669be08c5ec957e27`)
+
+### md-5 0.10.6
+
+- Inventory ID: `rust:md-5@0.10.6`
+- License: `MIT OR Apache-2.0`
+- Targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc
+- Source: https://crates.io/crates/md-5/0.10.6
+- Source: https://docs.rs/crate/md-5/0.10.6/source/Cargo.toml
+- Distribution: normal dependency closure; bundled application
+- Text: [LICENSE-APACHE](#text-a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5) (SHA-256 `a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5`)
+- Text: [LICENSE-MIT](#text-b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1) (SHA-256 `b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1`)
 
 ### memchr 2.8.3
 
@@ -5165,17 +5230,19 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Verification: Repository provenance describes generation using imagegen with a supplied material reference and JPEG conversion.
 - Review: Confirm rights to the supplied material reference and retain provenance for the seamless derivative. No third-party stock-image license is recorded.
 
-### SonoJot punctuation model attribution and CC BY-SA terms v1 and v2 pinned model revisions
+### SonoJot punctuation model attribution and CC BY-SA terms v1, v2 and v3 pinned model revisions
 
 - Inventory ID: `asset:punctuation-attribution`
 - License: `CC-BY-SA-4.0`
 - Source: licenses/download-components.json
 - Source: licenses/punctuation/NOTICE-v1.txt
 - Source: licenses/punctuation/NOTICE-v2.txt
+- Source: licenses/punctuation/NOTICE-v3.txt
 - Distribution: Attribution and terms embedded for retention beside downloaded punctuation models; optional-download records preserve the pinned cards and dataset notices
 - Text: [licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt](#text-28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5) (SHA-256 `28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5`)
 - Text: [licenses/punctuation/NOTICE-v1.txt](#text-b9450987f058ba2e9e5c1010dca209811ccfd05294bc5a500164bb62fa06de09) (SHA-256 `b9450987f058ba2e9e5c1010dca209811ccfd05294bc5a500164bb62fa06de09`)
 - Text: [licenses/punctuation/NOTICE-v2.txt](#text-749698c398a5ed1b005e6e6fbed92cd2cdbaa0429b95e3ba2207fd84f7d0f1de) (SHA-256 `749698c398a5ed1b005e6e6fbed92cd2cdbaa0429b95e3ba2207fd84f7d0f1de`)
+- Text: [licenses/punctuation/NOTICE-v3.txt](#text-10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704) (SHA-256 `10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704`)
 
 ### SCOWL lowercase wordlist subset 2020.12.07
 
@@ -6266,6 +6333,36 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Text: [licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md](#text-f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7) (SHA-256 `f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7`)
 - Text: [licenses/downloads/huggingface/SonoJot--sonojot-punct-v2/94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625/README.md](#text-97db6edaff1af77dc0b245131b5aa90158dec1f6f5908b897bbd42333171c045) (SHA-256 `97db6edaff1af77dc0b245131b5aa90158dec1f6f5908b897bbd42333171c045`)
 - Text: [licenses/punctuation/NOTICE-v2.txt](#text-749698c398a5ed1b005e6e6fbed92cd2cdbaa0429b95e3ba2207fd84f7d0f1de) (SHA-256 `749698c398a5ed1b005e6e6fbed92cd2cdbaa0429b95e3ba2207fd84f7d0f1de`)
+- Text: [licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt](#text-28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5) (SHA-256 `28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5`)
+
+### SonoJot Punctuation v3 e023ae245a00bac1785bb6a022b16d181e346e48
+
+- Inventory ID: `sonojot-punct-v3`
+- License: `CC-BY-SA-4.0`
+- Source: rewrite/src-tauri/src/punctuation_model.rs
+- Source: https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/README.md
+- Source: https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt
+- Source: https://www.apache.org/licenses/LICENSE-2.0.txt
+- Source: https://huggingface.co/Horizon-Labs/punctuation-restoration-small/resolve/ee31fdfc5304f876ea3b0dd72d30eda7e940b2b1/README.md
+- Source: https://huggingface.co/jhu-clsp/mmBERT-small/resolve/abc32620dd4f6ab06f5fbe905dc25f310618e09f/README.md
+- Source: https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md
+- Source: https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/README.md
+- Source: https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md
+- Source: https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/README.md
+- License details: https://huggingface.co/SonoJot/sonojot-punct-v3/blob/e023ae245a00bac1785bb6a022b16d181e346e48/README.md
+- Distribution: SonoJot-published model on Hugging Face; downloaded directly from Hugging Face.
+- Attribution: SonoJot Punctuation v3; fine-tuning, ONNX export and int8 quantization by SonoJot. Training labels derive from Rev.com Earnings-21 and Earnings-22 plus one consenting user's dictation; v3 continues SonoJot v1 with v2's written-form span head and data. Base chain: Horizon-Labs/punctuation-restoration-small (Apache-2.0), built on jhu-clsp/mmBERT-small (MIT).
+- Conditions: Retain creator/source attribution, CC BY-SA 4.0 terms and disclaimer notices, and indicate changes. Modified models must remain CC BY-SA 4.0 (or an adapter license permitted by its ShareAlike provision). Preserve applicable Apache/MIT base-model notices. Ordinary inference does not by itself make every output or the application an adaptation.
+- Verification: Pinned repository metadata and available card/license files were fetched at the exact catalog commit; large model files were not downloaded.
+- Review: The pinned repository has a model card but no standalone LICENSE/NOTICE. This repository supplies complete attribution and CC BY-SA terms under licenses/punctuation; the parent owns writing them beside downloaded weights through model_manager without changing protected punctuation code.
+- Review: Exact base-model and Earnings dataset revisions used in training are not recorded by the pinned card. Upstream lineage files were captured at current commits, not represented as training pins.
+- Review: The mmBERT card declares MIT but supplies no standalone copyright/license file in that current repository snapshot; retrieve its applicable upstream notice before claiming the base chain is fully cleared.
+- Text: [licenses/downloads/standard/cc-by-sa-4.0.txt](#text-28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5) (SHA-256 `28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5`)
+- Text: [licenses/downloads/standard/apache-2.0.txt](#text-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30) (SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`)
+- Text: [licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md](#text-f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7) (SHA-256 `f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7`)
+- Text: [licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md](#text-f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7) (SHA-256 `f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7`)
+- Text: [licenses/downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md](#text-b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90) (SHA-256 `b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90`)
+- Text: [licenses/punctuation/NOTICE-v3.txt](#text-10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704) (SHA-256 `10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704`)
 - Text: [licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt](#text-28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5) (SHA-256 `28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5`)
 
 ### Smart cleanup (experimental) 835431771f72820251fe6c6b4b07f12b000e2647
@@ -8018,6 +8115,42 @@ and Australian word list.  It is under the following copyright:
   LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
   OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
   SUCH DAMAGE.
+```
+
+<a id="text-035e70219855119df4273b3c5b97543ae82e0dd60c520416e759107c602f651b"></a>
+
+### Text 035e70219855119df4273b3c5b97543ae82e0dd60c520416e759107c602f651b
+
+Used by:
+
+- rust:heapless@0.8.0 — LICENSE-MIT — https://docs.rs/crate/heapless/0.8.0/source/LICENSE-MIT
+
+```text
+Copyright (c) 2017 Jorge Aparicio
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 ```
 
 <a id="text-0444c6991eead6822f7b9102e654448d51624431119546492e8b231db42c48bb"></a>
@@ -15484,6 +15617,54 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------
 ```
 
+<a id="text-10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704"></a>
+
+### Text 10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704
+
+Used by:
+
+- asset:punctuation-attribution — licenses/punctuation/NOTICE-v3.txt — licenses/punctuation/NOTICE-v3.txt
+- sonojot-punct-v3 — licenses/punctuation/NOTICE-v3.txt — SonoJot-authored attribution from the pinned model card
+
+```text
+SonoJot Punctuation v3
+Model revision: e023ae245a00bac1785bb6a022b16d181e346e48
+Publisher and fine-tuning: SonoJot
+Source/model card: https://huggingface.co/SonoJot/sonojot-punct-v3/blob/e023ae245a00bac1785bb6a022b16d181e346e48/README.md
+
+Weights: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+License and disclaimer of warranties: https://creativecommons.org/licenses/by-sa/4.0/legalcode.en
+The full terms accompany this notice in LICENSE-CC-BY-SA-4.0.txt.
+
+Training labels derive from Earnings-21 and Earnings-22 transcripts and alignment text,
+copyright Rev.com, licensed under CC BY-SA 4.0.
+Sources: https://github.com/revdotcom/speech-datasets/tree/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21
+https://github.com/revdotcom/speech-datasets/tree/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22
+That captured dataset revision documents the terms; the exact training revisions are unrecorded.
+
+v3 continues SonoJot Punctuation v1 (CC BY-SA 4.0):
+https://huggingface.co/SonoJot/sonojot-punct-v1/blob/6634a9884cf7bd68663c0eefb4840f4de882e280/README.md
+It uses the data and recipe of SonoJot Punctuation v2 (CC BY-SA 4.0):
+https://huggingface.co/SonoJot/sonojot-punct-v2/blob/94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625/README.md
+Base model chain: Horizon-Labs/punctuation-restoration-small (Apache-2.0),
+https://huggingface.co/Horizon-Labs/punctuation-restoration-small
+Underlying base: jhu-clsp/mmBERT-small (MIT),
+https://huggingface.co/jhu-clsp/mmBERT-small
+Preserve their applicable copyright, LICENSE and NOTICE material. The captured mmBERT
+card declares MIT but lacks a standalone copyright/license notice; that evidence remains unresolved.
+
+Changes by SonoJot: continued fine-tuning of v1 with v2's written-form span head and
+training data, additional dictation training data from one consenting user, and ONNX
+export/int8 quantization for local inference. See the pinned card for the training and
+export description.
+
+When sharing this model or a modified version, retain attribution, source links, this license
+link and applicable disclaimers, and identify changes. Modified models must remain CC BY-SA
+4.0 (or an adapter's license allowed by its ShareAlike provision). Do not impose additional
+restrictions that prevent recipients exercising these rights. This notice does not claim
+that ordinary inference outputs or the entire application are licensed CC BY-SA.
+```
+
 <a id="text-11108cb35e63d59e541200518b5d41f322aa2b572a1419151ec6f8cb291a1e3d"></a>
 
 ### Text 11108cb35e63d59e541200518b5d41f322aa2b572a1419151ec6f8cb291a1e3d
@@ -18616,6 +18797,8 @@ Used by:
 - sonojot-punct-v1 — licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt — https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt
 - sonojot-punct-v2 — licenses/downloads/standard/cc-by-sa-4.0.txt — https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt
 - sonojot-punct-v2 — licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt — https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt
+- sonojot-punct-v3 — licenses/downloads/standard/cc-by-sa-4.0.txt — https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt
+- sonojot-punct-v3 — licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt — https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt
 
 ```text
 Attribution-ShareAlike 4.0 International
@@ -20308,6 +20491,38 @@ Used by:
 
 ```text
 Copyright (c) 2017 The foreign-types Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+<a id="text-3488679340a49ecc34d342c4009d2dabf76f4a21f12aec2ca99b15805d656544"></a>
+
+### Text 3488679340a49ecc34d342c4009d2dabf76f4a21f12aec2ca99b15805d656544
+
+Used by:
+
+- rust:crc@3.4.0 — LICENSE-MIT — https://docs.rs/crate/crc/3.4.0/source/LICENSE-MIT
+
+```text
+MIT License
+
+Copyright (c) 2017 crc-rs Developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22146,6 +22361,218 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+<a id="text-470355a7eed93fcc4281ec2e0f82ca3b94e7af1e4d83629f91de8cfac34d750e"></a>
+
+### Text 470355a7eed93fcc4281ec2e0f82ca3b94e7af1e4d83629f91de8cfac34d750e
+
+Used by:
+
+- rust:crc@3.4.0 — LICENSE-APACHE — https://docs.rs/crate/crc/3.4.0/source/LICENSE-APACHE
+
+```text
+                              Apache License
+                        Version 2.0 January 2004
+                     http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+   "License" shall mean the terms and conditions for use, reproduction,
+   and distribution as defined by Sections 1 through 9 of this document.
+
+   "Licensor" shall mean the copyright owner or entity authorized by
+   the copyright owner that is granting the License.
+
+   "Legal Entity" shall mean the union of the acting entity and all
+   other entities that control, are controlled by, or are under common
+   control with that entity. For the purposes of this definition,
+   "control" means (i) the power, direct or indirect, to cause the
+   direction or management of such entity, whether by contract or
+   otherwise, or (ii) ownership of fifty percent (50%) or more of the
+   outstanding shares, or (iii) beneficial ownership of such entity.
+
+   "You" (or "Your") shall mean an individual or Legal Entity
+   exercising permissions granted by this License.
+
+   "Source" form shall mean the preferred form for making modifications,
+   including but not limited to software source code, documentation
+   source, and configuration files.
+
+   "Object" form shall mean any form resulting from mechanical
+   transformation or translation of a Source form, including but
+   not limited to compiled object code, generated documentation,
+   and conversions to other media types.
+
+   "Work" shall mean the work of authorship, whether in Source or
+   Object form, made available under the License, as indicated by a
+   copyright notice that is included in or attached to the work
+   (an example is provided in the Appendix below).
+
+   "Derivative Works" shall mean any work, whether in Source or Object
+   form, that is based on (or derived from) the Work and for which the
+   editorial revisions, annotations, elaborations, or other modifications
+   represent, as a whole, an original work of authorship. For the purposes
+   of this License, Derivative Works shall not include works that remain
+   separable from, or merely link (or bind by name) to the interfaces of,
+   the Work and Derivative Works thereof.
+
+   "Contribution" shall mean any work of authorship, including
+   the original version of the Work and any modifications or additions
+   to that Work or Derivative Works thereof, that is intentionally
+   submitted to Licensor for inclusion in the Work by the copyright owner
+   or by an individual or Legal Entity authorized to submit on behalf of
+   the copyright owner. For the purposes of this definition, "submitted"
+   means any form of electronic, verbal, or written communication sent
+   to the Licensor or its representatives, including but not limited to
+   communication on electronic mailing lists, source code control systems,
+   and issue tracking systems that are managed by, or on behalf of, the
+   Licensor for the purpose of discussing and improving the Work, but
+   excluding communication that is conspicuously marked or otherwise
+   designated in writing by the copyright owner as "Not a Contribution."
+
+   "Contributor" shall mean Licensor and any individual or Legal Entity
+   on behalf of whom a Contribution has been received by Licensor and
+   subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   copyright license to reproduce, prepare Derivative Works of,
+   publicly display, publicly perform, sublicense, and distribute the
+   Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   (except as stated in this section) patent license to make, have made,
+   use, offer to sell, sell, import, and otherwise transfer the Work,
+   where such license applies only to those patent claims licensable
+   by such Contributor that are necessarily infringed by their
+   Contribution(s) alone or by combination of their Contribution(s)
+   with the Work to which such Contribution(s) was submitted. If You
+   institute patent litigation against any entity (including a
+   cross-claim or counterclaim in a lawsuit) alleging that the Work
+   or a Contribution incorporated within the Work constitutes direct
+   or contributory patent infringement, then any patent licenses
+   granted to You under this License for that Work shall terminate
+   as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the
+   Work or Derivative Works thereof in any medium, with or without
+   modifications, and in Source or Object form, provided that You
+   meet the following conditions:
+
+   (a) You must give any other recipients of the Work or
+       Derivative Works a copy of this License; and
+
+   (b) You must cause any modified files to carry prominent notices
+       stating that You changed the files; and
+
+   (c) You must retain, in the Source form of any Derivative Works
+       that You distribute, all copyright, patent, trademark, and
+       attribution notices from the Source form of the Work,
+       excluding those notices that do not pertain to any part of
+       the Derivative Works; and
+
+   (d) If the Work includes a "NOTICE" text file as part of its
+       distribution, then any Derivative Works that You distribute must
+       include a readable copy of the attribution notices contained
+       within such NOTICE file, excluding those notices that do not
+       pertain to any part of the Derivative Works, in at least one
+       of the following places: within a NOTICE text file distributed
+       as part of the Derivative Works; within the Source form or
+       documentation, if provided along with the Derivative Works; or,
+       within a display generated by the Derivative Works, if and
+       wherever such third-party notices normally appear. The contents
+       of the NOTICE file are for informational purposes only and
+       do not modify the License. You may add Your own attribution
+       notices within Derivative Works that You distribute, alongside
+       or as an addendum to the NOTICE text from the Work, provided
+       that such additional attribution notices cannot be construed
+       as modifying the License.
+
+   You may add Your own copyright statement to Your modifications and
+   may provide additional or different license terms and conditions
+   for use, reproduction, or distribution of Your modifications, or
+   for any such Derivative Works as a whole, provided Your use,
+   reproduction, and distribution of the Work otherwise complies with
+   the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade
+   names, trademarks, service marks, or product names of the Licensor,
+   except as required for reasonable and customary use in describing the
+   origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or
+   agreed to in writing, Licensor provides the Work (and each
+   Contributor provides its Contributions) on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+   implied, including, without limitation, any warranties or conditions
+   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+   PARTICULAR PURPOSE. You are solely responsible for determining the
+   appropriateness of using or redistributing the Work and assume any
+   risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory,
+   whether in tort (including negligence), contract, or otherwise,
+   unless required by applicable law (such as deliberate and grossly
+   negligent acts) or agreed to in writing, shall any Contributor be
+   liable to You for damages, including any direct, indirect, special,
+   incidental, or consequential damages of any character arising as a
+   result of this License or out of the use or inability to use the
+   Work (including but not limited to damages for loss of goodwill,
+   work stoppage, computer failure or malfunction, or any and all
+   other commercial damages or losses), even if such Contributor
+   has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing
+   the Work or Derivative Works thereof, You may choose to offer,
+   and charge a fee for, acceptance of support, warranty, indemnity,
+   or other liability obligations and/or rights consistent with this
+   License. However, in accepting such obligations, You may act only
+   on Your own behalf and on Your sole responsibility, not on behalf
+   of any other Contributor, and only if You agree to indemnify,
+   defend, and hold each Contributor harmless for any liability
+   incurred by, or claims asserted against, such Contributor by reason
+   of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work.
+
+   To apply the Apache License to your work, attach the following
+   boilerplate notice, with the fields enclosed by brackets "[]"
+   replaced with your own identifying information. (Don't include
+   the brackets!)  The text should be enclosed in the appropriate
+   comment syntax for the file format. We also recommend that a
+   file or class name and description of purpose be included on the
+   same "printed page" as the copyright notice for easier
+   identification within third-party archives.
+
+Copyright [yyyy] [name of copyright owner]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 ```
 
 <a id="text-47d4e1803702728e03d30f8a848ae2249ba274bbd9f8443e803f7924d83cd371"></a>
@@ -24159,6 +24586,38 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+```
+
+<a id="text-5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5"></a>
+
+### Text 5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5
+
+Used by:
+
+- rust:crc-catalog@2.5.0 — licenses/sources/crc-catalog-2.5.0-LICENSE-MIT — https://raw.githubusercontent.com/akhilles/crc-catalog/ed4ad631f22b05055c21a3a4127eb7cf6d75bb62/LICENSES/MIT.txt
+
+```text
+MIT License
+
+Copyright (c) 2019 Akhil Velagapudi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 <a id="text-5fb3573f6e7198ff6c203dbbd58d1da4bec9e8c5a828edefd9e98587d0443471"></a>
@@ -33954,8 +34413,10 @@ Used by:
 - rust:getopts@0.2.24 — LICENSE-APACHE — https://docs.rs/crate/getopts/0.2.24/source/LICENSE-APACHE
 - rust:glob@0.3.4 — LICENSE-APACHE — https://docs.rs/crate/glob/0.3.4/source/LICENSE-APACHE
 - rust:global-hotkey@0.8.0 — LICENSE-APACHE — https://docs.rs/crate/global-hotkey/0.8.0/source/LICENSE-APACHE
+- rust:hash32@0.3.1 — LICENSE-APACHE — https://docs.rs/crate/hash32/0.3.1/source/LICENSE-APACHE
 - rust:hashbrown@0.12.3 — LICENSE-APACHE — https://docs.rs/crate/hashbrown/0.12.3/source/LICENSE-APACHE
 - rust:hashbrown@0.17.1 — LICENSE-APACHE — https://docs.rs/crate/hashbrown/0.17.1/source/LICENSE-APACHE
+- rust:heapless@0.8.0 — LICENSE-APACHE — https://docs.rs/crate/heapless/0.8.0/source/LICENSE-APACHE
 - rust:heck@0.5.0 — LICENSE-APACHE — https://docs.rs/crate/heck/0.5.0/source/LICENSE-APACHE
 - rust:html5ever@0.38.0 — LICENSE-APACHE — https://docs.rs/crate/html5ever/0.38.0/source/LICENSE-APACHE
 - rust:httparse@1.10.1 — LICENSE-APACHE — https://docs.rs/crate/httparse/1.10.1/source/LICENSE-APACHE
@@ -34546,6 +35007,7 @@ Used by:
 - rust:cpufeatures@0.3.1 — LICENSE-APACHE — https://docs.rs/crate/cpufeatures/0.3.1/source/LICENSE-APACHE
 - rust:crypto-common@0.1.7 — LICENSE-APACHE — https://docs.rs/crate/crypto-common/0.1.7/source/LICENSE-APACHE
 - rust:digest@0.10.7 — LICENSE-APACHE — https://docs.rs/crate/digest/0.10.7/source/LICENSE-APACHE
+- rust:md-5@0.10.6 — LICENSE-APACHE — https://docs.rs/crate/md-5/0.10.6/source/LICENSE-APACHE
 - rust:sha2@0.10.9 — LICENSE-APACHE — https://docs.rs/crate/sha2/0.10.9/source/LICENSE-APACHE
 
 ```text
@@ -37758,6 +38220,7 @@ Used by:
 
 Used by:
 
+- rust:md-5@0.10.6 — LICENSE-MIT — https://docs.rs/crate/md-5/0.10.6/source/LICENSE-MIT
 - rust:sha2@0.10.9 — LICENSE-MIT — https://docs.rs/crate/sha2/0.10.9/source/LICENSE-MIT
 
 ```text
@@ -37990,6 +38453,172 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+```
+
+<a id="text-b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90"></a>
+
+### Text b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90
+
+Used by:
+
+- sonojot-punct-v3 — licenses/downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md — https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/README.md
+
+```text
+---
+license: cc-by-sa-4.0
+language:
+- en
+library_name: onnx
+pipeline_tag: token-classification
+base_model: SonoJot/sonojot-punct-v1
+tags:
+- punctuation
+- punctuation-restoration
+- inverse-text-normalization
+- speech-recognition
+- asr-post-processing
+- dictation
+- onnx
+---
+
+# SonoJot Punctuation v3
+
+v3 has the same architecture, files and input contract as
+[sonojot-punct-v2](https://huggingface.co/SonoJot/sonojot-punct-v2). It is retrained with about twice as much real
+dictation, and dictation inputs are now built exactly as SonoJot builds them at run time.
+
+In one forward pass, it cleans up speech-recognizer output in two ways:
+
+1. **Punctuation.** For each word it predicts the mark that follows: none, `.`, `,`, `?` or `;`. It reads the
+   recognizer's own punctuation as evidence, so it keeps real sentence ends and removes the false breaks that
+   recognizers put at hesitation pauses ("The problem is that. I need it").
+2. **Written-form spans.** It tags spans that a person would type differently from how they are spoken: "four
+   thousand dollars" (MONEY), "ten percent" (PERCENT), "twenty twenty five" (YEAR), "ten K" (MAGNITUDE). The model
+   only tags. A deterministic renderer in SonoJot writes `$4,000`, `10%`, `2025` and `10K`. It also checks that the
+   written form reads back as the spoken words, and otherwise keeps them.
+
+The model never adds, removes or changes words by itself.
+
+| | |
+| --- | --- |
+| Base model | [sonojot-punct-v1](https://huggingface.co/SonoJot/sonojot-punct-v1) ← [Horizon-Labs/punctuation-restoration-small](https://huggingface.co/Horizon-Labs/punctuation-restoration-small) (mmBERT-small, 140M parameters) |
+| Runtime file | `model.int8.onnx`, 268 MB: int8 embeddings, fp32 compute |
+| Speed | About 0.14 s per 300 words when warm, on one desktop CPU with 2 threads (release build, Ryzen 9 9900X; v2 measured the same way: 0.14 s) |
+| Training language | English |
+
+## What changed from v2
+
+- **More real dictation.** 310 more dictations (about 56,000 words) from one consenting user, labeled by GPT-6.1
+  Sol under the same house style. That roughly doubles the in-domain data.
+- **Correct inputs.** Each dictation input is rebuilt from the raw recognizer text with SonoJot's rules alone. Since
+  v2 shipped, the saved text already carries v2's punctuation, so it can't serve as input.
+- **Training.** v3 retrains from v1 with v2's recipe on v2's data plus the new rows.
+  - The recipe: 3 epochs, AdamW at 4e-5, effective batch 16, masked punctuation plus span loss, and new dictation
+    windows weighted 5x.
+  - Training ran three times with different seeds. The released run is the one with the best development score,
+    not the best test score.
+
+## Files
+
+- `model.int8.onnx`:
+  - Inputs: `input_ids` and `attention_mask` (int64, `[batch, T]`).
+  - Outputs: `logits` (`[batch, T, 5]`, punctuation) and `span_logits` (`[batch, T, 27]`, BIO span labels).
+- `tokenizer.json`: Hugging Face tokenizers format.
+- `punct-config.json`: punctuation labels, span labels, window and hop sizes, special-token ids and the exact
+  input encoding.
+- `manifest.json`: byte sizes and SHA-256 of the three runtime files. SonoJot verifies these before loading.
+- `pytorch/`: the fine-tuned weights for further fine-tuning:
+  - `model.safetensors` and `config.json`: the encoder and the punctuation head.
+  - `span_head.pt`: the span classifier.
+  - `span_labels.json`: the span labels.
+
+## Input encoding
+
+This is the same contract as v1 and v2:
+
+1. Split the text into words (`[^\W_]+(?:['’][^\W_]+)*`). Lowercase each word, except I, I'm, I'll, I've and I'd.
+2. For each word, append the tokens of `" " + word`.
+3. If the recognizer wrote a mark after the word, also append that mark's tokens: `.` for `.` and `!`, `?` for `?`,
+   or `,` for `,`, `;`, `:` and dashes. The last word always carries a mark.
+4. Wrap the sequence in CLS … SEP.
+5. Read both heads at each word's last word token. Take the argmax of each head independently.
+6. Long texts use windows of 120 words with a hop of 60. For each word, keep the prediction from the window where it
+   is farthest from an edge.
+
+## Span classes
+
+`CARDINAL, DECIMAL, MONEY, PERCENT, MAGNITUDE (10K, 4K, 10x), YEAR, DATE, TIME, ORDINAL, MEASURE (number + technical
+unit), VERSION, MODEL (AI model names), AMP (R&D-style names)`, in BIO form (27 labels).
+
+The house style is unchanged from v2. SonoJot uses the span head for the numeric classes. AI model names, versions
+and AMP names come from a rules lexicon in the app.
+
+## Results
+
+### Punctuation
+
+The test set is 88 real dictations (29,177 words), held out from training. Inputs are rules-only recognizer text, as
+SonoJot produces at run time.
+- **Reference:** GPT-6.1 Sol labeled the test set. An Opus 5.5 annotator then labeled it blind, and separate judges
+  settled every disagreement under the house style.
+- **Rows:** the v2 and v3 rows score the published or released models. "Mean of 3 seeds" trains each recipe three
+  times.
+
+| System | Sentence F1 | False breaks / 1,000 words | Missed breaks / 1,000 words | Comma F1 |
+| --- | ---: | ---: | ---: | ---: |
+| v2 (published) | 0.882 | 5.9 | 5.4 | 0.881 |
+| v2 recipe, mean of 3 seeds | 0.883 | 6.3 | 5.0 | 0.878 |
+| v3 recipe, mean of 3 seeds | 0.894 | 5.9 | 4.5 | 0.884 |
+| **v3 (released seed)** | **0.897** | **6.0** | **4.1** | **0.884** |
+
+- **Ranking:** every v3 training run beat every v2 training run on sentence F1 and comma F1.
+- **Capitalization errors** fell from 9.9 to 9.2 per 1,000 words (seed means).
+- **Ceiling:** two careful annotators agree at about 0.94 sentence F1 and 0.92 comma F1. That is roughly the most any
+  model can score against a single reference.
+
+### Written form
+
+The score is span F1 for SonoJot's combination of the span head and rules, on held-out data. A span counts only if
+its boundaries, class and rendered text all match.
+
+| Test set | v2 | **v3** |
+| --- | ---: | ---: |
+| 88 real dictations | 0.870 | **0.848** |
+| Earnings-21, real recognizer output | 0.912 | **0.910** |
+| Earnings-22, spoken-form text | 0.947 | **0.945** |
+| Synthetic dictation-style text | 0.984 | **0.983** |
+
+- **Overall:** written form is about the same as v2. Another v3 training run scored 0.872 on the dictations, so the
+  difference is within seed variance on 113 gold spans.
+- **Challenge set:** on the 763-case written-form challenge, SonoJot's combination gets 702 exact with v3 against 694
+  with v2. The span head alone gets 663 against 639.
+
+## Training data
+
+The data is v2's (see the [v2 card](https://huggingface.co/SonoJot/sonojot-punct-v2)) plus the new dictations:
+
+- **Earnings-21 and Earnings-22** (Rev.com, [revdotcom/speech-datasets](https://github.com/revdotcom/speech-datasets),
+  CC BY-SA 4.0). The calls were transcribed with Qwen3-ASR 1.7B through SonoJot's production pipeline. Labels come
+  from the professional references, normalized to the house style by GPT-6.1 Sol.
+- **Synthetic dictation-style text** for written-form spans, unchanged from v2.
+- **Dictation.** About 95,000 words of one consenting user's own dictation, labeled by GPT-6.1 Sol. This text is not
+  distributed.
+
+## License and attribution
+
+The weights are released under **CC BY-SA 4.0**, because the training labels derive from the Earnings-21 and
+Earnings-22 transcripts (CC BY-SA 4.0, © Rev.com). The base model chain is Apache-2.0 (Horizon-Labs, built on
+jhu-clsp/mmBERT-small, MIT). If you redistribute this model or derivatives, keep this attribution and the
+share-alike terms.
+
+## Limitations
+
+- **Language.** English only.
+- **Casing.** The model predicts marks and spans, not casing; SonoJot capitalizes with rules.
+- **Run-on sentences.** It still tends to keep long "and then … and then" chains as one sentence.
+- **Span coverage.** Few real examples exist for times, ordinals and measures. AI model names come from the app's
+  lexicon.
+- **Domain.** It is tuned for one speaker's dictation style, plus earnings-call speech.
 ```
 
 <a id="text-b9450987f058ba2e9e5c1010dca209811ccfd05294bc5a500164bb62fa06de09"></a>
@@ -40639,6 +41268,42 @@ http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 option.
 ```
 
+<a id="text-c986bcdb83103d4ddf58aeb7b5302359782e54dc4eea14a0cc27c62dcbd50729"></a>
+
+### Text c986bcdb83103d4ddf58aeb7b5302359782e54dc4eea14a0cc27c62dcbd50729
+
+Used by:
+
+- rust:hash32@0.3.1 — LICENSE-MIT — https://docs.rs/crate/hash32/0.3.1/source/LICENSE-MIT
+
+```text
+Copyright (c) 2018 Jorge Aparicio
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
 <a id="text-c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5"></a>
 
 ### Text c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5
@@ -41209,6 +41874,7 @@ Used by:
 - qwen3-asr-1.7b-q8-metal — licenses/downloads/standard/apache-2.0.txt — https://www.apache.org/licenses/LICENSE-2.0.txt
 - rust:approx@0.3.2 — LICENSE — https://docs.rs/crate/approx/0.3.2/source/LICENSE
 - rust:embed_plist@1.2.2 — LICENSE-APACHE — https://docs.rs/crate/embed_plist/1.2.2/source/LICENSE-APACHE
+- rust:flacenc@0.5.1 — LICENSE — https://docs.rs/crate/flacenc/0.5.1/source/LICENSE
 - rust:hound@3.5.1 — license — https://docs.rs/crate/hound/3.5.1/source/license
 - rust:lru-slab@0.1.2 — LICENSE-APACHE — https://docs.rs/crate/lru-slab/0.1.2/source/LICENSE-APACHE
 - rust:ort-sys@2.0.0-rc.13 — LICENSE-APACHE — https://docs.rs/crate/ort-sys/2.0.0-rc.13/source/LICENSE-APACHE
@@ -41231,6 +41897,7 @@ Used by:
 - sherpa-onnx-windows-cuda13 — licenses/downloads/github/k2-fsa--sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE — https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf/LICENSE
 - sonojot-punct-v1 — licenses/downloads/standard/apache-2.0.txt — https://www.apache.org/licenses/LICENSE-2.0.txt
 - sonojot-punct-v2 — licenses/downloads/standard/apache-2.0.txt — https://www.apache.org/licenses/LICENSE-2.0.txt
+- sonojot-punct-v3 — licenses/downloads/standard/apache-2.0.txt — https://www.apache.org/licenses/LICENSE-2.0.txt
 - speakoflow-mini-q4_k_m — licenses/downloads/standard/apache-2.0.txt — https://www.apache.org/licenses/LICENSE-2.0.txt
 
 ```text
@@ -50221,6 +50888,8 @@ Used by:
 - sonojot-punct-v1 — licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md — https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md
 - sonojot-punct-v2 — licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md — https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md
 - sonojot-punct-v2 — licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md — https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md
+- sonojot-punct-v3 — licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md — https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md
+- sonojot-punct-v3 — licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md — https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md
 
 ```text
 The transcripts and associated text files that are used for alignment in this directory are licensed under a

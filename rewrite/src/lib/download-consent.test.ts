@@ -36,7 +36,7 @@ test("both LFM sizes and every downloadable NVIDIA runtime family have explicit 
   }
   assert.equal(
     pendingDownloadConsents(
-      ["qwen3-asr-1.7b-q4-cpu", "moonshine-small", "sonojot-punct-v2"],
+      ["qwen3-asr-1.7b-q4-cpu", "moonshine-small", "sonojot-punct-v2", "sonojot-punct-v3"],
       "windows",
       {},
     ).length,

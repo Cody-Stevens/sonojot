@@ -6,9 +6,9 @@
   import ModelDownload from "../components/ModelDownload.svelte";
   import ProfileRecommendation from "../components/ProfileRecommendation.svelte";
   import RemoteModelBadge from "../components/RemoteModelBadge.svelte";
-  import SidebarTour from "../components/SidebarTour.svelte";
+  import RailTour from "../components/RailTour.svelte";
   import TermsAcceptance from "../components/TermsAcceptance.svelte";
-  import Shortcuts from "./Shortcuts.svelte";
+  import OnboardingShortcut from "../components/OnboardingShortcut.svelte";
   import Icon from "../components/Icon.svelte";
   import SetupPermissions from "../components/SetupPermissions.svelte";
   import { app } from "../lib/app.svelte";
@@ -151,7 +151,7 @@
       : profiles.hardware?.recommendations[selected],
   );
   const models = $derived(library.data?.models ?? []);
-  // Same wording as Setup: setup always queues the punctuation model.
+  // Setup always queues the punctuation model.
   const cleanupLine = $derived.by(() => {
     if (!library.data) return missingDetails;
     const punctuation = models.find((model) => model.id === PUNCTUATION_MODEL);
@@ -636,7 +636,7 @@
 </script>
 
 <section
-  class="onboarding"
+  class="onboarding stock quiet-sheet"
   data-step={stepId}
   aria-label={mode === "tour" ? "SonoJot tour" : "First-time setup"}
 >
@@ -756,7 +756,7 @@
             </div>{/if}
         </Card>
       {:else if stepId === "shortcut"}
-        <Shortcuts embedded />
+        <OnboardingShortcut />
       {:else if stepId === "dictation"}
         {#if mac ? permissionState(pasteAccess) === "granted" : app.snapshot.capabilities.autoPaste}<p
             data-text-surface="flat"
@@ -803,7 +803,7 @@
         <div class="model-columns">
           <Card class="tour-card model-summary">
             <dl data-text-surface="flat">
-              <!-- Same role order as the Models page. -->
+              <!-- The profile summary keeps speech, cleanup and notes together. -->
               <dt>Speech</dt>
               <dd>{modelDetails.speech ?? missingDetails}</dd>
               <dt>Cleanup</dt>
@@ -841,8 +841,8 @@
           </section>
         </div>
         <p data-text-surface="flat">
-          Later, in Models, you can change these or add online OpenRouter
-          models.
+          Later, open Speech or Notes from Dictation, Meetings or Settings to
+          change models or choose OpenRouter.
         </p>
       {:else if stepId === "meetings"}
         <div class="meetings-copy" data-text-surface="flat">
@@ -863,10 +863,10 @@
               You can also import a recording of a call.
             </p>{/if}
           <p>
-            After recording, use <em class="key">Clean up the transcript</em>
-            to fix its written form. Use
-            <em class="key">Process notes</em> to choose a format and model. The original
-            transcript stays available.
+            After recording, open <em class="key">Transcript</em> to edit the
+            text.
+            <em class="key">Notes</em> chooses a style and model, including No notes.
+            The original transcript stays available.
           </p>
           {#if mac && systemAudioFixable(app.snapshot.capabilities.systemAudioStatus)}<p
             >
@@ -878,7 +878,7 @@
         <div class="downloads-head">
           <p data-text-surface="flat">
             {firstRun
-              ? "Uncheck anything to add it later in Models instead."
+              ? "Uncheck anything to add it later in Settings → On disk."
               : "Check anything you want to download now."}
           </p>
         </div>
@@ -940,7 +940,7 @@
             {downloadError || mediaError}
           </p>{/if}
       {:else if stepId === "where"}
-        <SidebarTour />
+        <RailTour />
       {:else}
         <div class="ready-columns">
           <Card class="tour-card practice">
@@ -1015,7 +1015,7 @@
                     : "Installing…"}
               </p>{/if}
             <p class="field-help" data-text-surface="flat">
-              You can follow and retry downloads in Models.
+              Follow and retry downloads in Settings → On disk.
             </p>
           </section>
         </div>
@@ -1075,6 +1075,10 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    margin: 0 27px 27px;
+    border-radius: 24px 23px 25px 23px;
+    box-shadow: var(--raise);
+    overflow: hidden;
   }
   /* Every step is laid out to fit the window, so this area does not scroll.
      onboarding-fit.spec.js checks each step at the minimum and default window
@@ -1103,11 +1107,11 @@
     flex: none;
   }
   .onboarding-page > :global(.terms-acceptance),
-  .onboarding-page > :global(.sidebar-tour) {
+  .onboarding-page > :global(.rail-tour) {
     flex: 1 1 0;
     min-height: 0;
   }
-  .onboarding-page > :global(.sidebar-tour) {
+  .onboarding-page > :global(.rail-tour) {
     max-height: 600px;
   }
   .onboarding-page p {
@@ -1142,6 +1146,7 @@
     border: 1px solid var(--line);
     border-radius: 5px;
     background: var(--well);
+    box-shadow: var(--press);
   }
   .step-progress span {
     display: block;
@@ -1452,6 +1457,9 @@
   }
 
   @media (max-width: 800px) {
+    .onboarding {
+      margin: 0 18px 18px;
+    }
     .onboarding-content {
       padding: 18px 27px 0;
     }

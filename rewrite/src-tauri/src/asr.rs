@@ -449,6 +449,8 @@ pub struct Segment {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecognitionResult {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub word_confidence: Vec<crate::confidence::WordConfidence>,
     /// Guarded recognition used by cleanup, previews and publication.
     pub text: String,
     /// Speech before output guards, after protocol parsing. Absent when it
@@ -1022,6 +1024,7 @@ impl MoonshineStream<'_> {
 pub(crate) fn finish_recognition(ledger: &BTreeMap<u64, Segment>) -> RecognitionResult {
     let incomplete = ledger.values().any(|line| !line.complete);
     RecognitionResult {
+        word_confidence: Vec::new(),
         original_text: None,
         text: assemble_segments(ledger, false),
         segments: ordered_segments(ledger),
@@ -1400,6 +1403,7 @@ mod tests {
             ("Last.", None),
         ] {
             let section = RecognitionResult {
+                word_confidence: Vec::new(),
                 text: guarded.into(), original_text: unmodified.map(str::to_owned),
                 segments: Vec::new(), completeness: RecognitionCompleteness::Incomplete,
                 warnings: Vec::new(),
@@ -1414,6 +1418,7 @@ mod tests {
         assert_eq!(published, "First. Middle words remain. go Last.");
         assert_eq!(original.as_deref(), Some("First. echo echo echo echo Middle words remain. go go go go Last."));
         let clean = RecognitionResult {
+            word_confidence: Vec::new(),
             text: "Clean.".into(), original_text: None, segments: Vec::new(),
             completeness: RecognitionCompleteness::Complete, warnings: Vec::new(),
         };
@@ -1428,6 +1433,7 @@ mod tests {
         let mut original = None;
         for raw in ["echo echo echo echo", "again again again again"] {
             let section = RecognitionResult {
+                word_confidence: Vec::new(),
                 text: String::new(), original_text: Some(raw.into()), segments: Vec::new(),
                 completeness: RecognitionCompleteness::Incomplete, warnings: vec!["omitted".into()],
             };
@@ -1463,6 +1469,7 @@ mod tests {
         assert!(recognition.into_complete_text().is_err());
         assert_eq!(
             RecognitionResult {
+                word_confidence: Vec::new(),
                 original_text: None,
                 segments: Vec::new(),
                 text: "Complete tail.".into(),
@@ -1675,6 +1682,7 @@ mod tests {
         // Completeness boundary shared by capture owner and meeting filepath:
         // Incomplete must fail closed through into_complete_text.
         let incomplete = RecognitionResult {
+            word_confidence: Vec::new(),
             original_text: None,
             segments: Vec::new(),
             text: "partial tail".into(),
@@ -1683,6 +1691,7 @@ mod tests {
         };
         assert!(incomplete.into_complete_text().is_err());
         let complete = RecognitionResult {
+            word_confidence: Vec::new(),
             original_text: None,
             segments: Vec::new(),
             text: "full tail".into(),

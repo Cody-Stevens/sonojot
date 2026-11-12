@@ -160,6 +160,14 @@
     },
     {
       "catalogIds": [
+        "sonojot-punct-v3"
+      ],
+      "kind": "model",
+      "license": "CC-BY-SA-4.0",
+      "licenseUrl": "https://huggingface.co/SonoJot/sonojot-punct-v3/blob/e023ae245a00bac1785bb6a022b16d181e346e48/README.md"
+    },
+    {
+      "catalogIds": [
         "speakoflow-mini-q4_k_m"
       ],
       "kind": "model",

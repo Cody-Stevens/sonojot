@@ -1155,6 +1155,8 @@ mod native {
     #[derive(Default)]
     struct Output {
         ledger: BTreeMap<u64, Segment>,
+        word_confidence: Vec<crate::confidence::WordConfidence>,
+        confidence_missing: bool,
         original_text: Option<String>,
         samples_consumed: u64,
         warnings: Vec<String>,
@@ -1247,6 +1249,7 @@ mod native {
             if self.output.incomplete {
                 recognition.completeness = crate::domain::RecognitionCompleteness::Incomplete;
             }
+            recognition.word_confidence = if self.output.confidence_missing { vec![] } else { self.output.word_confidence };
             recognition.original_text = self.output.original_text;
             crate::asr::append_recognition_warnings(&mut recognition.warnings, self.output.warnings);
             recognition
@@ -1401,7 +1404,8 @@ mod native {
                 let id = output.ledger.len() as u64;
                 let complete = recognition.completeness == crate::domain::RecognitionCompleteness::Complete;
                 output.incomplete |= !complete;
-                crate::asr::append_recognition_warnings(&mut output.warnings, recognition.warnings);
+                crate::confidence::append(&mut output.word_confidence, &mut output.confidence_missing, &recognition.text, recognition.word_confidence);
+        crate::asr::append_recognition_warnings(&mut output.warnings, recognition.warnings);
                 output.ledger.insert(id, Segment { id, speaker: None,
                     start_seconds: window.start as f32 / RATE as f32,
                     end_seconds: Some(window.end as f32 / RATE as f32),
@@ -1626,6 +1630,7 @@ mod native {
         output.incomplete |= !complete;
         crate::asr::retain_original_section(&mut output.original_text,
             || crate::asr::assemble_segments(&output.ledger, false), &recognition);
+        crate::confidence::append(&mut output.word_confidence, &mut output.confidence_missing, &recognition.text, recognition.word_confidence);
         crate::asr::append_recognition_warnings(&mut output.warnings, recognition.warnings);
         if recognition.text.trim().is_empty() {
             return;

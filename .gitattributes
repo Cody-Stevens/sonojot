@@ -18,3 +18,6 @@ rewrite/scripts/build_ffmpeg_lgpl_macos.sh text eol=lf
 # Linux packaging runs on Linux shells; keep LF on every platform.
 rewrite/packaging/** text eol=lf
 rewrite/scripts/linux/** text eol=lf
+
+# Online research prompt is sent verbatim, including LF line endings.
+rewrite/src-tauri/src/proof_style_v2.txt text eol=lf

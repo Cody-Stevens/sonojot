@@ -1,3 +1,4 @@
+mod confidence;
 pub mod acceleration;
 mod permissions;
 mod ai;
@@ -209,6 +210,7 @@ pub fn run() {
             ai_commands::get_ai_settings,
             ai_commands::save_ai_settings,
             ai_commands::connect_openrouter,
+            ai_commands::connect_openrouter_key,
             ai_commands::open_openrouter_privacy,
             ai_commands::cancel_ai_connect,
             ai_commands::disconnect_openrouter,
@@ -251,16 +253,21 @@ pub fn run() {
             commands::copy_last_dictation,
             commands::copy_smart_original,
             commands::copy_history_pre_model,
+            commands::export_dictation,
+            commands::copy_shortcut_command,
             commands::screen_tab_meeting,
             system_audio_commands::system_audio_status,
             commands::show_page,
             commands::copy_text,
             commands::list_meetings,
+            commands::search_meetings,
             commands::get_meeting,
             commands::start_meeting,
             commands::stop_meeting,
+            commands::discard_meeting,
             commands::import_media,
             commands::transcribe_meeting,
+            commands::get_timed_transcript,
             windows::drag_screen_tab,
             commands::cancel_meeting,
             commands::save_meeting,
@@ -270,6 +277,7 @@ pub fn run() {
             commands::join_meetings,
             commands::meeting_speakers,
             commands::rename_meeting_speaker,
+            commands::reassign_meeting_passage,
             commands::generate_notes,
             commands::export_meeting,
             commands::export_meeting_audio,
@@ -278,6 +286,8 @@ pub fn run() {
             commands::list_dictations,
             commands::count_dictations,
             commands::delete_dictation,
+            commands::get_dictation_audio_usage,
+            commands::delete_dictation_audio,
             commands::delete_all_dictations,
             commands::save_dictation_correction,
             commands::get_learning,
@@ -288,6 +298,8 @@ pub fn run() {
             commands::open_path,
             commands::open_punctuation_model_page,
             commands::get_diagnostics,
+            commands::get_cli_path,
+            commands::copy_cli_path,
             permissions::permission_status,
             permissions::permission_assistant,
             permissions::permission_drag,
@@ -576,9 +588,16 @@ pub fn run() {
             let weak = Arc::downgrade(&runtime);
             tauri::async_runtime::spawn(async move {
                 let mut shown_problem: Option<recording::SystemProblem> = None;
+                let mut audio_purge = std::time::Instant::now();
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                     let Some(runtime) = weak.upgrade() else { break };
+                    if audio_purge.elapsed() >= std::time::Duration::from_secs(3600) {
+                        let store = runtime.store.clone();
+                        let result = tauri::async_runtime::spawn_blocking(move || store.purge_dictation_audio()).await;
+                        if let Ok(Err(error)) = result { runtime.report(&handle, error); }
+                        audio_purge = std::time::Instant::now();
+                    }
                     let recording = runtime.recorder.lock().ok().and_then(|r| {
                         r.as_ref().map(|(id, capture)| {
                             (

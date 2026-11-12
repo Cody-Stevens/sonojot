@@ -1,6 +1,10 @@
 //! Backend-owned OTA. Only restart_to_update can consume a verified package.
 //! The webview has no updater/process plugin permissions or update resource IDs.
-use crate::{app::Runtime, domain::Snapshot, resource_manager};
+use crate::{
+    app::Runtime,
+    domain::{Snapshot, UpdateChannel},
+    resource_manager,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     future::Future,
@@ -29,6 +33,13 @@ pub enum UpdateStatus {
         version: String,
         notes: Option<String>,
         size: Option<u64>,
+        /// Reinstalls a version that is not newer, to finish an incomplete
+        /// installation (see `install_problem`) or because it was asked for.
+        #[serde(default)]
+        repair: bool,
+        /// Older than this app: the newest build on a channel it just switched to.
+        #[serde(default)]
+        older: bool,
     },
     Downloading {
         percent: Option<u8>,
@@ -36,6 +47,8 @@ pub enum UpdateStatus {
     Ready {
         version: String,
         notes: Option<String>,
+        #[serde(default)]
+        older: bool,
     },
     Error {
         message: String,
@@ -52,6 +65,9 @@ pub struct UpdateSnapshot {
     /// The user chose Later on the main-window notice for this offered
     /// version. Held in memory, so it lasts until SonoJot next starts.
     pub notice_dismissed: bool,
+    /// Why the installed files don't match this app, found by the last check.
+    /// While it is set, checks offer the current release again.
+    pub install_problem: Option<String>,
 }
 
 impl Default for UpdateSnapshot {
@@ -62,6 +78,7 @@ impl Default for UpdateSnapshot {
             restart_blocked_reason: None,
             installing: false,
             notice_dismissed: false,
+            install_problem: None,
         }
     }
 }
@@ -156,6 +173,7 @@ struct State<R> {
     /// Version most recently found by a check, kept through download.
     offered: Option<String>,
     dismissed: Option<String>,
+    install_problem: Option<String>,
 }
 
 impl<R> Default for State<R> {
@@ -168,6 +186,7 @@ impl<R> Default for State<R> {
             schedule: Schedule::new(Instant::now()),
             offered: None,
             dismissed: None,
+            install_problem: None,
         }
     }
 }
@@ -197,8 +216,34 @@ impl<R> Service<R> {
             installing: state.installing,
             restart_blocked_reason: resource_manager::update_blocked_reason(),
             notice_dismissed: state.offered.is_some() && state.dismissed == state.offered,
+            install_problem: state.install_problem.clone(),
             ..UpdateSnapshot::default()
         })
+    }
+
+    pub(crate) fn change_channel(
+        &self,
+        commit: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut state = self.lock()?;
+        if state.installing
+            || matches!(
+                state.status,
+                UpdateStatus::Checking
+                    | UpdateStatus::Downloading { .. }
+                    | UpdateStatus::Ready { .. }
+            )
+        {
+            return Err("Finish the current update before changing channels.".into());
+        }
+        // Keep checks and downloads out until settings have committed.
+        commit()?;
+        state.available = None;
+        state.package = None;
+        state.offered = None;
+        state.dismissed = None;
+        state.status = UpdateStatus::Idle;
+        Ok(())
     }
 
     fn begin_check(&self) -> Result<bool, String> {
@@ -307,6 +352,14 @@ trait Backend {
     type Release: Send + Sync;
     fn check(&self) -> Task<'_, Result<Option<Self::Release>, ()>>;
     fn describe(release: &Self::Release) -> (String, Option<String>, Option<u64>);
+    /// The release is this app's own version, so installing it repairs.
+    fn is_repair(_release: &Self::Release) -> bool {
+        false
+    }
+    /// The release is older than this app (a channel switch).
+    fn is_older(_release: &Self::Release) -> bool {
+        false
+    }
     fn download<'a>(
         &'a self,
         release: &'a Self::Release,
@@ -314,7 +367,53 @@ trait Backend {
     ) -> Task<'a, Result<Vec<u8>, ()>>;
 }
 
-struct PluginBackend(AppHandle);
+fn endpoints(channel: UpdateChannel) -> Vec<&'static str> {
+    match channel {
+        UpdateChannel::Stable => vec!["https://releases.sonojot.com/latest.json"],
+        UpdateChannel::Nightly => vec![
+            "https://releases.sonojot.com/nightly/latest.json",
+            "https://releases.sonojot.com/latest.json",
+        ],
+    }
+}
+
+/// Whether the channel publishes `version`. Nightly also carries stable
+/// releases, because its feed falls back to the stable one.
+fn on_channel(version: &str, channel: UpdateChannel) -> bool {
+    let Ok(version) = semver::Version::parse(version) else {
+        return false;
+    };
+    match channel {
+        UpdateChannel::Stable => version.pre.is_empty(),
+        UpdateChannel::Nightly => {
+            version.pre.is_empty() || version.pre.as_str().starts_with("nightly.")
+        }
+    }
+}
+
+/// Only the channel's own builds qualify. Normally they must be newer; a
+/// repair may also take the installed version itself. An app on another
+/// channel's build takes the channel's newest release even when it is older,
+/// which is how switching channels moves the installation.
+fn eligible(candidate: &str, current: &str, channel: UpdateChannel, reinstall: bool) -> bool {
+    on_channel(candidate, channel)
+        && (newer(candidate, current)
+            || (reinstall && candidate == current)
+            || !on_channel(current, channel))
+}
+
+fn newer(candidate: &str, current: &str) -> bool {
+    match (
+        semver::Version::parse(candidate),
+        semver::Version::parse(current),
+    ) {
+        (Ok(candidate), Ok(current)) => candidate > current,
+        _ => false,
+    }
+}
+
+/// The third field also accepts the installed version (repair).
+struct PluginBackend(AppHandle, UpdateChannel, bool);
 
 impl Backend for PluginBackend {
     type Release = Update;
@@ -324,19 +423,51 @@ impl Backend for PluginBackend {
             let Some(target) = platform_key(std::env::consts::OS, std::env::consts::ARCH) else {
                 return Ok(None);
             };
-            let updater = self
-                .0
-                .updater_builder()
-                .target(target)
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|_| ())?;
-            let mut release = updater.check().await.map_err(|_| ())?;
-            if let Some(update) = release.as_mut() {
-                validate_manifest(&update.raw_json, target)?;
-                // Plugin check and download use separate clients/timeouts.
-                update.timeout = Some(Duration::from_secs(15 * 60));
+            // Endpoints in one plugin builder are fallbacks, not competing feeds.
+            // Check each feed independently so the newest eligible release wins.
+            let mut best: Option<Update> = None;
+            let mut succeeded = false;
+            for endpoint in endpoints(self.1) {
+                let updater = self
+                    .0
+                    .updater_builder()
+                    .endpoints(vec![endpoint.parse().map_err(|_| ())?])
+                    .map_err(|_| ())?
+                    .target(target)
+                    .version_comparator({
+                        let (channel, reinstall) = (self.1, self.2);
+                        move |current, release| {
+                            eligible(
+                                &release.version.to_string(),
+                                &current.to_string(),
+                                channel,
+                                reinstall,
+                            )
+                        }
+                    })
+                    .timeout(Duration::from_secs(30))
+                    .build()
+                    .map_err(|_| ())?;
+                let Ok(release) = updater.check().await else {
+                    continue;
+                };
+                succeeded = true;
+                if let Some(mut update) = release {
+                    validate_manifest(&update.raw_json, target)?;
+                    if eligible(&update.version, env!("CARGO_PKG_VERSION"), self.1, self.2)
+                        && best
+                            .as_ref()
+                            .is_none_or(|old| newer(&update.version, &old.version))
+                    {
+                        update.timeout = Some(Duration::from_secs(15 * 60));
+                        best = Some(update);
+                    }
+                }
             }
+            if !succeeded {
+                return Err(());
+            }
+            let release = best;
             Ok(release)
         })
     }
@@ -357,6 +488,14 @@ impl Backend for PluginBackend {
                     .as_u64()
             }),
         )
+    }
+
+    fn is_repair(release: &Update) -> bool {
+        release.version == env!("CARGO_PKG_VERSION")
+    }
+
+    fn is_older(release: &Update) -> bool {
+        newer(env!("CARGO_PKG_VERSION"), &release.version)
     }
 
     fn download<'a>(
@@ -413,6 +552,8 @@ async fn check<B: Backend>(service: &Service<B::Release>, backend: &B, emit: imp
             return Ok::<(), ()>(());
         };
         let (version, notes, size) = B::describe(&release);
+        let repair = B::is_repair(&release);
+        let older = B::is_older(&release);
         let mut state = service.lock().map_err(|_| ())?;
         state.available = Some(release);
         state.offered = Some(version.clone());
@@ -420,6 +561,8 @@ async fn check<B: Backend>(service: &Service<B::Release>, backend: &B, emit: imp
             version,
             notes,
             size,
+            repair,
+            older,
         };
         Ok(())
     }
@@ -449,6 +592,7 @@ async fn download<B: Backend>(
 ) {
     let result = async {
         let (version, notes, _) = B::describe(&release);
+        let older = B::is_older(&release);
         let mut downloaded = 0u64;
         let bytes = backend
             .download(
@@ -465,7 +609,11 @@ async fn download<B: Backend>(
             .await?;
         let mut state = service.lock().map_err(|_| ())?;
         state.package = Some(Package { release, bytes });
-        state.status = UpdateStatus::Ready { version, notes };
+        state.status = UpdateStatus::Ready {
+            version,
+            notes,
+            older,
+        };
         Ok::<(), ()>(())
     }
     .await;
@@ -486,7 +634,9 @@ async fn download<B: Backend>(
     emit();
 }
 
-fn request_check(runtime: &Arc<Runtime>, app: &AppHandle) -> Result<(), String> {
+/// `reinstall` also accepts the installed version, to repair the installation.
+/// A check that finds an incomplete installation does the same on its own.
+pub(crate) fn request_check(runtime: &Arc<Runtime>, app: &AppHandle, reinstall: bool) -> Result<(), String> {
     if !runtime.updater.begin_check()? {
         return Ok(());
     }
@@ -494,9 +644,26 @@ fn request_check(runtime: &Arc<Runtime>, app: &AppHandle) -> Result<(), String> 
     let runtime = runtime.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        check(&runtime.updater, &PluginBackend(app.clone()), || {
-            runtime.emit(&app)
-        })
+        let problem = tauri::async_runtime::spawn_blocking(install_problem)
+            .await
+            .ok()
+            .flatten();
+        let repair = reinstall || problem.is_some();
+        if let Ok(mut state) = runtime.updater.lock() {
+            state.install_problem = problem;
+        }
+        check(
+            &runtime.updater,
+            &PluginBackend(
+                app.clone(),
+                runtime
+                    .snapshot()
+                    .map(|s| s.settings.update_channel)
+                    .unwrap_or_default(),
+                repair,
+            ),
+            || runtime.emit(&app),
+        )
         .await;
     });
     Ok(())
@@ -506,9 +673,73 @@ fn request_check(runtime: &Arc<Runtime>, app: &AppHandle) -> Result<(), String> 
 pub(crate) fn check_for_updates(
     app: AppHandle,
     state: tauri::State<'_, Arc<Runtime>>,
+    reinstall: Option<bool>,
 ) -> Result<Snapshot, String> {
-    request_check(state.inner(), &app)?;
+    request_check(state.inner(), &app, reinstall.unwrap_or(false))?;
     state.snapshot()
+}
+
+/// An update that stopped partway (a locked file, or a cancelled installer)
+/// leaves `sonojot-cli` beside the app on another version. Both are built from
+/// one crate, so any difference means the installation is incomplete.
+fn install_problem() -> Option<String> {
+    if !cfg!(windows) || cfg!(debug_assertions) {
+        return None;
+    }
+    let directory = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let cli = directory.join("sonojot-cli.exe");
+    if !cli.is_file() {
+        return Some("sonojot-cli.exe is missing from the SonoJot folder.".into());
+    }
+    let installed = cli_version(&cli)?;
+    let current = env!("CARGO_PKG_VERSION");
+    (installed != current).then(|| {
+        format!("sonojot-cli is {installed} but SonoJot is {current}: the last update did not finish.")
+    })
+}
+
+/// Runs `sonojot-cli version`. No answer within 10 seconds counts as no
+/// evidence, not as a problem.
+fn cli_version(cli: &std::path::Path) -> Option<String> {
+    use std::process::{Command, Stdio};
+    let mut command = Command::new(cli);
+    command
+        .arg("version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command.spawn().ok()?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if started.elapsed() < Duration::from_secs(10) => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let output = child.wait_with_output().ok()?;
+    parse_cli_version(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// `sonojot-cli <version> (protocol N)` -> `<version>`.
+fn parse_cli_version(text: &str) -> Option<String> {
+    let mut words = text.split_whitespace();
+    if words.next()? != "sonojot-cli" {
+        return None;
+    }
+    words.next().map(str::to_owned)
 }
 
 #[tauri::command]
@@ -522,7 +753,14 @@ pub(crate) fn download_update(
         tauri::async_runtime::spawn(async move {
             download(
                 &runtime.updater,
-                &PluginBackend(app.clone()),
+                &PluginBackend(
+                    app.clone(),
+                    runtime
+                        .snapshot()
+                        .map(|s| s.settings.update_channel)
+                        .unwrap_or_default(),
+                    false,
+                ),
                 release,
                 || runtime.emit(&app),
             )
@@ -557,7 +795,7 @@ pub(crate) fn window_focused(app: &AppHandle) {
         // scheduler does.
         let app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            let _ = request_check(&runtime, &app);
+            let _ = request_check(&runtime, &app, false);
         });
     }
 }
@@ -622,7 +860,7 @@ pub(crate) fn start_scheduler(runtime: &Arc<Runtime>, app: &AppHandle) {
                 .updater
                 .claim_automatic(Trigger::Timer, Moment::now(), jitter())
             {
-                let _ = request_check(&runtime, &app);
+                let _ = request_check(&runtime, &app, false);
             }
         }
     });
@@ -718,6 +956,8 @@ mod tests {
                 version: "0.23.0".into(),
                 notes: Some("Release notes".into()),
                 size: Some(100),
+                repair: false,
+                older: false,
             }
         );
         assert!(service.lock().unwrap().package.is_none());
@@ -1053,5 +1293,113 @@ mod tests {
         assert_eq!(FOCUS_CHECK_AFTER, Duration::from_secs(3600));
         assert_eq!(next_check_delay(0), Duration::from_secs(20_700));
         assert_eq!(next_check_delay(1800), Duration::from_secs(22_500));
+    }
+}
+
+#[cfg(test)]
+mod channel_tests {
+    use super::*;
+    #[test]
+    fn channel_commit_clears_offer_only_after_success() {
+        let service = Service::<()>::default();
+        service.set_status(UpdateStatus::Available {
+            version: "0.28.9-nightly.202610310300".into(),
+            notes: None,
+            size: None,
+            repair: false,
+            older: false,
+        });
+        assert!(service
+            .change_channel(|| Err("Save failed".into()))
+            .is_err());
+        assert!(matches!(
+            service.snapshot().unwrap().status,
+            UpdateStatus::Available { .. }
+        ));
+        service.change_channel(|| Ok(())).unwrap();
+        assert_eq!(service.snapshot().unwrap().status, UpdateStatus::Idle);
+        assert!(service.begin_check().unwrap());
+        assert!(service
+            .change_channel(|| panic!("must not commit during a check"))
+            .is_err());
+    }
+    #[test]
+    fn legacy_settings_use_stable() {
+        let settings: crate::domain::Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.update_channel, UpdateChannel::Stable);
+    }
+    #[test]
+    fn feeds_are_isolated() {
+        assert_eq!(
+            endpoints(UpdateChannel::Stable),
+            vec!["https://releases.sonojot.com/latest.json"]
+        );
+        assert_eq!(endpoints(UpdateChannel::Nightly).len(), 2);
+        assert!(endpoints(UpdateChannel::Nightly)[0].contains("/nightly/"));
+    }
+    #[test]
+    fn semver_upgrade_only() {
+        assert!(newer("0.28.9-nightly.202610310300", "0.28.8"));
+        assert!(newer("0.28.9", "0.28.9-nightly.202610310300"));
+        assert!(newer(
+            "0.28.9-nightly.202611010300",
+            "0.28.9-nightly.202610310300"
+        ));
+        assert!(!newer("0.28.8", "0.28.9-nightly.202610310300"));
+        assert!(!newer("0.28.9-nightly.202610310300", "0.28.9"));
+        assert!(!newer("0.28.9", "0.28.9"));
+    }
+    #[test]
+    fn repair_accepts_the_installed_version_but_never_an_older_one() {
+        let current = "0.28.9-nightly.202611030800";
+        let nightly = UpdateChannel::Nightly;
+        assert!(!eligible(current, current, nightly, false));
+        assert!(eligible(current, current, nightly, true));
+        assert!(!eligible("0.28.8", current, nightly, true));
+        assert!(eligible("0.28.9-nightly.202611040800", current, nightly, false));
+    }
+    #[test]
+    fn channels_own_their_builds() {
+        use UpdateChannel::{Nightly, Stable};
+        assert!(on_channel("0.28.8", Stable));
+        assert!(!on_channel("0.28.9-nightly.202611061739", Stable));
+        assert!(!on_channel("0.28.9-redesign.2", Stable));
+        assert!(on_channel("0.28.8", Nightly));
+        assert!(on_channel("0.28.9-nightly.202611061739", Nightly));
+        assert!(!on_channel("0.28.9-redesign.2", Nightly));
+        assert!(!on_channel("not a version", Nightly));
+    }
+    #[test]
+    fn switching_to_stable_offers_the_newest_stable_even_when_older() {
+        let nightly = "0.28.9-nightly.202611061739";
+        assert!(eligible("0.28.8", nightly, UpdateChannel::Stable, false));
+        // Stable never offers a nightly, however new.
+        assert!(!eligible("0.29.0-nightly.202612010300", nightly, UpdateChannel::Stable, false));
+        // Once on stable, only newer stable releases qualify again.
+        assert!(!eligible("0.28.7", "0.28.8", UpdateChannel::Stable, false));
+        assert!(eligible("0.28.9", "0.28.8", UpdateChannel::Stable, false));
+    }
+    #[test]
+    fn switching_to_nightly_takes_the_newest_build_on_either_feed() {
+        // A stable install is already on nightly: it only moves forward.
+        assert!(eligible("0.28.9-nightly.202611061739", "0.28.8", UpdateChannel::Nightly, false));
+        assert!(!eligible("0.28.8-nightly.202610010300", "0.28.8", UpdateChannel::Nightly, false));
+        // A test build belongs to neither channel, so it takes nightly's newest.
+        assert!(eligible(
+            "0.28.9-nightly.202611061739",
+            "0.28.9-redesign.2",
+            UpdateChannel::Nightly,
+            false
+        ));
+        assert!(!eligible("0.28.9-redesign.3", "0.28.9-redesign.2", UpdateChannel::Nightly, false));
+    }
+    #[test]
+    fn cli_version_output_parses() {
+        assert_eq!(
+            parse_cli_version("sonojot-cli 0.28.8 (protocol 1)\r\n").as_deref(),
+            Some("0.28.8")
+        );
+        assert_eq!(parse_cli_version("something else 1.0"), None);
+        assert_eq!(parse_cli_version(""), None);
     }
 }

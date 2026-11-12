@@ -8,7 +8,7 @@
 //!   {"name":"punct-config.json","bytes":789,"sha256":"<64 hex digits>"}
 //! ]}
 //! ```
-//! Both `sonojot-punct-v1` and `sonojot-punct-v2` use schema 1. The manifest ID
+//! `sonojot-punct-v1`, `sonojot-punct-v2` and `sonojot-punct-v3` use schema 1. The manifest ID
 //! must match the package folder. Existing manifests retain their own
 //! sizes/hashes; downloads use release pins.
 //! A local manifest verifies package integrity, not a signed publisher
@@ -33,6 +33,12 @@ pub(crate) const V2_ID: &str = "sonojot-punct-v2";
 /// Set only to the real Hugging Face upload commit after publication is approved.
 /// None keeps v2 local-only, including direct install requests.
 pub(crate) const V2_RELEASE_COMMIT: Option<&str> = Some("94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625");
+pub(crate) const V4_ID: &str = "sonojot-cleanup-v4";
+// TODO: pin the approved HF upload commit and SHA-256 files before enabling downloads.
+pub(crate) const V3_ID: &str = "sonojot-punct-v3";
+/// Set only to the real Hugging Face upload commit after publication is approved.
+/// None keeps v3 local-only, including direct install requests.
+pub(crate) const V3_RELEASE_COMMIT: Option<&str> = Some("e023ae245a00bac1785bb6a022b16d181e346e48");
 pub(crate) const FILES: [&str; 3] = ["model.int8.onnx", "tokenizer.json", "punct-config.json"];
 /// Planning estimate for the warm CPU helper, which is prewarmed while speech
 /// records. The library shows the same figure; it is not a measured peak.
@@ -72,31 +78,78 @@ pub(crate) const V2_PINS: &[PinnedFile] = &[
         sha256: "3dd789e72775cd7d8d739f687da7f1ee4ad382758aba044a64c8afd61083ea6b",
     },
 ];
+// From the released v3 package's manifest (seed 2), October 27, 2026. Same
+// architecture, tokenizer and input contract as v2.
+pub(crate) const V3_PINS: &[PinnedFile] = &[
+    PinnedFile {
+        relative: "model.int8.onnx",
+        bytes: 268_364_003,
+        sha256: "11f46c02f68a2a05912ed0c65a6dc063f199280b816307fa3ec17ce23a5e2182",
+    },
+    PinnedFile {
+        relative: "tokenizer.json",
+        bytes: 34_363_188,
+        sha256: "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+    },
+    PinnedFile {
+        relative: "punct-config.json",
+        bytes: 1_672,
+        sha256: "8bbd52775cedbbcf33c6be4402c9cb77d7c6f581fbc10909518384425039c9e4",
+    },
+];
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Package {
     V1,
     V2,
+    V3,
+    V4,
 }
 
 impl Package {
+    /// Selection order: the newest verified package wins.
+    pub(crate) const NEWEST_FIRST: [Self; 4] = [Self::V4, Self::V3, Self::V2, Self::V1];
+    /// Library order, oldest first.
+    pub(crate) const ALL: [Self; 4] = [Self::V1, Self::V2, Self::V3, Self::V4];
+    /// The package first-run Setup installs and existing users are offered.
+    pub(crate) const LATEST: Self = Self::V3;
+
+    /// The newest published package: what first-run Setup installs and existing
+    /// users are offered. v1 is always published.
+    pub(crate) fn offered() -> Self {
+        Self::NEWEST_FIRST.into_iter().find(|package| package.released()).unwrap_or(Self::V1)
+    }
+
     pub(crate) fn from_id(id: &str) -> Option<Self> {
         match id {
             ID => Some(Self::V1),
             V2_ID => Some(Self::V2),
+            V3_ID => Some(Self::V3),
+            V4_ID => Some(Self::V4),
             _ => None,
         }
     }
 
     pub(crate) fn id(self) -> &'static str {
-        match self { Self::V1 => ID, Self::V2 => V2_ID }
+        match self { Self::V1 => ID, Self::V2 => V2_ID, Self::V3 => V3_ID, Self::V4 => V4_ID }
+    }
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::V1 => "SonoJot Punctuation",
+            Self::V2 => "SonoJot Punctuation v2",
+            Self::V3 => "SonoJot Punctuation v3",
+            Self::V4 => "SonoJot Cleanup v4 (local test)",
+        }
     }
 
     pub(crate) fn page_url(self) -> &'static str {
         match self {
             Self::V1 => "https://huggingface.co/SonoJot/sonojot-punct-v1",
             Self::V2 => "https://huggingface.co/SonoJot/sonojot-punct-v2",
+            Self::V3 => "https://huggingface.co/SonoJot/sonojot-punct-v3",
+            Self::V4 => "https://huggingface.co/SonoJot/sonojot-cleanup-v4",
         }
     }
 
@@ -108,6 +161,8 @@ impl Package {
         let revision = match self {
             Self::V1 => Some(REVISION),
             Self::V2 => V2_RELEASE_COMMIT,
+            Self::V3 => V3_RELEASE_COMMIT,
+            Self::V4 => None,
         };
         revision.filter(|value| value.len() == 40 && value.bytes().all(|ch| ch.is_ascii_hexdigit()))
     }
@@ -115,7 +170,7 @@ impl Package {
     pub(crate) fn released(self) -> bool { self.revision().is_some() }
 
     pub(crate) fn pins(self) -> &'static [PinnedFile] {
-        match self { Self::V1 => PINS, Self::V2 => V2_PINS }
+        match self { Self::V1 => PINS, Self::V2 => V2_PINS, Self::V3 => V3_PINS, Self::V4 => &[] }
     }
 
     pub(crate) fn pinned_bytes(self) -> u64 {
@@ -128,13 +183,17 @@ impl Package {
 
     pub(crate) fn download_url(self, file: &PinnedFile) -> Result<String, String> {
         let revision = self.revision().ok_or_else(|| self.unreleased_error())?;
-        let repo = match self { Self::V1 => REPO, Self::V2 => "SonoJot/sonojot-punct-v2" };
+        let repo = match self {
+            Self::V1 => REPO,
+            Self::V2 => "SonoJot/sonojot-punct-v2",
+            Self::V3 => "SonoJot/sonojot-punct-v3",
+            Self::V4 => "SonoJot/sonojot-cleanup-v4",
+        };
         Ok(format!("https://huggingface.co/{repo}/resolve/{revision}/{}", file.relative))
     }
 
     pub(crate) fn unreleased_error(self) -> String {
-        let name = match self { Self::V1 => "SonoJot Punctuation", Self::V2 => "SonoJot Punctuation v2" };
-        format!("{name} is not published yet. Its download is unavailable until the upload is complete.")
+        format!("{} is not published yet. Its download is unavailable until the upload is complete.", self.name())
     }
 
     pub(crate) fn package_bytes(self, root: &Path) -> u64 {
@@ -172,14 +231,14 @@ pub(crate) fn selected_package(root: &Path, check: Check) -> Option<Package> {
 }
 
 fn selected_package_with_runtime(root: &Path, check: Check, runtime: Status) -> Option<Package> {
-    [Package::V2, Package::V1].into_iter().find(|package| {
+    Package::NEWEST_FIRST.into_iter().find(|package| {
         Status::all([package.files_status(root, check), runtime]).ready()
     })
 }
 
 /// Verify the exact selected directory, rather than another installed version.
 pub(crate) fn status_at(root: &Path, directory: &Path, check: Check) -> Status {
-    [Package::V2, Package::V1].into_iter()
+    Package::NEWEST_FIRST.into_iter()
         .find(|package| package.path(root) == directory)
         .map_or(Status::Missing, |package| package.model_status(root, check))
 }
@@ -190,6 +249,8 @@ struct Manifest {
     schema: u32,
     id: String,
     files: Vec<FileRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    delete_threshold: Option<f32>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -347,6 +408,7 @@ fn stage_and_activate(
         let manifest = Manifest {
             schema: 1,
             id: package.id().into(),
+            delete_threshold: None,
             files: pins.iter().map(|file| FileRecord {
                 name: file.relative.into(), bytes: file.bytes, sha256: file.sha256.into(),
             }).collect(),
@@ -393,6 +455,7 @@ fn parse_manifest(bytes: &[u8]) -> Option<Manifest> {
             return None;
         }
     }
+    if manifest.id == V4_ID && !manifest.delete_threshold.is_some_and(|t| t.is_finite() && t > 0.0 && t <= 1.0) { return None; }
     manifest
         .files
         .iter()
@@ -454,11 +517,30 @@ mod tests {
         let manifest = Manifest {
             schema: 1,
             id: package.id().into(),
+            delete_threshold: (package == Package::V4).then_some(0.975),
             files: pins.iter().map(|pin| FileRecord {
                 name: pin.relative.into(), bytes: pin.bytes, sha256: pin.sha256.into(),
             }).collect(),
         };
         fs::write(directory.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn local_v4_requires_a_threshold_and_wins_only_when_verified() {
+        let root = std::env::temp_dir().join(format!("cleanup-v4-{}", uuid::Uuid::new_v4()));
+        write_fixture(&root, Package::V3);
+        write_fixture(&root, Package::V4);
+        assert!(!Package::V4.released());
+        assert_eq!(Package::offered(), Package::V3);
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V4));
+        let path = Package::V4.path(&root).join("manifest.json");
+        let mut manifest: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        for bad in [serde_json::Value::Null, serde_json::json!(0), serde_json::json!(1.1)] {
+            manifest["delete_threshold"] = bad;
+            fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+            assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V3));
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -483,6 +565,39 @@ mod tests {
     }
 
     #[test]
+    fn v3_release_pins_match_the_released_package_manifest() {
+        assert_eq!(Package::V3.pinned_bytes(), 302_728_863);
+        assert_eq!(V3_PINS.len(), FILES.len());
+        for ((file, name), (bytes, sha256)) in V3_PINS.iter().zip(FILES).zip([
+            (268_364_003, "11f46c02f68a2a05912ed0c65a6dc063f199280b816307fa3ec17ce23a5e2182"),
+            (34_363_188, "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f"),
+            (1_672, "8bbd52775cedbbcf33c6be4402c9cb77d7c6f581fbc10909518384425039c9e4"),
+        ]) {
+            assert_eq!((file.relative, file.bytes, file.sha256), (name, bytes, sha256));
+            assert_eq!(file.sha256.len(), 64);
+            assert!(file.sha256.bytes().all(|ch| ch.is_ascii_hexdigit()));
+            let url = Package::V3.download_url(file).unwrap();
+            assert_eq!(url, format!("https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/{name}"));
+            assert!(!url.contains("/resolve/main/"));
+        }
+        assert_eq!(V3_RELEASE_COMMIT, Some("e023ae245a00bac1785bb6a022b16d181e346e48"));
+        assert!(Package::V3.released());
+        assert_eq!(Package::V3.revision(), V3_RELEASE_COMMIT);
+        assert_eq!(Package::LATEST, Package::V3);
+        assert_eq!(Package::offered(), Package::V3);
+        assert_eq!(Package::V3.page_url(), "https://huggingface.co/SonoJot/sonojot-punct-v3");
+    }
+
+    #[test]
+    fn cancelled_v3_install_cannot_create_files_or_report_progress() {
+        let root = std::env::temp_dir().join(format!("punct-v3-cancel-{}", uuid::Uuid::new_v4()));
+        let result = install_package(&root, Package::V3, &AtomicBool::new(true),
+            &|_, _| panic!("cancelled progress"), &|| panic!("cancelled verification"));
+        assert_eq!(result.unwrap_err(), "Install cancelled.");
+        assert!(!root.exists());
+    }
+
+    #[test]
     fn cancelled_v2_install_cannot_create_files_or_report_progress() {
         let root = std::env::temp_dir().join(format!("punct-v2-cancel-{}", uuid::Uuid::new_v4()));
         let result = install_package(&root, Package::V2, &AtomicBool::new(true),
@@ -492,8 +607,15 @@ mod tests {
     }
 
     #[test]
-    fn selection_prefers_verified_v2_and_preserves_legacy_v1_manifest() {
+    fn selection_prefers_the_newest_verified_package_and_preserves_legacy_v1_manifest() {
+        // One root for every step: the verifier keeps at most eight roots per
+        // process, and parallel tests must not evict each other's receipts.
         let root = std::env::temp_dir().join(format!("punct-select-{}", uuid::Uuid::new_v4()));
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), None);
+        write_fixture(&root, Package::V3);
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V3));
+        assert_eq!(status_at(&root, &root, Check::Blocking), Status::Missing);
+        fs::remove_dir_all(Package::V3.path(&root)).unwrap();
         assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), None);
         write_fixture(&root, Package::V1);
         let legacy = fs::read(path(&root).join("manifest.json")).unwrap();
@@ -501,14 +623,25 @@ mod tests {
         write_fixture(&root, Package::V2);
         assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V2));
         assert_eq!(selected_package_with_runtime(&root, Check::Background, Status::Ready), Some(Package::V2));
+        write_fixture(&root, Package::V3);
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V3));
+        assert_eq!(status_at(&root, &Package::V3.path(&root), Check::Blocking), Status::Missing, "no runtime in fixture");
         assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Missing), None);
         assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Checking), None);
         assert_eq!(selected_path(&root, Check::Blocking), None, "fixture has no shared runtime");
-        for package in [Package::V1, Package::V2] {
+        for package in [Package::V1, Package::V2, Package::V3] {
             assert_eq!(package.package_bytes(&root), 9, "local manifests need not match release pins");
             assert_eq!(package.model_status(&root, Check::Blocking), Status::Missing);
         }
         assert_eq!(fs::read(path(&root).join("manifest.json")).unwrap(), legacy);
+        // An invalid v3 falls back to v2, then v1, and never borrows v2's manifest.
+        let directory = Package::V3.path(&root);
+        fs::copy(Package::V2.path(&root).join("manifest.json"), directory.join("manifest.json")).unwrap();
+        assert_eq!(Package::V3.package_bytes(&root), 0);
+        assert_eq!(Package::V3.files_status(&root, Check::Blocking), Status::Missing);
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V2));
+        fs::remove_dir_all(Package::V2.path(&root)).unwrap();
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V1));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -539,13 +672,12 @@ mod tests {
     }
 
     #[test]
-    fn valid_v2_alone_is_selected_and_unknown_directories_are_rejected() {
-        let root = std::env::temp_dir().join(format!("punct-v2-only-{}", uuid::Uuid::new_v4()));
-        write_fixture(&root, Package::V2);
-        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V2));
-        assert_eq!(status_at(&root, &root, Check::Blocking), Status::Missing);
-        assert_eq!(Package::from_id("sonojot-punct-v3"), None);
-        fs::remove_dir_all(root).unwrap();
+    fn package_ids_are_exact_and_ordered_newest_first() {
+        for package in Package::ALL { assert_eq!(Package::from_id(package.id()), Some(package)); }
+        for id in ["sonojot-punct-v4", "sonojot-punct-v3-s2", "../sonojot-punct-v3", ""] {
+            assert_eq!(Package::from_id(id), None, "{id}");
+        }
+        assert_eq!(Package::NEWEST_FIRST, [Package::V4, Package::V3, Package::V2, Package::V1]);
     }
 
     fn fixture_pins() -> Vec<PinnedFile> {
@@ -659,6 +791,23 @@ mod tests {
         assert!(Package::V1.files_status(&root, Check::Blocking).ready());
         assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V2));
         assert_eq!(fs::read(runtime.join("preserve")).unwrap(), b"shared runtime");
+        // A later verified v3 keeps v1, v2 and the shared runtime (same root).
+        let older: Vec<_> = [Package::V1, Package::V2].iter()
+            .map(|package| fs::read(package.path(&root).join("manifest.json")).unwrap()).collect();
+        stage_and_activate(&root, Package::V3, &fixture_pins(), &AtomicBool::new(false),
+            &|_, path, _| fs::write(path, b"abc").map_err(|e| e.to_string()), &|| {},
+        ).unwrap();
+        let manifest = manifest_for(&root, Package::V3).unwrap();
+        assert_eq!(manifest.id, V3_ID);
+        assert_eq!(manifest.files.len(), FILES.len());
+        assert!(Package::V3.files_status(&root, Check::Blocking).ready());
+        assert_eq!(fs::read_dir(root.join("punctuation")).unwrap().count(), 3);
+        for (package, manifest) in [Package::V1, Package::V2].iter().zip(older) {
+            assert_eq!(fs::read(package.path(&root).join("manifest.json")).unwrap(), manifest);
+            assert!(package.files_status(&root, Check::Blocking).ready());
+        }
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V3));
+        assert_eq!(fs::read(runtime.join("preserve")).unwrap(), b"shared runtime");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -674,6 +823,9 @@ mod tests {
         let mut v2 = good.clone();
         v2["id"] = V2_ID.into();
         assert!(parse_manifest(&serde_json::to_vec(&v2).unwrap()).is_some());
+        let mut v3 = good.clone();
+        v3["id"] = V3_ID.into();
+        assert!(parse_manifest(&serde_json::to_vec(&v3).unwrap()).is_some());
         for invalid in [
             {
                 let mut v = good.clone();

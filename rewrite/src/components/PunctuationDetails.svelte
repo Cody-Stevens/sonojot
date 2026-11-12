@@ -5,11 +5,18 @@
     PUNCTUATION_HELP,
     PUNCTUATION_MODEL,
     punctuationModelPage,
+    punctuationVersion,
   } from "../lib/punctuation";
 
   /** `inline` prints the text directly, for a row that has its own Details. */
   let { id = PUNCTUATION_MODEL, inline = false }: { id?: string; inline?: boolean } =
     $props();
+  const version = $derived(punctuationVersion(id));
+  const name = $derived(
+    id.startsWith("sonojot-cleanup-")
+      ? "SonoJot Cleanup"
+      : "SonoJot Punctuation",
+  );
   const help = $derived(
     id === "sonojot-punct-v1"
       ? "Fixes sentence breaks and commas in dictation; runs on CPU"
@@ -27,11 +34,11 @@
 
 {#snippet source()}
   <p>
-    SonoJot Punctuation {id === "sonojot-punct-v1" ? "v1" : "v2"}, derived from
+    {name} {version}, derived from
     Horizon-Labs/punctuation-restoration-small and jhu-clsp/mmBERT-small.
-    Training labels use Rev.com Earnings-21{id === "sonojot-punct-v2"
-      ? " and Earnings-22; v2 continues v1"
-      : ""}.
+    Training labels use Rev.com Earnings-21{version === "v1"
+      ? ""
+      : ` and Earnings-22; ${version} continues v1`}.
   </p>
   <p>
     Modified versions of these model weights must stay under CC BY-SA 4.0. Keep

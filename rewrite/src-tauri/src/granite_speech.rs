@@ -23,6 +23,7 @@ fn transcribe_with(
     mut recognize: impl FnMut(&[f32]) -> Result<String, String>,
 ) -> Result<RecognitionResult, String> {
     let mut result = RecognitionResult {
+        word_confidence: Vec::new(),
         text: String::new(),
         original_text: None,
         segments: Vec::new(),

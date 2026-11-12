@@ -373,6 +373,13 @@ fn product_aliases_are_whole_and_ambiguous_products_stay() {
             let result = render_span(alias, Class::Model, None, None);
             if ambiguous || canonical == "Claude Code" && alias.starts_with("cloud") {
                 assert_eq!(result, None, "{alias}");
+            } else if matches!(alias, "codecs" | "codec") {
+                // Lowercase codec(s) is protected jargon (terms.json); the
+                // recognizer's capitalized name still becomes Codex.
+                assert_eq!(result, None, "{alias}");
+                let named = format!("C{}", &alias[1..]);
+                let result = render_span(&named, Class::Model, None, None);
+                assert_eq!(result.as_deref(), Some(canonical), "{named}");
             } else {
                 assert_eq!(result.as_deref(), Some(canonical), "{alias}");
             }
@@ -1206,4 +1213,188 @@ fn accepted_edit_metadata_omits_rejected_protected_and_unchanged_spans() {
         }]
     );
     assert_eq!(apply_with_edits("16 GB", None), ("16 GB".into(), vec![]));
+}
+
+#[test]
+fn protected_term_and_year_cases_match_the_python_reference() {
+    // Shared with wf_render.py; any difference is a parity break.
+    let cases: serde_json::Value =
+        serde_json::from_str(include_str!("term_cases.json")).unwrap();
+    let mut failures = Vec::new();
+    for row in cases["render_terms"].as_array().unwrap() {
+        let (text, expected) = (row[0].as_str().unwrap(), row[1].as_str().unwrap());
+        let got = render_terms(text, &[]);
+        if got != expected {
+            failures.push(format!("terms {text:?}: {got:?}, expected {expected:?}"));
+        }
+    }
+    for row in cases["spans"].as_array().unwrap() {
+        let text = row[0].as_str().unwrap();
+        let class: Class = row[1].as_str().unwrap().parse().unwrap();
+        let got = render_span(text, class, row[2].as_str(), row[3].as_str());
+        if got.as_deref() != row[4].as_str() {
+            failures.push(format!("span {text:?} {class:?}: {got:?}, expected {:?}", row[4]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn protected_terms_table_is_documented_and_leaves_the_model_lexicon_alone() {
+    let raw: serde_json::Value = serde_json::from_str(include_str!("terms.json")).unwrap();
+    let lex: serde_json::Value = serde_json::from_str(include_str!("models.json")).unwrap();
+    let aliases: std::collections::HashSet<String> = lex["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(lex["families"].as_array().unwrap())
+        .flat_map(|entry| {
+            [&entry["canonical"]]
+                .into_iter()
+                .chain(entry["spoken"].as_array().unwrap())
+                .chain(entry["misheard"].as_array().unwrap())
+                .map(|s| terms::fold(s.as_str().unwrap()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let entries = raw["terms"].as_array().unwrap();
+    assert_eq!(entries.len(), terms::table().len());
+    for (entry, term) in entries.iter().zip(terms::table()) {
+        let written = entry["written"].as_str().unwrap();
+        assert!(entry["why"].as_str().is_some_and(|s| !s.is_empty()), "{written}");
+        assert!(
+            matches!(entry["kind"].as_str(), Some("brand" | "product" | "jargon")),
+            "{written}"
+        );
+        assert!(!term.forms.is_empty(), "{written}");
+        for form in &term.forms {
+            // A lexicon alias belongs to models.json unless the entry exists
+            // to block that alias as lowercase jargon.
+            let lexicon = aliases.contains(&terms::fold(&form.join(" ")));
+            assert!(!lexicon || term.blocks_models && term.case == terms::Cue::Lower, "{written}");
+        }
+    }
+}
+
+#[test]
+fn protected_terms_keep_spoken_words_and_neighbors_still_convert() {
+    let text = "Our demo used Eleven Labs V four narration and paid twenty dollars.";
+    let converted = apply(text, None);
+    assert_eq!(converted, "Our demo used Eleven Labs V4 narration and paid $20.");
+    assert_eq!(
+        render_terms(&converted, &[]),
+        "Our demo used ElevenLabs V4 narration and paid $20."
+    );
+    // A model label on the brand's number word is declined the same way.
+    let words: Vec<_> = text.split_whitespace().collect();
+    let mut labels = vec![BioLabel::O; words.len()];
+    labels[3] = BioLabel::B(Class::Cardinal);
+    labels[10] = BioLabel::B(Class::Money);
+    labels[11] = BioLabel::I(Class::Money);
+    let (routed, edits) = apply_with_edits(text, Some(&labels));
+    assert_eq!(routed, converted);
+    assert!(edits.iter().all(|edit| edit.start != 3));
+    // Ordinary prose is not a brand: lowercase still converts.
+    assert_eq!(apply("The campus has eleven labs.", None), "The campus has 11 labs.");
+    assert_eq!(apply("We host it on Base Ten now.", None), "We host it on Base Ten now.");
+    assert_eq!(apply("Write it in base ten now.", None), "Write it in base 10 now.");
+    assert_eq!(apply("I stopped at Seven Eleven.", None), "I stopped at Seven Eleven.");
+    assert_eq!(apply("Meet me at seven eleven.", None), "Meet me at 7:11.");
+    assert_eq!(apply("I mean Ten Cent released it.", None), "I mean Ten Cent released it.");
+    assert_eq!(apply("We use newer codecs now.", None), "We use newer codecs now.");
+    assert_eq!(apply("Use the codecs CLI now.", None), "Use the Codex CLI now.");
+    // Digit forms written by the number rules render canonically afterwards.
+    let covid = apply("It was the COVID nineteen era.", None);
+    assert_eq!(covid, "It was the COVID 19 era.");
+    assert_eq!(render_terms(&covid, &[]), "It was the COVID-19 era.");
+    // Caller-protected bytes (the user's vocabulary) are never re-spelled.
+    let text = "Eleven Labs and Eleven Labs";
+    assert_eq!(render_terms(text, &[0..11]), "Eleven Labs and ElevenLabs");
+}
+
+#[test]
+fn cued_two_digit_years_keep_two_digits() {
+    let cases = [
+        ("We launched in August of twenty four, as planned.", "We launched in August of '24, as planned."),
+        ("It was the summer of oh five.", "It was the summer of '05."),
+        ("We moved in December of twenty-five, and left.", "We moved in December of '25, and left."),
+        ("We launched in August of twenty twenty four.", "We launched in August of 2024."),
+        ("We launched in twenty twenty four.", "We launched in 2024."),
+        ("Back in ninety nine we used dial up.", "Back in '99 we used dial up."),
+        ("The class of twenty four, and the class of oh five.", "The class of '24, and the class of '05."),
+        // Counts after a loose cue stay number expressions.
+        ("Back in ninety nine days we shipped.", "Back in 99 days we shipped."),
+        ("Since ninety nine people joined, we grew.", "Since 99 people joined, we grew."),
+        ("Since ten we waited.", "Since 10 we waited."),
+    ];
+    for (text, expected) in cases {
+        assert_eq!(apply(text, None), expected, "{text}");
+    }
+    let (_, edits) = apply_with_edits(cases[0].0, None);
+    assert_eq!(edits[0].class, Class::Year);
+    assert_eq!(verbalize("'24"), ["twenty four"]);
+    assert_eq!(verbalize("'05"), ["oh five", "o five"]);
+
+    // A model CARDINAL span after the cue is a year, including a span the
+    // model cut short before the year's last word.
+    let text = "We launched in August of twenty four, as planned.";
+    let words: Vec<_> = text.split_whitespace().collect();
+    for labels in [
+        [0, 0, 0, 0, 0, 1, 2, 0, 0],
+        [0, 0, 0, 0, 0, 1, 0, 0, 0],
+    ] {
+        let labels: Vec<_> = labels
+            .iter()
+            .map(|l| match l {
+                1 => BioLabel::B(Class::Cardinal),
+                2 => BioLabel::I(Class::Cardinal),
+                _ => BioLabel::O,
+            })
+            .collect();
+        assert_eq!(labels.len(), words.len());
+        assert_eq!(
+            spans(&words, Some(&labels)),
+            [Span { start: 5, end: 7, class: Class::Year }]
+        );
+        assert_eq!(apply(text, Some(&labels)), "We launched in August of '24, as planned.");
+    }
+}
+
+#[test]
+fn digits_never_join_across_a_spoken_mark() {
+    assert_eq!(
+        apply("Ask Opus Five Point Five, four agents to review.", None),
+        "Ask Opus 5.5, four agents to review."
+    );
+    assert!(!apply("Pay twenty, five dollars.", None).contains("$25"));
+    assert!(!apply("Use version one point two, three times.", None).contains("1.23"));
+    assert!(!apply("It scored six point one; five people agreed.", None).contains("6.15"));
+    assert_eq!(
+        render_span("April thirty, twenty twenty seven", Class::Date, None, None).as_deref(),
+        Some("April 30, 2027")
+    );
+    // A false recognizer period inside a number is still absorbed.
+    assert_eq!(apply("We started in twenty. Twenty one.", None), "We started in 2021.");
+    // Marks between a number and its unit or tier, or after a scale word,
+    // are still absorbed as before.
+    assert_eq!(apply("pay four thousand. Dollars today.", None), "pay $4,000 today.");
+    assert_eq!(apply("use GPT six point one. Soul today.", None), "use GPT-6.1 Sol today.");
+}
+
+#[test]
+fn vocabulary_joined_names_respell_split_matches_only() {
+    let names = ["Quillbox", "Next.js", "Ten Percent", "Café"];
+    for (text, expected) in [
+        ("We use Quill Box, quill box and QUILL-BOX.", "We use Quillbox, Quillbox and Quillbox."),
+        ("A quill and a box; quillbox stays.", "A quill and a box; quillbox stays."),
+        ("Build it with next js.", "Build it with Next.js."),
+        ("Keep \"Quill Box\" and `quill box` as typed.", "Keep \"Quill Box\" and `quill box` as typed."),
+        ("Quill
+Box crosses a line.", "Quill
+Box crosses a line."),
+        ("Ask ten percent.", "Ask ten percent."),
+    ] {
+        assert_eq!(respell_vocabulary(text, &names, &[]), expected, "{text}");
+    }
+    assert_eq!(respell_vocabulary("Quill Box and Quill Box", &names, &[0..9]), "Quill Box and Quillbox");
 }

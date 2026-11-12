@@ -1,0 +1,46 @@
+SonoJot Cleanup v4
+Private local test export of s6-s1/epoch-3
+Publisher and fine-tuning: SonoJot
+Source/model card: MODEL_CARD.txt beside the weights (unpublished)
+
+Weights: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+License and disclaimer of warranties: https://creativecommons.org/licenses/by-sa/4.0/legalcode.en
+The full terms accompany this notice in LICENSE-CC-BY-SA-4.0.txt.
+
+Training labels derive from Earnings-21 and Earnings-22 transcripts and alignment text,
+copyright Rev.com, licensed under CC BY-SA 4.0.
+Sources: https://github.com/revdotcom/speech-datasets/tree/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21
+https://github.com/revdotcom/speech-datasets/tree/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22
+That captured dataset revision documents the terms; the exact training revisions are unrecorded.
+
+v3 continues SonoJot Punctuation v1 (CC BY-SA 4.0):
+https://huggingface.co/SonoJot/sonojot-punct-v1/blob/6634a9884cf7bd68663c0eefb4840f4de882e280/README.md
+It uses the data and recipe of SonoJot Punctuation v2 (CC BY-SA 4.0):
+https://huggingface.co/SonoJot/sonojot-punct-v2/blob/94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625/README.md
+Base model chain: Horizon-Labs/punctuation-restoration-small (Apache-2.0),
+https://huggingface.co/Horizon-Labs/punctuation-restoration-small
+Underlying base: jhu-clsp/mmBERT-small (MIT),
+https://huggingface.co/jhu-clsp/mmBERT-small
+Preserve their applicable copyright, LICENSE and NOTICE material. The captured mmBERT
+card declares MIT but lacks a standalone copyright/license notice; that evidence remains unresolved.
+
+Changes by SonoJot: continued fine-tuning of v1 with v2's written-form span head and
+training data, additional dictation training data from one consenting user, and ONNX
+export/int8 quantization for local inference. See the pinned card for the training and
+export description.
+
+When sharing this model or a modified version, retain attribution, source links, this license
+link and applicable disclaimers, and identify changes. Modified models must remain CC BY-SA
+4.0 (or an adapter's license allowed by its ShareAlike provision). Do not impose additional
+restrictions that prevent recipients exercising these rights. This notice does not claim
+that ordinary inference outputs or the entire application are licensed CC BY-SA.
+
+Additional v4 training sources: AMI Meeting Corpus and ICSI Meeting Corpus,
+licensed Creative Commons Attribution 4.0 International (CC BY 4.0).
+AMI Consortium: https://groups.inf.ed.ac.uk/ami/corpus/
+ICSI Meeting Corpus, International Computer Science Institute:
+https://groups.inf.ed.ac.uk/ami/icsi/
+License: https://creativecommons.org/licenses/by/4.0/legalcode.en
+Changes: cleanup labels and recognizer replays, distillation, a third KEEP/DELETE
+head, continued fine-tuning and ONNX export with embedding-only int8 quantization.
+Teacher base: Horizon-Labs/punctuation-restoration-base (Apache-2.0).

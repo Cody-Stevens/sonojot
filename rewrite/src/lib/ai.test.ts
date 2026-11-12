@@ -8,6 +8,7 @@ import {
   aiSettingsSchema,
   modelRoles,
   priceLine,
+  textCost,
   quickModelRemoval,
   routeNotes,
   type AiSettings,
@@ -28,6 +29,27 @@ const base = {
   supported: true,
   help: "Fixture",
 };
+
+test("word cost estimates use both catalog prices and reject unknown prices", () => {
+  const model = aiModelSchema.parse({
+    id: "test/text",
+    name: "Text",
+    contextLength: 8000,
+    promptPrice: "0.000001",
+    completionPrice: "0.000003",
+  });
+  assert.equal(textCost(model), "≈ $0.0058 per 1,000 words");
+  assert.equal(
+    textCost({ ...model, promptPrice: "0", completionPrice: "0" }),
+    "≈ $0 per 1,000 words",
+  );
+  for (const price of [null, "", "-1", "NaN", "Infinity"])
+    assert.equal(
+      textCost({ ...model, promptPrice: price }),
+      "Price unavailable",
+    );
+  assert.equal(textCost(undefined), "Price unavailable");
+});
 
 test("AI status migrates configured models only when the quick list is absent", () => {
   assert.deepEqual(aiSettingsSchema.parse(base).quickModels, []);

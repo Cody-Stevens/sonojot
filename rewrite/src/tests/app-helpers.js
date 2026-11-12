@@ -4,7 +4,7 @@
 import { expect } from "@playwright/test";
 import { installDesktopFixture } from "./desktop-fixture.js";
 
-/** The sidebar landmark; visible only once Terms and first-run setup are done. */
+/** The rail landmark; visible only once Terms and first-run setup are done. */
 export const mainNavigation = (page) =>
   page.getByRole("navigation", { name: "Main navigation" });
 
@@ -20,7 +20,7 @@ export const mainNavigation = (page) =>
 export async function openApp(page, options = {}, path = "/") {
   if (options.firstRun) await page.clock.install();
   await installDesktopFixture(page, options);
-  await page.goto(path);
+  await page.goto(path, { waitUntil: "domcontentloaded" });
   if (options.firstRun) await completeFirstRun(page);
   await expectAppShell(page);
 }
@@ -98,24 +98,40 @@ export async function acceptDownloadTerms(page) {
   await expect(dialog).toHaveCount(0);
 }
 
-/** Click a sidebar destination by its visible label (for example "Models"). */
+/** Reach an existing view through the new rail and its stage doors. */
 export async function goToPage(page, label) {
+  const legacy = {
+    Microphone: {
+      tab: "Dictation",
+      stage: "Shortcut and mic",
+    },
+    Shortcuts: { tab: "Dictation", stage: "Shortcut and mic" },
+    Models: { tab: "Dictation", stage: "Speech" },
+    Appearance: { tab: "Settings", stage: /^Look and startup / },
+    About: { tab: "Settings", stage: /^Help / },
+  }[label];
+  const tab = legacy?.tab ?? (label === "Vocabulary" ? "Words" : label);
   await mainNavigation(page)
-    .getByRole("button", { name: label, exact: true })
+    .getByRole("button", { name: tab, exact: true })
     .click();
+  if (legacy) {
+    await page
+      .getByRole("main")
+      .getByRole("button", { name: legacy.stage, exact: true })
+      .click();
+    if (label === "Microphone")
+      await page.getByText("Test microphone", { exact: true }).click();
+  }
   await expect(
-    mainNavigation(page).getByRole("button", { name: label, exact: true }),
+    mainNavigation(page).getByRole("button", { name: tab, exact: true }),
   ).toHaveAttribute("aria-current", "page");
 }
 
-/** Dictation opens on Preferences; recent dictations sit behind "Recent". */
+/** Dictation opens directly on its searchable day pages. */
 export async function showRecentDictations(page) {
-  const recent = page
-    .getByRole("group", { name: "Dictation views" })
-    .getByRole("button", { name: "Recent", exact: true });
-  await recent.click();
-  await expect(recent).toHaveAttribute("aria-pressed", "true");
-  // The list is a "Recent" card; an opened dictation replaces it untitled.
+  await expect(
+    page.getByRole("region", { name: "Recent dictations", exact: true }),
+  ).toBeVisible();
   return page.getByRole("main");
 }
 
@@ -125,8 +141,12 @@ export async function showRecentDictations(page) {
  * subview's card.
  */
 export async function openVocabularyView(page, name) {
-  await page.locator(".vocabulary-toolbar details.more-menu summary").click();
-  await page.getByRole("button", { name: new RegExp(`^${name}`) }).click();
+  await page
+    .getByRole("button", {
+      name: name.startsWith("Learning") ? "Learned" : "Suggested",
+      exact: true,
+    })
+    .click();
   const card = page.getByRole("region", { name });
   await expect(card).toBeVisible();
   return card;
@@ -148,40 +168,33 @@ export async function openMeeting(page, title) {
  * labels, Delete meeting…) and return it.
  */
 export async function openMeetingMenu(page) {
-  const more = page.locator(".meeting-heading details.meeting-more");
-  if (!(await more.evaluate((element) => element.open)))
-    await more.locator("summary").click();
-  await expect(more).toHaveAttribute("open", "");
-  return more;
+  const existing = page.getByRole("dialog");
+  if (await existing.count())
+    await existing.getByRole("button", { name: "Close sheet" }).click();
+  await page.getByRole("button", { name: "Meeting options" }).click();
+  return page.getByRole("dialog", { name: "Meeting", exact: true });
 }
 
-/** Open the "Transcribe again" card from the meeting's More menu. */
 export async function openTranscribeAgain(page) {
   await (
     await openMeetingMenu(page)
   )
     .getByRole("button", { name: "Transcribe again…", exact: true })
     .click();
-  const card = page.getByRole("region", { name: "Transcribe again" });
-  await expect(card).toBeVisible();
-  return card;
+  return page.getByRole("dialog", { name: "Transcribe again", exact: true });
 }
 
-/** Open the meeting's "Save a copy" card (document and original audio). */
 export async function openSaveCopy(page) {
-  const toggle = page
-    .locator(".meeting-heading")
-    .getByRole("button", { name: "Save a copy", exact: true });
-  if ((await toggle.getAttribute("aria-expanded")) !== "true")
-    await toggle.click();
-  const card = page.getByRole("region", { name: "Save a copy" });
-  await expect(card).toBeVisible();
-  return card;
+  await (
+    await openMeetingMenu(page)
+  )
+    .getByRole("button", { name: "Other formats…", exact: true })
+    .click();
+  return page.getByRole("dialog", { name: "Other formats", exact: true });
 }
 
-/** The live activity badge beside the meeting document tabs while it processes. */
 export const meetingActivity = (page) =>
-  page.locator(".meeting-document-toolbar").getByRole("status");
+  page.getByRole("region", { name: "Meeting progress" }).getByRole("status");
 
 /**
  * Open a <details> fold by its summary text and return the fold. Pages keep
@@ -197,19 +210,3 @@ export async function openFold(scope, name) {
   await expect(fold).toHaveAttribute("open", "");
   return fold;
 }
-
-/**
- * Dictation's "More options" fold: sound cues, Written form, Shape by type and
- * the models in use.
- */
-export const openMoreOptions = (scope) => openFold(scope, "More options");
-
-/**
- * Models page: the model library (Installed / Get more tabs, search, role
- * filter, install and remove) sits in the "Manage downloads" fold.
- */
-export const openModelLibrary = (page) => openFold(page, "Manage downloads");
-
-/** Models page: memory, text processing and storage settings. */
-export const openPerformance = (page) =>
-  openFold(page, "Performance and storage");

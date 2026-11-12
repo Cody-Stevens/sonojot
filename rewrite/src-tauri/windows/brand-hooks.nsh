@@ -8,11 +8,43 @@
   ${EndIf}
 !macroend
 
+; Every coding agent session keeps its own `sonojot-cli mcp` running, which
+; locks the file, and the copy below would stop at "Error opening file for
+; writing". Windows lets a running program be renamed, so move it aside:
+; running copies keep working, new ones start the new file, and the next
+; install or uninstall deletes the leftovers once they have exited.
+!macro SONOJOT_MOVE_ASIDE_CLI
+  Push $R9
+  ClearErrors
+  Delete "$INSTDIR\sonojot-cli.*.old"
+  ${If} ${FileExists} "$INSTDIR\sonojot-cli.exe"
+    ClearErrors
+    Delete "$INSTDIR\sonojot-cli.exe"
+    ${If} ${Errors}
+      StrCpy $R9 0
+      ${Do}
+        IntOp $R9 $R9 + 1
+        ClearErrors
+        Rename "$INSTDIR\sonojot-cli.exe" "$INSTDIR\sonojot-cli.$R9.old"
+        ${IfNot} ${Errors}
+          ${Break}
+        ${EndIf}
+      ${LoopUntil} $R9 >= 20
+    ${EndIf}
+  ${EndIf}
+  ClearErrors
+  Pop $R9
+!macroend
+
 ; A renamed binary must still wait for the previous installed process to exit.
 !macro NSIS_HOOK_PREINSTALL
   ${If} ${FileExists} "$INSTDIR\eavesdropper-next.exe"
     !insertmacro CheckIfAppIsRunning "eavesdropper-next.exe" "${PRODUCTNAME}"
   ${EndIf}
+  ; The template checks the app again after this hook. Checking first means
+  ; declining to close SonoJot leaves the CLI where it was.
+  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro SONOJOT_MOVE_ASIDE_CLI
 !macroend
 
 ; Remove an old display shortcut only when it points to this installation.
@@ -77,4 +109,5 @@
     nsExec::Exec '"$INSTDIR\sonojot-cli.exe" agents uninstall'
     Pop $0
   ${EndIf}
+  Delete "$INSTDIR\sonojot-cli.*.old"
 !macroend

@@ -117,6 +117,17 @@
     }
   ],
   "overrides": {
+    "rust:crc-catalog@2.5.0": {
+      "evidence": [
+            {
+                  "path": "licenses/sources/crc-catalog-2.5.0-LICENSE-MIT",
+                  "source": "https://raw.githubusercontent.com/akhilles/crc-catalog/ed4ad631f22b05055c21a3a4127eb7cf6d75bb62/LICENSES/MIT.txt",
+                  "sha256": "5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5"
+            }
+      ],
+      "verification": "Published crate omits license files. MIT license retained from the exact upstream revision recorded in .cargo_vcs_info.json.",
+      "wrapperLicenseVerified": true
+},
     "rust:genpdf@0.2.0": {"sourceNotices": ["src/**/*.rs"], "issues": ["Upstream uses REUSE-style SPDX copyright headers. The pinned upstream MIT terms contain placeholders; source copyright headers are retained separately without rewriting."]},
     "rust:selectors@0.36.1": {"sourceNotices": ["*.rs"], "issues": ["The source headers declare MPL-2.0 and link the standard terms; the crate does not include a standalone full license file. Exact standard terms and source attribution are supplied separately."]},
     "rust:whisper-rs-sys@0.15.0": {"sourceNotices": ["src/*.rs"], "issues": ["The wrapper declares Unlicense but ships no standalone wrapper license file. Standard Unlicense terms are provided separately; whisper.cpp and ggml retain their MIT terms."]},

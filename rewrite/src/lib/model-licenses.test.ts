@@ -14,7 +14,9 @@ test("every model license has an exact catalog lookup and HTTPS details", () => 
       assert.equal(license.name, component.license, id);
       assert.equal(
         license.url,
-        id === "sonojot-punct-v1" || id === "sonojot-punct-v2"
+        id === "sonojot-punct-v1" ||
+          id === "sonojot-punct-v2" ||
+          id === "sonojot-punct-v3"
           ? "https://creativecommons.org/licenses/by-sa/4.0/legalcode.en"
           : component.licenseUrl,
         id,
@@ -37,8 +39,8 @@ test("every model license has an exact catalog lookup and HTTPS details", () => 
   }
 });
 
-test("punctuation ShareAlike terms remain visible for both versions", () => {
-  for (const id of ["sonojot-punct-v1", "sonojot-punct-v2"]) {
+test("punctuation ShareAlike terms remain visible for every version", () => {
+  for (const id of ["sonojot-punct-v1", "sonojot-punct-v2", "sonojot-punct-v3"]) {
     assert.match(modelLicense(id)?.name ?? "", /CC[ -]BY[ -]SA[ -]4\.0/);
   }
 });

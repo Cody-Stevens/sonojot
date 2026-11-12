@@ -1,16 +1,23 @@
 <script lang="ts">
   import { recognitionProgressLabel } from "./lib/recognition-progress";
   import { onMount, tick } from "svelte";
-  import Dictation from "./views/Dictation.svelte";
-  import Microphone from "./views/Microphone.svelte";
+  import DictationTab from "./views/DictationTab.svelte";
+  import CleanupScreen from "./views/CleanupScreen.svelte";
+  import OpenRouterSheet from "./components/quiet/OpenRouterSheet.svelte";
+  import { openRouter } from "./lib/openrouter.svelte";
+  import InputScreen from "./views/InputScreen.svelte";
+  import OutputScreen from "./views/OutputScreen.svelte";
   import Vocabulary from "./views/Vocabulary.svelte";
-  import Meetings from "./views/Meetings.svelte";
-  import Appearance from "./views/Appearance.svelte";
-  import Shortcuts from "./views/Shortcuts.svelte";
-  import About from "./views/About.svelte";
+  import MeetingsTab from "./views/MeetingsTab.svelte";
+  import MeetingNotesScreen from "./views/MeetingNotesScreen.svelte";
   import ReportView from "./views/Report.svelte";
-  import { shouldShowCrash, type PendingCrash } from "./lib/reports";
-  import Setup from "./views/Setup.svelte";
+  import {
+    shouldShowCrash,
+    crashHeading,
+    type PendingCrash,
+  } from "./lib/reports";
+  import SpeechScreen from "./views/SpeechScreen.svelte";
+  import Settings from "./views/Settings.svelte";
   import Onboarding from "./views/Onboarding.svelte";
   import Terms from "./views/Terms.svelte";
   import { needsTermsAcceptance } from "./lib/terms";
@@ -21,9 +28,18 @@
   import BrandMark from "./brand/BrandMark.svelte";
   import { paperScroll } from "./lib/paper-scroll";
   import ErrorBanner from "./components/ErrorBanner.svelte";
-  import UpdateNotice from "./components/UpdateNotice.svelte";
-  import Sidebar from "./components/Sidebar.svelte";
-  import { navigation, type Page, type SetupPage } from "./lib/navigation";
+  import Rail from "./components/Rail.svelte";
+  import Sheet from "./components/quiet/Sheet.svelte";
+  import StageHeader from "./components/quiet/StageHeader.svelte";
+  import UpdateSheet from "./components/quiet/UpdateSheet.svelte";
+  import {
+    createRouter,
+    resolveRoute,
+    backRoute,
+    routeTitle,
+    sameRoute,
+    type RouteTarget,
+  } from "./lib/route.svelte";
   import type { ErrorAction } from "./lib/errors";
   import ScreenTab from "./components/ScreenTab.svelte";
   import PermissionHelper from "./components/PermissionHelper.svelte";
@@ -39,8 +55,7 @@
     watchWindowMaximized,
     type WindowAction,
   } from "./lib/window";
-  import type { ModelRole } from "./lib/model-library";
-  let setupFocus = $state<ModelRole | null>(null);
+  import type { ModelsTarget } from "./lib/model-library";
   let dictationReviewSession = $state<number | null>(null);
   // Status notices clear themselves; errors stay until acted on.
   $effect(() => {
@@ -65,8 +80,17 @@
   const termsRequired = $derived(
     app.native && app.ready && needsTermsAcceptance(app.snapshot.settings),
   );
-  let page = $state<Page | SetupPage>(
-    navigation.find((item) => item.id === query.get("page"))?.id ?? "dictation",
+  const router = createRouter(
+    resolveRoute(query.get("page")) ?? { tab: "dictation" },
+    beforeNavigate,
+  );
+  const route = $derived(router.current);
+  const parentTitle = $derived(
+    route.from === "settings" || route.tab === "settings"
+      ? "Settings"
+      : route.tab === "meetings"
+        ? "Meetings"
+        : "Dictation",
   );
   $effect(() => {
     if (
@@ -80,8 +104,10 @@
       shownCrashId !== app.pendingCrash.id
     ) {
       shownCrashId = app.pendingCrash.id;
-      reportCrash = app.pendingCrash;
-      page = "report";
+      const crash = app.pendingCrash;
+      void navigate("report").then((arrived) => {
+        if (arrived) reportCrash = crash;
+      });
     }
   });
   let dismissedError = $state("");
@@ -120,8 +146,7 @@
     let cleanupNavigation: (() => void) | undefined;
     if (app.native && !overlay && !cursor && !helper) {
       void listen<string>("navigate-page", ({ payload }) => {
-        const next = navigation.find((item) => item.id === payload);
-        if (next) void navigate(next.id);
+        if (resolveRoute(payload)) void navigate(payload);
       }).then((unlisten) => {
         if (disposed) unlisten();
         else cleanupNavigation = unlisten;
@@ -175,9 +200,8 @@
       cleanupNavigation?.();
     };
   });
-  async function navigate(next: Page | SetupPage): Promise<void> {
-    if (onboardingMode || termsRequired) return;
-    if (next === page) return;
+  async function beforeNavigate(): Promise<boolean> {
+    if (onboardingMode || termsRequired) return false;
     if (
       app.dirty &&
       !(await app.confirm(
@@ -185,34 +209,56 @@
         "This page has changes that have not been saved.",
       ))
     )
-      return;
-    if (page === "report" && reportCrash) {
+      return false;
+    if (route.sheet === "report" && reportCrash) {
       try {
         await app.dismissPendingCrash();
       } catch (failure: unknown) {
         app.error = errorMessage(failure);
-        return;
+        return false;
       }
     }
+    return true;
+  }
+  async function navigate(next: RouteTarget | string): Promise<boolean> {
+    const resolved = resolveRoute(next);
+    if (resolved && sameRoute(resolved, route)) return true;
+    const closingSheet = !!route.sheet && !resolved?.sheet;
+    if (!(await router.go(next))) return false;
     reportCrash = null;
-    setupFocus = null;
     dictationReviewSession = null;
-    page = next;
     app.error = "";
     app.notice = "";
     dismissedError = "";
-    document.querySelector<HTMLElement>(".page-content")?.scrollTo({ top: 0 });
-  }
-  async function manageModels(role: ModelRole): Promise<void> {
-    await navigate("setup");
-    if (page !== "setup") return;
-    setupFocus = null;
     await tick();
-    setupFocus = role;
+    if (!closingSheet) {
+      const content = document.querySelector<HTMLElement>(".page-content");
+      content?.scrollTo({ top: 0 });
+      if (!route.sheet) content?.focus({ preventScroll: true });
+    }
+    return true;
+  }
+  async function manageModels(target: ModelsTarget): Promise<void> {
+    if (target === "punctuation")
+      await navigate({ tab: "settings", stage: "disk" });
+    else if (target === "notes")
+      await navigate({ tab: "meetings", stage: "notes", from: route.from });
+    else if (target === "meeting" || target === "speakers")
+      await navigate({ tab: "meetings", stage: "speech", from: route.from });
+    else
+      await navigate({
+        tab: "dictation",
+        stage:
+          target === "cleanup"
+            ? "cleanup"
+            : target === "dictationAudio"
+              ? "output"
+              : "speech",
+        from: route.from,
+      });
   }
   async function reviewMicrophoneTest(resultSessionId: number): Promise<void> {
-    await navigate("dictation");
-    if (page === "dictation") dictationReviewSession = resultSessionId;
+    if (await navigate("dictation")) dictationReviewSession = resultSessionId;
   }
   async function errorAction(action: ErrorAction): Promise<void> {
     if (action === "copy-text") {
@@ -230,19 +276,20 @@
           : "Quit SonoJot from its tray menu, then open it again.";
       return;
     }
-    if (
-      action === "setup" ||
-      action === "converter" ||
-      action === "install-media"
-    ) {
-      await navigate("setup");
+    if (action === "converter" || action === "install-media") {
+      await navigate({ tab: "settings", stage: "disk" });
       return;
     }
     await navigate(action);
   }
   function keyboard(event: KeyboardEvent): void {
     if (overlay || helper) return;
-    if (event.defaultPrevented || app.confirmation) return;
+    if (
+      event.defaultPrevented ||
+      app.confirmation ||
+      document.querySelector("dialog[open]")
+    )
+      return;
     if (event.key === "Escape" && app.snapshot.state === "cleaning") {
       event.preventDefault();
       void app.dictation("stop-cleanup");
@@ -273,7 +320,7 @@
     await app.perform("window", async () => {
       closing = action === "close";
       try {
-        if (closing && page === "report" && reportCrash)
+        if (closing && route.sheet === "report" && reportCrash)
           await app.dismissPendingCrash();
         await controlWindow(action);
       } catch (error: unknown) {
@@ -287,11 +334,8 @@
 <svelte:window onkeydown={keyboard} onbeforeunload={beforeUnload} />
 <svelte:head
   ><title
-    >{helper
-      ? "Permission helper"
-      : overlay
-        ? "Recording"
-        : navigation.find((item) => item.id === page)?.label} · SonoJot</title
+    >{helper ? "Permission helper" : overlay ? "Recording" : routeTitle(route)} ·
+    SonoJot</title
   ></svelte:head
 >
 
@@ -345,7 +389,7 @@
             mode={onboardingMode}
             onfinish={() => {
               onboardingMode = null;
-              page = "dictation";
+              void navigate("dictation");
             }}
           />
         {:else if app.native && !setupChecked}
@@ -353,7 +397,7 @@
         {:else if termsRequired}
           <Terms onclose={() => windowAction("close")} />
         {:else}<div class="sheet-body">
-            <Sidebar {page} onnavigate={navigate} />
+            <Rail {route} onnavigate={navigate} />
             <div class="stock mounted page-frame">
               <main
                 id="page-content"
@@ -388,7 +432,6 @@
                           }}><Icon name="close" size={18} /></button
                         >
                       </div>{/if}
-                    {#if page !== "about"}<UpdateNotice />{/if}
                     {#if !app.native}<div class="preview-notice">
                         <strong>Browser preview</strong><span
                           data-text-surface="flat"
@@ -397,42 +440,58 @@
                         >
                       </div>{/if}
                   </div>
+                  {#if route.stage || route.from}
+                    <StageHeader
+                      title={route.sheet === "report"
+                        ? "Help"
+                        : routeTitle(route)}
+                      parent={parentTitle}
+                      heading={route.tab === "settings" ||
+                        (route.tab === "meetings" &&
+                          ["notes", "speech"].includes(route.stage ?? "")) ||
+                        (route.tab === "dictation" &&
+                          ["input", "output", "cleanup", "speech"].includes(
+                            route.stage ?? "",
+                          ))}
+                      onback={() => void navigate(backRoute(route))}
+                    />
+                  {/if}
                   {#if app.native && !app.ready}<p
                       role="status"
                       data-text-surface="flat"
                     >
                       Starting SonoJot…
                     </p>
-                  {:else if page === "dictation"}<Dictation
-                      onmanage={manageModels}
-                      initialView={dictationReviewSession === null
-                        ? "preferences"
-                        : "recent"}
-                      reviewSessionId={dictationReviewSession}
-                    />{:else if page === "microphone"}<Microphone
-                      onreview={reviewMicrophoneTest}
-                    />{:else if page === "vocabulary"}<Vocabulary
-                      onmanage={manageModels}
-                    />{:else if page === "meetings"}<Meetings
-                      onmanage={manageModels}
-                      onerroraction={errorAction}
-                    />{:else if page === "appearance"}<Appearance
-                    />{:else if page === "shortcuts"}<Shortcuts
-                    />{:else if page === "setup"}<Setup
-                      focusRole={setupFocus}
+                  {:else if route.tab === "settings"}<Settings
+                      {route}
                       onnavigate={navigate}
-                    />{:else if page === "report"}
-                    {#key reportCrash?.id ?? "bug"}<ReportView
-                        crash={reportCrash}
-                        onclose={() => navigate("about")}
-                      />{/key}
-                  {:else}<About
-                      onreport={() => {
-                        void navigate("report");
-                      }}
                       ontour={() => {
                         onboardingMode = "tour";
                       }}
+                    />
+                  {:else if route.tab === "dictation" && route.stage === "input"}<InputScreen
+                      onreview={reviewMicrophoneTest}
+                    />
+                  {:else if route.tab === "dictation" && route.stage === "output"}<OutputScreen
+                    />
+                  {:else if route.tab === "dictation" && route.stage === "cleanup"}<CleanupScreen
+                      onmanage={manageModels}
+                    />
+                  {:else if (route.tab === "dictation" || route.tab === "meetings") && route.stage === "speech"}{#key route.tab}<SpeechScreen
+                        meeting={route.tab === "meetings"}
+                      />{/key}
+                  {:else if route.tab === "meetings" && route.stage === "notes"}<MeetingNotesScreen
+                      onmanage={manageModels}
+                    />
+                  {:else if route.tab === "dictation"}<DictationTab
+                      onnavigate={navigate}
+                      reviewSessionId={dictationReviewSession}
+                    />{:else if route.tab === "words"}<Vocabulary
+                      onmanage={manageModels}
+                    />{:else if route.tab === "meetings"}<MeetingsTab
+                      onnavigate={navigate}
+                      onmanage={manageModels}
+                      onerroraction={errorAction}
                     />{/if}
                 </div>
               </main>
@@ -440,7 +499,28 @@
           </div>{/if}
       </div>
     {/if}
+    {#if route.sheet === "report" && (!app.native || setupChecked) && !termsRequired && !overlay && !helper && !onboardingMode}
+      <Sheet
+        title={reportCrash
+          ? crashHeading(reportCrash.reason)
+          : "Report a problem"}
+        onclose={() => void navigate(backRoute(route))}
+      >
+        {#key reportCrash?.id ?? "bug"}<ReportView
+            embedded
+            crash={reportCrash}
+            onclose={async () => {
+              await navigate(backRoute(route));
+            }}
+          />{/key}
+      </Sheet>
+    {/if}
+    {#if openRouter.request}{#key openRouter.request.role}<OpenRouterSheet
+        />{/key}{/if}
     {#if app.confirmation}<Confirmation />{/if}
     {#if downloadConsent.groups.length}<DownloadConsent />{/if}
+    {#if route.sheet === "update" && !overlay && !helper}
+      <UpdateSheet onclose={() => void navigate(backRoute(route))} />
+    {/if}
   </div>
 {/if}

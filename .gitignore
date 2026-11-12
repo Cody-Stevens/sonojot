@@ -240,6 +240,7 @@ diagnostics/*.jsonl
 !rewrite/src-tauri/src/bin/
 !rewrite/src-tauri/src/bin/*.rs
 
+
 # Public-source privacy boundary
 /config.json
 /test-license-key.txt

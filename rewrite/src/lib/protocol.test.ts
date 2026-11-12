@@ -470,3 +470,45 @@ test("learning entries validate kind, sources and flags", () => {
   });
   assert.equal(removed.deletedCount, 3);
 });
+
+test("dictation audio defaults off and usage/delete responses are typed", () => {
+  const { keepDictationAudio, ...legacySettings } = previewSnapshot.settings;
+  assert.equal(keepDictationAudio, false);
+  assert.equal(
+    parseResponse("get_snapshot", {
+      ...previewSnapshot,
+      settings: legacySettings,
+    }).settings.keepDictationAudio,
+    false,
+  );
+  assert.deepEqual(
+    parseResponse("get_dictation_audio_usage", { count: 2, bytes: 123 }),
+    { count: 2, bytes: 123 },
+  );
+  assert.deepEqual(parseResponse("delete_dictation_audio", { deleted: 2 }), {
+    deleted: 2,
+  });
+  assert.throws(() =>
+    parseResponse("get_dictation_audio_usage", { count: "2", bytes: 123 }),
+  );
+});
+
+test("vocabulary aliases default for legacy files and retain confirmed forms", () => {
+  const old = {
+    id: "term",
+    heard: "Tacksheet",
+    written: "Tacksheet",
+    enabled: true,
+  };
+  const [legacy] = parseResponse("get_vocabulary", [old]);
+  assert.deepEqual(legacy.aliases, []);
+  assert.deepEqual(legacy.context, []);
+  const [entry] = parseResponse("save_vocabulary", [
+    { ...old, aliases: ["tax sheet", "Tackett"], context: ["project"] },
+  ]);
+  assert.deepEqual(entry.aliases, ["tax sheet", "Tackett"]);
+  assert.deepEqual(entry.context, ["project"]);
+  assert.throws(() =>
+    parseResponse("get_vocabulary", [{ ...old, aliases: [42] }]),
+  );
+});

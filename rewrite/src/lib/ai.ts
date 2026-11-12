@@ -183,6 +183,15 @@ export function priceLine(item: AiModel): string {
   return `${dollars(input)} input, ${dollars(output)} output per 1M tokens`;
 }
 
+/** An estimate for 1,000 words in and out, plus a 500-token instruction. */
+export function textCost(item: AiModel | undefined): string {
+  if (!item) return "Price unavailable";
+  const input = perMillion(item.promptPrice);
+  const output = perMillion(item.completionPrice);
+  if (input === null || output === null) return "Price unavailable";
+  return `≈ ${dollars((input * 1833 + output * 1333) / 1e6)} per 1,000 words`;
+}
+
 export function routeNotes(
   check: AiModelCheck | null,
   failed: boolean,

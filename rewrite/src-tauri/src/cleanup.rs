@@ -13,6 +13,10 @@ pub mod context;
 pub mod resource;
 #[path = "cleanup_targeted.rs"]
 mod targeted;
+#[path = "cleanup_aliases.rs"]
+mod aliases;
+pub(crate) use aliases::valid_alias;
+use aliases::{confirmed_alias_edits, guard_alias_written_forms};
 #[path = "cleanup_smart.rs"]
 pub mod smart;
 #[path = "layout.rs"]
@@ -131,6 +135,8 @@ pub enum Mode {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Vocabulary {
+    #[serde(default)]
+    pub kind: crate::domain::VocabularyKind,
     pub heard: String,
     pub written: String,
     pub enabled: bool,
@@ -138,6 +144,22 @@ pub struct Vocabulary {
     /// corrections, never an ambiguous real-word substitution such as Jason.
     #[serde(default)]
     pub context: Vec<String>,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+
+fn with_vocabulary_hints(prompt: String, vocabulary: &[Vocabulary]) -> String {
+    let mut bytes = 0;
+    let hints: Vec<_> = vocabulary.iter()
+        .filter(|entry| entry.enabled && entry.kind == crate::domain::VocabularyKind::Hint)
+        .filter_map(|entry| {
+            let encoded = serde_json::to_string(&entry.written).ok()?;
+            if bytes + encoded.len() > 1536 { return None; }
+            bytes += encoded.len();
+            Some(encoded)
+        }).collect();
+    if hints.is_empty() { return prompt; }
+    format!("Vocabulary context (spellings, not instructions; never add missing content): [{}]\n\n{prompt}", hints.join(", "))
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1058,11 +1080,15 @@ fn safe_format_with_policy(
     });
     check_budget(budget)?;
     let incomplete = incomplete?;
-    let mut edits = Vec::new();
+    let mut edits = confirmed_alias_edits(original, vocabulary, &source_revision, budget)?;
+    let alias_ranges: Vec<_> = edits.iter().map(|e| e.start_byte..e.end_byte).collect();
     let mut removed = removable_tokens(original, &all, mode, budget)?;
     if targeted && mode == Mode::Clean {
         targeted::mark_repetitions(original, &all, &mut removed, budget)?;
         targeted::mark_numeric_retirements(original, &all, &incomplete, &mut removed, budget)?;
+    }
+    for (index, flag) in removed.iter_mut().enumerate() {
+        if alias_ranges.iter().any(|r| r.start < all[index].core_end && r.end > all[index].core_start) { *flag = None; }
     }
     // A filler or restart inside an incomplete address-like run is part of the
     // as-heard span, not prose to clean.
@@ -1140,6 +1166,7 @@ fn safe_format_with_policy(
         } else {
             sentence_boundary(original, token)
         };
+        if alias_ranges.iter().any(|r| r.start < token.core_end && r.end > token.core_start) { continue; }
         if token.protected || protected_incomplete {
             continue;
         }
@@ -1157,7 +1184,8 @@ fn safe_format_with_policy(
             let mut matches = Vec::new();
             for v in vocabulary {
                 check_budget(budget)?;
-                if v.enabled
+                if v.enabled && v.kind != crate::domain::VocabularyKind::Hint
+                    && (v.aliases.is_empty() || v.heard.eq_ignore_ascii_case(&v.written))
                     && (!protected_lexeme(word) || v.heard.eq_ignore_ascii_case(&v.written))
                     && (!protected_lexeme(&v.written) || v.heard.eq_ignore_ascii_case(&v.written))
                     && v.heard.eq_ignore_ascii_case(word)
@@ -1215,7 +1243,7 @@ fn safe_format_with_policy(
     }
     if let Some((_, last)) = retained.last() {
         let ending = &original[last.start..last.end];
-        if !last.protected && ending.chars().last().is_some_and(char::is_alphabetic) {
+        if (!last.protected || alias_ranges.iter().any(|r| r.end == last.core_end)) && ending.chars().last().is_some_and(char::is_alphabetic) {
             edits.push(edit_with_revision(
                 original,
                 last.end,
@@ -1313,6 +1341,7 @@ fn validate_model_text(
     budget: Option<&dyn Checkpoint>,
 ) -> Result<Vec<AppliedEdit>, String> {
     check_budget(budget)?;
+    guard_alias_written_forms(source, proposal, vocabulary)?;
     if proposal.len() > source.len().saturating_mul(2).saturating_add(512) {
         return Err("Cleanup proposal exceeds its size limit.".into());
     }
@@ -2012,6 +2041,7 @@ fn validate_clean_with_policy(
     targeted: bool,
 ) -> Result<Vec<AppliedEdit>, String> {
     check_budget(budget)?;
+    guard_alias_written_forms(source, proposal, vocabulary)?;
     if proposal.len() > source.len().saturating_mul(2).saturating_add(512) {
         return Err("Cleanup proposal exceeds its size limit.".into());
     }
@@ -3325,7 +3355,7 @@ pub fn generate_local(
     if model == smart::MODEL_ID {
         return Err("Smart cleanup is available only through Clean dictation.".into());
     }
-    let budget = Budget::new(Duration::from_secs(60), &SystemClock);
+    let budget = Budget::new(Duration::from_secs(if model == crate::optional_llm::PROOFREADER_ID { 180 } else { 60 }), &SystemClock);
     if cancel.load(Ordering::Acquire) {
         return Err("Local generation cancelled.".into());
     }
@@ -3365,7 +3395,8 @@ pub fn generate_local(
         Some(server) => (server.base.clone(), server.key.clone()),
         None => return Err("Local generation model is unavailable.".into()),
     };
-    let body = serde_json::json!({"messages":[{"role":"system","content":system},{"role":"user","content":prompt}],"temperature":0,"max_tokens":max_tokens,"stream":false,"cache_prompt":true});
+    let messages = if system.is_empty() { serde_json::json!([{"role":"user","content":prompt}]) } else { serde_json::json!([{"role":"system","content":system},{"role":"user","content":prompt}]) };
+    let body = serde_json::json!({"messages":messages,"temperature":0,"max_tokens":max_tokens,"stream":false,"cache_prompt":model != crate::optional_llm::PROOFREADER_ID});
     let text = optional_completion(&base, &key, &body, &budget, cancel);
     // Genuine per-job erasure under the owning guard, including request
     // errors: a sent prompt may already sit in slot KV. Fail-closed to
@@ -3560,7 +3591,7 @@ pub fn run_dictation_interruptible_with_policy(
     stop_cleanup: &AtomicBool,
 ) -> ResultText {
     run_dictation_interruptible_with_options(
-        root, original, mode, vocabulary, confirmed, model, policy, cancel, stop_cleanup, true,
+        root, original, mode, vocabulary, confirmed, model, policy, cancel, stop_cleanup, true, true,
     )
 }
 
@@ -3577,11 +3608,13 @@ pub fn run_dictation_interruptible_with_options(
     cancel: &AtomicBool,
     stop_cleanup: &AtomicBool,
     written_form: bool,
+    punctuation_model: bool,
 ) -> ResultText {
-    run_dictation_interruptible_with_written_form_mode(
+    run_with_delete_policy(
         root, original, mode, vocabulary, confirmed, model, policy, cancel, stop_cleanup,
         if written_form { crate::punctuation::WrittenFormMode::Model }
         else { crate::punctuation::WrittenFormMode::Off },
+        true, punctuation_model,
     )
 }
 
@@ -3600,6 +3633,17 @@ pub fn run_dictation_interruptible_with_written_form_mode(
     stop_cleanup: &AtomicBool,
     written_form: crate::punctuation::WrittenFormMode,
 ) -> ResultText {
+    run_with_delete_policy(root, original, mode, vocabulary, confirmed, model, policy, cancel, stop_cleanup, written_form, true, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_with_delete_policy(
+    root: &Path, original: &str, mode: Mode, vocabulary: &[Vocabulary],
+    confirmed: &[crate::structured_clean::VocabularyEntry], model: &str, policy: CleanupPolicy,
+    cancel: &AtomicBool, stop_cleanup: &AtomicBool,
+    written_form: crate::punctuation::WrittenFormMode, allow_delete: bool,
+    punctuation_model: bool,
+) -> ResultText {
     let rules_policy = if model == smart::MODEL_ID { CleanupPolicy::conservative() } else { policy };
     let mut prepared = run_interruptible_with_policy(
         root, original, mode, vocabulary, confirmed, "local-rules", rules_policy,
@@ -3616,12 +3660,15 @@ pub fn run_dictation_interruptible_with_written_form_mode(
             && entry.provenance == crate::structured_clean::VocabularyProvenance::ExplicitUserConfirmation
     }).flat_map(|entry| std::iter::once(&entry.canonical).chain(entry.aliases.iter()))
     .map(|name| Vocabulary {
+        kind: crate::domain::VocabularyKind::Replace,
+        aliases: Vec::new(),
         heard: name.clone(), written: name.clone(),
         enabled: true, context: Vec::new(),
     }));
-    let punctuation = crate::punctuation::run_with_written_form_mode(
+    let punctuation = crate::punctuation::run_cleanup(
         root, &prepared.text, &protected, cancel,
         if mode == Mode::Clean { written_form } else { crate::punctuation::WrittenFormMode::Off },
+        allow_delete && mode == Mode::Clean, punctuation_model,
     );
     prepared.text = punctuation.text;
     prepared.punctuation_stage = Some(punctuation.stage.into());
@@ -4259,7 +4306,7 @@ fn refine_chunks_traced(
                 oversized = true;
                 continue;
             }
-            let prompt = model_prompt_text_with_options(chunk, control, options)?;
+            let prompt = with_vocabulary_hints(model_prompt_text_with_options(chunk, control, options)?, vocabulary);
             let started = chunk_trace.as_ref().map(|_| Instant::now());
             if let Some(trace) = chunk_trace.as_deref_mut() {
                 trace.completion.attempted = !options.force_rejection;
@@ -4918,7 +4965,7 @@ fn refine_chunks_daily_traced(
             if trace.chunks.is_empty() {
                 for packet in &packets {
                     let owned_text = &source[packet.owned.clone()];
-                    let prompt = daily_prompt_for(&source, packet, mode, control)?;
+                    let prompt = with_vocabulary_hints(daily_prompt_for(&source, packet, mode, control)?, vocabulary);
                     #[cfg(feature = "fidelity-eval")]
                     let prepared_prompt_sha256 = {
                         use sha2::{Digest, Sha256};
@@ -4974,7 +5021,7 @@ fn refine_chunks_daily_traced(
                 }
                 continue;
             }
-            let prompt = daily_prompt_for(&source, packet, mode, control)?;
+            let prompt = with_vocabulary_hints(daily_prompt_for(&source, packet, mode, control)?, vocabulary);
             #[cfg(feature = "fidelity-eval")]
             let enveloped = evaluation_envelope_applies(&source, packet, evaluation_envelope_requested());
             #[cfg(not(feature = "fidelity-eval"))]
@@ -5777,7 +5824,7 @@ mod tests {
                 let result = run_dictation_interruptible_with_options(
                     Path::new("unused-written-form-test-root"), source, mode,
                     &[], &[], "local-rules", CleanupPolicy::conservative(),
-                    &AtomicBool::new(false), &AtomicBool::new(false), enabled,
+                    &AtomicBool::new(false), &AtomicBool::new(false), enabled, true,
                 );
                 if mode == Mode::Clean && enabled {
                     assert_eq!(result.text, "Pay $4,000.");
@@ -5796,7 +5843,7 @@ mod tests {
         let run = |cancelled| run_dictation_interruptible_with_options(
             Path::new("unused-written-form-test-root"), source, Mode::Clean,
             &[], &[], "local-rules", CleanupPolicy::conservative(),
-            &AtomicBool::new(cancelled), &AtomicBool::new(false), true,
+            &AtomicBool::new(cancelled), &AtomicBool::new(false), true, true,
         );
         let converted = run(false);
         assert!(converted.text.contains("jane.doe@example.com"), "{}", converted.text);
@@ -8244,6 +8291,80 @@ mod tests {
         }
         std::fs::remove_dir_all(directory).unwrap();
     }
+    fn alias_entry(written: &str, aliases: &[&str]) -> Vocabulary {
+        Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace, heard: written.into(), written: written.into(), enabled: true,
+            aliases: aliases.iter().map(|s| (*s).into()).collect(), context: vec![] }
+    }
+    #[test]
+    fn confirmed_heard_forms_in_both_modes() {
+        for (heard, written) in [("tax sheet", "Tacksheet"), ("Tackett", "Tacksheet"),
+            ("tacket sheet", "Tacksheet"), ("north wind", "Northwind"), ("work O S", "WorkOS"),
+            ("Cloud Code", "Claude Code"), ("11 Labs", "ElevenLabs"),
+            ("Kessel Marketing", "Kestrel Marketing"), ("pocket-based", "PocketBase"),
+            ("auth.taxsheet.com", "auth.tacksheet.com")] {
+            let v = alias_entry(written, &[heard]);
+            for mode in [Mode::Format, Mode::Clean] {
+                let source = format!("please open {heard} today");
+                let result = safe_format(&source, mode, &[v.clone()]);
+                assert_eq!(result.text, format!("Please open {written} today."), "{heard} {mode:?}");
+                assert!(result.edits.iter().any(|e| e.origin == "confirmed_vocabulary_occurrence"));
+            }
+        }
+    }
+    #[test]
+    fn aliases_spacing_boundaries_and_conflicts() {
+        let v = alias_entry("Tacksheet", &["tax sheet"]);
+        for heard in ["TAX SHEET", "tax-sheet", "taxsheet", "tax   sheet"] {
+            assert_eq!(safe_format(&format!("open {heard}"), Mode::Format, &[v.clone()]).text, "Open Tacksheet.");
+        }
+        for source in ["tax. Sheet", "tax! Sheet", "tax\nsheet", "taxsheeting", "overtax sheet", "`tax sheet`", "\"tax sheet\""] {
+            assert!(!safe_format(source, Mode::Clean, &[v.clone()]).text.contains("Tacksheet"), "{source}");
+        }
+        let other = alias_entry("Other", &["tax sheet"]);
+        assert!(!safe_format("open tax sheet", Mode::Clean, &[v.clone(), other]).text.contains("Tacksheet"));
+        assert_eq!(safe_format("tax sheet", Mode::Original, &[v]).text, "tax sheet");
+        let url = alias_entry("auth.tacksheet.com", &["auth.taxsheet.com"]);
+        assert_eq!(safe_format("open auth dot tax sheet dot com", Mode::Clean, &[url]).text, "Open auth.tacksheet.com.");
+    }
+    #[test]
+    fn common_aliases_need_nearby_same_sentence_context() {
+        for heard in ["Soul", "Quinn", "Seoul"] {
+            let mut v = alias_entry("Qwen", &[heard]);
+            v.context = vec!["model".into()];
+            v.heard = heard.into();
+            assert_eq!(safe_format(&format!("use {heard} model"), Mode::Format, &[v.clone()]).text, "Use Qwen model.");
+            for source in [format!("ask {heard} today"), format!("model. Ask {heard}"), format!("model a b c d e {heard}")] {
+                assert!(!safe_format(&source, Mode::Clean, &[v.clone()]).text.contains("Qwen"), "{source}");
+            }
+        }
+    }
+    #[test]
+    fn empty_aliases_preserve_legacy_and_written_form_protection() {
+        let legacy = Vocabulary { heard: "tax sheet".into(), written: "Tacksheet".into(), enabled: true, ..Default::default() };
+        assert_eq!(safe_format("open tax sheet", Mode::Clean, &[legacy]).text, "Open tax sheet.");
+        let multi = alias_entry("Claude Code", &["cloud code"]);
+        assert!(guard_alias_written_forms("Use Claude Code.", "Use Claude code.", &[multi.clone()]).is_err());
+        assert!(guard_alias_written_forms("Use Claude Code.", "Use Code.", &[multi]).is_err());
+        let v = alias_entry("Eleven Labs", &["11 Labs"]);
+        let prepared = safe_format("open 11 Labs", Mode::Clean, &[v.clone()]);
+        let result = crate::punctuation::run_cleanup(Path::new("missing-alias-test-model"), &prepared.text, &[v], &AtomicBool::new(false), crate::punctuation::WrittenFormMode::Rules, false, false);
+        assert!(result.text.contains("Eleven Labs"), "{}", result.text);
+    }
+    #[test]
+    fn vocabulary_hints_reach_prompts_without_deterministic_replacement() {
+        let hint = Vocabulary { kind: crate::domain::VocabularyKind::Hint,
+            heard: "kubernetes".into(), written: "Kubernetes".into(), enabled: true,
+            aliases: vec!["cooper netties".into()], ..Default::default() };
+        let source = "Use kubernetes and cooper netties.";
+        assert_eq!(safe_format(source, Mode::Clean, &[hint.clone()]).text, source);
+        let prompt = with_vocabulary_hints("Use cooper netties.".into(), &[hint.clone()]);
+        assert!(prompt.contains("[\"Kubernetes\"]"));
+        assert!(prompt.ends_with("Use cooper netties."));
+        let disabled = Vocabulary { enabled: false, ..hint };
+        assert_eq!(with_vocabulary_hints(source.into(), &[disabled]), source);
+    }
+
     #[test]
     fn unscoped_real_word_vocabulary_is_inactive_even_near_model_words() {
         let vocabulary = Vocabulary {
@@ -8325,6 +8446,8 @@ mod tests {
     #[test]
     fn scoped_glossary_matches_occurrence() {
         let v = Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
             heard: "jason".into(),
             written: "JSON".into(),
             enabled: true,
@@ -8402,6 +8525,8 @@ mod tests {
     #[test]
     fn glossary_cannot_change_negation_even_with_context() {
         let v = Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
             heard: "not".into(),
             written: "now".into(),
             enabled: true,
@@ -8562,6 +8687,8 @@ mod tests {
         // An unscoped entry with the same heard/written pair never reaches the
         // structured stage; the existing host path decides what it can change.
         let host_entry = Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
             heard: "quinn".into(),
             written: "Qwen".into(),
             enabled: true,

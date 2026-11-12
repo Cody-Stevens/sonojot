@@ -2900,6 +2900,167 @@
       }
     },
     {
+      "id": "sonojot-punct-v3",
+      "kind": "model",
+      "name": "SonoJot Punctuation v3",
+      "version": "e023ae245a00bac1785bb6a022b16d181e346e48",
+      "license": "CC-BY-SA-4.0",
+      "licenseUrl": "https://huggingface.co/SonoJot/sonojot-punct-v3/blob/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+      "catalogIds": [
+        "sonojot-punct-v3"
+      ],
+      "sources": [
+        "rewrite/src-tauri/src/punctuation_model.rs",
+        "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+        "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt",
+        "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        "https://huggingface.co/Horizon-Labs/punctuation-restoration-small/resolve/ee31fdfc5304f876ea3b0dd72d30eda7e940b2b1/README.md",
+        "https://huggingface.co/jhu-clsp/mmBERT-small/resolve/abc32620dd4f6ab06f5fbe905dc25f310618e09f/README.md",
+        "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md",
+        "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/README.md",
+        "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md",
+        "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/README.md"
+      ],
+      "textFiles": [
+        "downloads/standard/cc-by-sa-4.0.txt",
+        "downloads/standard/apache-2.0.txt",
+        "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md",
+        "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md",
+        "downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+        "punctuation/NOTICE-v3.txt",
+        "punctuation/LICENSE-CC-BY-SA-4.0.txt"
+      ],
+      "downloadUrls": [
+        "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/model.int8.onnx",
+        "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/tokenizer.json",
+        "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/punct-config.json"
+      ],
+      "distribution": "SonoJot-published model on Hugging Face; downloaded directly from Hugging Face.",
+      "attribution": "SonoJot Punctuation v3; fine-tuning, ONNX export and int8 quantization by SonoJot. Training labels derive from Rev.com Earnings-21 and Earnings-22 plus one consenting user's dictation; v3 continues SonoJot v1 with v2's written-form span head and data. Base chain: Horizon-Labs/punctuation-restoration-small (Apache-2.0), built on jhu-clsp/mmBERT-small (MIT).",
+      "conditions": "Retain creator/source attribution, CC BY-SA 4.0 terms and disclaimer notices, and indicate changes. Modified models must remain CC BY-SA 4.0 (or an adapter license permitted by its ShareAlike provision). Preserve applicable Apache/MIT base-model notices. Ordinary inference does not by itself make every output or the application an adaptation.",
+      "verification": "Pinned repository metadata and available card/license files were fetched at the exact catalog commit; large model files were not downloaded.",
+      "issues": [
+        "The pinned repository has a model card but no standalone LICENSE/NOTICE. This repository supplies complete attribution and CC BY-SA terms under licenses/punctuation; the parent owns writing them beside downloaded weights through model_manager without changing protected punctuation code.",
+        "Exact base-model and Earnings dataset revisions used in training are not recorded by the pinned card. Upstream lineage files were captured at current commits, not represented as training pins.",
+        "The mmBERT card declares MIT but supplies no standalone copyright/license file in that current repository snapshot; retrieve its applicable upstream notice before claiming the base chain is fully cleared."
+      ],
+      "recommendation": "Keep with a packaged model attribution file and full CC BY-SA terms; record the base/training revisions. Retain compatible ShareAlike terms when redistributing adapted weights.",
+      "repository": "SonoJot/sonojot-punct-v3",
+      "artifactPins": [
+        {
+          "file": "model.int8.onnx",
+          "bytes": 268364003,
+          "sha256": "11f46c02f68a2a05912ed0c65a6dc063f199280b816307fa3ec17ce23a5e2182",
+          "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/model.int8.onnx"
+        },
+        {
+          "file": "tokenizer.json",
+          "bytes": 34363188,
+          "sha256": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+          "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/tokenizer.json"
+        },
+        {
+          "file": "punct-config.json",
+          "bytes": 1672,
+          "sha256": "8bbd52775cedbbcf33c6be4402c9cb77d7c6f581fbc10909518384425039c9e4",
+          "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/punct-config.json"
+        }
+      ],
+      "evaluationOnly": false,
+      "evidence": [
+        {
+          "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+          "file": "downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+          "sourceSha256": "b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90",
+          "sourceBytes": 7971,
+          "scope": "pinned-download-repository"
+        },
+        {
+          "url": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt",
+          "file": "downloads/standard/cc-by-sa-4.0.txt",
+          "sourceSha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+          "sourceBytes": 20138,
+          "scope": "standard-license-text"
+        },
+        {
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+          "file": "downloads/standard/apache-2.0.txt",
+          "sourceSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "sourceBytes": 11358,
+          "scope": "standard-license-text"
+        },
+        {
+          "url": "https://huggingface.co/Horizon-Labs/punctuation-restoration-small/resolve/ee31fdfc5304f876ea3b0dd72d30eda7e940b2b1/README.md",
+          "file": "downloads/huggingface/Horizon-Labs--punctuation-restoration-small/ee31fdfc5304f876ea3b0dd72d30eda7e940b2b1/README.md",
+          "sourceSha256": "4f4ec573102819c5a12ffc86b4ecfbf9706d78cf5587f64d11a6cb6190907a78",
+          "sourceBytes": 14142,
+          "scope": "upstream-current-only"
+        },
+        {
+          "url": "https://huggingface.co/jhu-clsp/mmBERT-small/resolve/abc32620dd4f6ab06f5fbe905dc25f310618e09f/README.md",
+          "file": "downloads/huggingface/jhu-clsp--mmBERT-small/abc32620dd4f6ab06f5fbe905dc25f310618e09f/README.md",
+          "sourceSha256": "a56c26f251c188a1c0b783fcddb461e78f754b61ee948975fafbb2b77c863353",
+          "sourceBytes": 29646,
+          "scope": "upstream-current-only"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md",
+          "file": "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md",
+          "sourceSha256": "f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7",
+          "sourceBytes": 249,
+          "scope": "upstream-current-only"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/README.md",
+          "file": "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/README.md",
+          "sourceSha256": "83601d62e4af00fe715f01015df1ae8f9759cbfcc5f360c192cd2a41ac876fb2",
+          "sourceBytes": 8350,
+          "scope": "upstream-current-only"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md",
+          "file": "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md",
+          "sourceSha256": "f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7",
+          "sourceBytes": 249,
+          "scope": "upstream-current-only"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/README.md",
+          "file": "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/README.md",
+          "sourceSha256": "87c2aa7139b00e3e42cd6f4aba84f735ce4487f0b5bf72d73a0288b6ec32aa4d",
+          "sourceBytes": 4367,
+          "scope": "upstream-current-only"
+        }
+      ],
+      "verificationStatus": "pinned-card-only",
+      "lineage": [
+        {
+          "name": "Horizon-Labs/punctuation-restoration-small",
+          "license": "Apache-2.0",
+          "scope": "upstream-current-only; actual training revision unrecorded"
+        },
+        {
+          "name": "jhu-clsp/mmBERT-small",
+          "license": "MIT",
+          "scope": "current card declaration only; original notice unresolved"
+        },
+        {
+          "name": "Rev.com Earnings-21 transcripts and alignment text",
+          "license": "CC-BY-SA-4.0",
+          "scope": "pinned SonoJot card declares use; training dataset revision unrecorded"
+        },
+        {
+          "name": "Rev.com Earnings-22 transcripts and alignment text",
+          "license": "CC-BY-SA-4.0",
+          "scope": "pinned SonoJot v3 card declares use; training dataset revision unrecorded"
+        }
+      ],
+      "attributionFiles": {
+        "notice": "punctuation/NOTICE-v3.txt",
+        "license": "punctuation/LICENSE-CC-BY-SA-4.0.txt"
+      }
+    },
+    {
       "id": "granite-speech-4.1-2b-nar-q8",
       "kind": "model",
       "name": "Granite Speech 4.1 2B NAR Q8",

@@ -12,6 +12,8 @@ pub(crate) fn write_punctuation_notices(root: &std::path::Path, id: &str) -> Res
     let notice = match package {
         crate::punctuation_model::Package::V1 => include_str!("../../licenses/punctuation/NOTICE-v1.txt"),
         crate::punctuation_model::Package::V2 => include_str!("../../licenses/punctuation/NOTICE-v2.txt"),
+        crate::punctuation_model::Package::V4 => include_str!("../../licenses/punctuation/NOTICE-v4.txt"),
+        crate::punctuation_model::Package::V3 => include_str!("../../licenses/punctuation/NOTICE-v3.txt"),
     };
     for (name, text) in [("LICENSE-CC-BY-SA-4.0.txt", include_str!("../../licenses/downloads/standard/cc-by-sa-4.0.txt")), ("NOTICE", notice)] {
         let path = directory.join(name);
@@ -50,7 +52,7 @@ fn catalog() -> Result<&'static Catalog, String> {
 }
 
 fn license_url(id: &str) -> Result<&'static str, String> {
-    if matches!(id, "sonojot-punct-v1" | "sonojot-punct-v2") {
+    if matches!(id, "sonojot-punct-v1" | "sonojot-punct-v2" | "sonojot-punct-v3" | "sonojot-cleanup-v4") {
         return Ok("https://creativecommons.org/licenses/by-sa/4.0/legalcode.en");
     }
     let component = catalog()?
@@ -85,9 +87,9 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn both_punctuation_packages_retain_license_and_lineage_beside_weights() {
+    fn every_punctuation_package_retains_license_and_lineage_beside_weights() {
         let root = std::env::temp_dir().join(format!("sonojot-model-notices-{}", crate::store::new_id()));
-        for id in ["sonojot-punct-v1", "sonojot-punct-v2"] {
+        for id in ["sonojot-punct-v1", "sonojot-punct-v2", "sonojot-punct-v3"] {
             let path = crate::punctuation_model::Package::from_id(id).unwrap().path(&root);
             std::fs::create_dir_all(&path).unwrap();
             write_punctuation_notices(&root, id).unwrap();

@@ -1,0 +1,219 @@
+.quiet-panel {
+  padding: 6px 22px;
+}
+.quiet-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 12px;
+  border: 1px solid transparent;
+  border-bottom-color: var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+  font-size: 16px;
+}
+.quiet-option.chosen,
+.quiet-option[aria-pressed="true"] {
+  background-color: var(--well);
+  box-shadow: var(--press);
+}
+.quiet-option:hover:not(:disabled) {
+  border-color: var(--line);
+}
+.studio[data-material="off"] .quiet-option,
+.studio[data-material="off"] .choice-dot {
+  box-shadow: none;
+}
+.choice-dot {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  box-shadow: var(--press);
+}
+.quiet-option[aria-pressed="true"] .choice-dot {
+  background: var(--dye);
+  border: 3px solid var(--well);
+}
+.option-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.option-copy > small:not(.quiet-tag) {
+  display: block;
+  color: var(--soft-ink);
+  font-size: 13px;
+  margin-top: 5px;
+  line-height: 1.45;
+}
+.stage-setting {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 65px;
+  padding: 12px 0;
+}
+.stage-setting + .stage-setting {
+  border-top: 1px solid var(--line);
+}
+.stage-setting.wide-label {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.stage-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+.stage-control.end {
+  justify-content: flex-end;
+}
+.stage-setting small {
+  font-size: 14px;
+  color: var(--soft-ink);
+}
+.stage-control .segments {
+  display: flex;
+  padding: 4px;
+  margin: 0;
+  gap: 3px;
+}
+.stage-control .segments button {
+  font-size: 15px;
+  padding: 7px 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.quiet-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1.35;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+.quiet-tag.amber {
+  color: var(--warning-ink, #835d24);
+  border-color: currentColor;
+}
+.studio[data-theme="slate"] .quiet-tag.amber {
+  color: #d4b676;
+}
+@media (max-width: 900px) {
+  .stage-setting {
+    grid-template-columns: 130px minmax(0, 1fr);
+  }
+  .stage-setting small {
+    display: block;
+  }
+}
+
+/* Settings uses the same raised sheet and pressed controls as stage screens. */
+.quiet-settings {
+  padding: 8px 22px;
+  margin-bottom: 20px;
+}
+.quiet-settings .paper-row {
+  padding: 18px 0;
+  gap: 22px;
+}
+.quiet-settings .row-copy {
+  flex: 0 0 180px;
+  min-width: 0;
+}
+.quiet-settings .row-control {
+  flex: 1;
+  justify-content: flex-start;
+  gap: 12px;
+}
+.quiet-settings .row-copy small {
+  font-size: 13px;
+}
+.settings-link {
+  display: grid;
+  grid-template-columns: 180px 1fr 12px;
+  width: 100%;
+  align-items: baseline;
+  gap: 22px;
+  padding: 18px 0;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+.settings-link:first-child {
+  border-top: 0;
+}
+.settings-link:hover {
+  background-color: var(--well);
+  border-radius: 6px;
+}
+.settings-link strong {
+  font-weight: 600;
+  font-size: 19px;
+}
+.settings-link > span {
+  color: var(--soft-ink);
+  font-size: 15px;
+}
+.settings-hardware {
+  color: var(--soft-ink);
+  font-size: 15px;
+  margin: 0 0 18px;
+}
+@media (max-width: 800px) {
+  .quiet-settings .row-copy {
+    flex-basis: 145px;
+  }
+  .settings-link {
+    grid-template-columns: 145px 1fr 12px;
+    gap: 14px;
+  }
+}
+.quiet-settings .segments,
+.disk-toolbar .segments,
+.words-heading .segments {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  padding: 4px;
+  margin: 0;
+  align-self: center;
+}
+.quiet-settings .segments button,
+.disk-toolbar .segments button,
+.words-heading .segments button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 8px 13px;
+  font-size: 16px;
+}
+.disk-toolbar {
+  align-items: center;
+}
+.disk-toolbar input {
+  height: 46px;
+}
+.stage-diff .stamp {
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  padding: 1px 4px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+.quiet-settings .row-control {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: none;
+  min-width: 0;
+}

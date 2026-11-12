@@ -119,3 +119,14 @@ export async function chooseAudioExport(
     filters: [{ name: "Original recording (WAV)", extensions: ["wav"] }],
   });
 }
+
+export async function chooseDictationExport(
+  defaultPath: string,
+): Promise<string | null> {
+  if (!native) throw new Error("Open the desktop app to export a dictation.");
+  return save({
+    title: "Export dictation",
+    defaultPath,
+    filters: [{ name: "Markdown", extensions: ["md"] }],
+  });
+}

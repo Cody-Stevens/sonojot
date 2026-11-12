@@ -18,6 +18,8 @@ mod models;
 mod numbers;
 #[path = "written_form/proposals.rs"]
 mod proposals;
+#[path = "written_form/terms.rs"]
+mod terms;
 #[path = "written_form/verbalize.rs"]
 mod speech;
 pub use proposals::{ModelProposer, RulesProposer, SpanProposer};
@@ -194,6 +196,15 @@ pub fn render_span(
     before: Option<&str>,
     after: Option<&str>,
 ) -> Option<String> {
+    // A protected brand or jargon term keeps its spoken words (terms.json).
+    if terms::protected(
+        text,
+        before.unwrap_or(""),
+        after.unwrap_or(""),
+        class == Class::Model,
+    ) {
+        return None;
+    }
     render_with_guard(text, class, before, after, |core, candidate, class| {
         if class == Class::Model {
             return models::guard(core, candidate, before.unwrap_or(""), after.unwrap_or(""));
@@ -259,6 +270,18 @@ fn render_with_guard(
             return None;
         }
     }
+    // Digits never join across a comma-like mark: "Five Point Five, four" is
+    // 5.5 and then four, never 5.54. A date's comma before its year is style.
+    if class != Class::Date && crosses_mark(core) {
+        return None;
+    }
+    // A year the speaker closed with a mark ends its phrase; nothing after it
+    // can be a counted noun.
+    let after = if class == Class::Year && text[end..].contains(|c| ".,;:!?".contains(c)) {
+        Some("")
+    } else {
+        after
+    };
     let candidate = if class == Class::Model {
         models::render(core, before.unwrap_or(""), after.unwrap_or(""))
     } else {
@@ -274,6 +297,47 @@ fn render_with_guard(
         return None;
     }
     Some(format!("{}{}{}", &text[..start], candidate, &text[end..]))
+}
+
+/// Write cued protected terms (terms.json) in their canonical spelling, e.g.
+/// "Eleven Labs" -> "ElevenLabs", "COVID 19" -> "COVID-19". Letters and digits
+/// never change; quotes, code, links and `protected` byte ranges stay as is.
+/// The host runs this after span rendering; it is not a scored span class.
+pub fn render_terms(text: &str, protected: &[std::ops::Range<usize>]) -> String {
+    terms::render(text, protected)
+}
+
+/// True when a word ending in a mark (, ; : ! ?) is a digit-level number word
+/// and so is the next word, e.g. "five, four". A period is not such a mark:
+/// recognizers insert false periods at pauses inside numbers ("twenty. Twenty
+/// one"), and the punctuation stage already decided to keep or drop it.
+fn crosses_mark(core: &str) -> bool {
+    let digit = |w: &str| {
+        numbers::value(w).is_some()
+            || matches!(w, "oh" | "o")
+            || !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit())
+    };
+    let words: Vec<_> = core.split_whitespace().collect();
+    words.windows(2).any(|pair| {
+        let left = pair[0];
+        if !left.ends_with(|c| ",;:!?".contains(c)) {
+            return false;
+        }
+        let left = left.trim_end_matches(|c| ".,;:!?".contains(c)).to_lowercase();
+        let right = pair[1]
+            .trim_start_matches(|c| "\"([“".contains(c))
+            .trim_end_matches(|c| ".,;:!?\")]”".contains(c))
+            .to_lowercase();
+        digit(left.rsplit('-').next().unwrap_or(""))
+            && digit(right.split('-').next().unwrap_or(""))
+    })
+}
+
+/// Respell a split match of a joined Vocabulary name ("Next js" ->
+/// "Next.js"). Names with spaces are ignored; letters and digits never
+/// change; quotes, code, links and `protected` byte ranges stay as is.
+pub fn respell_vocabulary(text: &str, names: &[&str], protected: &[std::ops::Range<usize>]) -> String {
+    terms::respell_joined(text, names, protected)
 }
 
 /// Apply only validated, unprotected spans. All whitespace and punctuation

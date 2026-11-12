@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Rail from "../../components/Rail.svelte";
   import Card from "../../components/Card.svelte";
   import SettingRow from "../../components/SettingRow.svelte";
   import Toggle from "../../components/Toggle.svelte";
@@ -14,10 +15,6 @@
   let maximized = $state(false);
   let mode = $state("Clean");
   let result = $state("");
-  const history = [
-    "A short dictation with the words you meant.",
-    "A longer dictation that deliberately exceeds one line so that keyboard focus reveals the whole sentence, including this final phrase.",
-  ];
 </script>
 
 <div class="studio" data-theme={theme} data-material={material}>
@@ -40,15 +37,7 @@
       </div>
     </header>
     <div class="sheet-body">
-      <aside class="paper-nav">
-        <nav aria-label="Fixture navigation">
-          {#each ["Dictation", "Microphone", "Vocabulary", "Meetings", "Appearance", "Shortcuts", "About"] as name}
-            <button class="nav-item" class:selected={name === "Dictation"}
-              >{name}</button
-            >
-          {/each}
-        </nav>
-      </aside>
+      <Rail route={{ tab: "dictation" }} preview />
       <div class="stock mounted page-frame">
         <main id="page-content" class="page-content" tabindex="-1">
           <header class="page-heading">
@@ -106,17 +95,6 @@
                 ></select
               >
             </SettingRow>
-          </Card>
-          <Card title="Recent dictations">
-            <ul class="history-list" aria-label="Recent dictations">
-              {#each history as text}<li>
-                  <button class="history-item" title={text}
-                    ><span>{text}</span><small data-text-surface="flat"
-                      >Sep 11, 8:30 AM</small
-                    ></button
-                  >
-                </li>{/each}
-            </ul>
           </Card>
           <Card title="A deliberate action">
             <p class="body-copy" data-text-surface="flat">

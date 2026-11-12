@@ -5,7 +5,6 @@ import {
   meetingModelSettings,
   meetingSpeechModels,
   saveMeetingModelChoice,
-  showMeetingModelPicker,
 } from "./meeting-models";
 import {
   GRANITE_SPEECH_MODEL,
@@ -109,18 +108,6 @@ test("installed Granite is available for meeting retries and excluded from dicta
   );
 });
 
-test("meeting picker works offline with Granite and with connected OpenRouter alternatives", () => {
-  assert.equal(showMeetingModelPicker([speech], false, 0), false);
-  assert.equal(showMeetingModelPicker([speech, granite()], false, 0), true);
-  assert.equal(
-    showMeetingModelPicker([granite({ state: "not-installed" })], false, 0),
-    false,
-  );
-  assert.equal(showMeetingModelPicker([speech], true, 1), true);
-  assert.equal(showMeetingModelPicker([speech], false, 1), false);
-  assert.equal(showMeetingModelPicker([speech], true, 0), false);
-});
-
 test("catalog availability controls selection and preserves a selected unavailable model's reason", () => {
   for (const state of ["installed", "unloaded", "ready"]) {
     assert.equal(selectable(granite({ state }), "meetingSpeech"), true);
@@ -141,11 +128,6 @@ test("catalog availability controls selection and preserves a selected unavailab
     installable: false,
     error: reason,
   });
-  assert.equal(showMeetingModelPicker([unavailable], false, 0), false);
-  assert.equal(
-    showMeetingModelPicker([unavailable], false, 0, unavailable.id),
-    true,
-  );
   assert.equal(modelUnavailableReason(unavailable), reason);
   assert.equal(
     modelUnavailableReason({

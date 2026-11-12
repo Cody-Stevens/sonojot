@@ -64,7 +64,8 @@ pub async fn apply_setup_profile(
         let old = snapshot.settings;
         let next = profile_settings(&old, profile, selection.as_ref());
         next.validate()?;
-        let models_changed = old.asr_model != next.asr_model
+        // Automatic setup also changes cleanup and online routes when local ids match.
+        let models_changed = profile != SetupProfile::Custom || old.asr_model != next.asr_model
             || old.cleanup_model != next.cleanup_model
             || old.notes_model != next.notes_model;
         crate::resource_manager::with_model_selection(models_changed, || {
@@ -78,7 +79,12 @@ pub async fn apply_setup_profile(
             // Only the selected speech model was synchronously verified.
             // Catalog entries enqueue misses and retain their Checking state.
             let models = crate::app::model_catalog(&runtime.models_root);
-            runtime.store.save_settings(&next)?;
+            if profile == SetupProfile::Custom {
+                runtime.store.save_settings(&next)?;
+            } else {
+                crate::ai_commands::cancel_optional_jobs();
+                crate::ai::save_recommended_settings(&runtime.store, &next)?;
+            }
             let mut snapshot = lock(&runtime.snapshot)?;
             snapshot.settings = next.clone();
             snapshot.models = models;
@@ -110,11 +116,16 @@ pub(crate) fn profile_settings(
         // First-run automatic setup already includes the punctuation package.
         next.punctuation_recommendation_acknowledged = true;
         next.punctuation_v2_recommendation_acknowledged = true;
+        next.punctuation_v3_recommendation_acknowledged = true;
     }
     if let Some(selection) = selection {
         next.asr_model = selection.asr_model.clone();
-        next.cleanup_model = selection.cleanup_model.clone();
+        let cleanup = if selection.cleanup_model == "local-rules" {
+            crate::domain::CleanupChoice::Off
+        } else { crate::domain::CleanupChoice::Local(selection.cleanup_model.clone()) };
+        cleanup.apply(&mut next);
         next.notes_model = selection.notes_model.clone();
+        next.meeting_asr_model.clear();
     }
     next
 }
@@ -170,6 +181,22 @@ mod setup_profile_tests {
     }
 
     #[test]
+    fn recommended_setup_clears_cleanup_and_meeting_overrides() {
+        let old = Settings { proofreader: true, local_proofreader: true,
+            meeting_asr_model: crate::granite_model::GRANITE_ID.into(),
+            meeting_consent_acknowledged: true, ..Settings::default() };
+        let choice = crate::profiles::Selection { asr_model: "parakeet-tdt-0.6b-v2".into(),
+            cleanup_model: "local-rules".into(), notes_model: "qwen3-4b-instruct-2507".into(), reasons: Vec::new() };
+        let next = profile_settings(&old, SetupProfile::Balanced, Some(&choice));
+        assert!(!next.proofreader);
+        assert!(!next.local_proofreader);
+        assert!(next.meeting_asr_model.is_empty());
+        assert!(next.meeting_consent_acknowledged);
+        assert_eq!(next.cleanup_mode, old.cleanup_mode);
+        next.validate().unwrap();
+    }
+
+    #[test]
     fn custom_preserves_every_model_and_dictation_choice() {
         let old = Settings {
             asr_model: "whisper-large-v3-turbo-fp32-cuda".into(),
@@ -201,8 +228,10 @@ mod setup_profile_tests {
             expected.setup_profile = Some(profile);
             expected.punctuation_recommendation_acknowledged = true;
             expected.punctuation_v2_recommendation_acknowledged = true;
+            expected.punctuation_v3_recommendation_acknowledged = true;
             expected.asr_model = choice.asr_model.clone();
             expected.cleanup_model = choice.cleanup_model.clone();
+            expected.local_proofreader = false;
             expected.notes_model = choice.notes_model.clone();
             assert_eq!(next, expected);
         }
@@ -214,13 +243,17 @@ mod setup_profile_tests {
         for saved in [SetupProfile::Custom, SetupProfile::Accurate, SetupProfile::Balanced, SetupProfile::Light] {
             for acknowledged in [false, true] {
                 for v2_acknowledged in [false, true] {
-                    let old = Settings { setup_profile: Some(saved),
-                        punctuation_recommendation_acknowledged: acknowledged,
-                        punctuation_v2_recommendation_acknowledged: v2_acknowledged, ..Settings::default() };
-                    for chosen in [SetupProfile::Custom, SetupProfile::Accurate, SetupProfile::Balanced, SetupProfile::Light] {
-                        let next = profile_settings(&old, chosen, None);
-                        assert_eq!(next.punctuation_recommendation_acknowledged, acknowledged);
-                        assert_eq!(next.punctuation_v2_recommendation_acknowledged, v2_acknowledged);
+                    for v3_acknowledged in [false, true] {
+                        let old = Settings { setup_profile: Some(saved),
+                            punctuation_recommendation_acknowledged: acknowledged,
+                            punctuation_v2_recommendation_acknowledged: v2_acknowledged,
+                            punctuation_v3_recommendation_acknowledged: v3_acknowledged, ..Settings::default() };
+                        for chosen in [SetupProfile::Custom, SetupProfile::Accurate, SetupProfile::Balanced, SetupProfile::Light] {
+                            let next = profile_settings(&old, chosen, None);
+                            assert_eq!(next.punctuation_recommendation_acknowledged, acknowledged);
+                            assert_eq!(next.punctuation_v2_recommendation_acknowledged, v2_acknowledged);
+                            assert_eq!(next.punctuation_v3_recommendation_acknowledged, v3_acknowledged);
+                        }
                     }
                 }
             }

@@ -748,7 +748,7 @@ fn diarization_entries(models_root: &Path) -> Vec<ModelEntry> {
 
 fn punctuation_entries(models_root: &Path) -> Vec<ModelEntry> {
     use crate::punctuation_model::Package;
-    [Package::V1, Package::V2].into_iter().map(|package| punctuation_entry(models_root, package)).collect()
+    Package::ALL.into_iter().map(|package| punctuation_entry(models_root, package)).collect()
 }
 
 fn punctuation_entry(models_root: &Path, model: crate::punctuation_model::Package) -> ModelEntry {
@@ -776,7 +776,7 @@ fn punctuation_entry_with_status(models_root: &Path, model: crate::punctuation_m
     };
     ModelEntry {
         id: id.into(),
-        name: match model { Package::V1 => "SonoJot Punctuation", Package::V2 => "SonoJot Punctuation v2" }.into(),
+        name: model.name().into(),
         kind: "punctuation".into(),
         roles: vec!["punctuation".into()],
         family: "Token classifier".into(),
@@ -789,9 +789,9 @@ fn punctuation_entry_with_status(models_root: &Path, model: crate::punctuation_m
         vram_min_bytes: Some(0),
         vram_max_bytes: Some(0),
         memory_basis: "CPU only. Estimated resident memory: about 400 MB; model and tokenizer download about 303 MB, plus the shared runtime when missing.".into(),
-        guidance: if model == Package::V2 && !model.released() {
+        guidance: if model != Package::V1 && !model.released() {
             "Fixes punctuation and helps write numbers and symbols in Clean dictation; runs on CPU. Download is not available yet."
-        } else if model == Package::V2 {
+        } else if model != Package::V1 {
             "Fixes punctuation and helps write numbers and symbols in Clean dictation; runs on CPU."
         } else if model.released() {
             "Fixes sentence breaks and commas in dictation; runs on CPU."
@@ -799,8 +799,10 @@ fn punctuation_entry_with_status(models_root: &Path, model: crate::punctuation_m
             "Fixes sentence breaks and commas in dictation; runs on CPU. Download is unavailable until the model upload is complete."
         }.into(),
         evidence: match model {
+            Package::V4 => "CC BY-SA 4.0. Local test package only. Earnings-21/22, AMI and ICSI attribution is included beside the weights. Removes fillers, repeats and restarts in Clean dictation.",
             Package::V1 => "CC BY-SA 4.0. Downloads verify pinned sizes and SHA-256 checksums; existing local manifests remain supported. Model, source and license: https://huggingface.co/SonoJot/sonojot-punct-v1",
             Package::V2 => "CC BY-SA 4.0. Downloads verify pinned sizes and SHA-256 checksums; existing local manifests remain supported. Adds written numbers, money and dates in Clean dictation. Preferred over v1 when ready. Model, source and license: https://huggingface.co/SonoJot/sonojot-punct-v2",
+            Package::V3 => "CC BY-SA 4.0. Downloads verify pinned sizes and SHA-256 checksums; existing local manifests remain supported. Retrained on twice as much real dictation for more accurate sentence breaks and commas; keeps v2's written numbers, money and dates. Preferred over v2 and v1 when ready. Model, source and license: https://huggingface.co/SonoJot/sonojot-punct-v3",
         }.into(),
         backend: "onnxruntime-cpu".into(),
         compatibility: if diarization_model::AVAILABLE && !model.released() {
@@ -1117,6 +1119,8 @@ fn mac_supported(id: &str) -> bool {
                 | granite_model::GRANITE_ID
                 | crate::punctuation_model::ID
                 | crate::punctuation_model::V2_ID
+                | crate::punctuation_model::V3_ID
+                | crate::punctuation_model::V4_ID
         )
 }
 
@@ -2957,7 +2961,8 @@ mod tests {
         let _gate = test_gate();
         let root = isolated_root("punctuation-catalog");
         let entries = punctuation_entries(&root);
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(),
+            ["sonojot-punct-v1", "sonojot-punct-v2", "sonojot-punct-v3", "sonojot-cleanup-v4"]);
         let entry = &entries[0];
         assert_eq!(entry.id, "sonojot-punct-v1");
         assert_eq!(entry.kind, "punctuation");
@@ -3060,6 +3065,41 @@ mod tests {
         assert!(!root.join("punctuation").exists());
         assert!(!crate::optional_asr::runtime_dir(&root).exists());
         assert!(mac_supported(&entry.id));
+        // The v3 row follows its own release switch (same root).
+        let entry = punctuation_entry(&root, Package::V3);
+        assert_eq!(entry.id, crate::punctuation_model::V3_ID);
+        assert_eq!(entry.name, "SonoJot Punctuation v3");
+        assert_eq!(entry.kind, "punctuation");
+        assert_eq!(entry.disk_bytes, 302_728_863);
+        assert_eq!(entry.installable, diarization_model::AVAILABLE && Package::V3.released());
+        assert!(!entry.removable);
+        assert!(entry.used_by.is_empty());
+        let runtime = if diarization_model::MAC { diarization_model::MAC_RUNTIME_ARCHIVE_BYTES } else { crate::optional_asr::runtime_download_bytes(&root) };
+        assert_eq!(entry.total_bytes, entry.disk_bytes + runtime);
+        assert_eq!(entry.revision, Package::V3.revision().unwrap_or_default());
+        assert_eq!(entry.guidance.contains("not available yet"), !Package::V3.released());
+        assert!(entry.evidence.contains("CC BY-SA 4.0"));
+        assert!(entry.evidence.contains(Package::V3.page_url()));
+        match describe_target(&root, &entry.id) {
+            Ok(target) => {
+                assert!(diarization_model::AVAILABLE && Package::V3.released());
+                assert_eq!(target.dest_dir, Package::V3.path(&root));
+                assert_eq!(target.total_bytes, entry.total_bytes);
+                assert_eq!(target.files.len(), 3);
+                for (file, pin) in target.files.iter().zip(Package::V3.pins()) {
+                    assert_eq!((file.relative, file.bytes, file.sha256), (pin.relative, pin.bytes, pin.sha256));
+                    assert_eq!(file.url, Package::V3.download_url(pin).unwrap());
+                    let revision = Package::V3.revision().unwrap();
+                    assert!(file.url.starts_with(&format!("https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/{revision}/")));
+                }
+            }
+            Err(error) if !Package::V3.released() => assert_eq!(error, Package::V3.unreleased_error()),
+            Err(error) => assert!(!diarization_model::AVAILABLE && error.contains("requires Windows x64"), "{error}"),
+        }
+        assert!(job_snapshot(&entry.id).is_none());
+        assert!(!root.join("punctuation").exists());
+        assert!(!crate::optional_asr::runtime_dir(&root).exists());
+        assert!(mac_supported(&entry.id));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3089,12 +3129,12 @@ mod tests {
     }
 
     #[test]
-    fn punctuation_v2_removal_keeps_v1_and_shared_runtime() {
+    fn punctuation_v2_and_v3_removal_keep_older_packages_and_shared_runtime() {
         use crate::punctuation_model::Package;
         let _gate = test_gate();
         let root = isolated_root("punctuation-v2-remove");
         let runtime = crate::optional_asr::runtime_dir(&root);
-        for directory in [Package::V1.path(&root), Package::V2.path(&root), runtime.clone()] {
+        for directory in [Package::V1.path(&root), Package::V2.path(&root), Package::V3.path(&root), runtime.clone()] {
             fs::create_dir_all(&directory).unwrap();
             fs::write(directory.join("preserve"), b"abc").unwrap();
         }
@@ -3107,6 +3147,14 @@ mod tests {
         assert_eq!(fs::read(Package::V1.path(&root).join("preserve")).unwrap(), b"abc");
         assert_eq!(fs::read(runtime.join("preserve")).unwrap(), b"abc");
         assert!(!punctuation_entry(&root, Package::V2).removable);
+        assert!(punctuation_entry(&root, Package::V3).removable);
+        assert!(remove_model_blocking(&root, &settings, Package::V3.id(), false).is_err());
+        assert!(Package::V3.path(&root).exists());
+        remove_model_blocking(&root, &settings, Package::V3.id(), true).unwrap();
+        assert!(!Package::V3.path(&root).exists());
+        assert_eq!(fs::read(Package::V1.path(&root).join("preserve")).unwrap(), b"abc");
+        assert_eq!(fs::read(runtime.join("preserve")).unwrap(), b"abc");
+        assert!(!punctuation_entry(&root, Package::V3).removable);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3146,8 +3194,13 @@ mod tests {
         let root = fs::canonicalize(supplied).expect("create the isolated models root first");
         let artifacts = fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts")).unwrap();
         assert!(root.starts_with(&artifacts) && root != artifacts, "root must be inside this worktree's artifacts");
-        let id = crate::punctuation_model::ID;
-        assert!(!crate::punctuation_model::path(&root).exists(), "use a fresh punctuation destination");
+        // SONOJOT_PUNCT_DOWNLOAD_ID selects an older package; the default is the
+        // package Setup installs now.
+        let package = std::env::var("SONOJOT_PUNCT_DOWNLOAD_ID").ok()
+            .map(|id| crate::punctuation_model::Package::from_id(&id).expect("unknown punctuation package"))
+            .unwrap_or(crate::punctuation_model::Package::offered());
+        let id = package.id();
+        assert!(!package.path(&root).exists(), "use a fresh punctuation destination");
         start_install(root.clone(), id.into()).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(60 * 60);
         loop {
@@ -3161,10 +3214,13 @@ mod tests {
                 _ => std::thread::sleep(Duration::from_millis(100)),
             }
         }
-        assert!(crate::punctuation_model::model_status(&root, Check::Blocking).ready());
-        assert_eq!(crate::punctuation_model::package_bytes(&root), 302_708_257);
-        assert_eq!(fs::read_dir(crate::punctuation_model::path(&root)).unwrap().count(), 4);
-        println!("Verified punctuation package: {}", crate::punctuation_model::path(&root).display());
+        assert!(package.model_status(&root, Check::Blocking).ready());
+        assert_eq!(package.package_bytes(&root), package.pinned_bytes());
+        let mut names: Vec<_> = fs::read_dir(package.path(&root)).unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+        names.sort();
+        println!("Verified punctuation package {id} ({} bytes): {} with {names:?}",
+            package.package_bytes(&root), package.path(&root).display());
     }
 
     #[test]
@@ -3609,7 +3665,8 @@ mod tests {
         // Existing CPU/text packages plus the sherpa and llama GPU catalogs.
         assert_eq!(
             library.models.len(),
-            2 + 1 + 2 + 2 + 1 + crate::optional_llm::catalog().len() + 2 + 12 + crate::gpu_asr::GPU_MODELS.len()
+            2 + 1 + 2 + 1 + crate::punctuation_model::Package::ALL.len() // punctuation packages
+                + crate::optional_llm::catalog().len() + 2 + 12 + crate::gpu_asr::GPU_MODELS.len()
                 + crate::llama_asr::catalog().len()
                 + if mac { crate::mac_speech::catalog().len() } else { 0 }
         );

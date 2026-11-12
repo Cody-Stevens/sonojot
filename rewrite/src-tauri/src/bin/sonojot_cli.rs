@@ -23,6 +23,9 @@ fn main() -> ExitCode {
             "--no-launch" => options.no_launch = true,
             "--confirm" | "--yes" => options.confirm = true,
             "--cleaned" => options.cleaned = true,
+            "--no-diarize" => options.no_diarize = true,
+            "--latest-attempt" => options.latest_attempt = true,
+            "--key-stdin" => options.key_stdin = true,
             "-h" | "--help" => words.insert(0, "help".into()),
             "--version" | "-V" => words.insert(0, "version".into()),
             flag if flag.starts_with("--") && flag.len() > 2 => {
@@ -59,6 +62,9 @@ struct Options {
     no_launch: bool,
     confirm: bool,
     cleaned: bool,
+    no_diarize: bool,
+    latest_attempt: bool,
+    key_stdin: bool,
     values: std::collections::HashMap<String, String>,
 }
 
@@ -86,6 +92,9 @@ fn usage(message: &str) -> ExitCode {
 }
 
 fn run(words: &[&str], options: &Options) -> Outcome {
+    if options.key_stdin && words != ["invoke", "connect_openrouter_key"] {
+        return Err(Failure::Usage("Use --key-stdin with `invoke connect_openrouter_key`, without JSON arguments.".into()));
+    }
     let client = Client { options };
     match words {
         [] | ["help"] => { print!("{}", help()); Ok(()) }
@@ -95,6 +104,14 @@ fn run(words: &[&str], options: &Options) -> Outcome {
         ["agents", rest @ ..] => agents(rest),
         ["ping"] => client.print("ping", json!({})),
         ["commands"] => client.print("commands", json!({})),
+        ["invoke", "connect_openrouter_key"] if options.key_stdin => {
+            use std::io::IsTerminal;
+            let stdin = std::io::stdin();
+            if stdin.is_terminal() {
+                return Err(Failure::Usage("Pipe the OpenRouter key into standard input.".into()));
+            }
+            client.print("connect_openrouter_key", json!({ "key": read_key_stdin(stdin.lock())? }))
+        }
         ["invoke", command] => client.print(command, json!({})),
         ["invoke", command, args] => {
             let args: Value = serde_json::from_str(args).map_err(|e| Failure::Usage(format!("Arguments must be a JSON object: {e}")))?;
@@ -131,7 +148,41 @@ fn run(words: &[&str], options: &Options) -> Outcome {
         ["vocabulary"] | ["vocabulary", "list"] => client.print("get_vocabulary", json!({})),
         ["models"] | ["models", "list"] => client.print("get_model_library", json!({})),
         ["ai"] | ["ai", "settings"] => client.print("get_ai_settings", json!({})),
+        ["update", rest @ ..] | ["updates", rest @ ..] => update(&client, rest),
         _ => Err(Failure::Usage(format!("Unknown command: {}", words.join(" ")))),
+    }
+}
+
+fn read_key_stdin(input: impl std::io::Read) -> Outcome<String> {
+    use std::io::Read;
+    let mut value = String::new();
+    input.take(4099).read_to_string(&mut value)
+        .map_err(|_| Failure::Usage("Could not read the key from standard input.".into()))?;
+    let key = value.trim();
+    if value.len() > 4098 || key.is_empty() || key.len() > 4096 || key.chars().any(char::is_whitespace) {
+        return Err(Failure::Usage("Pipe one key of at most 4,096 bytes into standard input.".into()));
+    }
+    Ok(key.to_owned())
+}
+
+#[cfg(test)]
+mod key_stdin_tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_piped_key_without_a_command_line_argument() {
+        assert!(matches!(read_key_stdin(&b"sk-test-placeholder\r\n"[..]), Ok(key) if key == "sk-test-placeholder"));
+        assert!(matches!(read_key_stdin(&b"\n"[..]), Err(Failure::Usage(_))));
+        assert!(matches!(read_key_stdin(&b"one\ntwo"[..]), Err(Failure::Usage(_))));
+        assert!(matches!(read_key_stdin(&vec![b'x'; 5000][..]), Err(Failure::Usage(_))));
+    }
+
+    #[test]
+    fn stdin_errors_and_invalid_flag_usage_do_not_echo_input() {
+        let options = Options { key_stdin: true, ..Options::default() };
+        let result = run(&["invoke", "connect_openrouter_key", "secret-placeholder"], &options);
+        assert!(matches!(result, Err(Failure::Usage(message)) if !message.contains("secret-placeholder")));
+        assert!(matches!(read_key_stdin(&[0xff][..]), Err(Failure::Usage(message)) if message == "Could not read the key from standard input."));
     }
 }
 
@@ -196,12 +247,24 @@ fn dictation(client: &Client, words: &[&str]) -> Outcome {
 
 fn meetings(client: &Client, words: &[&str]) -> Outcome {
     let o = client.options;
+    if o.latest_attempt && o.cleaned {
+        return Err(Failure::Usage("Latest attempt text has no aligned cleaned copy. Use --latest-attempt without --cleaned.".into()));
+    }
     match words {
         [] | ["list"] => client.print("list_meetings", json!({})),
         ["show", id] => client.print("get_meeting", json!({ "id": client.meeting(id)? })),
         ["transcript", id] => {
+            match o.value("format").unwrap_or("text") {
+                "json" => return client.print("get_timed_transcript", json!({ "id": client.meeting(id)?, "latestAttempt": o.latest_attempt })),
+                "text" | "txt" => {},
+                other => return Err(Failure::Usage(format!("Unknown transcript format `{other}`. Use text or json."))),
+            }
+            if o.latest_attempt { return Err(Failure::Usage("--latest-attempt requires --format json for transcript output.".into())); }
             let meeting = client.call("get_meeting", json!({ "id": client.meeting(id)? }))?;
             let text = if o.cleaned { &meeting["cleanedTranscript"] } else { &meeting["transcript"] };
+            if o.cleaned && text.is_null() {
+                return Err(Failure::Failed("Clean this meeting before requesting its cleaned transcript.".into()));
+            }
             println!("{}", text.as_str().unwrap_or_default());
             Ok(())
         }
@@ -212,14 +275,15 @@ fn meetings(client: &Client, words: &[&str]) -> Outcome {
         ["record", "start"] => client.print_meeting("start_meeting", json!({
             "title": o.value("title").unwrap_or(""), "source": o.value("source").unwrap_or("both") })),
         ["record", "stop"] => client.print_meeting("stop_meeting", json!({})),
-        ["import", path] => client.print_meeting("import_media", json!({ "path": absolute(path)? })),
+        ["import", path] => client.print_meeting("import_media", json!({ "path": absolute(path)?, "speaker": o.value("speaker") })),
         ["join", ids @ ..] if ids.len() >= 2 => {
             let ids = ids.iter().map(|id| client.meeting(id)).collect::<Outcome<Vec<_>>>()?;
             client.print_meeting("join_meetings", json!({ "ids": ids, "title": o.value("title") }))
         }
         ["transcribe", id] => {
             let id = client.meeting(id)?;
-            client.print_meeting("transcribe_meeting", json!({ "id": id, "model": o.value("model") }))
+            client.print_meeting("transcribe_meeting", json!({ "id": id, "model": o.value("model"),
+                "speaker": o.value("speaker"), "noDiarize": o.no_diarize }))
         }
         ["wait", id] => wait(client, &client.meeting(id)?),
         ["cancel", id] => client.print("cancel_meeting", json!({ "id": client.meeting(id)? })),
@@ -264,10 +328,16 @@ fn meetings(client: &Client, words: &[&str]) -> Outcome {
                 "html" | "htm" => "html",
                 "pdf" => "pdf",
                 "wav" | "audio" => "wav",
-                other => return Err(Failure::Usage(format!("Unknown export format `{other}`. Use md, txt, html, pdf or wav."))),
+                "json" => "json",
+                "srt" => "srt",
+                "vtt" => "vtt",
+                other => return Err(Failure::Usage(format!("Unknown export format `{other}`. Use md, txt, html, pdf, wav, json, srt or vtt."))),
             };
+            if o.latest_attempt && !matches!(format, "json" | "srt" | "vtt") {
+                return Err(Failure::Usage("--latest-attempt supports JSON, SRT or VTT.".into()));
+            }
             client.call("export_meeting", json!({ "id": client.meeting(id)?, "path": path, "format": format,
-                "transcriptVersion": if o.cleaned { "cleaned" } else { "recognized" } }))?;
+                "transcriptVersion": if o.latest_attempt { "latestAttempt" } else if o.cleaned { "cleaned" } else { "recognized" } }))?;
             emit(&json!({ "exported": path, "format": format }));
             Ok(())
         }
@@ -285,6 +355,151 @@ fn meetings(client: &Client, words: &[&str]) -> Outcome {
         }
         _ => Err(Failure::Usage(format!("Unknown meetings command: {}", words.join(" ")))),
     }
+}
+
+/// Updates go through the running app, which checks each package's signature
+/// before it installs it. Installing restarts SonoJot, so it needs --confirm.
+fn update(client: &Client, words: &[&str]) -> Outcome {
+    match words {
+        [] | ["status"] => { emit(&update_summary(&client.call("get_state", json!({}))?)); Ok(()) }
+        ["check"] => { emit(&update_summary(&check_updates(client, false)?)); Ok(()) }
+        ["install"] => install_update(client, false),
+        ["repair"] => install_update(client, true),
+        _ => Err(Failure::Usage("Use `update status|check|install|repair`.".into())),
+    }
+}
+
+fn update_state(state: &Value) -> &str {
+    state["update"]["status"]["state"].as_str().unwrap_or_default()
+}
+
+fn update_summary(state: &Value) -> Value {
+    let update = &state["update"];
+    let cli = installed_cli_version();
+    let app = state["version"].as_str().unwrap_or_default();
+    // The app reports this after its next check; apps before 0.28.9 never do.
+    let problem = match (update["installProblem"].as_str(), cli.as_deref()) {
+        (Some(problem), _) => json!(problem),
+        (None, Some(cli)) if !app.is_empty() && cli != app => json!(format!(
+            "sonojot-cli is {cli} but SonoJot is {app}: the last update did not finish. \
+Run `sonojot-cli update repair --confirm`.")),
+        (None, None) if cfg!(windows) => json!("sonojot-cli is missing from the SonoJot folder."),
+        _ => Value::Null,
+    };
+    json!({
+        "currentVersion": app,
+        "status": update["status"],
+        "installing": update["installing"],
+        "restartBlockedReason": update["restartBlockedReason"],
+        "installProblem": problem,
+        "installedCli": cli,
+    })
+}
+
+/// The version of the `sonojot-cli` installed beside this one. During an
+/// update this process may be a renamed older copy, so ask the file itself.
+fn installed_cli_version() -> Option<String> {
+    let name = if cfg!(windows) { "sonojot-cli.exe" } else { "sonojot-cli" };
+    let cli = std::env::current_exe().ok()?.parent()?.join(name);
+    let output = std::process::Command::new(cli).arg("version")
+        .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+    String::from_utf8_lossy(&output.stdout).split_whitespace().nth(1).map(str::to_owned)
+}
+
+/// Asks the app to check now and waits for the answer. `reinstall` also
+/// accepts the installed version, which repairs an incomplete update.
+fn check_updates(client: &Client, reinstall: bool) -> Outcome<Value> {
+    let mut state = client.call("check_for_updates", json!({ "reinstall": reinstall }))?;
+    let started = Instant::now();
+    while update_state(&state) == "checking" {
+        if started.elapsed() > Duration::from_secs(120) {
+            return Err(Failure::Failed("The update check did not finish within 2 minutes.".into()));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        state = client.call("get_state", json!({}))?;
+    }
+    Ok(state)
+}
+
+fn install_update(client: &Client, repair: bool) -> Outcome {
+    if !client.options.confirm {
+        return Err(Failure::Usage("Installing an update restarts SonoJot. Add --confirm.".into()));
+    }
+    let mut state = client.call("get_state", json!({}))?;
+    // An offer already in progress is used as it is. A fresh check repairs on
+    // its own when the app finds the installation incomplete.
+    if !matches!(update_state(&state), "available" | "downloading" | "ready") {
+        state = check_updates(client, repair)?;
+    }
+    match update_state(&state) {
+        "idle" if repair => return Err(Failure::Failed("No release was found to reinstall.".into())),
+        "idle" => {
+            emit(&json!({ "upToDate": true, "currentVersion": state["version"] }));
+            return Ok(());
+        }
+        "error" => return Err(Failure::Failed(state["update"]["status"]["message"].as_str().unwrap_or("The update failed.").into())),
+        _ => {}
+    }
+    let version = state["update"]["status"]["version"].as_str().unwrap_or_default().to_owned();
+    if update_state(&state) == "available" {
+        state = client.call("download_update", json!({}))?;
+    }
+    let started = Instant::now();
+    let mut shown = None;
+    while update_state(&state) == "downloading" {
+        let percent = state["update"]["status"]["percent"].as_u64();
+        if percent != shown && percent.is_some() {
+            eprintln!("Downloading SonoJot {version}: {}%", percent.unwrap_or_default());
+            shown = percent;
+        }
+        if started.elapsed() > Duration::from_secs(30 * 60) {
+            return Err(Failure::Failed("The download did not finish within 30 minutes.".into()));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        state = client.call("get_state", json!({}))?;
+    }
+    if update_state(&state) != "ready" {
+        return Err(Failure::Failed(state["update"]["status"]["message"].as_str().unwrap_or("The update could not be downloaded.").into()));
+    }
+    let version = state["update"]["status"]["version"].as_str().unwrap_or(&version).to_owned();
+    if let Some(reason) = state["update"]["restartBlockedReason"].as_str() {
+        return Err(Failure::Failed(format!("SonoJot {version} is downloaded, but SonoJot can't restart yet: {reason} \
+Run `sonojot-cli update install --confirm` again afterwards.")));
+    }
+    eprintln!("Installing SonoJot {version}. SonoJot will restart.");
+    client.call("restart_to_update", json!({}))?;
+    wait_for_restart(&version)
+}
+
+/// Waits for the installer to replace SonoJot and start it again. Never starts
+/// the app itself: that would race the installer.
+fn wait_for_restart(version: &str) -> Outcome {
+    let options = Options { no_launch: true, ..Default::default() };
+    let client = Client { options: &options };
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(10 * 60) {
+        std::thread::sleep(Duration::from_secs(1));
+        let Ok(state) = client.call("get_state", json!({})) else { continue };
+        let update = &state["update"];
+        if update["installing"].as_bool() == Some(true) {
+            continue;
+        }
+        if state["version"].as_str() == Some(version) {
+            let cli = installed_cli_version();
+            let mut summary = update_summary(&state);
+            summary["installed"] = json!(version);
+            emit(&summary);
+            return if cli.as_deref() == Some(version) { Ok(()) } else {
+                Err(Failure::Failed(format!("SonoJot {version} is running, but sonojot-cli is {}. \
+Run `sonojot-cli update repair --confirm`.", cli.as_deref().unwrap_or("missing"))))
+            };
+        }
+        if update_state(&state) == "error" {
+            return Err(Failure::Failed(update["status"]["message"].as_str().unwrap_or("The update could not be installed.").into()));
+        }
+    }
+    Err(Failure::Failed(format!("SonoJot did not come back on {version} within 10 minutes. \
+If the installer is showing a message, answer it; otherwise open SonoJot, then run `sonojot-cli update status`.")))
 }
 
 /// Polls until the meeting has no running operation, then prints it.
@@ -385,7 +600,24 @@ impl Client<'_> {
     }
     fn print_meeting(&self, command: &str, args: Value) -> Outcome {
         let result = self.act(command, args)?;
-        emit(&if result.get("transcript").is_some() { brief(&result) } else { result });
+        let mut output = if result.get("transcript").is_some() { brief(&result) } else { result.clone() };
+        if command == "transcribe_meeting" && result.get("transcript").is_some() {
+            // Coverage is advisory; the transcription itself already succeeded.
+            match self.call("get_timed_transcript", json!({"id":result["id"]})) {
+                Ok(timed) => {
+                    output["publishedTranscriptUsesLatestAttempt"] = timed["publishedTranscriptUsesLatestAttempt"].clone();
+                    output["publishedTranscriptCoverage"] = timed["coverage"].clone();
+                    if !timed["latestAttempt"].is_null() {
+                        output["latestAttemptCoverage"] = timed["latestAttempt"]["coverage"].clone();
+                        output["attemptNotice"] = timed["attemptNotice"].clone();
+                    }
+                }
+                Err(Failure::Failed(message) | Failure::Usage(message) | Failure::NotRunning(message)) => {
+                    output["coverageError"] = json!(message);
+                }
+            }
+        }
+        emit(&output);
         Ok(())
     }
     fn print_state(&self, command: &str) -> Outcome {
@@ -554,6 +786,17 @@ App
   vocabulary list                Custom words
   diagnostics                    Diagnostic report
 
+Updates  (on the channel chosen in About; the app checks each package's signature)
+  update status                  Version, update state and installation health
+  update check                   Check for a newer version now. After
+                                 `settings set updateChannel=stable` (or
+                                 `=nightly`)
+                                 this offers that channel's newest build,
+                                 even an older one
+  update install --confirm       Download and install it; SonoJot restarts
+  update repair --confirm        Reinstall the current release, for an update
+                                 that stopped partway
+
 Dictation
   dictation start|stop|cancel
   dictation history [--limit N]
@@ -562,13 +805,13 @@ Dictation
 Meetings  (<id> is a full ID, a unique prefix, or `latest` for the most recently started)
   meetings list
   meetings show <id>             Full record as JSON
-  meetings transcript <id> [--cleaned]
+  meetings transcript <id> [--format text|json] [--cleaned] [--latest-attempt]
   meetings notes <id>
   meetings record start [--title T] [--source both|microphone|system]
   meetings record stop
-  meetings import <file>
+  meetings import <file> [--speaker "Name"]  Known speaker, diarization off
   meetings join <id> <id> ... [--title T]    New meeting from recordings in order
-  meetings transcribe <id> [--model M] [--detach]
+  meetings transcribe <id> [--model M] [--speaker "Name"] [--no-diarize] [--detach]
   meetings wait <id> [--timeout S]           Wait for a detached job to finish
   meetings cancel <id>
   meetings rename <id> <title>
@@ -579,13 +822,14 @@ Meetings  (<id> is a full ID, a unique prefix, or `latest` for the most recently
   meetings generate-notes <id> [--preset summary|tasks|speakers|brief|formatted-transcript|custom] [--instructions T]
   meetings set-notes <id> --file F | --text T
   meetings set-transcript <id> --file F | --text T
-  meetings export <id> <path> [--format md|txt|html|pdf|wav] [--cleaned]
+  meetings export <id> <path> [--format md|txt|html|pdf|wav|json|srt|vtt] [--cleaned] [--latest-attempt]
   meetings export-audio <id> <path>
   meetings delete <id> --confirm
 
 Everything else
   commands                       Every app command and its arguments
   invoke <command> [json]        Call any app command, e.g. invoke get_meeting '{{"id":"..."}}'
+  invoke connect_openrouter_key --key-stdin   Read a key from piped stdin, never an argument
   guide                          How agents should use SonoJot
   agents status|install|remove   sonojot-cli on PATH, and the MCP pointer in
                                  Claude Code, Codex, Gemini, Cursor, Windsurf,
@@ -606,7 +850,7 @@ CLI: {path}
 ## Basics
 - Every command talks to the running app (one owner for recording, models and
   the meeting library). If the app is closed, the CLI starts it hidden.
-- Output is JSON on stdout. Errors are one line on stderr. Exit codes: 0 ok,
+- Metadata is JSON on stdout; transcripts default to plain text. Errors go to stderr. Exit codes: 0 ok,
   1 failed, 2 usage, 3 not running.
 - Meeting IDs accept a unique prefix or `latest`.
 - `sonojot-cli commands` lists every app command; `sonojot-cli invoke <command>
@@ -629,11 +873,73 @@ or add `--detach` and then run `meetings wait <id>`.
     sonojot-cli meetings set-notes <new-id> --file notes.md
     sonojot-cli meetings export <new-id> call.md
 
+## Video editing with aligned single-speaker tracks
+Import each Riverside track separately. Keep each file's leading silence so all
+exports share the recording timeline; times are seconds from imported media zero.
+
+    sonojot-cli meetings import "cody.wav" --speaker "Cody Stevens"
+    sonojot-cli meetings transcribe <id> --model qwen3-asr-1.7b-q8-cuda --no-diarize
+    sonojot-cli meetings clean <id>
+    sonojot-cli meetings transcript <id> --format json
+    sonojot-cli meetings export <id> cody.json --format json
+    sonojot-cli meetings export <id> cody.srt
+    sonojot-cli meetings export <id> cody.vtt
+
+Repeat for each speaker, then sort the exported segments by start in your editor.
+`meetings join` concatenates recordings; it does not align simultaneous tracks.
+`--speaker "Name"` on import persists a single-speaker preference for subsequent
+transcriptions. On transcribe it overrides the name for that job and disables
+diarization. `--no-diarize` skips diarization without requiring a known name.
+
+JSON preserves raw timed segments and includes the cleaned transcript separately.
+`--cleaned` selects cleaned text for plain text/document exports; it never rewrites
+JSON timing. Cleaned subtitle export is refused because cleanup is not aligned.
+SRT/VTT use raw segment boundaries. New timed exports refuse existing files.
+Check timing metadata before choosing cuts: Qwen provides audio-window boundaries,
+not word alignment. Word timestamps are explicitly unavailable when the recognizer
+does not retain them; no word timings are estimated from text or punctuation.
+Older recognition without segment ends cannot produce subtitles; transcribe again.
+
+## Detect missing speech and recover an incomplete retry
+An incomplete retry preserves an existing document, even when the retry decoded
+more audio. A status of `transcribed` is not proof that all speech is present.
+Check `recognitionCompleteness`, warnings, and timed JSON before editing.
+
+    sonojot-cli meetings transcript <id> --format json
+    sonojot-cli meetings transcript <id> --format json --latest-attempt
+    sonojot-cli meetings export <id> latest.srt --latest-attempt
+
+When `publishedTranscriptUsesLatestAttempt` is false, default JSON includes the
+separate `latestAttempt` segments and an explanation. `--latest-attempt` exports
+those raw timed segments without replacing the saved document or cleaned copy.
+It supports JSON/SRT/VTT; it cannot be combined with `--cleaned`.
+
+`coverage.uncoveredRanges` gives second-based intervals without a complete saved
+transcription window, including any uncovered tail. These may include silence;
+they are review ranges, not a measured duration of missing speech.
+`coverage.knownOmittedRanges` and `knownOmittedSeconds` identify empty incomplete
+decode windows. Untimed older attempts report unknown ends rather than inferred
+coverage. The meeting record's `missingSeconds` measures capture loss only;
+`captureMissingSeconds` makes that scope explicit in timed JSON.
+Use your media editor or FFmpeg to extract a review range into a new file, import
+it as a new meeting and transcribe it. Add the extraction offset to its exported
+times when placing it on the original timeline. Automatic resume and a CLI range
+transcription option are not available.
+
+`meetings clean` runs the same conservative local cleanup and punctuation pipeline
+as the app. `settings get sonojotPunctuation` controls punctuation;
+`settings set sonojotPunctuation=true` enables it when the model is installed.
+`writtenForm` controls written-form normalization. Cleanup saves a separate copy;
+it is explicit, not part of `transcribe` or the `--cleaned` output selector.
+
 ## Care
 - `generate-notes`, automatic titles and some vocabulary features use the AI
   provider set in SonoJot, which may be a paid cloud service. Check
   `sonojot-cli ai` and ask the user before using one.
 - Destructive commands need `--confirm`. Don't pass it without the user's go-ahead.
+- `update install` and `update repair` restart SonoJot and need `--confirm`.
+  If `update status` shows an `installProblem`, an earlier update stopped
+  partway; `update repair --confirm` reinstalls it.
 - Don't accept model licenses (`acknowledge_download_terms`) for the user.
 - Recording uses the microphone and system audio; start one only when asked.
 "#, path = cli_path())

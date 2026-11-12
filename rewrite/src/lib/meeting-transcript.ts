@@ -12,11 +12,14 @@ export type TranscriptBlock = {
 // prose such as "The plan is simple: ship Friday" or "[laughter]" stays text.
 const clock = String.raw`\d{1,3}:\d{2}(?::\d{2})?`;
 const labels = String.raw`you|me|microphone|local speaker|other speakers?|system audio|remote speaker|speaker \d{1,2}`;
-const speakerLine = new RegExp(String.raw`^\s*(?:\[(${clock})\]\s*)?(${labels}):\s*(.*)$`, "i");
-// A person's name given to a speaker ("[0:12] Rachel Afant:"). Only counted
-// after a timecode, so prose like "Note: ship Friday" stays text.
+const speakerLine = new RegExp(
+  String.raw`^\s*(?:\[(${clock})\]\s*)?(${labels}):\s*(.*)$`,
+  "i",
+);
+// A renamed speaker is recognized only after a timecode, so ordinary prose
+// like "Note: ship Friday" stays text. Names may be lowercase or non-Latin.
 const namedLine = new RegExp(
-  String.raw`^\s*\[(${clock})\]\s*(\p{Lu}[\p{L}'’.\-]*(?: \p{Lu}[\p{L}'’.\-]*){0,3}):\s*(.*)$`,
+  String.raw`^\s*\[(${clock})\]\s*([^:\[\]\r\n]{1,48}):\s*(.*)$`,
   "u",
 );
 const timecode = new RegExp(String.raw`^\s*\[(${clock})\]\s*`);
@@ -24,7 +27,8 @@ const timecode = new RegExp(String.raw`^\s*\[(${clock})\]\s*`);
 function sideFor(speaker: string): TranscriptSide {
   const value = speaker.toLocaleLowerCase();
   if (/^(you|me|microphone|local speaker)$/.test(value)) return "you";
-  if (/^(other speakers?|system audio|remote speaker)$/.test(value)) return "other";
+  if (/^(other speakers?|system audio|remote speaker)$/.test(value))
+    return "other";
   return "unknown";
 }
 
@@ -38,22 +42,31 @@ export function parseTranscript(value: string): TranscriptBlock[] {
         : null;
     if (Array.isArray(segments)) {
       const structured = segments.flatMap((segment, index) => {
-        if (!segment || typeof segment !== "object" || !("text" in segment)) return [];
+        if (!segment || typeof segment !== "object" || !("text" in segment))
+          return [];
         const item = segment as Record<string, unknown>;
-        const speaker = typeof item.speaker === "string" ? item.speaker : "Transcript";
-        const seconds = typeof item.startSeconds === "number" ? item.startSeconds : null;
-        const time = typeof item.timecode === "string"
-          ? item.timecode
-          : seconds === null
-            ? null
-            : `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
-        return [{
-          id: `block-${index}`,
-          speaker,
-          side: item.side === "you" || item.side === "other" ? item.side : sideFor(speaker),
-          timecode: time,
-          text: String(item.text),
-        } satisfies TranscriptBlock];
+        const speaker =
+          typeof item.speaker === "string" ? item.speaker : "Transcript";
+        const seconds =
+          typeof item.startSeconds === "number" ? item.startSeconds : null;
+        const time =
+          typeof item.timecode === "string"
+            ? item.timecode
+            : seconds === null
+              ? null
+              : `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+        return [
+          {
+            id: `block-${index}`,
+            speaker,
+            side:
+              item.side === "you" || item.side === "other"
+                ? item.side
+                : sideFor(speaker),
+            timecode: time,
+            text: String(item.text),
+          } satisfies TranscriptBlock,
+        ];
       });
       if (structured.length) return structured;
     }
@@ -71,7 +84,9 @@ export function parseTranscript(value: string): TranscriptBlock[] {
   return paragraphs.map((paragraph, index) => {
     const line = paragraph.split("\n")[0] ?? paragraph;
     const named = line.match(namedLine);
-    const match = line.match(speakerLine) ?? (named && named[2].length <= 48 ? named : null);
+    const match =
+      line.match(speakerLine) ??
+      (named && named[2].length <= 48 ? named : null);
     if (match) {
       return {
         id: `block-${index}`,
@@ -128,7 +143,9 @@ function parseLegacyTable(value: string): TranscriptBlock[] | null {
 
 /** Plain recognition text has no speakers or timecodes and keeps the single document editor. */
 export function hasStructure(blocks: TranscriptBlock[]): boolean {
-  return blocks.some((block) => block.speaker !== "Transcript" || block.timecode !== null);
+  return blocks.some(
+    (block) => block.speaker !== "Transcript" || block.timecode !== null,
+  );
 }
 
 export function serializeTranscript(blocks: TranscriptBlock[]): string {
@@ -136,7 +153,10 @@ export function serializeTranscript(blocks: TranscriptBlock[]): string {
     .map((block) => {
       const prefix = block.speaker === "Transcript" ? "" : `${block.speaker}: `;
       const timestamp = block.timecode ? `[${block.timecode}] ` : "";
-      return `${timestamp}${prefix}${block.text.trim()}`.trim();
+      // Blank lines separate passages in the saved format. Keep an edited
+      // passage's internal line breaks without creating an unlabelled block.
+      const text = block.text.trim().replace(/\r?\n\s*\r?\n/g, "\n");
+      return `${timestamp}${prefix}${text}`.trim();
     })
     .filter(Boolean)
     .join("\n\n");

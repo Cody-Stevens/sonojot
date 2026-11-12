@@ -48,6 +48,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "=2.10.1"
 tauri-plugin-process = "=2.3.1"
 serde = { version = "1", features = ["derive"] }
+semver = "1"
 serde_json = { version = "1", features = ["raw_value"] }
 regex = "1"
 # Local tokenizer JSON only: no hub/HTTP, progress UI, or C++ trainer.
@@ -56,6 +57,7 @@ uuid = { version = "1", features = ["v4"] }
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 cpal = "0.15"
 hound = "3.5"
+flacenc = { version = "=0.5.1", default-features = false }
 libloading = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 tokio = { version = "1", features = ["time", "sync", "rt", "rt-multi-thread", "net", "io-util"] }

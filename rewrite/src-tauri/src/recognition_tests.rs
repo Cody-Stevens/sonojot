@@ -146,6 +146,7 @@ fn fake_child() {
                 }
                 Reply::Finished {
                     result: RecognitionResult {
+                        word_confidence: Vec::new(),
                         original_text: behavior.starts_with("guarded").then(|| format!("{raw} go go go go")),
                         segments: Vec::new(),
                         text: raw.clone(),
@@ -632,6 +633,7 @@ fn original_text_roundtrips_in_worker_frames_and_obeys_byte_limits() {
             let body = if finished {
                 Reply::Finished {
                     result: RecognitionResult {
+                        word_confidence: Vec::new(),
                         text: String::new(), original_text: Some(original), segments: Vec::new(),
                         completeness: RecognitionCompleteness::Incomplete, warnings: vec!["omitted".into()],
                     }, details: None,

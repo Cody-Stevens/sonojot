@@ -2,6 +2,7 @@
   "buildOnly": [
     "rust:autocfg@1.5.1",
     "rust:bindgen@0.72.1",
+    "rust:built@0.7.7",
     "rust:cargo_toml@0.22.3",
     "rust:cc@1.4.5",
     "rust:cexpr@0.6.0",
@@ -49,6 +50,7 @@
     "rust:rustc_version@0.4.1",
     "rust:rustversion@1.0.23",
     "rust:schemars_derive@0.8.22",
+    "rust:seq-macro@0.3.6",
     "rust:serde_derive@1.0.229",
     "rust:serde_derive_internals@0.29.1",
     "rust:serde_repr@0.1.21",
@@ -701,6 +703,14 @@
       "id": "rust:bstr@1.13.1",
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/BurntSushi/bstr"
+    },
+    {
+      "checksum": "56ed6191a7e78c36abdb16ab65341eefd73d64d303fffccdbb00d51e4205967b",
+      "dependencies": [],
+      "features": [],
+      "id": "rust:built@0.7.7",
+      "license": "MIT",
+      "repository": "https://github.com/lukaslueg/built"
     },
     {
       "checksum": "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649",
@@ -1642,6 +1652,14 @@
       "repository": "https://github.com/RustCrypto/utils"
     },
     {
+      "checksum": "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853",
+      "dependencies": [],
+      "features": [],
+      "id": "rust:crc-catalog@2.5.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/akhilles/crc-catalog.git"
+    },
+    {
       "checksum": "8498c871161e1742aaa9d52551b2d6ebdd4c3d45a3be423e3728f33b955be550",
       "dependencies": [
         {
@@ -1661,6 +1679,24 @@
       "id": "rust:crc32fast@1.5.1",
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/srijs/rust-crc32fast"
+    },
+    {
+      "checksum": "5eb8a2a1cd12ab0d987a5d5e825195d372001a4094a0376319d5a0ad71c1ba0d",
+      "dependencies": [
+        {
+          "id": "rust:crc-catalog@2.5.0",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      ],
+      "features": [],
+      "id": "rust:crc@3.4.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/mrhooray/crc-rs.git"
     },
     {
       "checksum": "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1",
@@ -3334,6 +3370,78 @@
       "repository": "https://github.com/rust-lang/cc-rs"
     },
     {
+      "checksum": "74c892c2b5fa08f967e8b5ad29121570b4762202f2402033ce08479ec65eccd0",
+      "dependencies": [
+        {
+          "id": "rust:built@0.7.7",
+          "kinds": [
+            {
+              "kind": "build",
+              "target": null
+            }
+          ]
+        },
+        {
+          "id": "rust:crc@3.4.0",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        },
+        {
+          "id": "rust:heapless@0.8.0",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        },
+        {
+          "id": "rust:md-5@0.10.6",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        },
+        {
+          "id": "rust:num-traits@0.2.19",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        },
+        {
+          "id": "rust:rustversion@1.0.23",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        },
+        {
+          "id": "rust:seq-macro@0.3.6",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      ],
+      "features": [],
+      "id": "rust:flacenc@0.5.1",
+      "license": "Apache-2.0",
+      "repository": "https://github.com/yotarok/flacenc-rs/"
+    },
+    {
       "checksum": "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb",
       "dependencies": [
         {
@@ -4119,6 +4227,24 @@
       "repository": "https://github.com/tauri-apps/global-hotkey"
     },
     {
+      "checksum": "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606",
+      "dependencies": [
+        {
+          "id": "rust:byteorder@1.5.0",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      ],
+      "features": [],
+      "id": "rust:hash32@0.3.1",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/japaric/hash32"
+    },
+    {
       "checksum": "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888",
       "dependencies": [],
       "features": [
@@ -4135,6 +4261,33 @@
       "id": "rust:hashbrown@0.17.1",
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/hashbrown"
+    },
+    {
+      "checksum": "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad",
+      "dependencies": [
+        {
+          "id": "rust:hash32@0.3.1",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        },
+        {
+          "id": "rust:stable_deref_trait@1.2.1",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      ],
+      "features": [],
+      "id": "rust:heapless@0.8.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-embedded/heapless"
     },
     {
       "checksum": "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea",
@@ -6050,6 +6203,36 @@
       "id": "rust:matrixmultiply@0.3.11",
       "license": "MIT/Apache-2.0",
       "repository": "https://github.com/bluss/matrixmultiply/"
+    },
+    {
+      "checksum": "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf",
+      "dependencies": [
+        {
+          "id": "rust:cfg-if@1.0.4",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        },
+        {
+          "id": "rust:digest@0.10.7",
+          "kinds": [
+            {
+              "kind": null,
+              "target": null
+            }
+          ]
+        }
+      ],
+      "features": [
+        "default",
+        "std"
+      ],
+      "id": "rust:md-5@0.10.6",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/RustCrypto/hashes"
     },
     {
       "checksum": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98",
@@ -10710,6 +10893,14 @@
       "id": "rust:semver@1.0.28",
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/semver"
+    },
+    {
+      "checksum": "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc",
+      "dependencies": [],
+      "features": [],
+      "id": "rust:seq-macro@0.3.6",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/dtolnay/seq-macro"
     },
     {
       "checksum": "f9faf48a4a2d2693be24c6289dbe26552776eb7737074e6722891fadbe6c5058",
@@ -16934,7 +17125,9 @@
     "rust:coreaudio-sys@0.2.18",
     "rust:cpal@0.15.3",
     "rust:cpufeatures@0.2.17",
+    "rust:crc-catalog@2.5.0",
     "rust:crc32fast@1.5.1",
+    "rust:crc@3.4.0",
     "rust:crossbeam-channel@0.5.17",
     "rust:crossbeam-deque@0.8.8",
     "rust:crossbeam-epoch@0.9.21",
@@ -16979,6 +17172,7 @@
     "rust:fastrand@2.5.0",
     "rust:fdeflate@0.3.7",
     "rust:filetime@0.2.29",
+    "rust:flacenc@0.5.1",
     "rust:flate2@1.1.10",
     "rust:fnv@1.0.7",
     "rust:foldhash@0.2.0",
@@ -17001,8 +17195,10 @@
     "rust:gif@0.11.4",
     "rust:glob@0.3.4",
     "rust:global-hotkey@0.8.0",
+    "rust:hash32@0.3.1",
     "rust:hashbrown@0.12.3",
     "rust:hashbrown@0.17.1",
+    "rust:heapless@0.8.0",
     "rust:heck@0.5.0",
     "rust:hex@0.4.3",
     "rust:hound@3.5.1",
@@ -17053,6 +17249,7 @@
     "rust:macro_rules_attribute@0.2.3",
     "rust:markup5ever@0.38.0",
     "rust:matrixmultiply@0.3.11",
+    "rust:md-5@0.10.6",
     "rust:memchr@2.8.3",
     "rust:mime@0.3.17",
     "rust:minimal-lexical@0.2.1",

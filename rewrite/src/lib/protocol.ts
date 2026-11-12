@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { pendingCrashSchema, reportSchema, reportReceiptSchema, type Report, type ReportKind } from "./reports";
+import {
+  pendingCrashSchema,
+  reportSchema,
+  reportReceiptSchema,
+  type Report,
+  type ReportKind,
+} from "./reports";
 import { downloadConsentSchema } from "./download-consent";
 import { setupStatusSchema } from "./setup";
 import {
@@ -26,7 +32,18 @@ export const modelRetentionSchema = z.enum([
 ]);
 export type ModelRetention = z.infer<typeof modelRetentionSchema>;
 
+export const notesPresetSchema = z.enum([
+  "summary",
+  "tasks",
+  "speakers",
+  "brief",
+  "formattedTranscript",
+  "custom",
+]);
+export type NotesPreset = z.infer<typeof notesPresetSchema>;
+
 export const settingsSchema = z.object({
+  updateChannel: z.enum(["stable", "nightly"]).default("stable"),
   termsAcceptedVersion: z.number().int().nonnegative().default(0),
   termsAcceptedAt: z.string().nullable().default(null),
   meetingConsentAcknowledged: z.boolean().default(false),
@@ -34,6 +51,7 @@ export const settingsSchema = z.object({
   setupProfile: setupProfileSchema.nullable().default("custom"),
   punctuationRecommendationAcknowledged: z.boolean().default(false),
   punctuationV2RecommendationAcknowledged: z.boolean().default(false),
+  punctuationV3RecommendationAcknowledged: z.boolean().default(false),
   theme: z.enum(["fog", "slate"]),
   material: z.boolean(),
   cleanupMode: z.enum(["clean", "original", "format"]),
@@ -41,9 +59,11 @@ export const settingsSchema = z.object({
   smartLayout: z.boolean().default(false),
   smartLayoutAppHint: z.boolean().default(false),
   proofreader: z.boolean().default(false),
-  proofreaderModel: z.string().default("openai/gpt-6-luna"),
+  localProofreader: z.boolean().default(true),
+  proofreaderModel: z.string().default("anthropic/claude-opus-5.5"),
   proofreaderTrainingModels: z.array(z.string()).default([]),
   writtenForm: z.boolean().default(true),
+  sonojotPunctuation: z.boolean().default(true),
   launchAtLogin: z.boolean(),
   hotkey: z.string(),
   hotkeyMode: z.enum(["toggle", "hold"]),
@@ -61,11 +81,15 @@ export const settingsSchema = z.object({
   startTabHidden: z.boolean().default(false),
   cursorIndicator: z.boolean().default(true),
   autoMeetingTitles: z.boolean().default(true),
+  meetingNotesPreset: notesPresetSchema.nullable().default(null),
+  meetingNotesInstructions: z.string().default(""),
   meetingSpeakerLabels: z.boolean().default(true),
   meetingSource: z.enum(["microphone", "system", "both"]).default("both"),
   meetingSourceMigrated: z.boolean().default(false),
   systemAudioDefaultApplied: z.boolean().default(false),
   doNotSaveDictations: z.boolean().default(false),
+  /** Keep dictation audio locally for 30 days to improve the user's own models. */
+  keepDictationAudio: z.boolean().default(false),
   learnFromCorrections: z.boolean().default(false),
   memoryMode: memoryModeSchema.default("overlap"),
   modelRetention: modelRetentionSchema.default("10m"),
@@ -78,16 +102,6 @@ export const systemAudioStatusSchema = z.enum([
   "unsupported",
 ]);
 export type SystemAudioStatus = z.infer<typeof systemAudioStatusSchema>;
-
-export const notesPresetSchema = z.enum([
-  "summary",
-  "tasks",
-  "speakers",
-  "brief",
-  "formattedTranscript",
-  "custom",
-]);
-export type NotesPreset = z.infer<typeof notesPresetSchema>;
 
 export const modelSchema = z.object({
   id: z.string(),
@@ -112,6 +126,10 @@ export const updateStatusSchema = z.discriminatedUnion("state", [
     version: z.string().min(1),
     notes: z.string().nullable(),
     size: z.number().int().nonnegative().nullable(),
+    /** Not newer: reinstalling finishes an incomplete installation. */
+    repair: z.boolean().optional(),
+    /** Older than this build: the newest build on the channel just chosen. */
+    older: z.boolean().optional(),
   }),
   z.object({
     state: z.literal("downloading"),
@@ -121,6 +139,7 @@ export const updateStatusSchema = z.discriminatedUnion("state", [
     state: z.literal("ready"),
     version: z.string().min(1),
     notes: z.string().nullable(),
+    older: z.boolean().optional(),
   }),
   z.object({ state: z.literal("error"), message: z.string() }),
 ]);
@@ -132,9 +151,12 @@ export const updateSchema = z.object({
   installing: z.boolean(),
   /** Later was chosen on the main-window notice for the offered version. */
   noticeDismissed: z.boolean().default(false),
+  /** Why the installed files don't match the running app, if they don't. */
+  installProblem: z.string().nullable().default(null),
 });
 
 export const snapshotSchema = z.object({
+  localProofreaderAvailable: z.boolean().default(false),
   revision: z.number().int().nonnegative().default(0),
   meetingsRevision: z.number().int().nonnegative().default(0),
   sessionId: z.number().int().nonnegative().nullable().default(null),
@@ -208,6 +230,7 @@ export const snapshotSchema = z.object({
     restartBlockedReason: null,
     installing: false,
     noticeDismissed: false,
+    installProblem: null,
   }),
 });
 export type Snapshot = z.infer<typeof snapshotSchema>;
@@ -220,20 +243,33 @@ export const meetingSummarySchema = z.object({
   status: z.string(),
   hasAudio: z.boolean(),
   hasTranscript: z.boolean(),
+  missingSeconds: z.number().nonnegative().optional(),
+  speakerCount: z.number().int().nonnegative().optional(),
+  autoNamed: z.boolean().optional(),
+  source: z.string().optional(),
+  hasNotes: z.boolean().optional(),
 });
 export const meetingDetailSchema = meetingSummarySchema.extend({
   recognitionCompleteness: recognitionCompletenessSchema.default("complete"),
   recognitionWarnings: z.array(z.string()).default([]),
   recordingWarnings: z.array(z.string()).default([]),
-  audioOutages: z.array(z.object({
-    source: z.string(),
-    startSeconds: z.number().nonnegative(),
-    endSeconds: z.number().nonnegative(),
-    reason: z.string(),
-  })).default([]),
+  audioOutages: z
+    .array(
+      z.object({
+        source: z.string(),
+        startSeconds: z.number().nonnegative(),
+        endSeconds: z.number().nonnegative(),
+        reason: z.string(),
+      }),
+    )
+    .default([]),
   missingSeconds: z.number().nonnegative().default(0),
   cleanedTranscript: z.string().nullable().default(null),
-  transcriptionStoppedAtSeconds: z.number().nonnegative().nullable().default(null),
+  transcriptionStoppedAtSeconds: z
+    .number()
+    .nonnegative()
+    .nullable()
+    .default(null),
   transcript: z.string(),
   notes: z.string(),
   source: z.string(),
@@ -247,6 +283,9 @@ export type MeetingSummary = z.infer<typeof meetingSummarySchema>;
 export type MeetingDetail = z.infer<typeof meetingDetailSchema>;
 export const vocabularySchema = z.array(
   z.object({
+    kind: z.enum(["replace", "hint"]).default("replace"),
+    aliases: z.array(z.string()).default([]),
+    context: z.array(z.string()).default([]),
     id: z.string(),
     heard: z.string(),
     written: z.string(),
@@ -321,7 +360,10 @@ export const commandSchemas = {
   begin_onboarding: z.boolean(),
   confirm_onboarding_profile: snapshotSchema,
   finish_onboarding: snapshotSchema,
-  onboarding_microphone: z.object({ level: z.number().finite().min(0).max(1), active: z.boolean() }),
+  onboarding_microphone: z.object({
+    level: z.number().finite().min(0).max(1),
+    active: z.boolean(),
+  }),
   open_permission_settings: nothing,
   onboarding_paste_permission: z.string().nullable(),
   permission_status: permissionStatusSchema,
@@ -345,6 +387,13 @@ export const commandSchemas = {
     snapshot: snapshotSchema,
   }),
   count_dictations: z.number().int().nonnegative(),
+  get_dictation_audio_usage: z.object({
+    count: z.number().int().nonnegative(),
+    bytes: z.number().finite().nonnegative(),
+  }),
+  delete_dictation_audio: z.object({
+    deleted: z.number().int().nonnegative(),
+  }),
   save_dictation_correction: z.object({
     record: dictationRecordSchema,
     learnedCount: z.number().int().nonnegative(),
@@ -356,6 +405,7 @@ export const commandSchemas = {
   get_ai_settings: aiSettingsSchema,
   save_ai_settings: aiSettingsSchema,
   connect_openrouter: aiSettingsSchema,
+  connect_openrouter_key: aiSettingsSchema,
   cancel_ai_connect: nothing,
   disconnect_openrouter: aiSettingsSchema,
   list_ai_models: z.array(aiModelSchema),
@@ -389,9 +439,20 @@ export const commandSchemas = {
   show_page: nothing,
   copy_text: nothing,
   list_meetings: z.array(meetingSummarySchema),
+  search_meetings: z.array(z.object({ id: z.string(), line: z.string() })),
   get_meeting: meetingDetailSchema,
+  get_timed_transcript: z.object({
+    rawTranscript: z.string().nullable().default(null),
+  }),
+  meeting_speakers: z.array(
+    z.object({ label: z.string(), passages: z.number().int().nonnegative() }),
+  ),
+  rename_meeting_speaker: meetingDetailSchema,
+  reassign_meeting_passage: meetingDetailSchema,
+  join_meetings: meetingDetailSchema,
   start_meeting: meetingDetailSchema,
   stop_meeting: meetingDetailSchema,
+  discard_meeting: nothing,
   import_media: meetingDetailSchema,
   transcribe_meeting: meetingDetailSchema,
   cancel_meeting: nothing,
@@ -407,8 +468,12 @@ export const commandSchemas = {
   open_path: nothing,
   open_punctuation_model_page: nothing,
   get_diagnostics: z.string(),
+  get_cli_path: z.string(),
+  copy_cli_path: nothing,
   list_dictations: z.array(dictationRecordSchema),
   copy_history: nothing,
+  export_dictation: nothing,
+  copy_shortcut_command: nothing,
   learn_correction: vocabularySchema,
 };
 export interface CommandArguments {
@@ -452,6 +517,8 @@ export interface CommandArguments {
   delete_dictation: { id: string; confirmed: boolean };
   delete_all_dictations: { confirmed: boolean };
   count_dictations: undefined;
+  get_dictation_audio_usage: undefined;
+  delete_dictation_audio: undefined;
   save_dictation_correction: { id: string; text: string; scope: string | null };
   get_learning: undefined;
   save_learning: { entries: LearnedEntry[] };
@@ -466,6 +533,7 @@ export interface CommandArguments {
     };
   };
   connect_openrouter: undefined;
+  connect_openrouter_key: { key: string };
   cancel_ai_connect: undefined;
   disconnect_openrouter: undefined;
   list_ai_models: undefined;
@@ -513,10 +581,22 @@ export interface CommandArguments {
   };
   copy_text: { original: boolean; resultSessionId: number | null };
   list_meetings: undefined;
+  search_meetings: { query: string };
   get_meeting: { id: string };
   start_meeting: { title: string; source: "microphone" | "system" | "both" };
   stop_meeting: undefined;
-  import_media: { path: string };
+  discard_meeting: { id: string; confirmed: boolean };
+  import_media: { path: string; speaker?: string };
+  get_timed_transcript: { id: string; latestAttempt?: boolean };
+  meeting_speakers: { id: string };
+  rename_meeting_speaker: { id: string; from: string; to: string };
+  reassign_meeting_passage: {
+    id: string;
+    clock: string;
+    from: string;
+    to: string;
+  };
+  join_meetings: { ids: string[]; title?: string };
   transcribe_meeting: { id: string; model?: string };
   clean_meeting: { id: string };
   cancel_meeting: { id: string };
@@ -546,8 +626,12 @@ export interface CommandArguments {
   open_path: { kind: "data" | "models" | "logs" };
   open_punctuation_model_page: { id?: string } | undefined;
   get_diagnostics: undefined;
+  get_cli_path: undefined;
+  copy_cli_path: undefined;
   list_dictations: { limit: number };
   copy_history: { id: string; original: boolean };
+  export_dictation: { id: string; path: string };
+  copy_shortcut_command: undefined;
   learn_correction: { id: string; heard: string; written: string };
 }
 export type CommandName = keyof CommandArguments;
@@ -570,6 +654,7 @@ export function parseResponse<C extends CommandName>(
 }
 
 export const previewSnapshot: Snapshot = {
+  localProofreaderAvailable: false,
   recognitionProgress: null,
   revision: 0,
   meetingsRevision: 0,
@@ -583,6 +668,7 @@ export const previewSnapshot: Snapshot = {
   recognitionCompleteness: null,
   recognitionWarnings: [],
   settings: {
+    updateChannel: "stable",
     termsAcceptedVersion: 0,
     termsAcceptedAt: null,
     meetingConsentAcknowledged: false,
@@ -590,6 +676,7 @@ export const previewSnapshot: Snapshot = {
     setupProfile: "custom",
     punctuationRecommendationAcknowledged: false,
     punctuationV2RecommendationAcknowledged: false,
+    punctuationV3RecommendationAcknowledged: false,
     theme: "fog",
     material: true,
     cleanupMode: "clean",
@@ -597,9 +684,11 @@ export const previewSnapshot: Snapshot = {
     smartLayout: false,
     smartLayoutAppHint: false,
     proofreader: false,
-    proofreaderModel: "openai/gpt-6-luna",
+    localProofreader: true,
+    proofreaderModel: "anthropic/claude-opus-5.5",
     proofreaderTrainingModels: [],
     writtenForm: true,
+    sonojotPunctuation: true,
     launchAtLogin: false,
     hotkey: "Ctrl+Space",
     hotkeyMode: "toggle",
@@ -614,6 +703,7 @@ export const previewSnapshot: Snapshot = {
     notesModel: "qwen3-4b-instruct-2507",
     textAcceleration: "auto",
     doNotSaveDictations: false,
+    keepDictationAudio: false,
     learnFromCorrections: false,
     memoryMode: "overlap",
     modelRetention: "10m",
@@ -623,6 +713,8 @@ export const previewSnapshot: Snapshot = {
     meetingSourceMigrated: true,
     systemAudioDefaultApplied: true,
     autoMeetingTitles: true,
+    meetingNotesPreset: null,
+    meetingNotesInstructions: "",
     meetingSpeakerLabels: true,
   },
   state: "idle",
@@ -657,6 +749,7 @@ export const previewSnapshot: Snapshot = {
     restartBlockedReason: null,
     installing: false,
     noticeDismissed: false,
+    installProblem: null,
   },
 };
 

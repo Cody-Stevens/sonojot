@@ -1,0 +1,397 @@
+{
+  "note": "Authored protected-term and two-digit-year cases shared by tests.rs and the Python reference check (wf_render.py). No private dictation.",
+  "render_terms": [
+    [
+      "Our demo used Eleven Labs V4 narration.",
+      "Our demo used ElevenLabs V4 narration."
+    ],
+    [
+      "Ask ELEVEN LABS, eleven-labs or elevenlabs.",
+      "Ask ElevenLabs, eleven-labs or ElevenLabs."
+    ],
+    [
+      "The campus has eleven labs and 11 labs.",
+      "The campus has eleven labs and 11 labs."
+    ],
+    [
+      "Quote \"Eleven Labs\" and `Eleven Labs` and eleven.labs.io stay.",
+      "Quote \"Eleven Labs\" and `Eleven Labs` and eleven.labs.io stay."
+    ],
+    [
+      "(Eleven Labs), Twelve Labs. Base Ten!",
+      "(ElevenLabs), TwelveLabs. Baseten!"
+    ],
+    [
+      "Eleven, Labs is not a name.",
+      "Eleven, Labs is not a name."
+    ],
+    [
+      "Eleven\nLabs crosses a line.",
+      "Eleven\nLabs crosses a line."
+    ],
+    [
+      "Stop at Seven Eleven or 7 Eleven or 7-eleven.",
+      "Stop at Seven Eleven or 7-Eleven or 7-eleven."
+    ],
+    [
+      "It was the COVID 19 era, covid-19 too, and Y 2K.",
+      "It was the COVID-19 era, COVID-19 too, and Y2K."
+    ],
+    [
+      "Ask 23 and Me, not 23 and me.",
+      "Ask 23andMe, not 23 and me."
+    ],
+    [
+      "37 Signals wrote it.",
+      "37signals wrote it."
+    ],
+    [
+      "Push it to Git Hub, then Git Hub Copilot reviews it.",
+      "Push it to GitHub, then GitHub Copilot reviews it."
+    ],
+    [
+      "Use Next JS with Three JS and Node j s.",
+      "Use Next.js with Three.js and Node j s."
+    ],
+    [
+      "What's App and Whats App.",
+      "WhatsApp and WhatsApp."
+    ],
+    [
+      "We store it in One Drive; one drive is enough.",
+      "We store it in OneDrive; one drive is enough."
+    ],
+    [
+      "The Sono Jot app and Tack Sheet.",
+      "The SonoJot app and Tacksheet."
+    ],
+    [
+      "newer codecs and the codecs CLI",
+      "newer codecs and the codecs CLI"
+    ]
+  ],
+  "spans": [
+    [
+      "Eleven",
+      "CARDINAL",
+      "demo used the",
+      "Labs V four",
+      null
+    ],
+    [
+      "eleven",
+      "CARDINAL",
+      "the campus has",
+      "labs on the",
+      "11"
+    ],
+    [
+      "Ten Cent",
+      "MONEY",
+      "I mean",
+      "released it last",
+      null
+    ],
+    [
+      "ten cents",
+      "MONEY",
+      "it costs",
+      "each",
+      "10 cents"
+    ],
+    [
+      "Base Ten",
+      "CARDINAL",
+      "host it on",
+      "right now",
+      null
+    ],
+    [
+      "ten",
+      "CARDINAL",
+      "convert it to base",
+      "first",
+      "10"
+    ],
+    [
+      "seven eleven",
+      "TIME",
+      "meet me at",
+      "tonight",
+      "7:11"
+    ],
+    [
+      "Seven Eleven",
+      "TIME",
+      "stopped at the",
+      "on the way",
+      null
+    ],
+    [
+      "twenty twenty",
+      "YEAR",
+      "hindsight is",
+      "on that one",
+      null
+    ],
+    [
+      "twenty twenty",
+      "YEAR",
+      "back in",
+      "we shipped",
+      "2020"
+    ],
+    [
+      "Nine Inch",
+      "MEASURE",
+      "listened to",
+      "Nails all day",
+      null
+    ],
+    [
+      "twenty dollars",
+      "MONEY",
+      "Eleven Labs charged",
+      "for it",
+      "$20"
+    ],
+    [
+      "V four",
+      "VERSION",
+      "used Eleven Labs",
+      "narration and paid",
+      "V4"
+    ],
+    [
+      "codecs",
+      "MODEL",
+      "some newer",
+      "and small",
+      null
+    ],
+    [
+      "codecs CLI",
+      "MODEL",
+      "use the",
+      "to run",
+      "Codex CLI"
+    ],
+    [
+      "gpt five codec",
+      "MODEL",
+      "assign the",
+      "model a",
+      "GPT-5-Codex"
+    ],
+    [
+      "codec",
+      "MODEL",
+      "record the",
+      "product name",
+      null
+    ],
+    [
+      "Codecs,",
+      "MODEL",
+      "providers, like",
+      "oh, sorry,",
+      "Codex,"
+    ],
+    [
+      "twenty four,",
+      "YEAR",
+      "shipped in August of",
+      "we think.",
+      "'24,"
+    ],
+    [
+      "twenty-five,",
+      "YEAR",
+      "in December of",
+      "and then",
+      "'25,"
+    ],
+    [
+      "oh five",
+      "YEAR",
+      "the summer of",
+      "",
+      "'05"
+    ],
+    [
+      "ninety nine",
+      "YEAR",
+      "the fall of",
+      "we",
+      "'99"
+    ],
+    [
+      "twenty twenty four",
+      "YEAR",
+      "launched in August of",
+      "",
+      "2024"
+    ],
+    [
+      "twenty",
+      "YEAR",
+      "in August of",
+      "four",
+      null
+    ],
+    [
+      "twenty four",
+      "YEAR",
+      "back in",
+      "we",
+      "'24"
+    ],
+    [
+      "twenty four",
+      "YEAR",
+      "",
+      "",
+      null
+    ],
+    [
+      "five",
+      "YEAR",
+      "in August of",
+      "",
+      null
+    ],
+    [
+      "24",
+      "YEAR",
+      "in August of",
+      "",
+      null
+    ],
+    [
+      "twenty four",
+      "CARDINAL",
+      "in August of",
+      "",
+      "24"
+    ],
+    [
+      "Opus Five Point Five, four",
+      "MODEL",
+      "ask",
+      "agents to",
+      null
+    ],
+    [
+      "Opus Five Point Five,",
+      "MODEL",
+      "ask",
+      "four agents to",
+      "Opus 5.5,"
+    ],
+    [
+      "twenty, five dollars",
+      "MONEY",
+      "pay",
+      "today",
+      null
+    ],
+    [
+      "four thousand. Dollars",
+      "MONEY",
+      "pay",
+      "today.",
+      "$4,000"
+    ],
+    [
+      "version one point two, three",
+      "VERSION",
+      "use",
+      "",
+      null
+    ],
+    [
+      "six point one, five",
+      "DECIMAL",
+      "it was",
+      "",
+      null
+    ],
+    [
+      "one million, 200 and thirty thousand",
+      "CARDINAL",
+      "about",
+      "",
+      "1,230,000"
+    ],
+    [
+      "ninety nine",
+      "YEAR",
+      "back in",
+      "we used dial",
+      "'99"
+    ],
+    [
+      "ninety nine",
+      "YEAR",
+      "back in",
+      "days ago",
+      null
+    ],
+    [
+      "ninety nine.",
+      "YEAR",
+      "back in",
+      "Everyone was",
+      "'99."
+    ],
+    [
+      "ten",
+      "YEAR",
+      "since",
+      "we",
+      null
+    ],
+    [
+      "twenty four",
+      "YEAR",
+      "class of",
+      "",
+      "'24"
+    ],
+    [
+      "oh five",
+      "YEAR",
+      "circa",
+      "",
+      "'05"
+    ],
+    [
+      "twenty",
+      "YEAR",
+      "in the year",
+      "",
+      "'20"
+    ],
+    [
+      "ninety nine",
+      "YEAR",
+      "since",
+      "people joined",
+      null
+    ],
+    [
+      "twenty twenty",
+      "YEAR",
+      "since",
+      "people",
+      "2020"
+    ],
+    [
+      "April thirty, twenty twenty seven",
+      "DATE",
+      "",
+      "",
+      "April 30, 2027"
+    ]
+  ]
+}

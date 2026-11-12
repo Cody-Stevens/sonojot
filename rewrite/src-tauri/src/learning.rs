@@ -550,6 +550,8 @@ pub fn to_cleanup_vocabulary(entries: &[LearnedEntry]) -> Vec<crate::cleanup::Vo
                 })
                 .unwrap_or_default();
             Some(crate::cleanup::Vocabulary {
+                kind: crate::domain::VocabularyKind::Replace,
+                aliases: Vec::new(),
                 heard: heard.into(),
                 written: written.into(),
                 enabled: true,
@@ -713,6 +715,9 @@ pub fn relevant(
         }
         used += cost;
         out.push(VocabularyEntry {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
+            context: Vec::new(),
             id: entry.id.clone(),
             heard: heard.into(),
             written: written.into(),

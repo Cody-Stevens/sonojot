@@ -74,6 +74,49 @@ pub struct Recommendations {
 pub struct HardwareProfiles {
     pub hardware: HardwareProfile,
     pub recommendations: Recommendations,
+    pub frontier: SpeechFrontier,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechFrontier {
+    pub dictation: Vec<String>,
+    pub meetings: Vec<String>,
+    pub other_languages: String,
+}
+
+/// November 2026 product-model tiers, constrained by the existing RAM guard.
+/// This is display policy; it does not restrict installation through the CLI.
+fn speech_frontier(hardware: &HardwareProfile) -> SpeechFrontier {
+    let mac = hardware.platform == "macos" && hardware.apple_silicon;
+    let cuda = hardware.platform == "windows" && hardware.cuda_ok
+        && hardware.total_vram_bytes.is_some_and(|bytes| bytes >= CUDA_SPEECH_MIN_VRAM);
+    let supported = mac || matches!(hardware.platform.as_str(), "windows" | "linux");
+    let mut candidates = if mac {
+        let mut ids = vec![WHISPER_SMALL_METAL, QWEN_Q4_METAL];
+        if hardware.total_ram_bytes.is_some_and(|bytes| bytes >= 16 * GIB) { ids.push(QWEN_Q8_METAL); }
+        ids
+    } else if cuda { vec![PARAKEET, QWEN_CUDA] }
+    else if supported { vec![MOONSHINE_MEDIUM, PARAKEET, QWEN_CPU] }
+    else { Vec::new() };
+    let fits = |id: &str| {
+        hardware.total_ram_bytes.is_none_or(|ram| {
+            let selection = Selection { asr_model: id.into(), cleanup_model: "local-rules".into(),
+                notes_model: QWEN_NOTES.into(), reasons: Vec::new() };
+            !dictation_exceeds(&selection, ram)
+        })
+    };
+    candidates.retain(|id| fits(id));
+    let recommended = recommend(hardware, SetupProfile::Balanced).asr_model;
+    if !recommended.is_empty() && !candidates.contains(&recommended.as_str()) { candidates.push(&recommended); }
+    let other = if mac { QWEN_Q4_METAL } else if cuda { QWEN_CUDA }
+        else if supported && hardware.total_ram_bytes.is_some_and(|ram| ram > 8 * GIB) { QWEN_CPU }
+        else if supported { QWEN_SMALL_CPU } else { "" };
+    let other_languages = if !other.is_empty() && fits(other) { other.into() } else { String::new() };
+    let dictation: Vec<String> = candidates.into_iter().map(String::from).collect();
+    let mut meetings = dictation.clone();
+    if cuda { meetings.push(crate::granite_model::GRANITE_ID.into()); }
+    SpeechFrontier { dictation, meetings, other_languages }
 }
 
 pub fn inspect(models_root: &Path) -> HardwareProfiles {
@@ -117,7 +160,8 @@ fn profiles_for(hardware: HardwareProfile) -> HardwareProfiles {
         balanced: recommend(&hardware, SetupProfile::Balanced),
         light: recommend(&hardware, SetupProfile::Light),
     };
-    HardwareProfiles { hardware, recommendations }
+    let frontier = speech_frontier(&hardware);
+    HardwareProfiles { hardware, recommendations, frontier }
 }
 
 fn strong_cpu(hardware: &HardwareProfile) -> bool {
@@ -321,6 +365,26 @@ mod profiles_tests {
             total_vram_bytes: Some(12 * GIB),
             cuda_ok: true,
             ..windows(32, Some(12), Some(24))
+        }
+    }
+
+    #[test]
+    fn speech_frontiers_follow_hardware_and_keep_granite_meeting_only() {
+        let gpu = speech_frontier(&nvidia());
+        assert_eq!(gpu.dictation, [PARAKEET, QWEN_CUDA]);
+        assert!(gpu.meetings.contains(&crate::granite_model::GRANITE_ID.into()));
+        assert_eq!(gpu.other_languages, QWEN_CUDA);
+        let cpu = speech_frontier(&windows(16, Some(4), Some(8)));
+        assert_eq!(cpu.dictation, [MOONSHINE_MEDIUM, PARAKEET, QWEN_CPU]);
+        assert_eq!(cpu.meetings, cpu.dictation);
+        assert_eq!(speech_frontier(&windows(8, Some(4), Some(8))).other_languages, QWEN_SMALL_CPU);
+        let small_gpu = HardwareProfile { total_vram_bytes: Some(4 * GIB), ..nvidia() };
+        assert!(!speech_frontier(&small_gpu).dictation.contains(&QWEN_CUDA.into()));
+        for ram in [8, 16, 24, 32, 64] {
+            let report = profiles_for(apple(ram));
+            assert_eq!(report.recommendations.balanced.asr_model, QWEN_Q4_METAL);
+            assert!(report.frontier.dictation.contains(&QWEN_Q4_METAL.into()));
+            assert_eq!(report.frontier.dictation.contains(&QWEN_Q8_METAL.into()), ram >= 16);
         }
     }
 

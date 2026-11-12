@@ -257,6 +257,23 @@ pub fn save_settings(store: &Store, settings: &AiSettings) -> Result<AiSettingsS
     settings_status(store)
 }
 
+/// Commit a local recommended setup and its routes under the same store lock.
+/// Credentials, consent and the saved model list are not part of this reset.
+pub(crate) fn save_recommended_settings(store: &Store, settings: &crate::domain::Settings) -> Result<(), String> {
+    settings.validate()?;
+    let _guard = store.lock()?;
+    let old = load_unlocked(store)?;
+    let next = AiSettings { backend: AiBackend::Local, model: String::new(),
+        speech_model: String::new(), quick_models: old.quick_models.clone() };
+    let path = store.root().join(SETTINGS_FILE);
+    store.write(&path, &next)?;
+    if let Err(error) = store.save_settings_unlocked(settings) {
+        store.write(&path, &old).map_err(|rollback| format!("{error} Online choices could not be restored: {rollback}"))?;
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// Disconnect removes the app's protected key, not the user's provider account.
 pub fn disconnect(store: &Store) -> Result<AiSettingsStatus, String> {
     {
@@ -737,7 +754,7 @@ pub(crate) const PROOFREADER_ACCOUNT_PRIVACY: &str = "OpenRouter account privacy
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
-struct ProofreaderModelPolicy {
+pub(crate) struct ProofreaderModelPolicy {
     supported_parameters: Vec<String>,
     training_required: bool,
 }
@@ -850,7 +867,7 @@ pub(crate) fn proofreader_network<T>(
     })
 }
 
-fn proofreader_request_body(
+pub(crate) fn proofreader_request_body(
     model: &str,
     system: &str,
     text: &str,
@@ -864,6 +881,12 @@ fn proofreader_request_body(
         .any(|parameter| parameter == "reasoning")
         .then(|| "low".to_owned());
     let mut body = text_request_body(model, system, text, 8192, effort);
+    // OpenRouter explicit system-message cache breakpoint (default five-minute TTL).
+    if model.starts_with("anthropic/") {
+        body["messages"][0]["content"] = serde_json::json!([{
+            "type": "text", "text": system, "cache_control": {"type": "ephemeral"}
+        }]);
+    }
     body["temperature"] = serde_json::json!(0);
     if policy.training_required && exact_training_consent {
         body["provider"]["data_collection"] = serde_json::json!("allow");
@@ -1237,6 +1260,38 @@ fn receive_callback(
         }
     }
     Err("OpenRouter sign-in timed out. Connect again when you are ready.".into())
+}
+
+pub fn connect_key(store: &Store, key: &str, cancel: &AtomicBool) -> Result<AiSettingsStatus, String> {
+    connect_key_checked(store, key, cancel, |key| {
+        network(cancel, async {
+            let response = request_json(
+                attribution(client(Duration::from_secs(30))?.get("https://openrouter.ai/api/v1/key"))
+                    .bearer_auth(key),
+                16_384,
+            ).await?;
+            if !response.get("data").is_some_and(serde_json::Value::is_object) {
+                return Err("OpenRouter could not verify this key. Try again.".into());
+            }
+            Ok(())
+        })
+    })
+}
+
+fn connect_key_checked(
+    store: &Store, key: &str, cancel: &AtomicBool,
+    verify: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<AiSettingsStatus, String> {
+    supported()?;
+    check_cancel(cancel)?;
+    let key = key.trim();
+    if !valid_secret(key) {
+        return Err("Paste a complete OpenRouter key without spaces.".into());
+    }
+    verify(key)?;
+    check_cancel(cancel)?;
+    save_key(store, key, cancel)?;
+    settings_status(store)
 }
 
 pub fn connect(store: &Store, cancel: &AtomicBool) -> Result<AiSettingsStatus, String> {
@@ -2972,6 +3027,64 @@ mod tests {
         assert_eq!(status.quick_models, vec![AiQuickModel { id: "provider/model".into(), role: AiQuickModelRole::Text }]);
         assert!(!status.connected);
         assert!(!store.root().join(KEY_FILE).exists());
+        drop(store);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn recommended_setup_keeps_credentials_and_rolls_back_routes_on_failure() {
+        let path = std::env::temp_dir().join(format!("sonojot-recommended-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(path.clone())).unwrap();
+        save_key(&store, "synthetic-key-no-network", &AtomicBool::new(false)).unwrap();
+        let key = std::fs::read(path.join(KEY_FILE)).unwrap();
+        let old = AiSettings { backend: AiBackend::OpenRouter, model: "provider/text".into(),
+            speech_model: "provider/speech".into(), quick_models: vec![AiQuickModel {
+                id: "provider/text".into(), role: AiQuickModelRole::Text }] };
+        save_settings(&store, &old).unwrap();
+        let settings = crate::domain::Settings::default();
+        save_recommended_settings(&store, &settings).unwrap();
+        let status = settings_status(&store).unwrap();
+        assert!(status.connected);
+        assert_eq!(status.backend, AiBackend::Local);
+        assert!(status.model.is_empty());
+        assert!(status.speech_model.is_empty());
+        assert_eq!(status.quick_models, old.quick_models);
+        assert_eq!(std::fs::read(path.join(KEY_FILE)).unwrap(), key);
+        save_settings(&store, &old).unwrap();
+        std::fs::remove_file(path.join("settings.json")).unwrap();
+        std::fs::create_dir(path.join("settings.json")).unwrap();
+        assert!(save_recommended_settings(&store, &settings).is_err());
+        assert_eq!(load_settings(&store).unwrap(), old);
+        assert_eq!(std::fs::read(path.join(KEY_FILE)).unwrap(), key);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pasted_key_validates_before_replacing_protected_credentials() {
+        let path = std::env::temp_dir().join(format!("sonojot-pasted-key-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(path.clone())).unwrap();
+        let cancel = AtomicBool::new(false);
+        let original = "synthetic-old-key-no-network";
+        save_key(&store, original, &cancel).unwrap();
+        assert!(connect_key_checked(&store, "bad key", &cancel, |_| panic!("invalid key sent")).is_err());
+        assert!(connect_key_checked(&store, "synthetic-rejected-key", &cancel, |_| Err("Rejected".into())).is_err());
+        assert_eq!(load_key_unlocked(&store).unwrap(), original);
+        assert!(connect_key_checked(&store, "synthetic-cancelled-key", &cancel, |_| {
+            cancel.store(true, Ordering::Release);
+            Ok(())
+        }).is_err());
+        assert_eq!(load_key_unlocked(&store).unwrap(), original);
+        cancel.store(false, Ordering::Release);
+        let next = "synthetic-new-key-no-network";
+        assert!(connect_key_checked(&store, &format!("  {next}\n"), &cancel, |key| {
+            assert_eq!(key, next);
+            Ok(())
+        }).unwrap().connected);
+        assert_eq!(load_key_unlocked(&store).unwrap(), next);
+        assert!(!std::fs::read_to_string(store.root().join(KEY_FILE)).unwrap().contains(next));
+        assert_eq!(load_settings(&store).unwrap().backend, AiBackend::Local);
         drop(store);
         std::fs::remove_dir_all(path).unwrap();
     }

@@ -81,7 +81,18 @@ export function discoverable(
   );
 }
 export type ModelRole = "asr" | "cleanup" | "notes";
-export type ModelSelectionRole = ModelRole | "meetingSpeech";
+export type ModelSelectionRole = ModelRole | "meetingSpeech" | "cleanupModel";
+/**
+ * A row on the Models page that other pages link to. Each one has the
+ * element id `setup-<target>` there.
+ */
+export type ModelsTarget =
+  | ModelRole
+  | "meeting"
+  | "punctuation"
+  | "speakers"
+  | "livePreview"
+  | "dictationAudio";
 export const GRANITE_SPEECH_MODEL = "granite-speech-4.1-2b-nar-q8";
 // These are the dictation/profile roles. Meeting speech is selected separately.
 export const modelRoles = [

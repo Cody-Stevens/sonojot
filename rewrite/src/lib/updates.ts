@@ -8,7 +8,11 @@ export function updateStatusLabel(status: UpdateStatus): string {
     case "checking":
       return "Checking for updates…";
     case "available":
-      return `SonoJot ${status.version} is available.`;
+      if (status.repair)
+        return `The last update didn't finish. Reinstall SonoJot ${status.version} to repair it.`;
+      return status.older
+        ? `SonoJot ${status.version} is the newest build on this channel.`
+        : `SonoJot ${status.version} is available.`;
     case "downloading":
       return status.percent === null
         ? "Downloading update…"
@@ -18,6 +22,13 @@ export function updateStatusLabel(status: UpdateStatus): string {
     case "error":
       return status.message;
   }
+}
+
+/** Installing the offer replaces this build with an older one. */
+function switching(status: UpdateStatus): boolean {
+  return (
+    (status.state === "available" || status.state === "ready") && !!status.older
+  );
 }
 
 export function updateButtonLabel(
@@ -31,13 +42,14 @@ export function updateButtonLabel(
     case "checking":
       return "Checking…";
     case "available":
-      return "Update available";
+      if (status.repair) return "Repair update";
+      return status.older ? "Switch version" : "Update available";
     case "downloading":
       return status.percent === null
         ? "Downloading…"
         : `Downloading… ${Math.floor(status.percent)}%`;
     case "ready":
-      return "Restart to update";
+      return switching(status) ? "Restart to switch" : "Restart to update";
     case "error":
       return "Update failed · Retry";
   }
@@ -61,7 +73,11 @@ export function updateTooltip(
         notes.length > 240 ? `${notes.slice(0, 237).trimEnd()}…` : notes;
       return [
         `SonoJot ${status.version}${status.size === null ? "" : ` · ${formatBytes(status.size)}`}.`,
-        summary,
+        status.repair
+          ? "The last update didn't finish, so this reinstalls the same version."
+          : status.older
+            ? "It's older than this build, so features added since then go away."
+            : summary,
         "Click to download. Nothing changes until you restart.",
       ]
         .filter(Boolean)
@@ -95,9 +111,19 @@ export function updateAction(
   if (installing) return { kind: "restart", label: "Restarting…" };
   switch (status.state) {
     case "available":
-      return { kind: "download", label: "Download update" };
+      return {
+        kind: "download",
+        label: status.repair
+          ? "Download repair"
+          : status.older
+            ? `Download ${status.version}`
+            : "Download update",
+      };
     case "ready":
-      return { kind: "restart", label: "Restart to update" };
+      return {
+        kind: "restart",
+        label: switching(status) ? "Restart to switch" : "Restart to update",
+      };
     default:
       return null;
   }

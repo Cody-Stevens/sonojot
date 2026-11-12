@@ -11,6 +11,7 @@ macro_rules! string_enum {
         }
     };
 }
+string_enum!(UpdateChannel, Stable, {Stable => "stable", Nightly => "nightly"});
 string_enum!(Theme, Fog, {Fog => "fog", Slate => "slate"});
 string_enum!(CleanupMode, Clean, {Clean => "clean", Original => "original", Format => "format"});
 string_enum!(SetupProfile, Balanced, {Accurate => "accurate", Balanced => "balanced", Light => "light", Custom => "custom"});
@@ -21,6 +22,9 @@ string_enum!(ModelKind, Asr, {Asr => "asr", Cleanup => "cleanup"});
 string_enum!(TextAcceleration, Auto, {Auto => "auto", Cpu => "cpu"});
 string_enum!(MemoryMode, Overlap, {Overlap => "overlap", Sequential => "sequential"});
 string_enum!(ModelRetention, Minutes10, {Immediately => "immediately", Minutes10 => "10m", Minutes30 => "30m", OnExit => "exit"});
+
+// Pending owner confirmation: new installs get Summary; upgrades remain opt-in.
+pub const NEW_INSTALL_MEETING_NOTES_PRESET: Option<crate::meeting_ai::NotesPreset> = Some(crate::meeting_ai::NotesPreset::Summary);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -35,6 +39,9 @@ pub struct Settings {
     pub punctuation_recommendation_acknowledged: bool,
     /// Separate v2 recommendation; acknowledging v1 does not dismiss the upgrade.
     pub punctuation_v2_recommendation_acknowledged: bool,
+    /// Separate v3 recommendation; an earlier v1 or v2 answer does not dismiss it.
+    pub punctuation_v3_recommendation_acknowledged: bool,
+    pub update_channel: UpdateChannel,
     pub theme: Theme,
     pub material: bool,
     pub cleanup_mode: CleanupMode,
@@ -45,13 +52,21 @@ pub struct Settings {
     pub smart_layout: bool,
     /// Use a fixed category hint from the capture target when layout runs.
     pub smart_layout_app_hint: bool,
-    /// Optional online proofreading for dictation only.
+    /// Dictation's one cleanup model is derived from these three keys and
+    /// `cleanup_model`; see [`Settings::cleanup_choice`]. `proofreader` picks
+    /// the online model in `proofreader_model`.
     pub proofreader: bool,
+    /// Use the SonoJot cleanup model whenever one is installed. On by default,
+    /// so ours runs as soon as it is present unless another choice was saved.
+    pub local_proofreader: bool,
     pub proofreader_model: String,
     /// Training notices accepted for these exact model identifiers only.
     pub proofreader_training_models: Vec<String>,
     /// Conservative written numbers and model names in Clean dictation.
     pub written_form: bool,
+    /// Run the newest installed SonoJot punctuation/cleanup package. Off keeps
+    /// the deterministic punctuation rules only.
+    pub sonojot_punctuation: bool,
     pub launch_at_login: bool,
     pub hotkey: String,
     pub hotkey_mode: HotkeyMode,
@@ -80,8 +95,13 @@ pub struct Settings {
     /// This override never changes dictation or profile selections.
     pub meeting_asr_model: String,
     pub auto_meeting_titles: bool,
+    #[serde(default)]
+    pub meeting_notes_preset: Option<crate::meeting_ai::NotesPreset>,
+    #[serde(default)]
+    pub meeting_notes_instructions: String,
     pub meeting_speaker_labels: bool,
     pub do_not_save_dictations: bool,
+    pub keep_dictation_audio: bool,
     pub learn_from_corrections: bool,
     pub memory_mode: MemoryMode,
     pub model_retention: ModelRetention,
@@ -97,6 +117,8 @@ impl Default for Settings {
             setup_profile: None,
             punctuation_recommendation_acknowledged: false,
             punctuation_v2_recommendation_acknowledged: false,
+            punctuation_v3_recommendation_acknowledged: false,
+            update_channel: UpdateChannel::Stable,
             theme: Theme::Fog,
             material: true,
             cleanup_mode: CleanupMode::Clean,
@@ -104,9 +126,11 @@ impl Default for Settings {
             smart_layout: false,
             smart_layout_app_hint: false,
             proofreader: false,
-            proofreader_model: "openai/gpt-6-luna".into(),
+            local_proofreader: true,
+            proofreader_model: "anthropic/claude-opus-5.5".into(),
             proofreader_training_models: Vec::new(),
             written_form: true,
+            sonojot_punctuation: true,
             launch_at_login: false,
             hotkey: "Ctrl+Space".into(),
             hotkey_mode: HotkeyMode::Toggle,
@@ -128,8 +152,11 @@ impl Default for Settings {
             system_audio_default_applied: false,
             meeting_asr_model: String::new(),
             auto_meeting_titles: true,
+            meeting_notes_preset: NEW_INSTALL_MEETING_NOTES_PRESET,
+            meeting_notes_instructions: String::new(),
             meeting_speaker_labels: true,
             do_not_save_dictations: false,
+            keep_dictation_audio: false,
             learn_from_corrections: false,
             memory_mode: MemoryMode::Overlap,
             model_retention: ModelRetention::Minutes10,
@@ -137,8 +164,52 @@ impl Default for Settings {
     }
 }
 
+/// The one model that cleans dictation after punctuation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CleanupChoice {
+    Off,
+    /// The SonoJot cleanup model (today the sideloaded proofreader).
+    SonoJot,
+    /// Another local text model, run through the local cleanup path.
+    Local(String),
+    /// An OpenRouter model, run through the online proofreader.
+    Online(String),
+}
+
+impl CleanupChoice {
+    /// Settings that save this choice and switch every other one off.
+    pub fn apply(&self, settings: &mut Settings) {
+        settings.local_proofreader = matches!(self, Self::SonoJot);
+        settings.proofreader = matches!(self, Self::Online(_));
+        settings.cleanup_model = match self {
+            Self::Local(id) => id.clone(),
+            _ => "local-rules".into(),
+        };
+        if let Self::Online(id) = self {
+            settings.proofreader_model = id.clone();
+        }
+    }
+}
+
 impl Settings {
+    /// Derive the single cleanup choice from the stored keys. Earlier
+    /// versions could run a local cleanup model and a proofreader together;
+    /// one now wins, in the order the picker recommends them: SonoJot (only
+    /// while installed), then online, then another local model.
+    pub fn cleanup_choice(&self, sonojot_available: bool) -> CleanupChoice {
+        if self.local_proofreader && sonojot_available {
+            CleanupChoice::SonoJot
+        } else if self.proofreader {
+            CleanupChoice::Online(self.proofreader_model.clone())
+        } else if !matches!(self.cleanup_model.as_str(), "" | "local-rules" | "off") {
+            CleanupChoice::Local(self.cleanup_model.clone())
+        } else {
+            CleanupChoice::Off
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
+        crate::meeting_ai::validate_notes_instructions(self.meeting_notes_preset, &self.meeting_notes_instructions)?;
         if !self.meeting_asr_model.is_empty()
             && self.meeting_asr_model != crate::granite_model::GRANITE_ID
         {
@@ -155,12 +226,7 @@ impl Settings {
         ) {
             return Err("Choose a meeting audio source.".into());
         }
-        if self.hotkey.trim().is_empty()
-            || self.hotkey.len() > 128
-            || self.hotkey.chars().any(char::is_control)
-        {
-            return Err("Choose a valid shortcut (up to 128 characters).".into());
-        }
+        validate_hotkey(&self.hotkey)?;
         if self.auto_stop_seconds > 300 {
             return Err("Auto-stop must be between 0 and 300 seconds.".into());
         }
@@ -198,6 +264,60 @@ impl Settings {
             return Err("The microphone identifier is invalid.".into());
         }
         Ok(())
+    }
+}
+
+/// Check both saved settings and startup registration, including older settings files.
+pub fn validate_hotkey(value: &str) -> Result<(), String> {
+    let modifier = |part: &str| matches!(part,
+        "ctrl" | "control" | "alt" | "option" | "super" | "meta" | "cmd" | "command"
+        | "cmdorctrl" | "cmdorcontrol" | "commandorctrl" | "commandorcontrol" | "shift");
+    let parts: Vec<String> = value.split('+').map(|part| part.trim().to_ascii_lowercase()).collect();
+    let key = parts.last().map(String::as_str).unwrap_or("");
+    let modifiers = &parts[..parts.len().saturating_sub(1)];
+    let function_key = key.strip_prefix('f').and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=24).contains(&n) && key == format!("f{n}"));
+    if value.len() > 128 || value.chars().any(char::is_control) || key.is_empty()
+        || modifier(key) || !modifiers.iter().all(|part| modifier(part))
+        || !(function_key || modifiers.iter().any(|part| part != "shift"))
+    {
+        return Err("Use Ctrl, Alt or Super with a key, or F1–F24.".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod input_validation_tests {
+    use super::*;
+
+    #[test]
+    fn shortcuts_reject_bare_typing_and_navigation_keys_at_both_boundaries() {
+        for key in ["a", "A", "Tab", "Enter", "Space", "ArrowLeft", "Shift+A", "Shift+Tab", "Ctrl", "Ctrl+", "+A", "F0", "F25", "Ctrl+\nA"] {
+            assert!(validate_hotkey(key).is_err(), "{key}");
+            assert!(Settings { hotkey: key.into(), ..Settings::default() }.validate().is_err(), "{key}");
+        }
+        for key in ["Ctrl+Space", "Alt+Shift+D", "Super+A", "CommandOrControl+K", "F1", "F24", "Shift+F10"] {
+            assert!(validate_hotkey(key).is_ok(), "{key}");
+            assert!(Settings { hotkey: key.into(), ..Settings::default() }.validate().is_ok(), "{key}");
+        }
+    }
+
+    #[test]
+    fn saved_notes_enforce_character_limit_and_custom_instructions() {
+        for unit in ["a", "界", "😀"] {
+            let mut settings = Settings { meeting_notes_preset: Some(crate::meeting_ai::NotesPreset::Custom),
+                meeting_notes_instructions: unit.repeat(2000), ..Settings::default() };
+            assert!(settings.validate().is_ok());
+            settings.meeting_notes_instructions.push_str(unit);
+            assert!(settings.validate().is_err());
+        }
+        let mut settings = Settings { meeting_notes_preset: Some(crate::meeting_ai::NotesPreset::Custom),
+            meeting_notes_instructions: " \n ".into(), ..Settings::default() };
+        assert!(settings.validate().is_err());
+        settings.meeting_notes_preset = None;
+        assert!(settings.validate().is_ok());
+        settings.meeting_notes_instructions = "a\0b".into();
+        assert!(settings.validate().is_err());
     }
 }
 
@@ -244,6 +364,8 @@ pub struct Capabilities {
 pub struct Snapshot {
     #[serde(skip)]
     pub capture_generation: Option<u64>,
+    #[serde(default)]
+    pub local_proofreader_available: bool,
     pub revision: u64,
     #[serde(default)]
     pub meetings_revision: u64,
@@ -373,15 +495,29 @@ pub struct MeetingLevels {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct VocabularyEntry {
+    #[serde(default)]
+    pub kind: VocabularyKind,
     pub id: String,
     pub heard: String,
     pub written: String,
     pub enabled: bool,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub context: Vec<String>,
     /// Optional scope for the structured cleanup trial, e.g. "AI model
     /// discussion". An entry with a non-empty scope is an explicit user
     /// confirmation applied only where surrounding words support it.
     #[serde(default)]
     pub scope: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum VocabularyKind {
+    #[default]
+    Replace,
+    Hint,
 }
 
 fn default_enabled_true() -> bool {
@@ -395,6 +531,8 @@ fn default_source_type() -> String {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DictationRecord {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub word_confidence: Vec<crate::confidence::WordConfidence>,
     pub id: String,
     pub created_at: String,
     pub raw: String,
@@ -590,6 +728,30 @@ mod setup_profile_tests {
     }
 
     #[test]
+    fn punctuation_v3_recommendation_migrates_independently_and_round_trips() {
+        assert!(!Settings::default().punctuation_v3_recommendation_acknowledged);
+        for v1 in [None, Some(false), Some(true)] {
+            for v2 in [None, Some(false), Some(true)] {
+                let mut legacy = serde_json::json!({ "setupProfile": SetupProfile::Balanced });
+                if let Some(value) = v1 { legacy["punctuationRecommendationAcknowledged"] = value.into(); }
+                if let Some(value) = v2 { legacy["punctuationV2RecommendationAcknowledged"] = value.into(); }
+                let mut settings: Settings = serde_json::from_value(legacy).unwrap();
+                assert_eq!(settings.punctuation_recommendation_acknowledged, v1.unwrap_or(false));
+                assert_eq!(settings.punctuation_v2_recommendation_acknowledged, v2.unwrap_or(false));
+                assert!(!settings.punctuation_v3_recommendation_acknowledged, "earlier answers never dismiss v3");
+                for acknowledged in [false, true] {
+                    settings.punctuation_v3_recommendation_acknowledged = acknowledged;
+                    let value = serde_json::to_value(&settings).unwrap();
+                    assert_eq!(value["punctuationV3RecommendationAcknowledged"], acknowledged);
+                    assert_eq!(value["punctuationV2RecommendationAcknowledged"], v2.unwrap_or(false));
+                    assert!(value.get("punctuation_v3_recommendation_acknowledged").is_none());
+                    assert_eq!(serde_json::from_value::<Settings>(value).unwrap(), settings);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn smart_cleanup_requires_custom_and_explicit_opt_in() {
         assert_ne!(serde_json::from_str::<Settings>("{}").unwrap().cleanup_model, "speakoflow-mini-q4_k_m");
         for profile in [None, Some(SetupProfile::Accurate), Some(SetupProfile::Balanced),
@@ -654,6 +816,7 @@ mod smart_layout_settings_tests {
                 cleanup_model: "local-rules".into(),
                 notes_model: "openrouter".into(),
                 meeting_source_migrated: false,
+                meeting_notes_preset: None,
                 ..Settings::default()
             }
         );
@@ -736,8 +899,12 @@ mod proofreader_settings_tests {
     fn legacy_settings_default_to_disabled_and_round_trip_exact_consent() {
         let legacy: Settings = serde_json::from_str("{}").unwrap();
         assert!(!legacy.proofreader);
-        assert_eq!(legacy.proofreader_model, "openai/gpt-6-luna");
+        assert_eq!(legacy.proofreader_model, "anthropic/claude-opus-5.5");
         assert!(legacy.proofreader_training_models.is_empty());
+        for model in ["openai/gpt-6-luna", "anthropic/claude-haiku-5.5"] {
+            let saved: Settings = serde_json::from_value(serde_json::json!({"proofreaderModel": model})).unwrap();
+            assert_eq!(saved.proofreader_model, model);
+        }
         for enabled in [false, true] {
             let settings = Settings {
                 proofreader: enabled,
@@ -768,6 +935,104 @@ mod proofreader_settings_tests {
         settings.proofreader_model = "provider/model".into();
         settings.proofreader_training_models.push("https://host/model".into());
         assert!(settings.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod cleanup_choice_tests {
+    use super::{CleanupChoice, Settings};
+
+    fn legacy(cleanup: &str, proofreader: bool, local: bool) -> Settings {
+        Settings {
+            cleanup_model: cleanup.into(),
+            proofreader,
+            local_proofreader: local,
+            proofreader_model: "anthropic/claude-haiku-5.5".into(),
+            ..Settings::default()
+        }
+    }
+
+    /// Every combination the earlier Cleanup, Smart cleanup and Proofreading
+    /// controls could save, with and without the SonoJot model installed.
+    #[test]
+    fn every_legacy_combination_maps_to_one_choice() {
+        let online = || CleanupChoice::Online("anthropic/claude-haiku-5.5".into());
+        let local = |id: &str| CleanupChoice::Local(id.into());
+        let smart = crate::optional_llm::SMART_CLEANUP_ID;
+        let cases: [(&str, bool, bool, bool, CleanupChoice); 16] = [
+            ("local-rules", false, false, false, CleanupChoice::Off),
+            ("local-rules", false, false, true, CleanupChoice::Off),
+            ("local-rules", false, true, false, CleanupChoice::Off),
+            ("local-rules", false, true, true, CleanupChoice::SonoJot),
+            ("local-rules", true, false, false, online()),
+            ("local-rules", true, false, true, online()),
+            ("local-rules", true, true, false, online()),
+            ("local-rules", true, true, true, CleanupChoice::SonoJot),
+            (smart, false, false, false, local(smart)),
+            (smart, false, true, true, CleanupChoice::SonoJot),
+            (smart, true, false, false, online()),
+            ("qwen3-4b-instruct-2507", false, false, true, local("qwen3-4b-instruct-2507")),
+            ("qwen3-4b-instruct-2507", true, false, true, online()),
+            ("qwen3-4b-instruct-2507", false, true, true, CleanupChoice::SonoJot),
+            ("lfm2.5-1.2b", false, true, false, local("lfm2.5-1.2b")),
+            ("off", false, false, false, CleanupChoice::Off),
+        ];
+        for (cleanup, proofreader, local_flag, available, expected) in cases {
+            assert_eq!(
+                legacy(cleanup, proofreader, local_flag).cleanup_choice(available),
+                expected,
+                "{cleanup} proofreader={proofreader} local={local_flag} available={available}"
+            );
+        }
+    }
+
+    #[test]
+    fn fresh_settings_use_sonojot_once_it_is_installed() {
+        let fresh: Settings = serde_json::from_str("{}").unwrap();
+        assert!(fresh.local_proofreader);
+        assert_eq!(fresh.cleanup_choice(false), CleanupChoice::Off);
+        assert_eq!(fresh.cleanup_choice(true), CleanupChoice::SonoJot);
+        assert_eq!(Settings::default().cleanup_choice(true), CleanupChoice::SonoJot);
+    }
+
+    #[test]
+    fn saved_choices_round_trip_and_switch_the_others_off() {
+        let choices = [
+            CleanupChoice::Off,
+            CleanupChoice::SonoJot,
+            CleanupChoice::Local("lfm2.5-1.2b".into()),
+            CleanupChoice::Online("anthropic/claude-opus-5.5".into()),
+        ];
+        for start in [legacy("qwen3-4b-instruct-2507", true, true), Settings::default()] {
+            for choice in &choices {
+                let mut settings = start.clone();
+                choice.apply(&mut settings);
+                assert_eq!(&settings.cleanup_choice(true), choice);
+                // An explicit Off or another choice never turns into SonoJot
+                // when the model is installed later.
+                if *choice != CleanupChoice::SonoJot {
+                    assert_eq!(&settings.cleanup_choice(false), choice);
+                } else {
+                    assert_eq!(settings.cleanup_choice(false), CleanupChoice::Off);
+                }
+                let saved: Settings =
+                    serde_json::from_value(serde_json::to_value(&settings).unwrap()).unwrap();
+                assert_eq!(saved, settings);
+            }
+        }
+    }
+
+    #[test]
+    fn punctuation_switch_defaults_on_and_round_trips() {
+        assert!(Settings::default().sonojot_punctuation);
+        assert!(serde_json::from_str::<Settings>("{}").unwrap().sonojot_punctuation);
+        for on in [false, true] {
+            let settings = Settings { sonojot_punctuation: on, ..Settings::default() };
+            let saved = serde_json::to_value(&settings).unwrap();
+            assert_eq!(saved["sonojotPunctuation"], on);
+            assert_eq!(serde_json::from_value::<Settings>(saved).unwrap(), settings);
+        }
+        assert!(serde_json::from_str::<Settings>(r#"{"sonojotPunctuation":"yes"}"#).is_err());
     }
 }
 

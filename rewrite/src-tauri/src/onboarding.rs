@@ -118,7 +118,7 @@ pub fn begin_onboarding(state: State<'_, Arc<Runtime>>) -> Result<bool, String> 
 fn download_ids(settings: &Settings) -> Vec<String> {
     let mut ids = vec![
         settings.asr_model.clone(),
-        crate::punctuation_model::Package::V2.id().into(),
+        crate::punctuation_model::Package::offered().id().into(),
     ];
     if settings.notes_model != "openrouter" && !ids.contains(&settings.notes_model) {
         ids.push(settings.notes_model.clone());
@@ -162,6 +162,7 @@ fn chosen_settings(
     }
     next.punctuation_recommendation_acknowledged = true;
     next.punctuation_v2_recommendation_acknowledged = true;
+    next.punctuation_v3_recommendation_acknowledged = true;
     next
 }
 
@@ -368,13 +369,14 @@ fn punctuation_default_due(
         && settings.cleanup_mode != crate::domain::CleanupMode::Original
         && !settings.punctuation_recommendation_acknowledged
         && !settings.punctuation_v2_recommendation_acknowledged
-        && [Package::V1, Package::V2].iter().all(|package| !package.path(models_root).exists())
+        && !settings.punctuation_v3_recommendation_acknowledged
+        && Package::ALL.iter().all(|package| !package.path(models_root).exists())
 }
 
 async fn adopt_default_punctuation(runtime: &Arc<Runtime>) -> Result<bool, String> {
     let _settings = runtime.settings_gate.lock().await;
-    let available = crate::diarization_model::AVAILABLE
-        && crate::punctuation_model::Package::V2.released();
+    let package = crate::punctuation_model::Package::offered();
+    let available = crate::diarization_model::AVAILABLE && package != crate::punctuation_model::Package::V1;
     let mut settings = runtime.snapshot()?.settings;
     let _marker = lock(&MARKER_GATE)?;
     let progress = read(runtime.store.root())?;
@@ -384,15 +386,27 @@ async fn adopt_default_punctuation(runtime: &Arc<Runtime>) -> Result<bool, Strin
     // Queue before acknowledging, as `commit` does: a failed settings write
     // leaves the notice unanswered and the queue deduplicated next launch.
     let mut progress = progress.unwrap_or(SetupProgress { seen: true, ..Default::default() });
-    let id = crate::punctuation_model::Package::V2.id().to_string();
+    let id = package.id().to_string();
     if !progress.downloads.contains(&id) {
         progress.downloads.push(id);
     }
     write(runtime.store.root(), &progress)?;
-    settings.punctuation_v2_recommendation_acknowledged = true;
+    acknowledge_recommendation(&mut settings, package);
     runtime.store.save_settings(&settings)?;
     lock(&runtime.snapshot)?.settings = settings;
     Ok(true)
+}
+
+/// Answer the one-time notice for the package that was queued, so its
+/// recommendation does not appear for a download already on its way.
+fn acknowledge_recommendation(settings: &mut Settings, package: crate::punctuation_model::Package) {
+    use crate::punctuation_model::Package;
+    match package {
+        Package::V1 => settings.punctuation_recommendation_acknowledged = true,
+        Package::V2 => settings.punctuation_v2_recommendation_acknowledged = true,
+        Package::V3 => settings.punctuation_v3_recommendation_acknowledged = true,
+        Package::V4 => {}, // Local-only: no download recommendation.
+    }
 }
 
 pub(crate) fn cancel_queued(runtime: &Runtime, id: &str) -> Result<(), String> {
@@ -608,9 +622,10 @@ mod tests {
             notes_model: "notes".into(),
             ..Settings::default()
         };
-        assert_eq!(chosen_downloads(&settings, &[]), ["speech", "sonojot-punct-v2", "notes"]);
+        let punctuation = crate::punctuation_model::Package::offered().id();
+        assert_eq!(chosen_downloads(&settings, &[]), ["speech", punctuation, "notes"]);
         assert_eq!(
-            chosen_downloads(&settings, &["notes".into(), "sonojot-punct-v2".into()]),
+            chosen_downloads(&settings, &["notes".into(), punctuation.into()]),
             ["speech"]
         );
         // Skipping something the profile does not download changes nothing.
@@ -637,7 +652,7 @@ mod tests {
         };
         assert!(queueable(&settings, "nemotron-3-diarization"));
         assert!(queueable(&settings, "speech"));
-        assert!(queueable(&settings, "sonojot-punct-v2"));
+        assert!(queueable(&settings, crate::punctuation_model::Package::offered().id()));
         assert!(!queueable(&settings, "openrouter"));
         assert!(!queueable(&settings, "some-other-model"));
     }
@@ -669,7 +684,7 @@ mod tests {
         assert!(required(&settings, Some(&SetupProgress::default())));
     }
     #[test]
-    fn every_profile_queues_v2_after_speech_even_custom() {
+    fn every_profile_queues_the_newest_published_punctuation_after_speech_even_custom() {
         for profile in [
             SetupProfile::Accurate,
             SetupProfile::Balanced,
@@ -679,8 +694,10 @@ mod tests {
             let settings = chosen_settings(&Settings::default(), profile, None, false);
             let ids = download_ids(&settings);
             assert_eq!(ids[0], settings.asr_model);
-            assert_eq!(ids[1], "sonojot-punct-v2");
+            assert_eq!(ids[1], crate::punctuation_model::Package::offered().id());
+            assert!(!ids.iter().any(|id| id == "sonojot-punct-v1"));
             assert!(settings.punctuation_v2_recommendation_acknowledged);
+            assert!(settings.punctuation_v3_recommendation_acknowledged);
         }
     }
     #[test]
@@ -717,6 +734,7 @@ mod tests {
             Settings { cleanup_mode: crate::domain::CleanupMode::Original, ..existing.clone() },
             Settings { punctuation_recommendation_acknowledged: true, ..existing.clone() },
             Settings { punctuation_v2_recommendation_acknowledged: true, ..existing.clone() },
+            Settings { punctuation_v3_recommendation_acknowledged: true, ..existing.clone() },
             Settings { setup_profile: None, ..existing.clone() },
         ];
         for settings in &declined {
@@ -726,13 +744,27 @@ mod tests {
         assert!(!punctuation_default_due(&existing, Some(&SetupProgress::default()), &root, true));
         assert!(!punctuation_default_due(&existing, Some(&seen), &root, false));
         // Any package folder (installed, damaged or manual) is an earlier choice.
-        for package in [Package::V1, Package::V2] {
+        for package in Package::ALL {
             std::fs::create_dir_all(package.path(&root)).unwrap();
             assert!(!punctuation_default_due(&existing, Some(&seen), &root, true));
             std::fs::remove_dir_all(package.path(&root)).unwrap();
         }
         assert!(punctuation_default_due(&existing, Some(&seen), &root, true));
         let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn adopting_a_package_answers_only_its_own_recommendation() {
+        use crate::punctuation_model::Package;
+        for package in Package::ALL {
+            let mut settings = Settings::default();
+            acknowledge_recommendation(&mut settings, package);
+            assert_eq!(
+                [settings.punctuation_recommendation_acknowledged,
+                 settings.punctuation_v2_recommendation_acknowledged,
+                 settings.punctuation_v3_recommendation_acknowledged],
+                [package == Package::V1, package == Package::V2, package == Package::V3],
+            );
+        }
     }
     #[test]
     fn explicit_default_choice_preserves_cleanup_behavior() {
@@ -783,25 +815,20 @@ mod tests {
         progress.seen = true;
         write(&root, &progress).unwrap();
         assert!(!required(&saved, read(&root).unwrap().as_ref()));
-        assert_eq!(
-            read(&root).unwrap().unwrap().downloads[1],
-            "sonojot-punct-v2"
-        );
+        let punctuation = crate::punctuation_model::Package::offered().id();
+        assert_eq!(read(&root).unwrap().unwrap().downloads[1], punctuation);
         // Later Custom selection cannot remove the independent punctuation job.
         let mut custom = saved.clone();
         custom.setup_profile = Some(SetupProfile::Custom);
         store.save_settings(&custom).unwrap();
         cancel_at(&root, &saved.asr_model).unwrap();
-        assert_eq!(
-            read(&root).unwrap().unwrap().downloads[0],
-            "sonojot-punct-v2"
-        );
-        cancel_at(&root, "sonojot-punct-v2").unwrap();
+        assert_eq!(read(&root).unwrap().unwrap().downloads[0], punctuation);
+        cancel_at(&root, punctuation).unwrap();
         assert!(!read(&root)
             .unwrap()
             .unwrap()
             .downloads
-            .contains(&"sonojot-punct-v2".into()));
+            .contains(&punctuation.into()));
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
     }

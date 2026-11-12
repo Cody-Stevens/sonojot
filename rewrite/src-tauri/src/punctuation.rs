@@ -1,4 +1,4 @@
-//! Word-preserving punctuation for dictation. The caller owns publication and
+//! Punctuation and optional word deletion for dictation. The caller owns publication and
 //! cancellation. Inference runs in an owned helper; rebuilding stays here.
 
 use crate::{cleanup::Vocabulary, domain::ModelRetention};
@@ -13,6 +13,9 @@ use std::{
     },
     time::{Duration, Instant, SystemTime},
 };
+
+mod cleanup_render;
+use cleanup_render::render_clean;
 
 pub struct Outcome {
     pub text: String,
@@ -39,6 +42,7 @@ impl WrittenFormMode {
 pub(crate) struct Prediction {
     pub labels: Vec<Mark>,
     pub spans: Option<Vec<crate::written_form::BioLabel>>,
+    pub deletes: Option<Vec<bool>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -70,6 +74,8 @@ impl Mark {
 pub(crate) enum Failure {
     Cancelled,
     Missing,
+    /// The user switched SonoJot punctuation off.
+    Disabled,
     Config,
     Tokenizer,
     Runtime,
@@ -86,6 +92,7 @@ impl Failure {
         match self {
             Self::Cancelled => "punctuation-fallback-cancelled",
             Self::Missing => "punctuation-fallback-missing",
+            Self::Disabled => "punctuation-fallback-disabled",
             Self::Config => "punctuation-fallback-config",
             Self::Tokenizer => "punctuation-fallback-tokenizer",
             Self::Runtime => "punctuation-fallback-runtime",
@@ -138,6 +145,12 @@ pub fn run_with_written_form(
 pub fn run_with_written_form_mode(
     root: &Path, text: &str, vocabulary: &[Vocabulary], cancel: &AtomicBool, mode: WrittenFormMode,
 ) -> Outcome {
+    run_cleanup(root, text, vocabulary, cancel, mode, false, true)
+}
+
+/// `model` off is the user's "SonoJot punctuation and formatting" switch:
+/// the package is never loaded and the rules run as if it were absent.
+pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], cancel: &AtomicBool, mode: WrittenFormMode, clean: bool, model: bool) -> Outcome {
     let written_form = mode != WrittenFormMode::Off;
     let started = Instant::now();
     let selection = Selection::new(
@@ -156,6 +169,7 @@ pub fn run_with_written_form_mode(
     let retention = crate::resource_manager::current_retention();
     let document = Document::new(text, vocabulary, cancel);
     let prediction = match &document {
+        Ok(_) if !model => Err(Failure::Disabled),
         Ok(document) if !document.words.is_empty() => {
             crate::punctuation_worker::predict(&selection, text, document.words.len(), cancel)
         }
@@ -165,13 +179,21 @@ pub fn run_with_written_form_mode(
     if retention == ModelRetention::Immediately {
         release_idle(retention);
     }
-    let (marks, spans) = match prediction {
-        Ok(prediction) => (Ok(prediction.labels), prediction.spans),
-        Err(error) => (Err(error), None),
+    let (marks, mut spans, deletes) = match prediction {
+        Ok(prediction) => (Ok(prediction.labels), prediction.spans, prediction.deletes),
+        Err(error) => (Err(error), None, None),
     };
+    let cleaned = if clean {
+        document.as_ref().ok().zip(marks.as_ref().ok()).zip(deletes.as_ref())
+            .and_then(|((doc, marks), deletes)| render_clean(doc, marks, deletes).ok())
+    } else { None };
+    if let Some((_, kept)) = &cleaned {
+        if let Some(labels) = &mut spans { *labels = labels.iter().zip(kept).filter_map(|(l,k)| k.then_some(*l)).collect(); }
+    }
     let (mut output, stage, reason) = finish_inner(
         text, document.as_ref().ok(), marks, cancel, !written_form,
     );
+    if let Some((text, _)) = cleaned { output = text; }
     if written_form && check(cancel).is_ok() {
         let labels = if mode == WrittenFormMode::Model {
             spans.as_deref().map(|labels| project_span_labels(&output, labels)
@@ -377,6 +399,26 @@ fn written_form_finish(
     }
     let converted = written_form::apply_spans(text, &guarded);
     if check(cancel).is_err() { return text.into(); }
+    // A split match of a joined Vocabulary name takes the user's spelling
+    // ("Next js" -> "Next.js"); then shipped protected terms take theirs
+    // (ElevenLabs, COVID-19). The user's vocabulary phrases are never re-spelled
+    // by the shipped table.
+    let Ok(incomplete) = crate::structured_clean::preserved_candidate_spans(&converted, &|| cancel.load(Ordering::Acquire)) else {
+        return text.into();
+    };
+    let incomplete_ranges: Vec<_> = incomplete.iter().map(|&(start, end)| start..end).collect();
+    let names: Vec<&str> = vocabulary.iter().filter(|entry| entry.enabled)
+        .map(|entry| entry.written.trim()).collect();
+    let converted = written_form::respell_vocabulary(&converted, &names, &incomplete_ranges);
+    let Ok(incomplete) = crate::structured_clean::preserved_candidate_spans(&converted, &|| cancel.load(Ordering::Acquire)) else {
+        return text.into();
+    };
+    let user: Vec<_> = matchers.iter().flat_map(|matcher| matcher.find_iter(&converted))
+        .map(|found| found.start()..found.end())
+        .chain(incomplete.into_iter().map(|(start, end)| start..end))
+        .collect();
+    let converted = written_form::render_terms(&converted, &user);
+    if check(cancel).is_err() { return text.into(); }
     // Reuse the existing sentence-case finish without proposing punctuation
     // again. Its protected-literal logic also covers the new written forms.
     Document::new(&converted, vocabulary, cancel).and_then(|document| {
@@ -394,7 +436,7 @@ const I_FORMS: [&str; 5] = ["i", "i'm", "i'll", "i've", "i'd"];
 // bundled in licenses/scowl-2020.12.07.txt (no CC BY-SA word data).
 // Regenerate with evaluation/build_punctuation_wordlist.py. Never infer that
 // an unfamiliar title-cased word is lowercase just because an end was removed.
-fn common_lowercase(word: &str) -> bool {
+pub(crate) fn common_lowercase(word: &str) -> bool {
     static WORDS: OnceLock<Vec<&'static str>> = OnceLock::new();
     WORDS
         .get_or_init(|| include_str!("punctuation_lowercase.txt").lines().collect())
@@ -465,6 +507,7 @@ struct ConfigFile {
 struct Config {
     labels: Vec<Mark>,
     span_labels: Option<Vec<crate::written_form::BioLabel>>,
+    delete_threshold: Option<f32>,
     window_words: usize,
     hop_words: usize,
     cls_id: u32,
@@ -531,6 +574,7 @@ impl Config {
         Ok(Self {
             labels,
             span_labels,
+            delete_threshold: None,
             window_words: raw.window_words,
             hop_words: raw.hop_words,
             cls_id: raw.cls_id,
@@ -655,7 +699,7 @@ impl Selection {
             .iter()
             .map(|file| stamp(&directory.join(file)))
             .collect();
-        if !overridden {
+        if !overridden || directory.join("manifest.json").exists() {
             stamps.push(stamp(&directory.join("manifest.json")));
         }
         stamps.push(stamp(&crate::diarization_model::runtime_library(root)));
@@ -886,7 +930,7 @@ impl Engine {
         if stamp(&config_path).is_none_or(|s| s.bytes > 64 * 1024) {
             return Err(Failure::Config);
         }
-        let config = Config::parse(&std::fs::read(config_path).map_err(|_| Failure::Config)?)?;
+        let mut config = Config::parse(&std::fs::read(config_path).map_err(|_| Failure::Config)?)?;
         let mut tokenizer =
             tokenizers::Tokenizer::from_file(selection.directory.join("tokenizer.json"))
                 .map_err(|_| Failure::Tokenizer)?;
@@ -929,10 +973,21 @@ impl Engine {
             .map_err(|_| Failure::Load)?
             .commit_from_file(selection.directory.join("model.int8.onnx"))
             .map_err(|_| Failure::Load)?;
+        if session.outputs().iter().any(|output| output.name() == "delete_logits") {
+            let path = selection.directory.join("manifest.json");
+            if stamp(&path).is_none_or(|s| s.bytes > 16 * 1024) { return Err(Failure::Config); }
+            let metadata: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(path).map_err(|_| Failure::Config)?
+            ).map_err(|_| Failure::Config)?;
+            let t = metadata.get("delete_threshold").and_then(|v| v.as_f64())
+                .filter(|t| t.is_finite() && *t > 0.0 && *t <= 1.0).ok_or(Failure::Config)?;
+            config.delete_threshold = Some(t as f32);
+        }
         validate_graph(
             &session,
             config.labels.len(),
             config.span_labels.as_ref().map(Vec::len),
+            config.delete_threshold.is_some(),
         )?;
         check(cancel)?;
         Ok(Self {
@@ -1029,12 +1084,23 @@ impl Engine {
             } else {
                 None
             };
+            let deletes = if let Some(threshold) = self.config.delete_threshold {
+                let (shape, logits) = values.get("delete_logits").ok_or(Failure::Output)?
+                    .try_extract_tensor::<f32>().map_err(|_| Failure::Output)?;
+                if shape.as_ref() != [1, count as i64, 2] || logits.iter().any(|v| !v.is_finite()) { return Err(Failure::Output); }
+                Some(positions.iter().map(|&p| {
+                    let keep = logits[p * 2]; let delete = logits[p * 2 + 1];
+                    let max = keep.max(delete);
+                    let pk = (keep-max).exp() / ((keep-max).exp() + (delete-max).exp());
+                    1.0 - pk >= threshold
+                }).collect::<Vec<_>>())
+            } else { None };
             // Merge both heads as one value so centrality and window ties can
             // never select punctuation and spans from different windows.
             let labels: Vec<_> = labels
                 .into_iter()
                 .enumerate()
-                .map(|(index, label)| (label, spans.as_ref().map(|spans| spans[index])))
+                .map(|(index, label)| (label, spans.as_ref().map(|spans| spans[index]), deletes.as_ref().map(|d| d[index])))
                 .collect();
             merge_window(&mut output, &mut best, start, &labels)?;
         }
@@ -1045,14 +1111,16 @@ impl Engine {
             .span_labels
             .as_ref()
             .map(|_| Vec::with_capacity(output.len()));
+        let mut deletes = self.config.delete_threshold.map(|_| Vec::with_capacity(output.len()));
         for prediction in output {
-            let (label, span) = prediction.ok_or(Failure::Output)?;
+            let (label, span, delete) = prediction.ok_or(Failure::Output)?;
+            if let Some(d) = &mut deletes { d.push(delete.ok_or(Failure::Output)?); }
             labels.push(label);
             if let Some(spans) = &mut spans {
                 spans.push(span.ok_or(Failure::Output)?);
             }
         }
-        Ok(Prediction { labels, spans })
+        Ok(Prediction { labels, spans, deletes })
     }
 }
 
@@ -1083,10 +1151,11 @@ fn validate_graph(
     session: &ort::session::Session,
     classes: usize,
     span_classes: Option<usize>,
+    deletes: bool,
 ) -> Result<()> {
     use ort::value::{TensorElementType, ValueType};
     if session.inputs().len() != 2
-        || session.outputs().len() != 1 + usize::from(span_classes.is_some())
+        || session.outputs().len() != 1 + usize::from(span_classes.is_some()) + usize::from(deletes)
     {
         return Err(Failure::Load);
     }
@@ -1107,10 +1176,14 @@ fn validate_graph(
             _ => return Err(Failure::Load),
         }
     }
+    if deletes {
+        validate_head_type(session.outputs().iter().find(|o| o.name() == "delete_logits").ok_or(Failure::Load)?.dtype(), 2)?;
+    }
     validate_head_outputs(
         session
             .outputs()
             .iter()
+            .filter(|output| output.name() != "delete_logits")
             .map(|output| (output.name(), output.dtype())),
         classes,
         span_classes,
@@ -1787,9 +1860,38 @@ mod tests {
     }
 
     #[test]
+    fn written_form_finish_spells_protected_terms_and_short_years() {
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        assert_eq!(
+            super::written_form_finish("our demo used Eleven Labs V four narration in August of twenty four. it worked.", &[], None, &cancel),
+            "Our demo used ElevenLabs V4 narration in August of '24. It worked."
+        );
+        assert_eq!(super::written_form_finish("'twenty four' stays. Eleven Labs too.", &[], None, &cancel),
+            "'Twenty four' stays. ElevenLabs too.");
+        // The user's own vocabulary phrase wins over the shipped spelling.
+        let vocabulary = [crate::cleanup::Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
+            heard: "Eleven Labs".into(), written: "Eleven Labs".into(), enabled: true, context: vec![],
+        }];
+        assert_eq!(super::written_form_finish("try Eleven Labs today.", &vocabulary, None, &cancel),
+            "Try Eleven Labs today.");
+        // A joined Vocabulary name respells its split spoken form.
+        let vocabulary = [crate::cleanup::Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
+            heard: "Quillbox".into(), written: "Quillbox".into(), enabled: true, context: vec![],
+        }];
+        assert_eq!(super::written_form_finish("we moved to quill box. Quill Box works, a quill too.", &vocabulary, None, &cancel),
+            "We moved to Quillbox. Quillbox works, a quill too.");
+    }
+
+    #[test]
     fn written_form_preserves_vocabulary_and_protected_content() {
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let vocabulary = [crate::cleanup::Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
             heard: "Ten Percent".into(), written: "Ten Percent".into(), enabled: true, context: vec![],
         }];
         assert_eq!(super::written_form_finish("ask Ten Percent for five dollars.", &vocabulary, None, &cancel),
@@ -1815,6 +1917,8 @@ mod tests {
         use crate::written_form::Class;
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let vocabulary = vec![crate::cleanup::Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
             heard: "GPT six Astra".into(), written: "GPT six Astra".into(),
             enabled: true, context: vec![],
         }];
@@ -2144,12 +2248,16 @@ mod tests {
         let text = "use the. Sono Jot and the. Name";
         let vocabulary = [
             Vocabulary {
+                kind: crate::domain::VocabularyKind::Replace,
+                aliases: Vec::new(),
                 heard: "sono jot".into(),
                 written: "Sono Jot".into(),
                 enabled: true,
                 context: vec![],
             },
             Vocabulary {
+                kind: crate::domain::VocabularyKind::Replace,
+                aliases: Vec::new(),
                 heard: "name".into(),
                 written: "Name".into(),
                 enabled: true,
@@ -2174,6 +2282,7 @@ mod tests {
     fn disabled_vocabulary_is_not_case_evidence() {
         let cancel = AtomicBool::new(false);
         let vocabulary = [Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
             written: "Name".into(),
             enabled: false,
             ..Vocabulary::default()
@@ -2333,6 +2442,8 @@ mod tests {
         let cache = VocabularyCache::default();
         let cancel = AtomicBool::new(false);
         let mut vocabulary = vec![Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
             heard: "sono jot".into(),
             written: "SonoJot".into(),
             enabled: true,
@@ -2933,4 +3044,15 @@ mod tests {
         assert!(release_idle(ModelRetention::Immediately));
         assert!(!release_cached());
     }
+}
+
+
+/// Synthetic parity replay through the real worker and v4 renderer, before written form.
+#[cfg(feature = "fidelity-eval")]
+pub fn evaluation_cleanup_render(root: &Path, text: &str, cancel: &AtomicBool) -> std::result::Result<String, String> {
+    let selection = evaluation_selection(root, cancel)?;
+    let doc = Document::new(text, &[], cancel).map_err(|e| e.event().to_owned())?;
+    let prediction = crate::punctuation_worker::predict(&selection, text, doc.words.len(), cancel).map_err(|e| e.event().to_owned())?;
+    let deletes = prediction.deletes.ok_or("Model has no delete head")?;
+    render_clean(&doc, &prediction.labels, &deletes).map(|r| r.0).map_err(|e| e.event().to_owned())
 }

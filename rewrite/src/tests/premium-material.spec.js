@@ -48,7 +48,10 @@ test("brand font, stock and license load from the source graph without fallback 
   await page.goto("/?page=about");
   await ready(page);
   await openFold(page, "Credits and licenses");
-  const fontLicense = await openFold(page, "Read the Source Serif font license");
+  const fontLicense = await openFold(
+    page,
+    "Read the Source Serif font license",
+  );
   await expect(fontLicense.locator("pre")).toContainText(
     "SIL OPEN FONT LICENSE",
   );
@@ -169,27 +172,12 @@ test("switch, buttons and confirmation respond with short motion and restore foc
   ).toBe(true);
 });
 
-test("reduced motion is static and history focus reveals the full sentence", async ({
+test("reduced motion keeps recording and control feedback static", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(fixture);
   await ready(page);
-  const history = page.locator(".history-item").last();
-  await history.focus();
-  expect(
-    await history
-      .locator("span")
-      .evaluate((element) => getComputedStyle(element).whiteSpace),
-  ).toBe("normal");
-  const fullText = await history.locator("span").innerText();
-  await expect(history).toHaveAttribute("title", fullText);
-  const rowClearance = await history.evaluate((element) => {
-    const target = element.getBoundingClientRect();
-    const row = element.parentElement.getBoundingClientRect();
-    return target.top - row.top;
-  });
-  expect(rowClearance).toBeGreaterThanOrEqual(9);
   expect(
     await page
       .locator(".status-dot.recording")

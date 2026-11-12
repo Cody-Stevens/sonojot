@@ -1638,13 +1638,17 @@ fn evaluate_written_form(args: &WrittenFormReplayArgs, case: &WrittenFormReplayC
     } else {
         (rendered.clone().unwrap_or_else(|| case.text.clone()), Vec::new())
     };
+    // The host's protected-term spelling pass, reported separately so span
+    // scoring and Python span parity are unchanged.
+    let terms_text = (enabled && !args.span)
+        .then(|| sonojot_core::written_form::render_terms(&output, &[]));
     json!({
         "schema_version": 1, "id": case.id,
         "route": if args.span { "written_form_span" } else { "written_form_text" },
         "written_form": args.mode.as_str(),
         "span_head": labels.is_some(),
         "span_labels": labels,
-        "raw_text": case.text, "final_text": output, "rendered": rendered,
+        "raw_text": case.text, "final_text": output, "rendered": rendered, "terms_text": terms_text,
         "spans": spans,
         "changed": output != case.text, "elapsed_ms": milliseconds(started), "error": null,
     })

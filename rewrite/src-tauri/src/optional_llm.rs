@@ -27,6 +27,17 @@ pub struct OptionalTextModel {
     pub file: PinnedFile,
 }
 
+// Private sideload only: deliberately excluded from MODELS and downloads.
+pub const PROOFREADER_ID: &str = "local/p5i";
+pub const PROOFREADER_FILE: &str = "p5i-q4b-Q4_K_M.gguf";
+const P5I: OptionalTextModel = OptionalTextModel {
+ id: PROOFREADER_ID, name: "Local proofreader (Experimental)", description: "Private sideload",
+ repo: "", revision: "", file: PinnedFile { relative: PROOFREADER_FILE, bytes: 2_497_278_752,
+ sha256: "745bccf1592caee4b93f1fd11c3a1c060f5a85bb3d47ae970b523b80bbc1db80" },
+};
+pub fn proofreader_path(root: &Path) -> PathBuf { root.join(PROOFREADER_FILE) }
+pub fn proofreader_present(root: &Path) -> bool { proofreader_path(root).is_file() }
+
 pub const SMART_CLEANUP_ID: &str = "speakoflow-mini-q4_k_m";
 const SPEAKOFLOW: OptionalTextModel = OptionalTextModel {
     id: SMART_CLEANUP_ID,
@@ -156,6 +167,7 @@ pub fn catalog() -> &'static [OptionalTextModel] {
 }
 
 pub fn find(id: &str) -> Option<&'static OptionalTextModel> {
+    if id == PROOFREADER_ID { return Some(&P5I); }
     MODELS.iter().find(|model| model.id == id)
 }
 
@@ -164,6 +176,7 @@ pub fn model_dir(models_root: &Path, id: &str) -> PathBuf {
 }
 
 pub fn gguf_path(models_root: &Path, model: &OptionalTextModel) -> PathBuf {
+    if model.id == PROOFREADER_ID { return proofreader_path(models_root); }
     model_dir(models_root, model.id).join(model.file.relative)
 }
 
@@ -244,6 +257,7 @@ pub fn bonsai_runtime_ready(models_root: &Path) -> bool {
     bonsai_runtime_path(models_root).is_file()
 }
 pub fn installable(models_root: &Path, id: &str) -> bool {
+    if id == PROOFREADER_ID { return false; }
     let _ = models_root;
     !id.is_empty()
 }
@@ -282,7 +296,7 @@ fn uninstall_platform(_runtime: &Runtime, _id: &str) -> Result<(), String> {
 
 #[cfg(all(windows, target_arch = "x86_64"))]
 fn install_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
-    let model = find(id).ok_or("Choose a downloadable text model.")?;
+    let model = MODELS.iter().find(|model| model.id == id).ok_or("Choose a downloadable text model.")?;
     if optional_copy_ready(&runtime.models_root, model.id) {
         return Ok(());
     }
@@ -339,7 +353,7 @@ fn install_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
 /// instead of silently reassigning roles.
 #[cfg(all(windows, target_arch = "x86_64"))]
 fn uninstall_platform(runtime: &Runtime, id: &str) -> Result<(), String> {
-    let model = find(id).ok_or("Choose a downloadable text model.")?;
+    let model = MODELS.iter().find(|model| model.id == id).ok_or("Choose a downloadable text model.")?;
     // No silent role reassignment: explicit replacement first.
     let snapshot = runtime.snapshot()?;
     let mut roles = Vec::new();
@@ -425,5 +439,16 @@ mod tests {
         assert!(compatibility_desc().contains("NVIDIA CUDA"));
         assert!(compatibility_desc().contains("AMD"));
         assert!(!backend_desc().contains("amd"));
+    }
+}
+
+#[cfg(test)]
+mod private_proofreader_tests {
+    #[test]
+    fn sideload_is_never_a_download() {
+        use super::*;
+        assert!(!catalog().iter().any(|model| model.id == PROOFREADER_ID));
+        assert!(!installable(std::path::Path::new("missing"), PROOFREADER_ID));
+        assert_eq!(proofreader_path(std::path::Path::new("models")), std::path::Path::new("models").join(PROOFREADER_FILE));
     }
 }

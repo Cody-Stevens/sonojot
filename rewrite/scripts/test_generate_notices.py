@@ -349,9 +349,9 @@ class ComplianceNoticeTests(unittest.TestCase):
         from generate_notices import ROOT
         generator = Generator(ROOT)
         downloads, _, _ = generator.downloads()
-        wanted = {"sonojot-punct-v1", "sonojot-punct-v2", "ffmpeg-windows", "ffmpeg-macos"}
+        wanted = {"sonojot-punct-v1", "sonojot-punct-v2", "sonojot-punct-v3", "ffmpeg-windows", "ffmpeg-macos"}
         selected = [c for c in downloads if c["id"] in wanted]
-        self.assertEqual(len(selected), 4)
+        self.assertEqual(len(selected), 5)
         for component in selected:
             result = generator.render({"validation": {"errors": []}, "downloads": [component]}).decode()
             if component["id"].startswith("sonojot-punct"):

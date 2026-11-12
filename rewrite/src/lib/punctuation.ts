@@ -7,16 +7,31 @@ import {
 import type { Settings } from "./protocol";
 import type { SetupProfile } from "./setup-profiles";
 
-export const PUNCTUATION_MODEL = "sonojot-punct-v2";
+/** The newest package: first-run Setup installs it and existing users are offered it. */
+export const PUNCTUATION_MODEL = "sonojot-punct-v3";
+/** Verified packages in the order the app prefers them. */
+export const PUNCTUATION_PACKAGES = [
+  "sonojot-cleanup-v4",
+  PUNCTUATION_MODEL,
+  "sonojot-punct-v2",
+  "sonojot-punct-v1",
+] as const;
 export const PUNCTUATION_HELP =
   "Fixes punctuation and helps write numbers and symbols in Clean dictation; runs on CPU";
+/** What the "SonoJot punctuation and formatting" switch does, in plain words. */
+export const PUNCTUATION_SWITCH_HELP =
+  "Adds punctuation, sentence breaks and capitals. In Clean, also writes numbers and symbols and removes fillers, repeats and restarts.";
 export const PUNCTUATION_UPGRADE_REASON =
-  "Adds written numbers, money and dates.";
+  "More accurate sentence breaks and commas, with written numbers, money and dates.";
+
+/** "v4" for sonojot-cleanup-v4, "v3" for sonojot-punct-v3. */
+export function punctuationVersion(id: string): string {
+  return /-(v\d+)$/.exec(id)?.[1] ?? id;
+}
 
 export function punctuationModelPage(id: string): string {
-  return id === "sonojot-punct-v1"
-    ? "https://huggingface.co/SonoJot/sonojot-punct-v1"
-    : "https://huggingface.co/SonoJot/sonojot-punct-v2";
+  const known = PUNCTUATION_PACKAGES.find((item) => item === id);
+  return `https://huggingface.co/SonoJot/${known ?? PUNCTUATION_MODEL}`;
 }
 
 /** Every unfinished setup includes this download, matching first-run onboarding. */
@@ -27,13 +42,13 @@ export function profileIncludesPunctuation(
   return saved === null;
 }
 
-/** The verified package dictation uses: v2 when ready, otherwise v1. */
+/** The verified package dictation uses: the newest one that is ready. */
 export function activePunctuation(
   models: ModelEntry[],
 ): ModelEntry | undefined {
-  return [PUNCTUATION_MODEL, "sonojot-punct-v1"]
-    .map((id) => models.find((model) => model.id === id))
-    .find((model) => !!model && installed(model));
+  return PUNCTUATION_PACKAGES.map((id) =>
+    models.find((model) => model.id === id),
+  ).find((model) => !!model && installed(model));
 }
 
 /**
@@ -74,13 +89,13 @@ export function modelDisplayName(
 export function punctuationRecommendation(
   settings: Pick<
     Settings,
-    "setupProfile" | "punctuationV2RecommendationAcknowledged"
+    "setupProfile" | "punctuationV3RecommendationAcknowledged"
   >,
   models: ModelEntry[],
 ): ModelEntry | undefined {
   if (
     settings.setupProfile === null ||
-    settings.punctuationV2RecommendationAcknowledged
+    settings.punctuationV3RecommendationAcknowledged
   )
     return;
   return models.find(

@@ -976,7 +976,7 @@ pub fn estimated_ram_interval(id: &str) -> Option<(u64, u64)> {
         "lfm2.5-1.2b" => (1350 * MIB, 2150 * MIB),
         crate::optional_llm::SMART_CLEANUP_ID => (1000 * MIB, 1500 * MIB),
         "lfm2.5-2.6b" => (2450 * MIB, 3500 * MIB),
-        "qwen3-4b-instruct-2507" => (3500 * MIB, 4900 * MIB),
+        "qwen3-4b-instruct-2507" | crate::optional_llm::PROOFREADER_ID => (3500 * MIB, 4900 * MIB),
         "ternary-bonsai-2-27b" => (7000 * MIB, 10000 * MIB),
         "local-rules" | "off" | "" => (0, 0),
         _ => return None,
@@ -1047,7 +1047,7 @@ pub fn estimated_vram_interval(id: &str) -> Option<(u64, u64)> {
         "lfm2.5-1.2b" => Some((1200 * MIB, 2200 * MIB)),
         crate::optional_llm::SMART_CLEANUP_ID => Some((850 * MIB, 1200 * MIB)),
         "lfm2.5-2.6b" => Some((2200 * MIB, 3600 * MIB)),
-        "qwen3-4b-instruct-2507" => Some((3200 * MIB, 5000 * MIB)),
+        "qwen3-4b-instruct-2507" | crate::optional_llm::PROOFREADER_ID => Some((3200 * MIB, 5000 * MIB)),
         "ternary-bonsai-2-27b" => Some((7000 * MIB, 9500 * MIB)),
         _ => None,
     }
@@ -1089,7 +1089,7 @@ pub fn estimate_basis(id: &str) -> String {
         w if w.starts_with("whisper-") => format!(
             "Provisional estimate, not measured in SonoJot. Pinned int8 encoder/decoder + tokens ({id}, HF LFS 2026-09-16) + sherpa OfflineWhisper CPU runtime (ORT arena, mel/VAD buffers). Turbo interval sits below large-v3 (fewer decoder layers, upstream design)."
         ),
-        "lfm2.5-1.2b" | "lfm2.5-2.6b" | "qwen3-4b-instruct-2507" => format!(
+        "lfm2.5-1.2b" | "lfm2.5-2.6b" | "qwen3-4b-instruct-2507" | crate::optional_llm::PROOFREADER_ID => format!(
             "Provisional loading estimate, not measured: Q4_K_M GGUF ({id}), 4096-token F16 KV and compute buffers. GPU range assumes full CUDA offload; CPU-only uses no VRAM. Cleanup and notes share one text worker, so their peak is the larger model rather than the sum."
         ),
         "local-rules" | "off" | "" => "Host-only rules; no model weights, no measurable inference RAM.".to_owned(),
@@ -1118,7 +1118,7 @@ pub fn estimate_evidence(id: &str) -> &'static str {
         | "whisper-tiny" | "whisper-base" | "whisper-base.en"
         | "whisper-small.en" | "whisper-medium" | "whisper-medium.en"
         | "whisper-large-v3" | "whisper-large-v3-turbo" | "whisper-large-v1"
-        | "whisper-large-v2" | "lfm2.5-1.2b" | "lfm2.5-2.6b" | "qwen3-4b-instruct-2507" => {
+        | "whisper-large-v2" | "lfm2.5-1.2b" | "lfm2.5-2.6b" | "qwen3-4b-instruct-2507" | crate::optional_llm::PROOFREADER_ID => {
             "Provisional estimate 2026-09-16 (weights pinned; overhead/context assumptions documented; not measured in SonoJot)"
         }
         _ => "Unrated",

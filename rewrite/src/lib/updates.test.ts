@@ -38,6 +38,7 @@ test("update commands preserve backend gate and signed-release metadata", () => 
     restartBlockedReason: "Wait for meeting transcription to finish.",
     installing: false,
     noticeDismissed: true,
+    installProblem: null,
   };
   for (const command of [
     "check_for_updates",
@@ -286,4 +287,56 @@ test("the main-window notice covers available, downloading and ready until Later
     { state: "downloading", percent: 1 },
   ] as const)
     assert.equal(notice(status, { noticeDismissed: true }), null);
+});
+
+test("a channel switch offer names the older version it installs", () => {
+  const status = updateStatusSchema.parse({
+    state: "available",
+    version: "0.28.8",
+    notes: "Stable notes",
+    size: null,
+    older: true,
+  });
+  assert.equal(updateButtonLabel(status, false), "Switch version");
+  assert.equal(
+    updateStatusLabel(status),
+    "SonoJot 0.28.8 is the newest build on this channel.",
+  );
+  assert.match(updateTooltip(status, false, null), /older than this build/);
+  assert.equal(updateAction(status, false)?.label, "Download 0.28.8");
+  const ready = updateStatusSchema.parse({
+    state: "ready",
+    version: "0.28.8",
+    notes: null,
+    older: true,
+  });
+  assert.equal(updateButtonLabel(ready, false), "Restart to switch");
+  assert.equal(updateAction(ready, false)?.label, "Restart to switch");
+  const plainReady = updateStatusSchema.parse({
+    state: "ready",
+    version: "0.28.9",
+    notes: null,
+  });
+  assert.equal(updateAction(plainReady, false)?.label, "Restart to update");
+});
+
+test("a repair offer says it reinstalls the same version", () => {
+  const status = updateStatusSchema.parse({
+    state: "available",
+    version: "0.28.9",
+    notes: "New features",
+    size: null,
+    repair: true,
+  });
+  assert.equal(updateButtonLabel(status, false), "Repair update");
+  assert.match(updateStatusLabel(status), /didn't finish/);
+  assert.doesNotMatch(updateTooltip(status, false, null), /New features/);
+  assert.equal(updateAction(status, false)?.label, "Download repair");
+  const plain = updateStatusSchema.parse({
+    state: "available",
+    version: "0.28.9",
+    notes: null,
+    size: null,
+  });
+  assert.equal(updateButtonLabel(plain, false), "Update available");
 });

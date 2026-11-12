@@ -23,6 +23,8 @@ struct Case {
     labels: Option<Vec<String>>,
     #[serde(default)]
     spans: Option<Vec<BioLabel>>,
+    #[serde(default)]
+    expected: Option<String>,
 }
 
 fn differences<T: PartialEq>(
@@ -65,7 +67,7 @@ fn configure(retention: ModelRetention) {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 5 || !matches!(args[0].as_str(), "labels" | "benchmark") {
+    if args.len() != 5 || !matches!(args[0].as_str(), "labels" | "benchmark" | "clean") {
         return Err("Use punctuation_probe labels|benchmark MODELS_ROOT PACKAGE_DIR INPUT.jsonl OUTPUT.jsonl".into());
     }
     let root = Path::new(&args[1]);
@@ -88,7 +90,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut rows = 0;
     for line in input.lines() {
         let case: Case = serde_json::from_str(&line?)?;
-        if args[0] == "labels" {
+        if args[0] == "clean" {
+            let actual = punctuation::evaluation_cleanup_render(root, &case.input_text, &cancel)?;
+            let equal = case.expected.as_deref() == Some(actual.as_str());
+            writeln!(output, "{}", json!({"id":case.id,"text":actual,"equal":equal}))?;
+            if !equal { return Err("Synthetic cleanup text parity failed".into()); }
+        } else if args[0] == "labels" {
             let (labels, spans) =
                 punctuation::evaluation_prediction(root, &case.input_text, &cancel)?;
             let differences = differences(&labels, case.labels.as_deref())?;

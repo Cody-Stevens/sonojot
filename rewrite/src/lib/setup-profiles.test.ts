@@ -58,6 +58,7 @@ const hardware = {
   cudaOk: true,
 };
 const report = {
+  frontier: { dictation: ["speech"], meetings: ["speech"], otherLanguages: "speech" },
   hardware,
   recommendations: {
     accurate: selection,
@@ -100,11 +101,11 @@ function model(id: string, state = "available") {
 function punctuation(state = "installed") {
   return {
     ...model(PUNCTUATION_MODEL, state),
-    name: "SonoJot Punctuation v2",
+    name: "SonoJot Punctuation v3",
     kind: "punctuation" as const,
     roles: ["punctuation"],
-    diskBytes: 302728954,
-    totalBytes: 302728954,
+    diskBytes: 302728863,
+    totalBytes: 302728863,
     removable: true,
   };
 }
@@ -574,8 +575,8 @@ test("unrelated checks do not delay a ready profile", async () => {
   assert.deepEqual(fixture.calls, ["apply:balanced", "complete"]);
 });
 
-test("every first-run profile includes v2 after speech before committing setup", async () => {
-  assert.equal(PUNCTUATION_MODEL, "sonojot-punct-v2");
+test("every first-run profile includes v3 after speech before committing setup", async () => {
+  assert.equal(PUNCTUATION_MODEL, "sonojot-punct-v3");
   for (const profile of ["accurate", "balanced", "light"] as const) {
     assert.equal(profileIncludesPunctuation(null, profile), true);
     const fixture = operationFixture();
@@ -626,9 +627,9 @@ test("default download total includes missing punctuation and its runtime, but n
     model("text", "installed"),
     punctuation("available"),
   ];
-  assert.equal(missingDownloadBytes(selection, models, true), 302728954);
+  assert.equal(missingDownloadBytes(selection, models, true), 302728863);
   models[2].totalBytes += 20_000_000;
-  assert.equal(missingDownloadBytes(selection, models, true), 322728954);
+  assert.equal(missingDownloadBytes(selection, models, true), 322728863);
   assert.equal(missingDownloadBytes(selection, models, false), 0);
   models[2].state = "checking";
   assert.equal(missingDownloadBytes(selection, models, true), null);
@@ -700,7 +701,7 @@ test("punctuation check resolves before deciding on a download; unsupported targ
 });
 
 test("legacy settings offer punctuation until Install or Dismiss acknowledgment is saved", () => {
-  const { punctuationV2RecommendationAcknowledged: _acknowledged, ...legacy } =
+  const { punctuationV3RecommendationAcknowledged: _acknowledged, ...legacy } =
     previewSnapshot.settings;
   const models = [punctuation("available")];
   for (const profile of ["custom", "accurate", "balanced", "light"] as const) {
@@ -708,14 +709,14 @@ test("legacy settings offer punctuation until Install or Dismiss acknowledgment 
       ...previewSnapshot,
       settings: { ...legacy, setupProfile: profile },
     }).settings;
-    assert.equal(settings.punctuationV2RecommendationAcknowledged, false);
+    assert.equal(settings.punctuationV3RecommendationAcknowledged, false);
     assert.equal(
       punctuationRecommendation(settings, models)?.id,
       PUNCTUATION_MODEL,
     );
     const saved = parseResponse("save_settings", {
       ...previewSnapshot,
-      settings: { ...settings, punctuationV2RecommendationAcknowledged: true },
+      settings: { ...settings, punctuationV3RecommendationAcknowledged: true },
     }).settings;
     assert.equal(punctuationRecommendation(saved, models), undefined);
     // The stored choice survives a restart and later model removal.
@@ -749,50 +750,66 @@ test("legacy settings offer punctuation until Install or Dismiss acknowledgment 
   );
 });
 
-test("v1 acknowledgment and installation do not suppress the one-time v2 recommendation", () => {
-  const { punctuationV2RecommendationAcknowledged: _acknowledged, ...legacy } =
+test("earlier v1 and v2 answers and installs do not suppress the one-time v3 recommendation", () => {
+  const { punctuationV3RecommendationAcknowledged: _acknowledged, ...legacy } =
     previewSnapshot.settings;
-  for (const acknowledged of [false, true]) {
-    const settings = parseResponse("get_snapshot", {
-      ...previewSnapshot,
-      settings: {
-        ...legacy,
-        setupProfile: "custom",
-        punctuationRecommendationAcknowledged: acknowledged,
-      },
-    }).settings;
-    assert.equal(settings.punctuationV2RecommendationAcknowledged, false);
-    for (const v1State of ["available", "installed", "checking"]) {
-      const models = [
-        { ...punctuation(v1State), id: "sonojot-punct-v1" },
-        punctuation("available"),
-      ];
-      assert.equal(
-        punctuationRecommendation(settings, models)?.id,
-        "sonojot-punct-v2",
-      );
-      models[1].state = "installed";
-      assert.equal(punctuationRecommendation(settings, models), undefined);
+  for (const v1Acknowledged of [false, true]) {
+    for (const v2Acknowledged of [false, true]) {
+      const settings = parseResponse("get_snapshot", {
+        ...previewSnapshot,
+        settings: {
+          ...legacy,
+          setupProfile: "custom",
+          punctuationRecommendationAcknowledged: v1Acknowledged,
+          punctuationV2RecommendationAcknowledged: v2Acknowledged,
+        },
+      }).settings;
+      assert.equal(settings.punctuationV3RecommendationAcknowledged, false);
+      for (const olderState of ["available", "installed", "checking"]) {
+        const models = [
+          { ...punctuation(olderState), id: "sonojot-punct-v1" },
+          { ...punctuation(olderState), id: "sonojot-punct-v2" },
+          punctuation("available"),
+        ];
+        assert.equal(
+          punctuationRecommendation(settings, models)?.id,
+          "sonojot-punct-v3",
+        );
+        models[2].state = "installed";
+        assert.equal(punctuationRecommendation(settings, models), undefined);
+      }
     }
   }
 });
 
-test("default Cleanup names the punctuation model with vocabulary, v2 before v1", () => {
+test("default Cleanup names the punctuation model with vocabulary, v3 before v2 before v1", () => {
   const v1 = (state: string) => ({
     ...punctuation(state),
     id: "sonojot-punct-v1",
     name: "SonoJot Punctuation",
   });
-  // Installable or installed v2 is what Setup queues and dictation prefers.
+  const v2 = (state: string) => ({
+    ...punctuation(state),
+    id: "sonojot-punct-v2",
+    name: "SonoJot Punctuation v2",
+  });
+  // Installable or installed v3 is what Setup queues and dictation prefers.
   for (const state of ["available", "installed"]) {
     assert.equal(
       defaultCleanupName([punctuation(state)]),
-      "SonoJot Punctuation v2 with your vocabulary",
+      "SonoJot Punctuation v3 with your vocabulary",
     );
   }
   assert.equal(activePunctuation([punctuation("available")]), undefined);
-  assert.equal(activePunctuation([v1("installed"), punctuation("installed")])?.id, PUNCTUATION_MODEL);
+  assert.equal(activePunctuation([v1("installed"), v2("installed"), punctuation("installed")])?.id, PUNCTUATION_MODEL);
+  assert.equal(activePunctuation([v1("installed"), v2("installed"), punctuation("available")])?.id, "sonojot-punct-v2");
+  assert.equal(activePunctuation([v1("installed"), v2("failed"), punctuation("checking")])?.id, "sonojot-punct-v1");
   assert.equal(activePunctuation([v1("installed"), punctuation("available")])?.id, "sonojot-punct-v1");
+  // An installed older package keeps naming default Cleanup until v3 is ready.
+  assert.equal(
+    defaultCleanupName([v2("installed"), punctuation("available")]),
+    "SonoJot Punctuation v2 with your vocabulary",
+  );
   assert.equal(
     defaultCleanupName([v1("installed"), { ...punctuation("available"), installable: false }]),
     "SonoJot Punctuation with your vocabulary",
@@ -808,8 +825,17 @@ test("punctuation library pages identify each package", () => {
     "https://huggingface.co/SonoJot/sonojot-punct-v1",
   );
   assert.equal(
-    punctuationModelPage(PUNCTUATION_MODEL),
+    punctuationModelPage("sonojot-punct-v2"),
     "https://huggingface.co/SonoJot/sonojot-punct-v2",
+  );
+  assert.equal(
+    punctuationModelPage(PUNCTUATION_MODEL),
+    "https://huggingface.co/SonoJot/sonojot-punct-v3",
+  );
+  // Unknown IDs never build a link; they fall back to the current package.
+  assert.equal(
+    punctuationModelPage("../sonojot-punct-v1"),
+    "https://huggingface.co/SonoJot/sonojot-punct-v3",
   );
 });
 
@@ -886,7 +912,7 @@ test("the change line names what the profile uses now and what is in use", () =>
     "whisper-small-metal": "Whisper Small · Metal",
     "qwen3-4b-instruct-2507": "Qwen3-4B-Instruct-2507",
     "lfm2.5-1.2b": "LFM 2.5",
-    "local-rules": "SonoJot Punctuation v2 with your vocabulary",
+    "local-rules": "SonoJot Punctuation v3 with your vocabulary",
   };
   const name = (id: string) => names[id] ?? id;
   const speechOnly = profileChanges({ ...macBalanced, asrModel: "whisper-small-metal" }, macBalanced);
@@ -904,7 +930,7 @@ test("the change line names what the profile uses now and what is in use", () =>
       profileChanges({ asrModel: "a", cleanupModel: "b", notesModel: "c" }, macBalanced),
       name,
     ),
-    "Light now uses Qwen3-ASR 1.7B (Q4 Metal) for speech, SonoJot Punctuation v2 with your vocabulary for cleanup and Qwen3-4B-Instruct-2507 for notes. You're using a, b and c.",
+    "Light now uses Qwen3-ASR 1.7B (Q4 Metal) for speech, SonoJot Punctuation v3 with your vocabulary for cleanup and Qwen3-4B-Instruct-2507 for notes. You're using a, b and c.",
   );
   assert.equal(profileChangeText("balanced", [], name), "");
 });

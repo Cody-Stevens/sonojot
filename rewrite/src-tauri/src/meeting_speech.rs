@@ -110,6 +110,7 @@ fn parse_response(value: Value, start: f32, duration: f32) -> Result<Recognition
         speaker: None, text: text.clone(), complete,
     }] };
     Ok(RecognitionResult {
+        word_confidence: Vec::new(),
         original_text: None,
         text, segments,
         completeness: if complete { RecognitionCompleteness::Complete } else { RecognitionCompleteness::Incomplete },
@@ -181,6 +182,7 @@ fn transcribe_chunks(
     mut request: impl FnMut(&[f32], f32) -> Result<RecognitionResult, String>,
 ) -> Result<RecognitionResult, String> {
     let mut result = RecognitionResult {
+        word_confidence: Vec::new(),
         original_text: None,
         text: String::new(), segments: Vec::new(),
         completeness: RecognitionCompleteness::Complete, warnings: Vec::new(),

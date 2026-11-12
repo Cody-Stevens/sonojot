@@ -268,6 +268,15 @@
       "savedBytes": 7369
     },
     {
+      "path": "downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+      "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+      "scope": "pinned-download-repository",
+      "sourceSha256": "b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90",
+      "sourceBytes": 7971,
+      "savedSha256": "b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90",
+      "savedBytes": 7971
+    },
+    {
       "path": "downloads/huggingface/handy-computer--granite-speech-4.1-2b-nar-gguf/c186f8d7ed6c67b947b90fd8ed9587be971766fa/README.md",
       "url": "https://huggingface.co/handy-computer/granite-speech-4.1-2b-nar-gguf/resolve/c186f8d7ed6c67b947b90fd8ed9587be971766fa/README.md",
       "scope": "pinned-download-repository",
@@ -1728,6 +1737,15 @@
       "savedBytes": 2198
     },
     {
+      "path": "punctuation/NOTICE-v3.txt",
+      "url": "SonoJot-authored attribution from the pinned model card",
+      "scope": "authored-attribution",
+      "sourceSha256": "10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704",
+      "sourceBytes": 2410,
+      "savedSha256": "10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704",
+      "savedBytes": 2410
+    },
+    {
       "path": "downloads/sherpa-asr-only/release-assets.json",
       "url": "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/v1.13.8",
       "scope": "release-api-extract",
@@ -2408,6 +2426,24 @@
       "httpStatus": 200,
       "sourceSha256": "fa025d3393f98915957c89fe1a85ebcb05f30add5421dbe58dae9c952b3bf56c",
       "resolvedRevision": "94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625",
+      "files": [
+        ".gitattributes",
+        "README.md",
+        "manifest.json",
+        "model.int8.onnx",
+        "punct-config.json",
+        "tokenizer.json"
+      ],
+      "licenseDeclaration": "cc-by-sa-4.0",
+      "baseModel": "SonoJot/sonojot-punct-v1"
+    },
+    {
+      "repository": "SonoJot/sonojot-punct-v3",
+      "requestedRevision": "e023ae245a00bac1785bb6a022b16d181e346e48",
+      "apiUrl": "https://huggingface.co/api/models/SonoJot/sonojot-punct-v3/revision/e023ae245a00bac1785bb6a022b16d181e346e48",
+      "httpStatus": 200,
+      "sourceSha256": "192abc1a5952dc5837518f20dafaa788c37c29afbbb5a034c0fbe64068d411b4",
+      "resolvedRevision": "e023ae245a00bac1785bb6a022b16d181e346e48",
       "files": [
         ".gitattributes",
         "README.md",

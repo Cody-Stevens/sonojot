@@ -73,7 +73,7 @@ const rules = entry("local-rules", {
 });
 const punctuation = (state: string, installable = true) =>
   entry(PUNCTUATION_MODEL, {
-    name: "SonoJot Punctuation v2",
+    name: "SonoJot Punctuation v3",
     kind: "punctuation",
     roles: ["punctuation"],
     state,
@@ -98,13 +98,13 @@ test("default Cleanup is named for the punctuation model in every state", () => 
   const installed = [rules, punctuation("installed")];
   assert.equal(
     modelDisplayName(rules, installed),
-    "SonoJot Punctuation v2 with your vocabulary",
+    "SonoJot Punctuation v3 with your vocabulary",
   );
   assert.equal(defaultCleanupStatus(installed), "Installed");
   const missing = [rules, punctuation("available")];
   assert.equal(
     modelDisplayName(rules, missing),
-    "SonoJot Punctuation v2 with your vocabulary",
+    "SonoJot Punctuation v3 with your vocabulary",
   );
   assert.equal(defaultCleanupStatus(missing), "Not installed");
   assert.equal(defaultCleanupStatus(missing, true), "Download included");
@@ -212,7 +212,7 @@ test("Cleanup falls back to the punctuation model and meetings to Speech", () =>
       setting: "cleanupModel",
       to: "local-rules",
       sentence:
-        "Cleanup will switch to SonoJot Punctuation v2 with your vocabulary.",
+        "Cleanup will switch to SonoJot Punctuation v3 with your vocabulary.",
     },
   ]);
   const meeting = entry("granite", {

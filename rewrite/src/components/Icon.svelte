@@ -1,6 +1,9 @@
 <script lang="ts">
   export type IconName =
     | "dictation"
+    | "people"
+    | "words"
+    | "settings"
     | "microphone"
     | "vocabulary"
     | "meetings"
@@ -13,6 +16,7 @@
     | "stop"
     | "copy"
     | "close"
+    | "search"
     | "plus"
     | "back"
     | "folder"
@@ -20,6 +24,11 @@
     | "delete";
   let { name, size = 24 }: { name: IconName; size?: number } = $props();
   const paths: Record<IconName, string> = {
+    people:
+      "M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-6 9v-2a6 6 0 0 1 12 0v2M17 4a4 4 0 0 1 0 8m1 3a5 5 0 0 1 3 4v2",
+    words: "m2 20 6-16 6 16M4 15h8m5-4c5-2 5 1 5 4v5m0-5c-8-2-8 7-2 5l2-2",
+    settings:
+      "M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
     app: "M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM3 8h18M8 8v13",
     dictation: "M4 9v6m4-10v14m4-17v20m4-17v14m4-10v6",
     microphone:
@@ -30,8 +39,7 @@
       "M7 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h3l4 3v-3h7a2 2 0 0 0 2-2v-2M9 2h11a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-6l-4 3v-3H9a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2",
     appearance:
       "M2 12s4-8 10-8 10 8 10 8-4 8-10 8S2 12 2 12ZM16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
-    eye:
-      "M2 12s4-8 10-8 10 8 10 8-4 8-10 8S2 12 2 12ZM16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
+    eye: "M2 12s4-8 10-8 10 8 10 8-4 8-10 8S2 12 2 12ZM16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
     shortcuts:
       "M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M18 13h.01M7 16h10",
     about: "M12 8h.01M11 11h1v6m-2 0h4M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
@@ -39,6 +47,7 @@
     stop: "M5 5h14v14H5V5",
     copy: "M8 8h13v13H8V8M16 4V2H2v14h2",
     close: "m6 6 12 12M6 18 18 6",
+    search: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6",
     plus: "M12 4v16M4 12h16",
     back: "m10 5-7 7 7 7M3 12h18",
     folder:

@@ -486,6 +486,8 @@ impl Engine {
             merged_windows: seconds != 0,
             text_guard: crate::qwen_guard::Session::default(),
             ledger: BTreeMap::new(),
+            word_confidence: Vec::new(),
+            confidence_missing: false,
             original_text: None,
             next_id: 1,
             vad_samples_since_segment: 0,
@@ -593,7 +595,7 @@ impl Engine {
     ) -> Result<crate::asr::RecognitionResult, String> {
         #[cfg(windows)]
         if is_qwen(&self.model_id) && !confirm_speech(samples, evidence.as_deref_mut())? {
-            return Ok(crate::asr::RecognitionResult { original_text: None, segments: Vec::new(), text: String::new(),
+            return Ok(crate::asr::RecognitionResult { word_confidence: Vec::new(), original_text: None, segments: Vec::new(), text: String::new(),
                 completeness: RecognitionCompleteness::Complete, warnings: Vec::new() });
         }
         self.transcribe_qualified(samples, evidence)
@@ -696,6 +698,7 @@ fn transcribe_decoded(
 ) -> Result<crate::asr::RecognitionResult, String> {
     if samples.is_empty() {
         return Ok(crate::asr::RecognitionResult {
+            word_confidence: Vec::new(),
             original_text: None,
             segments: Vec::new(),
             text: String::new(),
@@ -775,7 +778,12 @@ fn transcribe_decoded(
             evidence["attempts"] = serde_json::json!(attempts);
         }
     }
+    let speech_words = crate::confidence::words(qwen_transcript(&segment.text)).len();
+    let confidence = if segment.word_confidence.len() >= speech_words {
+        crate::confidence::project(&segment.word_confidence[segment.word_confidence.len()-speech_words..], &parsed)
+    } else { vec![] };
     Ok(crate::asr::RecognitionResult {
+        word_confidence: confidence,
         original_text,
         segments: Vec::new(),
         text: parsed,
@@ -792,15 +800,26 @@ struct NativeSegment {
     token_count: i32,
     completion_tokens: Option<i64>,
     finish_reason: Option<String>,
+    word_confidence: Vec<crate::confidence::WordConfidence>,
 }
 
+#[derive(Clone)]
+pub(crate) struct LlamaResponse(String, Option<i64>, String, Vec<crate::confidence::WordConfidence>);
+impl From<(String, Option<i64>, String)> for LlamaResponse {
+ fn from((a,b,c): (String,Option<i64>,String)) -> Self { Self(a,b,c,vec![]) }
+}
+impl From<(String, Option<i64>, String, Vec<crate::confidence::WordConfidence>)> for LlamaResponse {
+ fn from((a,b,c,d): (String,Option<i64>,String,Vec<crate::confidence::WordConfidence>)) -> Self { Self(a,b,c,d) }
+}
 impl NativeSegment {
     fn from_llama_response(
-        (text, completion_tokens, finish_reason): (String, Option<i64>, String),
+        response: impl Into<LlamaResponse>,
     ) -> Self {
+        let LlamaResponse(text, completion_tokens, finish_reason, word_confidence) = response.into();
         Self {
             text,
             completion_tokens,
+            word_confidence,
             finish_reason: Some(finish_reason),
             ..Default::default()
         }
@@ -1041,8 +1060,9 @@ const QWEN_HEADER_ONLY_SECONDS: f64 = 1.0;
 /// server. Ambiguous output replays the supplied response for the one retry.
 #[cfg(test)]
 pub(crate) fn llama_test_recognition(
-    response: (String, Option<i64>, String),
+    response: impl Into<LlamaResponse>,
 ) -> crate::asr::RecognitionResult {
+    let response = response.into();
     transcribe_decoded(&vec![0.1; 4 * 16_000], true,
         || Ok(NativeSegment::from_llama_response(response.clone())), None, None).unwrap()
 }
@@ -1466,6 +1486,8 @@ pub struct Stream<'a> {
     merged_windows: bool,
     text_guard: crate::qwen_guard::Session,
     ledger: BTreeMap<u64, crate::asr::Segment>,
+    confidence_missing: bool,
+    word_confidence: Vec<crate::confidence::WordConfidence>,
     original_text: Option<String>,
     next_id: u64,
     vad_samples_since_segment: usize,
@@ -1535,6 +1557,7 @@ impl Stream<'_> {
     pub fn finish_recognition(mut self) -> Result<crate::asr::RecognitionResult, String> {
         self.drain_vad(true)?;
         Ok(crate::asr::RecognitionResult {
+            word_confidence: if self.confidence_missing { vec![] } else { self.word_confidence },
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
             text: crate::asr::assemble_segments(&self.ledger, false),
@@ -1549,6 +1572,7 @@ impl Stream<'_> {
     ) -> Result<(crate::asr::RecognitionResult, serde_json::Value), String> {
         self.drain_vad(true)?;
         let recognition = crate::asr::RecognitionResult {
+            word_confidence: if self.confidence_missing { vec![] } else { self.word_confidence },
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
             text: crate::asr::assemble_segments(&self.ledger, false),
@@ -1736,6 +1760,7 @@ impl Stream<'_> {
                 }
                 crate::asr::retain_original_section(&mut self.original_text,
                     || crate::asr::assemble_segments(&self.ledger, false), &recognition);
+                crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
                 crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
                 self.push_text(&recognition.text, start_seconds, end_seconds,
                     recognition.completeness == RecognitionCompleteness::Complete)?;
@@ -1748,6 +1773,7 @@ impl Stream<'_> {
                 }
                 crate::asr::retain_original_section(&mut self.original_text,
                     || crate::asr::assemble_segments(&self.ledger, false), &recognition);
+                crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
                 crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
                 self.push_text(&recognition.text, start_seconds, end_seconds,
                     recognition.completeness == RecognitionCompleteness::Complete)?;
@@ -1780,7 +1806,8 @@ impl Stream<'_> {
             self.next_id += 1;
             let complete = recognition.completeness == RecognitionCompleteness::Complete;
             if !complete { self.completeness = RecognitionCompleteness::Incomplete; }
-            crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
+            crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
+                crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
             self.ledger.insert(id, crate::asr::Segment { id,
                 start_seconds: window.start as f32 / 16_000.0,
                 end_seconds: Some(window.end as f32 / 16_000.0), speaker: None,
@@ -1848,7 +1875,7 @@ impl Stream<'_> {
 /// bare marker at the native boundary is protocol, which is why
 /// `qwen_boundary_parse` owns the decision and this function only extracts the
 /// speech after a confirmed header.
-fn qwen_transcript(raw: &str) -> &str {
+pub(crate) fn qwen_transcript(raw: &str) -> &str {
     match qwen_leading_header(raw) {
         Some((speech, _)) => speech.trim_start(),
         None => raw,
@@ -1950,6 +1977,46 @@ mod tests {
         let mut next_original = None;
         assert!(refresh_qwen_guard(&fresh, &mut next_ledger, &mut next_original).is_empty());
         assert_eq!(next_original, None);
+    }
+
+    #[test]
+    fn qwen_guard_omission_keeps_later_windows_and_raw_history() {
+        let mut session = crate::qwen_guard::Session::default();
+        let mut ledger = BTreeMap::new();
+        let mut original = None;
+        let mut warnings = Vec::new();
+        for (id, start, end, text) in [
+            (0, 3415.0, 3417.0, "The earlier discussion remains available."),
+            (1, 3561.0, 3563.0, "go go go go"),
+            (2, 3570.0, 3575.0, "These later words must survive the omitted section."),
+            (3, 3870.75, 3871.54, "Oh yeah."),
+        ] {
+            let resolved = guarded_response(&format!("language English<asr_text>{text}"),
+                12, "stop", f64::from(end - start));
+            let complete = resolved.completeness == RecognitionCompleteness::Complete;
+            if id == 1 {
+                assert_eq!(resolved.boundary.guard.action, "drop");
+                assert!(!complete);
+                assert!(resolved.boundary.text.is_empty());
+            } else { assert!(complete); }
+            crate::asr::append_recognition_warnings(&mut warnings, resolved.warnings);
+            ledger.insert(id, crate::asr::Segment { id, start_seconds: start,
+                end_seconds: Some(end), speaker: None, text: resolved.boundary.text.clone(), complete });
+            session.push(id, &resolved.boundary.text, resolved.boundary.original_text.as_deref(), Some("English"));
+            refresh_qwen_guard(&session, &mut ledger, &mut original);
+        }
+        let saved = crate::asr::finish_recognition(&ledger);
+        assert_eq!(saved.completeness, RecognitionCompleteness::Incomplete);
+        assert_eq!(saved.text, "The earlier discussion remains available. These later words must survive the omitted section. Oh yeah.");
+        assert_eq!(saved.segments.len(), 4);
+        assert!(saved.segments[1].text.is_empty());
+        assert_eq!(saved.segments[1].end_seconds, Some(3563.0));
+        assert_eq!(saved.segments[3].text, "Oh yeah.");
+        assert_eq!(saved.segments[3].end_seconds, Some(3871.54));
+        assert_eq!(crate::asr::ledger_end(&ledger), Some(3871.54));
+        assert_eq!(original.as_deref(), Some("The earlier discussion remains available. go go go go These later words must survive the omitted section. Oh yeah."));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("This section was omitted"));
     }
 
     #[test]

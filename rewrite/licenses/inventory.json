@@ -68,6 +68,33 @@
         "x86_64-apple-darwin",
         "x86_64-pc-windows-msvc"
       ],
+      "checksum": "56ed6191a7e78c36abdb16ab65341eefd73d64d303fffccdbb00d51e4205967b",
+      "distribution": "build tooling only; excluded from bundled notices",
+      "features": {
+        "aarch64-apple-darwin": [],
+        "x86_64-apple-darwin": [],
+        "x86_64-pc-windows-msvc": []
+      },
+      "id": "rust:built@0.7.7",
+      "issues": [],
+      "kind": "rust",
+      "license": "MIT",
+      "name": "built",
+      "repository": "https://github.com/lukaslueg/built",
+      "sources": [
+        "https://crates.io/crates/built/0.7.7",
+        "https://docs.rs/crate/built/0.7.7/source/Cargo.toml"
+      ],
+      "targets": [],
+      "texts": [],
+      "version": "0.7.7"
+    },
+    {
+      "buildTargets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
       "checksum": "374b7c592d9c00c1f4972ea58390ac6b18cbb6ab79011f3bdc90a0b82ca06b77",
       "distribution": "build tooling only; excluded from bundled notices",
       "features": {
@@ -1465,6 +1492,33 @@
         "x86_64-apple-darwin",
         "x86_64-pc-windows-msvc"
       ],
+      "checksum": "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc",
+      "distribution": "build tooling only; excluded from bundled notices",
+      "features": {
+        "aarch64-apple-darwin": [],
+        "x86_64-apple-darwin": [],
+        "x86_64-pc-windows-msvc": []
+      },
+      "id": "rust:seq-macro@0.3.6",
+      "issues": [],
+      "kind": "rust",
+      "license": "MIT OR Apache-2.0",
+      "name": "seq-macro",
+      "repository": "https://github.com/dtolnay/seq-macro",
+      "sources": [
+        "https://crates.io/crates/seq-macro/0.3.6",
+        "https://docs.rs/crate/seq-macro/0.3.6/source/Cargo.toml"
+      ],
+      "targets": [],
+      "texts": [],
+      "version": "0.3.6"
+    },
+    {
+      "buildTargets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
       "checksum": "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348",
       "distribution": "build tooling only; excluded from bundled notices",
       "features": {
@@ -2583,21 +2637,21 @@
   ],
   "cargoGraphs": [
     {
-      "buildOnlyCount": 75,
+      "buildOnlyCount": 77,
       "evidence": "licenses/evidence/cargo-x86_64-pc-windows-msvc.json",
-      "runtimeCount": 383,
+      "runtimeCount": 389,
       "target": "x86_64-pc-windows-msvc"
     },
     {
-      "buildOnlyCount": 79,
+      "buildOnlyCount": 81,
       "evidence": "licenses/evidence/cargo-aarch64-apple-darwin.json",
-      "runtimeCount": 378,
+      "runtimeCount": 384,
       "target": "aarch64-apple-darwin"
     },
     {
-      "buildOnlyCount": 79,
+      "buildOnlyCount": 81,
       "evidence": "licenses/evidence/cargo-x86_64-apple-darwin.json",
-      "runtimeCount": 370,
+      "runtimeCount": 376,
       "target": "x86_64-apple-darwin"
     }
   ],
@@ -2957,6 +3011,10 @@
           "sha256": "ee30a67479540b2df24846ddc8aa82fb5315a5991ab0b2bcd92fa429b158e111"
         },
         {
+          "path": "src-tauri/src/written_form/terms.json",
+          "sha256": "e0dd661df054c328db7cc51229a91b31c638458ed411b3bb3b2a34ef978990be"
+        },
+        {
           "path": "src/brand/recommendations.json",
           "sha256": "328c86582c4df6e18ce03ff85341ae281cdd3483c221957fe267389d856987cd"
         }
@@ -3045,6 +3103,14 @@
         {
           "path": "licenses/punctuation/NOTICE-v2.txt",
           "sha256": "749698c398a5ed1b005e6e6fbed92cd2cdbaa0429b95e3ba2207fd84f7d0f1de"
+        },
+        {
+          "path": "licenses/punctuation/NOTICE-v3.txt",
+          "sha256": "10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704"
+        },
+        {
+          "path": "licenses/punctuation/NOTICE-v4.txt",
+          "sha256": "19dd95d88170014cea712accec54027dfc4092fa5ebf18092dca0dfff39559d2"
         }
       ],
       "id": "asset:punctuation-attribution",
@@ -3055,7 +3121,8 @@
       "sources": [
         "licenses/download-components.json",
         "licenses/punctuation/NOTICE-v1.txt",
-        "licenses/punctuation/NOTICE-v2.txt"
+        "licenses/punctuation/NOTICE-v2.txt",
+        "licenses/punctuation/NOTICE-v3.txt"
       ],
       "texts": [
         {
@@ -3084,9 +3151,18 @@
           "role": "license",
           "sha256": "749698c398a5ed1b005e6e6fbed92cd2cdbaa0429b95e3ba2207fd84f7d0f1de",
           "source": "licenses/punctuation/NOTICE-v2.txt"
+        },
+        {
+          "bytes": 2410,
+          "encoding": "utf-8",
+          "originalPath": "licenses/punctuation/NOTICE-v3.txt",
+          "path": "licenses/texts/10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704.txt",
+          "role": "license",
+          "sha256": "10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704",
+          "source": "licenses/punctuation/NOTICE-v3.txt"
         }
       ],
-      "version": "v1 and v2 pinned model revisions"
+      "version": "v1, v2 and v3 pinned model revisions"
     },
     {
       "attribution": "Collective work copyright Kevin Atkinson and contributors named in the complete accompanying notice.",
@@ -7612,6 +7688,52 @@
     },
     {
       "buildTargets": [],
+      "checksum": "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853",
+      "distribution": "normal dependency closure; bundled application",
+      "features": {
+        "aarch64-apple-darwin": [],
+        "x86_64-apple-darwin": [],
+        "x86_64-pc-windows-msvc": []
+      },
+      "id": "rust:crc-catalog@2.5.0",
+      "issues": [],
+      "kind": "rust",
+      "license": "MIT OR Apache-2.0",
+      "manifestSha256": "083323ace7883c5c078bc033f4d5229139a01d5380b59d8d6ae312741c397169",
+      "name": "crc-catalog",
+      "repository": "https://github.com/akhilles/crc-catalog.git",
+      "sources": [
+        "https://crates.io/crates/crc-catalog/2.5.0",
+        "https://docs.rs/crate/crc-catalog/2.5.0/source/Cargo.toml"
+      ],
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
+      "texts": [
+        {
+          "bytes": 1073,
+          "encoding": "utf-8",
+          "originalPath": "licenses/sources/crc-catalog-2.5.0-LICENSE-MIT",
+          "path": "licenses/texts/5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5.txt",
+          "role": "license",
+          "sha256": "5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5",
+          "source": "https://raw.githubusercontent.com/akhilles/crc-catalog/ed4ad631f22b05055c21a3a4127eb7cf6d75bb62/LICENSES/MIT.txt"
+        }
+      ],
+      "upstreamRevision": {
+        "git": {
+          "sha1": "ed4ad631f22b05055c21a3a4127eb7cf6d75bb62"
+        },
+        "path_in_vcs": ""
+      },
+      "verification": "Published crate omits license files. MIT license retained from the exact upstream revision recorded in .cargo_vcs_info.json.",
+      "version": "2.5.0",
+      "wrapperLicenseVerified": true
+    },
+    {
+      "buildTargets": [],
       "checksum": "8498c871161e1742aaa9d52551b2d6ebdd4c3d45a3be423e3728f33b955be550",
       "distribution": "normal dependency closure; bundled application",
       "features": {
@@ -7671,6 +7793,59 @@
         "path_in_vcs": ""
       },
       "version": "1.5.1"
+    },
+    {
+      "buildTargets": [],
+      "checksum": "5eb8a2a1cd12ab0d987a5d5e825195d372001a4094a0376319d5a0ad71c1ba0d",
+      "distribution": "normal dependency closure; bundled application",
+      "features": {
+        "aarch64-apple-darwin": [],
+        "x86_64-apple-darwin": [],
+        "x86_64-pc-windows-msvc": []
+      },
+      "id": "rust:crc@3.4.0",
+      "issues": [],
+      "kind": "rust",
+      "license": "MIT OR Apache-2.0",
+      "manifestSha256": "bc9ea8bd807209d10bd7ab9ecd78f7275723850c3eab962093e1fe6325ce5c4b",
+      "name": "crc",
+      "repository": "https://github.com/mrhooray/crc-rs.git",
+      "sources": [
+        "https://crates.io/crates/crc/3.4.0",
+        "https://docs.rs/crate/crc/3.4.0/source/Cargo.toml"
+      ],
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
+      "texts": [
+        {
+          "bytes": 10846,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE-APACHE",
+          "path": "licenses/texts/470355a7eed93fcc4281ec2e0f82ca3b94e7af1e4d83629f91de8cfac34d750e.txt",
+          "role": "license",
+          "sha256": "470355a7eed93fcc4281ec2e0f82ca3b94e7af1e4d83629f91de8cfac34d750e",
+          "source": "https://docs.rs/crate/crc/3.4.0/source/LICENSE-APACHE"
+        },
+        {
+          "bytes": 1074,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE-MIT",
+          "path": "licenses/texts/3488679340a49ecc34d342c4009d2dabf76f4a21f12aec2ca99b15805d656544.txt",
+          "role": "license",
+          "sha256": "3488679340a49ecc34d342c4009d2dabf76f4a21f12aec2ca99b15805d656544",
+          "source": "https://docs.rs/crate/crc/3.4.0/source/LICENSE-MIT"
+        }
+      ],
+      "upstreamRevision": {
+        "git": {
+          "sha1": "2c8fd9615d620b5a5f8c9556b79a4ca173d6d401"
+        },
+        "path_in_vcs": ""
+      },
+      "version": "3.4.0"
     },
     {
       "buildTargets": [],
@@ -10626,6 +10801,50 @@
     },
     {
       "buildTargets": [],
+      "checksum": "74c892c2b5fa08f967e8b5ad29121570b4762202f2402033ce08479ec65eccd0",
+      "distribution": "normal dependency closure; bundled application",
+      "features": {
+        "aarch64-apple-darwin": [],
+        "x86_64-apple-darwin": [],
+        "x86_64-pc-windows-msvc": []
+      },
+      "id": "rust:flacenc@0.5.1",
+      "issues": [],
+      "kind": "rust",
+      "license": "Apache-2.0",
+      "manifestSha256": "0abfbb94625ddb0095914f85a721b45f1341d393a91e87478af59359f5234bbf",
+      "name": "flacenc",
+      "repository": "https://github.com/yotarok/flacenc-rs/",
+      "sources": [
+        "https://crates.io/crates/flacenc/0.5.1",
+        "https://docs.rs/crate/flacenc/0.5.1/source/Cargo.toml"
+      ],
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
+      "texts": [
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "https://docs.rs/crate/flacenc/0.5.1/source/LICENSE"
+        }
+      ],
+      "upstreamRevision": {
+        "git": {
+          "sha1": "4e9e73ae9a5072bd3de904c4a516401f425fde07"
+        },
+        "path_in_vcs": ""
+      },
+      "version": "0.5.1"
+    },
+    {
+      "buildTargets": [],
       "checksum": "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb",
       "distribution": "normal dependency closure; bundled application",
       "features": {
@@ -12110,6 +12329,59 @@
     },
     {
       "buildTargets": [],
+      "checksum": "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606",
+      "distribution": "normal dependency closure; bundled application",
+      "features": {
+        "aarch64-apple-darwin": [],
+        "x86_64-apple-darwin": [],
+        "x86_64-pc-windows-msvc": []
+      },
+      "id": "rust:hash32@0.3.1",
+      "issues": [],
+      "kind": "rust",
+      "license": "MIT OR Apache-2.0",
+      "manifestSha256": "167a05eea579dd60a0489ef2ecfe5dcc1353eca2189d7c10fb010fa28a5f7974",
+      "name": "hash32",
+      "repository": "https://github.com/japaric/hash32",
+      "sources": [
+        "https://crates.io/crates/hash32/0.3.1",
+        "https://docs.rs/crate/hash32/0.3.1/source/Cargo.toml"
+      ],
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
+      "texts": [
+        {
+          "bytes": 10847,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE-APACHE",
+          "path": "licenses/texts/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt",
+          "role": "license",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/hash32/0.3.1/source/LICENSE-APACHE"
+        },
+        {
+          "bytes": 1058,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE-MIT",
+          "path": "licenses/texts/c986bcdb83103d4ddf58aeb7b5302359782e54dc4eea14a0cc27c62dcbd50729.txt",
+          "role": "license",
+          "sha256": "c986bcdb83103d4ddf58aeb7b5302359782e54dc4eea14a0cc27c62dcbd50729",
+          "source": "https://docs.rs/crate/hash32/0.3.1/source/LICENSE-MIT"
+        }
+      ],
+      "upstreamRevision": {
+        "git": {
+          "sha1": "d44eb33a01be4582669d9a1fa3f7c58455a21de9"
+        },
+        "path_in_vcs": ""
+      },
+      "version": "0.3.1"
+    },
+    {
+      "buildTargets": [],
       "checksum": "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888",
       "distribution": "normal dependency closure; bundled application",
       "features": {
@@ -12219,6 +12491,59 @@
         "path_in_vcs": ""
       },
       "version": "0.17.1"
+    },
+    {
+      "buildTargets": [],
+      "checksum": "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad",
+      "distribution": "normal dependency closure; bundled application",
+      "features": {
+        "aarch64-apple-darwin": [],
+        "x86_64-apple-darwin": [],
+        "x86_64-pc-windows-msvc": []
+      },
+      "id": "rust:heapless@0.8.0",
+      "issues": [],
+      "kind": "rust",
+      "license": "MIT OR Apache-2.0",
+      "manifestSha256": "98cbfa5f1ea18ccf182e3069c49ecbb74eb0bf7a664dde9bbf238255d95a4f26",
+      "name": "heapless",
+      "repository": "https://github.com/rust-embedded/heapless",
+      "sources": [
+        "https://crates.io/crates/heapless/0.8.0",
+        "https://docs.rs/crate/heapless/0.8.0/source/Cargo.toml"
+      ],
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
+      "texts": [
+        {
+          "bytes": 10847,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE-APACHE",
+          "path": "licenses/texts/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt",
+          "role": "license",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/heapless/0.8.0/source/LICENSE-APACHE"
+        },
+        {
+          "bytes": 1058,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE-MIT",
+          "path": "licenses/texts/035e70219855119df4273b3c5b97543ae82e0dd60c520416e759107c602f651b.txt",
+          "role": "license",
+          "sha256": "035e70219855119df4273b3c5b97543ae82e0dd60c520416e759107c602f651b",
+          "source": "https://docs.rs/crate/heapless/0.8.0/source/LICENSE-MIT"
+        }
+      ],
+      "upstreamRevision": {
+        "git": {
+          "sha1": "9feb6647225316e9022f3ebdd63ab0c2380edeb8"
+        },
+        "path_in_vcs": ""
+      },
+      "version": "0.8.0"
     },
     {
       "buildTargets": [],
@@ -15238,6 +15563,68 @@
         "path_in_vcs": ""
       },
       "version": "0.3.11"
+    },
+    {
+      "buildTargets": [],
+      "checksum": "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf",
+      "distribution": "normal dependency closure; bundled application",
+      "features": {
+        "aarch64-apple-darwin": [
+          "default",
+          "std"
+        ],
+        "x86_64-apple-darwin": [
+          "default",
+          "std"
+        ],
+        "x86_64-pc-windows-msvc": [
+          "default",
+          "std"
+        ]
+      },
+      "id": "rust:md-5@0.10.6",
+      "issues": [],
+      "kind": "rust",
+      "license": "MIT OR Apache-2.0",
+      "manifestSha256": "d6889f7a35144bad6b21ef85f3a6c19dc39a06dac08d0714a7465e0783e74fb7",
+      "name": "md-5",
+      "repository": "https://github.com/RustCrypto/hashes",
+      "sources": [
+        "https://crates.io/crates/md-5/0.10.6",
+        "https://docs.rs/crate/md-5/0.10.6/source/Cargo.toml"
+      ],
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
+      "texts": [
+        {
+          "bytes": 10849,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE-APACHE",
+          "path": "licenses/texts/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt",
+          "role": "license",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
+          "source": "https://docs.rs/crate/md-5/0.10.6/source/LICENSE-APACHE"
+        },
+        {
+          "bytes": 1138,
+          "encoding": "utf-8",
+          "originalPath": "LICENSE-MIT",
+          "path": "licenses/texts/b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1.txt",
+          "role": "license",
+          "sha256": "b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1",
+          "source": "https://docs.rs/crate/md-5/0.10.6/source/LICENSE-MIT"
+        }
+      ],
+      "upstreamRevision": {
+        "git": {
+          "sha1": "026b0e81e90ba476a5d343a8e4efbc63b814737b"
+        },
+        "path_in_vcs": "md5"
+      },
+      "version": "0.10.6"
     },
     {
       "buildTargets": [],
@@ -33256,23 +33643,23 @@
   ],
   "counts": {
     "artwork": 2,
-    "assetFiles": 36,
-    "buildOnlyRust": 84,
+    "assetFiles": 39,
+    "buildOnlyRust": 86,
     "data": 2,
     "dictionary": 1,
     "embedded-javascript": 1,
     "font": 1,
     "installer": 3,
-    "models": 42,
+    "models": 43,
     "native": 4,
     "native-derived": 1,
     "notice-resource": 3,
     "npm": 22,
     "runtimes": 25,
-    "rust": 416,
+    "rust": 422,
     "sound": 1,
     "toolchain-runtime": 1,
-    "uniqueTexts": 497
+    "uniqueTexts": 504
   },
   "downloadMetadata": {
     "coverage": {
@@ -39960,6 +40347,232 @@
     {
       "artifactPins": [
         {
+          "bytes": 268364003,
+          "file": "model.int8.onnx",
+          "sha256": "11f46c02f68a2a05912ed0c65a6dc063f199280b816307fa3ec17ce23a5e2182",
+          "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/model.int8.onnx"
+        },
+        {
+          "bytes": 34363188,
+          "file": "tokenizer.json",
+          "sha256": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+          "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/tokenizer.json"
+        },
+        {
+          "bytes": 1672,
+          "file": "punct-config.json",
+          "sha256": "8bbd52775cedbbcf33c6be4402c9cb77d7c6f581fbc10909518384425039c9e4",
+          "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/punct-config.json"
+        }
+      ],
+      "attribution": "SonoJot Punctuation v3; fine-tuning, ONNX export and int8 quantization by SonoJot. Training labels derive from Rev.com Earnings-21 and Earnings-22 plus one consenting user's dictation; v3 continues SonoJot v1 with v2's written-form span head and data. Base chain: Horizon-Labs/punctuation-restoration-small (Apache-2.0), built on jhu-clsp/mmBERT-small (MIT).",
+      "attributionFiles": {
+        "license": "punctuation/LICENSE-CC-BY-SA-4.0.txt",
+        "notice": "punctuation/NOTICE-v3.txt"
+      },
+      "catalogIds": [
+        "sonojot-punct-v3"
+      ],
+      "conditions": "Retain creator/source attribution, CC BY-SA 4.0 terms and disclaimer notices, and indicate changes. Modified models must remain CC BY-SA 4.0 (or an adapter license permitted by its ShareAlike provision). Preserve applicable Apache/MIT base-model notices. Ordinary inference does not by itself make every output or the application an adaptation.",
+      "distribution": "SonoJot-published model on Hugging Face; downloaded directly from Hugging Face.",
+      "downloadUrls": [
+        "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/model.int8.onnx",
+        "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/tokenizer.json",
+        "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/punct-config.json"
+      ],
+      "evaluationOnly": false,
+      "evidence": [
+        {
+          "file": "downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+          "scope": "pinned-download-repository",
+          "sourceBytes": 7971,
+          "sourceSha256": "b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90",
+          "url": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/README.md"
+        },
+        {
+          "file": "downloads/standard/cc-by-sa-4.0.txt",
+          "scope": "standard-license-text",
+          "sourceBytes": 20138,
+          "sourceSha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+          "url": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt"
+        },
+        {
+          "file": "downloads/standard/apache-2.0.txt",
+          "scope": "standard-license-text",
+          "sourceBytes": 11358,
+          "sourceSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "file": "downloads/huggingface/Horizon-Labs--punctuation-restoration-small/ee31fdfc5304f876ea3b0dd72d30eda7e940b2b1/README.md",
+          "scope": "upstream-current-only",
+          "sourceBytes": 14142,
+          "sourceSha256": "4f4ec573102819c5a12ffc86b4ecfbf9706d78cf5587f64d11a6cb6190907a78",
+          "url": "https://huggingface.co/Horizon-Labs/punctuation-restoration-small/resolve/ee31fdfc5304f876ea3b0dd72d30eda7e940b2b1/README.md"
+        },
+        {
+          "file": "downloads/huggingface/jhu-clsp--mmBERT-small/abc32620dd4f6ab06f5fbe905dc25f310618e09f/README.md",
+          "scope": "upstream-current-only",
+          "sourceBytes": 29646,
+          "sourceSha256": "a56c26f251c188a1c0b783fcddb461e78f754b61ee948975fafbb2b77c863353",
+          "url": "https://huggingface.co/jhu-clsp/mmBERT-small/resolve/abc32620dd4f6ab06f5fbe905dc25f310618e09f/README.md"
+        },
+        {
+          "file": "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md",
+          "scope": "upstream-current-only",
+          "sourceBytes": 249,
+          "sourceSha256": "f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7",
+          "url": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md"
+        },
+        {
+          "file": "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/README.md",
+          "scope": "upstream-current-only",
+          "sourceBytes": 8350,
+          "sourceSha256": "83601d62e4af00fe715f01015df1ae8f9759cbfcc5f360c192cd2a41ac876fb2",
+          "url": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/README.md"
+        },
+        {
+          "file": "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md",
+          "scope": "upstream-current-only",
+          "sourceBytes": 249,
+          "sourceSha256": "f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7",
+          "url": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md"
+        },
+        {
+          "file": "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/README.md",
+          "scope": "upstream-current-only",
+          "sourceBytes": 4367,
+          "sourceSha256": "87c2aa7139b00e3e42cd6f4aba84f735ce4487f0b5bf72d73a0288b6ec32aa4d",
+          "url": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/README.md"
+        }
+      ],
+      "id": "sonojot-punct-v3",
+      "issues": [
+        "The pinned repository has a model card but no standalone LICENSE/NOTICE. This repository supplies complete attribution and CC BY-SA terms under licenses/punctuation; the parent owns writing them beside downloaded weights through model_manager without changing protected punctuation code.",
+        "Exact base-model and Earnings dataset revisions used in training are not recorded by the pinned card. Upstream lineage files were captured at current commits, not represented as training pins.",
+        "The mmBERT card declares MIT but supplies no standalone copyright/license file in that current repository snapshot; retrieve its applicable upstream notice before claiming the base chain is fully cleared."
+      ],
+      "kind": "model",
+      "license": "CC-BY-SA-4.0",
+      "licenseUrl": "https://huggingface.co/SonoJot/sonojot-punct-v3/blob/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+      "lineage": [
+        {
+          "license": "Apache-2.0",
+          "name": "Horizon-Labs/punctuation-restoration-small",
+          "scope": "upstream-current-only; actual training revision unrecorded"
+        },
+        {
+          "license": "MIT",
+          "name": "jhu-clsp/mmBERT-small",
+          "scope": "current card declaration only; original notice unresolved"
+        },
+        {
+          "license": "CC-BY-SA-4.0",
+          "name": "Rev.com Earnings-21 transcripts and alignment text",
+          "scope": "pinned SonoJot card declares use; training dataset revision unrecorded"
+        },
+        {
+          "license": "CC-BY-SA-4.0",
+          "name": "Rev.com Earnings-22 transcripts and alignment text",
+          "scope": "pinned SonoJot v3 card declares use; training dataset revision unrecorded"
+        }
+      ],
+      "name": "SonoJot Punctuation v3",
+      "noticeTexts": [
+        {
+          "bytes": 20138,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/standard/cc-by-sa-4.0.txt",
+          "path": "licenses/texts/28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5.txt",
+          "role": "license",
+          "sha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+          "source": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt"
+        },
+        {
+          "bytes": 11358,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/standard/apache-2.0.txt",
+          "path": "licenses/texts/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "role": "license",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "bytes": 249,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md",
+          "path": "licenses/texts/f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7.txt",
+          "role": "license",
+          "sha256": "f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7",
+          "source": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md"
+        },
+        {
+          "bytes": 249,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md",
+          "path": "licenses/texts/f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7.txt",
+          "role": "license",
+          "sha256": "f68574aae5b4abc00aedc10c6843142b0d7162c74bd13c24752a7f16a44a09b7",
+          "source": "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md"
+        },
+        {
+          "bytes": 7971,
+          "encoding": "utf-8",
+          "originalPath": "licenses/downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+          "path": "licenses/texts/b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90.txt",
+          "role": "license",
+          "sha256": "b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90",
+          "source": "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/README.md"
+        },
+        {
+          "bytes": 2410,
+          "encoding": "utf-8",
+          "originalPath": "licenses/punctuation/NOTICE-v3.txt",
+          "path": "licenses/texts/10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704.txt",
+          "role": "license",
+          "sha256": "10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704",
+          "source": "SonoJot-authored attribution from the pinned model card"
+        },
+        {
+          "bytes": 20138,
+          "encoding": "utf-8",
+          "originalPath": "licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt",
+          "path": "licenses/texts/28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5.txt",
+          "role": "license",
+          "sha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+          "source": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt"
+        }
+      ],
+      "recommendation": "Keep with a packaged model attribution file and full CC BY-SA terms; record the base/training revisions. Retain compatible ShareAlike terms when redistributing adapted weights.",
+      "repository": "SonoJot/sonojot-punct-v3",
+      "sources": [
+        "rewrite/src-tauri/src/punctuation_model.rs",
+        "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+        "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt",
+        "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        "https://huggingface.co/Horizon-Labs/punctuation-restoration-small/resolve/ee31fdfc5304f876ea3b0dd72d30eda7e940b2b1/README.md",
+        "https://huggingface.co/jhu-clsp/mmBERT-small/resolve/abc32620dd4f6ab06f5fbe905dc25f310618e09f/README.md",
+        "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md",
+        "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/README.md",
+        "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md",
+        "https://raw.githubusercontent.com/revdotcom/speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/README.md"
+      ],
+      "textFiles": [
+        "downloads/standard/cc-by-sa-4.0.txt",
+        "downloads/standard/apache-2.0.txt",
+        "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings21/LICENSE.md",
+        "downloads/github/revdotcom--speech-datasets/c05ab6fd8b4b627d123c922a22a39e993dd37635/earnings22/LICENSE.md",
+        "downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md",
+        "punctuation/NOTICE-v3.txt",
+        "punctuation/LICENSE-CC-BY-SA-4.0.txt"
+      ],
+      "verification": "Pinned repository metadata and available card/license files were fetched at the exact catalog commit; large model files were not downloaded.",
+      "verificationStatus": "pinned-card-only",
+      "version": "e023ae245a00bac1785bb6a022b16d181e346e48"
+    },
+    {
+      "artifactPins": [
+        {
           "bytes": 541903616,
           "file": "SpeakoFlow-Mini-0.8B-Q4_K_M.gguf",
           "sha256": "530e0a5d4e9314e3bae2c92aecf3ab39ca48e8cfecac41372058f9fcb742329d",
@@ -42191,8 +42804,8 @@
     "index.html": "9712eb6cccb3387405cbd8aad0a217585fc4e6c33bfe168d156509dc20da8097",
     "legal/download-consent.json": "41195659db80517da221249ecdd256d9d8c302fdaad686f178dad73b6ea7816f",
     "legal/terms-of-use.md": "ecf41869a8e80260c7785a05564d7453dd2cc104266fe57d0d51fabffbf66177",
-    "licenses/assets.json": "68848d94773330f82ac5635ab17616041467eb8a45cb2eeffe0e7cb9dfa1a488",
-    "licenses/download-components.json": "a12065747226ad6dc5d0082848eacef9500cdb198e6246adaef842413cd4ebd0",
+    "licenses/assets.json": "d590549bbfacad8125b778bde152794d9212214cf0689a81653ce41f822d6c7e",
+    "licenses/download-components.json": "e468bfab85e504cc02890bada6eb3b3159df72ea6b2bf714ee403c1efe9a0528",
     "licenses/downloads/archives/llama-cpp-macos-metal/llama-b10964/LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
     "licenses/downloads/archives/nvidia-cublas-13.7.0.27/nvidia_cublas-13.7.0.27.dist-info/METADATA": "55319adb28b995dde623062f5db4942656c18795737e046841cc01c179098a87",
     "licenses/downloads/archives/nvidia-cublas-13.7.0.27/nvidia_cublas-13.7.0.27.dist-info/licenses/License.txt": "ad6f5853fba0ca0d159d0f58d49ae49830c2f8c93f7a92648b9ce90adb4c6ccd",
@@ -42205,7 +42818,7 @@
     "licenses/downloads/archives/transcribe-cpp-macos/transcribe-native-macos-arm64-metal/licenses/LICENSE": "86a53633b56f6b029d3cb42158bcc7aac0cdff898aceb13e83b93e368bbc4ac6",
     "licenses/downloads/archives/transcribe-cpp-macos/transcribe-native-macos-arm64-metal/licenses/ggml/LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
     "licenses/downloads/archives/transcribe-cpp-macos/transcribe-native-macos-arm64-metal/licenses/src/third_party/miniz/LICENSE": "6f20fa7672b00e2e975c291df737cf227addf3ad32e36fef3fe0f416e4664d3d",
-    "licenses/downloads/evidence-manifest.json": "d8b7c06b0e6dd57b1363e34f7835eca6d254401cbf870db9e1c9376c239f045a",
+    "licenses/downloads/evidence-manifest.json": "87c3c8508dab46dc9f5d3a60176ca5da032fb22f2df79c3e73871190cd385b8e",
     "licenses/downloads/ffmpeg-macos-9.0.2-sonojot-lgpl-1/LICENSE.txt": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
     "licenses/downloads/ffmpeg-macos-9.0.2-sonojot-lgpl-1/NOTICE.txt": "104b063a13dc8bcde17bc49420cf8ce897fced03dcd9adaf5a70865db07d4bd3",
     "licenses/downloads/ffmpeg-macos-9.0.2-sonojot-lgpl-1/README.txt": "4dc92ccf528e7f6a15f3cbd0deac815d411b640a4344a600ea9675fc00dd12db",
@@ -42334,6 +42947,7 @@
     "licenses/downloads/huggingface/Qwen--Qwen3.8-27B/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/README.md": "b8bdd4c23ab87abda560e4061f0fe349aac2b02c5de66e5bca24ecd5a8113875",
     "licenses/downloads/huggingface/SonoJot--sonojot-punct-v1/6634a9884cf7bd68663c0eefb4840f4de882e280/README.md": "9da728c59dae3eca598e671f28faa0153f50fe716b5f90ebd1d163ae3213c2a8",
     "licenses/downloads/huggingface/SonoJot--sonojot-punct-v2/94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625/README.md": "97db6edaff1af77dc0b245131b5aa90158dec1f6f5908b897bbd42333171c045",
+    "licenses/downloads/huggingface/SonoJot--sonojot-punct-v3/e023ae245a00bac1785bb6a022b16d181e346e48/README.md": "b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90",
     "licenses/downloads/huggingface/SpeakoFlow--speakoflow-mini/835431771f72820251fe6c6b4b07f12b000e2647/README.md": "1eaf7209e6c4d944236045ce97abb993e4350edf37ad518d8c79528858ea059a",
     "licenses/downloads/huggingface/bartowski--Qwen_Qwen3-4B-Instruct-2507-GGUF/ae44f08e1392f39c0e474af10c3ff8355c8b6688/README.md": "139ebb15c2601ca66b0d2820127b1bfaf491b084a582f9fa08286ba7daeeea82",
     "licenses/downloads/huggingface/csukuangfj--sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16/a6cc4e24ed264a93a17575dad416dacc4238497a/README.md": "835f3f7d88a86e05a882c6a6b6333da6ab874776385f85473798769d767c2fca",
@@ -42385,17 +42999,20 @@
     "licenses/punctuation/LICENSE-CC-BY-SA-4.0.txt": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
     "licenses/punctuation/NOTICE-v1.txt": "b9450987f058ba2e9e5c1010dca209811ccfd05294bc5a500164bb62fa06de09",
     "licenses/punctuation/NOTICE-v2.txt": "749698c398a5ed1b005e6e6fbed92cd2cdbaa0429b95e3ba2207fd84f7d0f1de",
+    "licenses/punctuation/NOTICE-v3.txt": "10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704",
+    "licenses/punctuation/NOTICE-v4.txt": "19dd95d88170014cea712accec54027dfc4092fa5ebf18092dca0dfff39559d2",
+    "licenses/sources/crc-catalog-2.5.0-LICENSE-MIT": "5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5",
     "licenses/sources/cssparser-0.36.0.crate": "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2",
     "licenses/sources/dtoa-short-0.3.5.crate": "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87",
     "licenses/sources/option-ext-0.2.0.crate": "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d",
     "licenses/sources/selectors-0.36.1.crate": "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c",
-    "licenses/supplements.json": "5deea2be184681747ecd759041c58469c106e601aba6b5da3544ca501de8e89b",
+    "licenses/supplements.json": "64cab7ef5206c4f5a948461b064fb86d1c4a03f7276bebc05de9760cba6a851d",
     "licenses/upstream-evidence.json": "4ae4296502aeddbfd767d9528750f8ba70969343afa1f9afb44fb40913f756eb",
     "package-lock.json": "de67777cc166b059395f496a3cde7fd7c5372dbb2682491c8352087b715e4bcc",
     "package.json": "626bb0095641a21b4e6b2b5d8487527ba1db768ee2f97a00beef2e7461a4c184",
     "scripts/generate_notices.py": "75893e4e28e00b97dedec538c35a880fed6157491938c8a2801b75478a006fda",
-    "src-tauri/Cargo.lock": "c80365318d30d10d3bbe56862f7686f574db3dc640df8630b7cc5b0e2d2af65c",
-    "src-tauri/Cargo.toml": "a382d82a3c0e2cae19ef49d3f4892dd1e47f849302b73da21650ebbc1976cde3",
+    "src-tauri/Cargo.lock": "4514e92600a7b791810653a78b99c2edd8382f803e9ca54b33f1bd266839e718",
+    "src-tauri/Cargo.toml": "13ae532a3f94c50822f7b909602eeed97dbe7359132f282584738fabfb131db7",
     "src-tauri/assets/linux-llama-identities.json": "241ef86caeec95c627db16a22a9d78787f8dce33c8f08ff907ac32fa08e2880e",
     "src-tauri/assets/model-identities.json": "97a174c8b3f0eb815a8b1ceedce3c63c322f099cb1dc1dc1bb8ccb867528fde0",
     "src-tauri/build.rs": "33126a7f3f8ac762d07234d15f37f837ee82804763bb74f5141a8dcdc6294ca0",
@@ -42403,8 +43020,9 @@
     "src-tauri/licenses/scowl-2020.12.07.txt": "384a59022be3b0deac5770e72f1f255f1dc7e1279159ab768bf0cc5ee140f714",
     "src-tauri/src/audio.rs": "9c039c0b4b64320046a6ef1a1b35db32ac67f1c07586d20d89842bb5cac42561",
     "src-tauri/src/punctuation_lowercase.txt": "b2045a2460991c60ec730bc627113368929828e274dc3eee272babbea78533de",
-    "src-tauri/src/written_form/PROVENANCE.md": "19dcf78ec05e2119bcaea79eb6120cc4f433949ff8c413a305dab24964ace742",
+    "src-tauri/src/written_form/PROVENANCE.md": "3794045ad752dd0ec9cc3b4723757fd82cceb7392c860ea518865c176bc8689d",
     "src-tauri/src/written_form/models.json": "ee30a67479540b2df24846ddc8aa82fb5315a5991ab0b2bcd92fa429b158e111",
+    "src-tauri/src/written_form/terms.json": "e0dd661df054c328db7cc51229a91b31c638458ed411b3bb3b2a34ef978990be",
     "src-tauri/tauri.conf.json": "729c1955738baf0945d423c3b5f7614894011339760f2ad90aa9060065363399",
     "src-tauri/windows/README.md": "67ff7b9f09a46be101cfdeac39b3776d3b3190827ac6f491a867ab58cf5b834f",
     "src-tauri/windows/brand-hooks.nsh": "823a4e60e601e20ba56c0622a57659a65b8c9062d05bfca1e56cb23d56847e18",
@@ -42552,6 +43170,12 @@
       "encoding": "utf-8",
       "path": "licenses/texts/033ca2150894cf7deccdc248f42acc68e3b937afd4cfb5b50636a29103a16706.txt",
       "sha256": "033ca2150894cf7deccdc248f42acc68e3b937afd4cfb5b50636a29103a16706"
+    },
+    {
+      "bytes": 1058,
+      "encoding": "utf-8",
+      "path": "licenses/texts/035e70219855119df4273b3c5b97543ae82e0dd60c520416e759107c602f651b.txt",
+      "sha256": "035e70219855119df4273b3c5b97543ae82e0dd60c520416e759107c602f651b"
     },
     {
       "bytes": 1057,
@@ -42750,6 +43374,12 @@
       "encoding": "utf-8",
       "path": "licenses/texts/106423785c5b7eba0a8e61d1837f2132e9c828e20ad530f565d981c1df60dd90.txt",
       "sha256": "106423785c5b7eba0a8e61d1837f2132e9c828e20ad530f565d981c1df60dd90"
+    },
+    {
+      "bytes": 2410,
+      "encoding": "utf-8",
+      "path": "licenses/texts/10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704.txt",
+      "sha256": "10d4d009f8dbd52f55089bf61f8a10a3ca0c1fcf576f94532dbb7202a8a72704"
     },
     {
       "bytes": 395,
@@ -43202,6 +43832,12 @@
       "sha256": "333ea3aaa3cadb819f4acd9f9153f9feee060a995ca8710f32bc5bd9a4b91734"
     },
     {
+      "bytes": 1074,
+      "encoding": "utf-8",
+      "path": "licenses/texts/3488679340a49ecc34d342c4009d2dabf76f4a21f12aec2ca99b15805d656544.txt",
+      "sha256": "3488679340a49ecc34d342c4009d2dabf76f4a21f12aec2ca99b15805d656544"
+    },
+    {
       "bytes": 1065,
       "encoding": "utf-8",
       "path": "licenses/texts/3521672491a3479422d5fe1aca6645dd2984090f85da6e5205abfb18fb7a6897.txt",
@@ -43392,6 +44028,12 @@
       "encoding": "utf-8",
       "path": "licenses/texts/46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603.txt",
       "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603"
+    },
+    {
+      "bytes": 10846,
+      "encoding": "utf-8",
+      "path": "licenses/texts/470355a7eed93fcc4281ec2e0f82ca3b94e7af1e4d83629f91de8cfac34d750e.txt",
+      "sha256": "470355a7eed93fcc4281ec2e0f82ca3b94e7af1e4d83629f91de8cfac34d750e"
     },
     {
       "bytes": 1063,
@@ -43626,6 +44268,12 @@
       "encoding": "utf-8",
       "path": "licenses/texts/5e05b024f653a5ce199e77cbbbd42fb5553562ec714b819421ed0c3e552a75d7.txt",
       "sha256": "5e05b024f653a5ce199e77cbbbd42fb5553562ec714b819421ed0c3e552a75d7"
+    },
+    {
+      "bytes": 1073,
+      "encoding": "utf-8",
+      "path": "licenses/texts/5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5.txt",
+      "sha256": "5ef8fcfb6cccec8fcae043c834099a60c8b7406408db576e026d2b7e67dc5cf5"
     },
     {
       "bytes": 1055,
@@ -44666,6 +45314,12 @@
       "sha256": "b8c6939380a400f53e11923d50fcc4dd2fa1ba8339fd9d04cda38a0251b6c9b0"
     },
     {
+      "bytes": 7971,
+      "encoding": "utf-8",
+      "path": "licenses/texts/b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90.txt",
+      "sha256": "b905186dc8976ade6f19fb01db6f607b5f9c76f8585aa665bbc6557046497f90"
+    },
+    {
       "bytes": 1940,
       "encoding": "utf-8",
       "path": "licenses/texts/b9450987f058ba2e9e5c1010dca209811ccfd05294bc5a500164bb62fa06de09.txt",
@@ -44880,6 +45534,12 @@
       "encoding": "utf-8",
       "path": "licenses/texts/c962ee4d1d05ddc138b202b2540219ebc57893fcf97b364852094a9a94ce1365.txt",
       "sha256": "c962ee4d1d05ddc138b202b2540219ebc57893fcf97b364852094a9a94ce1365"
+    },
+    {
+      "bytes": 1058,
+      "encoding": "utf-8",
+      "path": "licenses/texts/c986bcdb83103d4ddf58aeb7b5302359782e54dc4eea14a0cc27c62dcbd50729.txt",
+      "sha256": "c986bcdb83103d4ddf58aeb7b5302359782e54dc4eea14a0cc27c62dcbd50729"
     },
     {
       "bytes": 1071,
@@ -45576,6 +46236,9 @@
       "sonojot-punct-v2: Exact base-model and Earnings dataset revisions used in training are not recorded by the pinned card. Upstream lineage files were captured at current commits, not represented as training pins.",
       "sonojot-punct-v2: The mmBERT card declares MIT but supplies no standalone copyright/license file in that current repository snapshot; retrieve its applicable upstream notice before claiming the base chain is fully cleared.",
       "sonojot-punct-v2: The pinned repository has a model card but no standalone LICENSE/NOTICE. This repository supplies complete attribution and CC BY-SA terms under licenses/punctuation; the parent owns writing them beside downloaded weights through model_manager without changing protected punctuation code.",
+      "sonojot-punct-v3: Exact base-model and Earnings dataset revisions used in training are not recorded by the pinned card. Upstream lineage files were captured at current commits, not represented as training pins.",
+      "sonojot-punct-v3: The mmBERT card declares MIT but supplies no standalone copyright/license file in that current repository snapshot; retrieve its applicable upstream notice before claiming the base chain is fully cleared.",
+      "sonojot-punct-v3: The pinned repository has a model card but no standalone LICENSE/NOTICE. This repository supplies complete attribution and CC BY-SA terms under licenses/punctuation; the parent owns writing them beside downloaded weights through model_manager without changing protected punctuation code.",
       "speakoflow-mini-q4_k_m: Pinned card declares Apache-2.0 but supplies no standalone LICENSE/NOTICE. Exact Qwen3.5 base revision is not pinned by the card.",
       "ternary-bonsai-2-27b: Its separate PrismML runtime and CUDA DLL archives have no standalone license/notice files.",
       "ternary-bonsai-2-27b: The base Qwen3.8-27B revision is not pinned by the converter's NOTICE; upstream license confirmation is a current-only snapshot.",

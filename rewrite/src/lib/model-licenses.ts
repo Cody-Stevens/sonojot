@@ -13,7 +13,10 @@ for (const component of catalog.components) {
     licenses.set(id, {
       name: component.license,
       url:
-        id === "sonojot-punct-v1" || id === "sonojot-punct-v2"
+        id === "sonojot-punct-v1" ||
+        id === "sonojot-punct-v2" ||
+        id === "sonojot-punct-v3" ||
+        id === "sonojot-cleanup-v4"
           ? "https://creativecommons.org/licenses/by-sa/4.0/legalcode.en"
           : component.licenseUrl,
     });

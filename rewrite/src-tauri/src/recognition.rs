@@ -1107,6 +1107,7 @@ impl RemoteStream<'_> {
         self.finished = true;
         Ok((
             RecognitionResult {
+                word_confidence: Vec::new(),
                 original_text: self.original_text.clone(),
                 segments: Vec::new(),
                 text: self.raw.clone(),

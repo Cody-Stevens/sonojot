@@ -42,10 +42,10 @@ test("live preview help names the download it still needs", () => {
     "qwen3-asr-1.7b-q8-cuda",
   );
   assert.match(missing, /never reaches your text/);
-  assert.match(missing, /Install Moonshine Tiny Streaming \(46 MB\) in Models/);
+  assert.match(missing, /Needs Moonshine Tiny Streaming \(46 MB\)\./);
   assert.doesNotMatch(
     livePreviewHelpText(model("installed"), "qwen3-asr-1.7b-q8-cuda"),
-    /Install/,
+    /Needs/,
   );
   assert.match(
     livePreviewHelpText(model("unavailable", false), "whisper-small"),

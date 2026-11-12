@@ -316,6 +316,17 @@ fn verbalize_inner(v: &str) -> Vec<String> {
         speech.push(c[2].into());
         return combine(&[one(c[1].trim()), speech]);
     }
+    if let Some(c) = re!(r"^'(\d{2})$").captures(v) {
+        let n: i128 = c[1].parse().unwrap_or(0);
+        return if c[1].starts_with('0') {
+            vec![
+                format!("oh {}", integer_speech(n)),
+                format!("o {}", integer_speech(n)),
+            ]
+        } else {
+            one(&integer_speech(n))
+        };
+    }
     if let Some(c) = re!(r"^(\d+)(st|nd|rd|th)$").captures(v) {
         if let Ok(n) = c[1].parse::<i128>() {
             if &c[2] == numbers::suffix(n) {

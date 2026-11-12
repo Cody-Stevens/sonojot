@@ -2,38 +2,8 @@ import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { installDesktopFixture } from "./desktop-fixture.js";
-import { openApp, showRecentDictations } from "./app-helpers.js";
+import { showRecentDictations } from "./app-helpers.js";
 
-const smartId = "speakoflow-mini-q4_k_m";
-const smart = {
-  id: smartId,
-  name: "Smart cleanup (experimental)",
-  kind: "cleanup",
-  roles: ["cleanup"],
-  family: "SpeakoFlow",
-  languages: ["English"],
-  older: false,
-  diskBytes: 500_000_000,
-  ramMinBytes: 600_000_000,
-  ramMaxBytes: 1_100_000_000,
-  vramMinBytes: null,
-  vramMaxBytes: null,
-  memoryBasis: "Fictional test values",
-  guidance: "Fixture",
-  evidence: "Fixture",
-  backend: "cpu",
-  compatibility: "Fixture",
-  state: "installed",
-  downloadedBytes: 500_000_000,
-  totalBytes: 500_000_000,
-  error: null,
-  installable: false,
-  removable: true,
-  usedBy: [],
-  revision: "fixture",
-  quantization: "Q4_K_M",
-  contextTokens: 4096,
-};
 const result = {
   state: "idle",
   resultSessionId: 7,
@@ -73,69 +43,6 @@ async function screenshot(page, name, locator = page) {
   await page.evaluate(() => document.fonts.ready);
   await locator.screenshot({
     path: fileURLToPath(new URL(`${name}.png`, directory)),
-  });
-}
-
-test("Custom offers Smart without selecting it and can return to rules", async ({
-  page,
-}) => {
-  await installDesktopFixture(page, {
-    libraryModels: [smart],
-    settings: { cleanupModel: "local-rules" },
-  });
-  await page.goto("/?page=setup");
-  await expect
-    .poll(() =>
-      page.evaluate(() => window.__testSnapshot().settings.cleanupModel),
-    )
-    .toBe("local-rules");
-  await page
-    .getByRole("button", { name: "Cleanup model", exact: true })
-    .click();
-  await page.getByRole("option", { name: /Smart cleanup/ }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(() => window.__testSnapshot().settings.cleanupModel),
-    )
-    .toBe(smartId);
-  await expect(page.getByText(
-    "Small cleanup model; may miss or occasionally change wording. Numbers, names and links are checked.",
-  )).toBeVisible();
-  await screenshot(page, "custom-selected");
-  await page.getByRole("button", { name: "Notes model", exact: true }).click();
-  await expect(page.getByRole("option", { name: /Smart cleanup/ })).toHaveCount(
-    0,
-  );
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Cleanup model", exact: true }).click();
-  await page.getByRole("option", { name: /^SonoJot Punctuation v2 with your vocabulary/ }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(() => window.__testSnapshot().settings.cleanupModel),
-    )
-    .toBe("local-rules");
-});
-
-for (const profile of ["accurate", "balanced", "light"]) {
-  test(`${profile} offers rules without the experimental switch`, async ({
-    page,
-  }) => {
-    await installDesktopFixture(page, {
-      libraryModels: [smart],
-      settings: { setupProfile: profile, cleanupModel: "local-rules" },
-    });
-    await page.goto("/?page=setup");
-    await expect(
-      page.getByRole("group", { name: "Selected profile details" }),
-    ).toContainText(
-      "Cleanup: SonoJot Punctuation v2 with your vocabulary · Installed",
-    );
-    await expect(
-      page.getByRole("switch", { name: "Experimental Smart cleanup" }),
-    ).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Cleanup model", exact: true }),
-    ).toHaveCount(0);
   });
 }
 
@@ -284,44 +191,38 @@ test("history separates raw recognition, rules original, Cleaned and guard fallb
   });
   await page.goto("/?page=dictation");
   const history = await showRecentDictations(page);
-  await history.getByRole("button", { name: result.outputText }).click();
-  await history.getByRole("button", { name: "Compare versions" }).click();
-  const versions = history.getByRole("region", { name: "Compare versions" });
-  await expect(
-    versions.getByRole("heading", { name: "As recognized", exact: true }),
-  ).toBeVisible();
-  await expect(
-    versions.getByRole("heading", { name: "Before AI changes", exact: true }),
-  ).toBeVisible();
-  await expect(
-    versions.getByRole("heading", { name: "Cleaned", exact: true }),
-  ).toBeVisible();
-  const original = versions.locator(":scope > div").filter({
-    has: page.getByRole("heading", { name: "Before AI changes", exact: true }),
-  });
-  await expect(original).toContainText(result.preModelText);
-  await original.getByRole("button", { name: "Copy", exact: true }).click();
+  await history
+    .getByRole("button", {
+      name: `Open dictation: ${result.outputText}`,
+      exact: true,
+    })
+    .click();
+  let detail = page.getByRole("region", { name: "Open dictation" });
+  await detail
+    .getByRole("button", { name: "Before cleanup", exact: true })
+    .click();
+  await expect(detail.locator(".full-text")).toHaveText(result.preModelText);
+  await detail.getByRole("button", { name: "Copy", exact: true }).click();
   expect(await calls(page, "copy_history_pre_model")).toEqual([
     { command: "copy_history_pre_model", args: { id: record.id } },
   ]);
-  await screenshot(page, "history-comparison");
-  await page.getByRole("button", { name: "All recent dictations" }).click();
+  await detail.getByRole("button", { name: "As heard", exact: true }).click();
+  await expect(detail.locator(".full-text")).toHaveText(record.raw);
+  await detail.getByRole("button", { name: "Final", exact: true }).click();
+  await expect(detail.locator(".full-text")).toHaveText(record.published);
+  await detail.getByRole("button", { name: "Close dictation" }).click();
   await history
-    .getByRole("button", { name: "Keep zero point zero four volts." })
+    .getByRole("button", {
+      name: "Open dictation: Keep zero point zero four volts.",
+      exact: true,
+    })
     .click();
-  await history.locator("summary", { hasText: "More" }).click();
-  await history.getByRole("button", { name: "Processing details" }).click();
-  const details = history.getByRole("region", { name: "Processing details" });
-  await expect(details.getByRole("definition")).toHaveText([
+  detail = page.getByRole("region", { name: "Open dictation" });
+  await detail.locator("summary", { hasText: "More" }).click();
+  await detail.locator("summary", { hasText: "Processing details" }).click();
+  await expect(detail.getByRole("definition")).toHaveText([
     "Complete",
     "Rules",
     "Number change blocked",
   ]);
-  await history.getByRole("button", { name: "Compare versions" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Finished text", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Cleaned", exact: true }),
-  ).toHaveCount(0);
 });

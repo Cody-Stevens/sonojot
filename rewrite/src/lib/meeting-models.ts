@@ -11,19 +11,6 @@ export function meetingSpeechModels(models: ModelEntry[]): ModelEntry[] {
   );
 }
 
-export function showMeetingModelPicker(
-  models: ModelEntry[],
-  connected: boolean,
-  onlineChoices: number,
-  selectedLocalId = "",
-): boolean {
-  return (
-    !!selectedLocalId ||
-    models.some((model) => selectable(model, "meetingSpeech")) ||
-    (connected && onlineChoices > 0)
-  );
-}
-
 /** Keep an explicit local choice even when unavailable; never silently replace it. */
 export function defaultMeetingModel(
   settings: MeetingSettings,

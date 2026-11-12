@@ -96,15 +96,17 @@ enum Reply {
         /// Regex-word BIO labels from the same inference; absent for v1.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         spans: Option<Vec<crate::written_form::BioLabel>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deletes: Option<Vec<bool>>,
     },
 }
 
 fn prediction_reply(reply: Reply, count: usize) -> Result<crate::punctuation::Prediction> {
     match reply {
-        Reply::Labels { labels, spans }
-            if labels.len() == count && spans.as_ref().is_none_or(|spans| spans.len() == count) =>
+        Reply::Labels { labels, spans, deletes }
+            if labels.len() == count && spans.as_ref().is_none_or(|spans| spans.len() == count) && deletes.as_ref().is_none_or(|d| d.len() == count) =>
         {
-            Ok(crate::punctuation::Prediction { labels, spans })
+            Ok(crate::punctuation::Prediction { labels, spans, deletes })
         }
         _ => Err(Failure::Output),
     }
@@ -502,6 +504,7 @@ fn worker_loop(address: &str) -> Result<()> {
                         Reply::Labels {
                             labels: prediction.labels,
                             spans: prediction.spans,
+                            deletes: prediction.deletes,
                         }
                     })
                 }),
@@ -697,6 +700,7 @@ mod tests {
         for expected in [None, Some(spans)] {
             let reply = Reply::Labels {
                 labels: vec![Mark::None, Mark::Period],
+                deletes: None,
                 spans: expected.clone(),
             };
             let mut frame = Vec::new();
@@ -716,6 +720,7 @@ mod tests {
             let reply = Reply::Labels {
                 labels: vec![Mark::None; marks],
                 spans,
+                deletes: None,
             };
             assert_eq!(prediction_reply(reply, count), Err(Failure::Output));
         }
@@ -723,12 +728,14 @@ mod tests {
         for spans in [None, Some(vec![])] {
             let reply = Reply::Labels {
                 labels: vec![],
+                deletes: None,
                 spans: spans.clone(),
             };
             assert_eq!(prediction_reply(reply, 0).unwrap().spans, spans);
         }
         let legacy = serde_json::to_value(Reply::Labels {
             labels: vec![Mark::Period],
+            deletes: None,
             spans: None,
         })
         .unwrap();

@@ -43,6 +43,9 @@ export const hardwareProfileSchema = z.object({
     balanced: profileSelectionSchema,
     light: profileSelectionSchema,
   }),
+  frontier: z.object({
+    dictation: z.array(z.string()), meetings: z.array(z.string()), otherLanguages: z.string(),
+  }),
 });
 export type HardwareProfile = z.infer<typeof hardwareProfileSchema>;
 
@@ -119,11 +122,23 @@ export function sameProfileModels(left: ProfileSelection, right: ProfileSelectio
   return modelRoles.every((role) => left[role.setting] === right[role.setting]);
 }
 
-type RoleSelection = Pick<Settings, "asrModel" | "cleanupModel" | "notesModel">;
+type RoleSelection = Pick<
+  Settings,
+  "asrModel" | "cleanupModel" | "notesModel"
+> &
+  Partial<
+    Pick<
+      Settings,
+      | "meetingAsrModel"
+      | "proofreader"
+      | "proofreaderModel"
+      | "localProofreader"
+    >
+  >;
 export type ModelRoleId = (typeof modelRoles)[number]["id"];
 /** One role where the saved choice differs from the profile's current pick. */
 export interface ProfileChange {
-  role: ModelRoleId;
+  role: ModelRoleId | "meetingSpeech";
   recommended: string;
   current: string;
 }
@@ -140,14 +155,38 @@ export type ProfileCardState =
   | { kind: "in-use" }
   | { kind: "changed"; changes: ProfileChange[] };
 
-export function profileChanges(settings: RoleSelection, recommendation: RoleSelection): ProfileChange[] {
-  return modelRoles
-    .filter((role) => settings[role.setting] !== recommendation[role.setting])
+export function profileChanges(
+  settings: RoleSelection,
+  recommendation: RoleSelection,
+  online?: { backend: string; model: string; speechModel: string } | null,
+  sonojotAvailable = false,
+): ProfileChange[] {
+  const effective = {
+    ...settings,
+    cleanupModel: settings.localProofreader && sonojotAvailable
+      ? "SonoJot cleanup"
+      : settings.proofreader
+        ? settings.proofreaderModel || "OpenRouter"
+        : settings.cleanupModel,
+    notesModel:
+      online?.backend === "openrouter"
+        ? online.model || "OpenRouter"
+        : settings.notesModel,
+  };
+  const changes: ProfileChange[] = modelRoles
+    .filter((role) => effective[role.setting] !== recommendation[role.setting])
     .map((role) => ({
       role: role.id,
       recommended: recommendation[role.setting],
-      current: settings[role.setting],
+      current: effective[role.setting],
     }));
+  if (settings.meetingAsrModel || online?.speechModel)
+    changes.push({
+      role: "meetingSpeech",
+      current: settings.meetingAsrModel || online!.speechModel,
+      recommended: "Same as dictation",
+    });
+  return changes;
 }
 
 export function profileCardState(options: {
@@ -169,7 +208,12 @@ export function profileCardState(options: {
   return changes.length ? { kind: "changed", changes } : { kind: "in-use" };
 }
 
-const roleWords: Record<ModelRoleId, string> = { asr: "speech", cleanup: "cleanup", notes: "notes" };
+const roleWords: Record<ProfileChange["role"], string> = {
+  asr: "speech",
+  cleanup: "cleanup",
+  notes: "notes",
+  meetingSpeech: "meeting speech",
+};
 
 function listWords(items: string[]): string {
   return items.length < 3

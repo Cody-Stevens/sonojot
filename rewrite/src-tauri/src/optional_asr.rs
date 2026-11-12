@@ -764,8 +764,7 @@ fn cpu_runtime_still_used(models_root: &Path, removed_id: &str) -> bool {
                 && crate::whisper_catalog::model_dir(models_root, item.id).exists()
         })
         || crate::diarization_model::path(models_root).exists()
-        || crate::punctuation_model::path(models_root).exists()
-        || crate::punctuation_model::Package::V2.path(models_root).exists()
+        || crate::punctuation_model::Package::ALL.iter().any(|package| package.path(models_root).exists())
         // Retain VAD even for an incomplete llama package awaiting repair.
         || crate::llama_asr::catalog().iter().any(|item| {
             item.id != removed_id && crate::llama_asr::model_dir(models_root, item.id).exists()
@@ -1264,7 +1263,7 @@ mod tests {
     #[test]
     fn legacy_speech_removal_retains_runtime_for_punctuation_even_if_partial() {
         use crate::punctuation_model::Package;
-        for package in [Package::V1, Package::V2] {
+        for package in Package::ALL {
             let root = std::env::temp_dir().join(format!("punct-shared-runtime-{}", store::new_id()));
             fs::create_dir_all(package.path(&root)).unwrap();
             assert!(cpu_runtime_still_used(&root, PARAKEET.id));

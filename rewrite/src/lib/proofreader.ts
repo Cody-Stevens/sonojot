@@ -1,11 +1,7 @@
-import { catalogRows, type AiModel } from "./ai";
+import type { AiModel } from "./ai";
 import type { Settings } from "./protocol";
 
-export const PROOFREADER_LABEL =
-  "Proofread with an online model (experimental)";
-export const PROOFREADER_HELP =
-  "Fix misheard words and small slips. Sends dictation text and vocabulary to OpenRouter.";
-export const PROOFREADER_DEFAULT_MODEL = "openai/gpt-6-luna";
+export const PROOFREADER_DEFAULT_MODEL = "anthropic/claude-opus-5.5";
 export const OPENROUTER_PRIVACY_URL = "https://openrouter.ai/settings/privacy";
 export const CLOUD_NOTICE_KEY = "openrouter-cloud";
 export const CLOUD_NOTICE_VERSION = "1";
@@ -16,15 +12,6 @@ export function needsCloudNotice(
   return (
     settings.componentAcknowledgments[CLOUD_NOTICE_KEY] !== CLOUD_NOTICE_VERSION
   );
-}
-
-export function proofreaderModels(
-  models: readonly AiModel[],
-  query: string,
-): AiModel[] {
-  return catalogRows(models, query.trim().toLocaleLowerCase())
-    .filter(({ roles }) => roles.includes("text"))
-    .map(({ item }) => item);
 }
 
 export function needsTrainingAcceptance(

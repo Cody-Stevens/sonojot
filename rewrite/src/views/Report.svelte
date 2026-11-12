@@ -15,7 +15,12 @@
   let {
     crash,
     onclose,
-  }: { crash: PendingCrash | null; onclose: () => Promise<void> } = $props();
+    embedded = false,
+  }: {
+    crash: PendingCrash | null;
+    onclose: () => Promise<void>;
+    embedded?: boolean;
+  } = $props();
   let draft = $state<Report | null>(null);
   let notes = $state("");
   let consent = $state(false);
@@ -174,12 +179,12 @@
   }
 </script>
 
-<header class="page-heading">
-  <h1 class="text-grain" data-text-surface="emboss">
-    {crash ? crashHeading(crash.reason) : "Report a bug"}
-  </h1>
-</header>
-<Card>
+{#if !embedded}<header class="page-heading">
+    <h1 class="text-grain" data-text-surface="emboss">
+      {crash ? crashHeading(crash.reason) : "Report a bug"}
+    </h1>
+  </header>{/if}
+<Card class={embedded ? "report-sheet-content" : ""}>
   {#if receipt}
     <p role="status">
       Report sent. Receipt: <span class="receipt">{receipt}</span>
@@ -258,6 +263,12 @@
 </Card>
 
 <style>
+  :global(.studio .quiet-sheet-dialog .paper-card.report-sheet-content) {
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+    background: transparent;
+  }
   .report-notes {
     display: grid;
     gap: 9px;

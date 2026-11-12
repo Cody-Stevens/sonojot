@@ -34,7 +34,12 @@ pub struct StartOptions {
     /// stays outside the speech engine and its model requests.
     pub layout_app_category: Arc<OnceLock<Option<crate::app_context::Category>>>,
     pub written_form: bool,
-    pub notes_model: String,
+    /// Run the SonoJot punctuation package; off keeps the rules only.
+    pub punctuation_model: bool,
+    /// Shape by type runs on the cleanup model only. Empty when the cleanup
+    /// choice is Off or online; `layout_unavailable` says why.
+    pub layout_model: String,
+    pub layout_unavailable: &'static str,
     pub vocabulary: Vec<cleanup::Vocabulary>,
     /// The cleanup policy for this session: `conservative-v1` for normal runtime.
     /// The saved `cleanup_trial` bool is preserved in Settings for backwards
@@ -54,6 +59,7 @@ pub struct StartOptions {
     /// newly acquired notes job). New field with a Default so existing
     /// `..Default::default()` call sites keep compiling.
     pub no_history: bool,
+    pub keep_dictation_audio: bool,
     /// Store handle for post-ASR learned-vocabulary lookup (full raw
     /// utterance, mapped mode, ≤1536 budget). `None` in legacy/test paths
     /// (no learned injection). Never a global list at capture start: raw and
@@ -72,13 +78,16 @@ impl Default for StartOptions {
             proofreader: Default::default(),
             layout_app_category: Arc::default(),
             written_form: true,
-            notes_model: "qwen3-4b-instruct-2507".into(),
+            punctuation_model: true,
+            layout_model: String::new(),
+            layout_unavailable: "no_cleanup_model",
             vocabulary: Vec::new(),
             policy: cleanup::CleanupPolicy::conservative(),
             confirmed_vocabulary: Vec::new(),
             auto_stop_seconds: 0,
             live_preview: false,
             no_history: false,
+            keep_dictation_audio: false,
             store: None,
         }
     }
@@ -108,20 +117,23 @@ impl StartOptions {
         // Also ensures the singleton idle worker runs.
         resource_manager::configure(&settings);
         let _ = settings.cleanup_trial;
+        let sonojot_available = store
+            .as_ref()
+            .is_some_and(|store| crate::optional_llm::proofreader_present(&store.models_dir()));
+        let choice = settings.cleanup_choice(sonojot_available);
+        let options = Self::cleanup_options(&settings, &choice);
         Self {
             microphone: settings.microphone.clone(),
             asr_model: settings.asr_model.clone(),
-            cleanup_model: settings.cleanup_model.clone(),
+            cleanup_model: options.0,
             smart_layout: settings.smart_layout,
             smart_layout_app_hint: settings.smart_layout_app_hint,
-            proofreader: crate::proofreader::Options {
-                enabled: settings.proofreader,
-                model: settings.proofreader_model.clone(),
-                training_accepted: settings.proofreader_training_models.contains(&settings.proofreader_model),
-            },
+            proofreader: options.1,
             layout_app_category: Arc::default(),
             written_form: settings.written_form,
-            notes_model: settings.notes_model.clone(),
+            punctuation_model: settings.sonojot_punctuation,
+            layout_model: options.2,
+            layout_unavailable: options.3,
             cleanup_mode: match settings.cleanup_mode {
                 crate::domain::CleanupMode::Clean => cleanup::Mode::Clean,
                 crate::domain::CleanupMode::Original => cleanup::Mode::Original,
@@ -133,7 +145,49 @@ impl StartOptions {
             auto_stop_seconds: settings.auto_stop_seconds as u64,
             live_preview: settings.live_preview,
             no_history: settings.do_not_save_dictations,
+            keep_dictation_audio: settings.keep_dictation_audio,
             store,
+        }
+    }
+
+    /// One cleanup model per dictation: the local cleanup stage, the
+    /// proofreader (SonoJot or online) and the Shape by type model all follow
+    /// the single choice.
+    fn cleanup_options(
+        settings: &crate::domain::Settings,
+        choice: &crate::domain::CleanupChoice,
+    ) -> (String, crate::proofreader::Options, String, &'static str) {
+        use crate::domain::CleanupChoice;
+        let proofreader = |model: &str| crate::proofreader::Options {
+            enabled: true,
+            model: model.into(),
+            training_accepted: settings.proofreader_training_models.iter().any(|id| id == model),
+        };
+        match choice {
+            CleanupChoice::Off => (
+                "local-rules".into(),
+                crate::proofreader::Options { enabled: false, ..Default::default() },
+                String::new(),
+                "no_cleanup_model",
+            ),
+            CleanupChoice::SonoJot => (
+                "local-rules".into(),
+                proofreader(crate::optional_llm::PROOFREADER_ID),
+                crate::optional_llm::PROOFREADER_ID.into(),
+                "",
+            ),
+            CleanupChoice::Online(model) => (
+                "local-rules".into(),
+                proofreader(model),
+                String::new(),
+                "online_model",
+            ),
+            CleanupChoice::Local(model) => (
+                model.clone(),
+                crate::proofreader::Options { enabled: false, ..Default::default() },
+                model.clone(),
+                "",
+            ),
         }
     }
 
@@ -178,6 +232,8 @@ fn learned_cleanup_for_job(
 }
 #[derive(Clone, Debug)]
 pub struct DictationResult {
+    pub kept_audio: Option<Arc<Vec<f32>>>,
+    pub word_confidence: Vec<crate::confidence::WordConfidence>,
     pub original_text: String,
     pub output_text: String,
     pub pre_model_text: Option<String>,
@@ -598,7 +654,8 @@ impl Engine {
             control.cancel.clone(),
             tap,
         )?;
-        let punctuation_prewarm = (options.cleanup_mode != cleanup::Mode::Original)
+        let punctuation_prewarm = (options.cleanup_mode != cleanup::Mode::Original
+            && options.punctuation_model)
             .then(|| crate::punctuation::prewarm(&self.inner.models_root, control.cancel.clone()));
         *active = Some(control.clone());
         crate::recognition_diagnostics::event(
@@ -747,7 +804,7 @@ impl Drop for AsrLease {
     }
 }
 
-struct TextLease {
+pub(crate) struct TextLease {
     finished: bool,
 }
 
@@ -757,7 +814,7 @@ impl TextLease {
     /// cancellation and Stop keep their guards. Timeout is explicit, never a
     /// silent downgrade (see run_job busy handling). Atomic reservation + fit
     /// (fail-fast on proven OOM, retry only on busy).
-    fn acquire_waiting(
+    pub(crate) fn acquire_waiting(
         role: &str,
         model_id: &str,
         cancel: &AtomicBool,
@@ -905,14 +962,17 @@ fn shape_dictation(
         return;
     }
     // Availability is a cached/background check, never a weight hash on the
-    // publication path. Prefer the selected cleanup model, then Notes.
-    let model = [&options.cleanup_model, &options.notes_model]
-        .into_iter()
-        .find(|id| {
-            layout::select_model(id, "off").is_some()
-                && cleanup::model_status(root, id, crate::model_verification::Check::Background)
-                    .ready()
-        });
+    // publication path. Only the cleanup model shapes text; Notes never does.
+    if options.layout_model.is_empty() {
+        let outcome = layout::skip(&cleaned.text, options.layout_unavailable);
+        layout::apply_to_result(cleaned, outcome);
+        return;
+    }
+    let model = Some(options.layout_model.as_str()).filter(|id| {
+        layout::select_model(id, "off").is_some()
+            && cleanup::model_status(root, id, crate::model_verification::Check::Background)
+                .ready()
+    });
     let Some(model) = model else {
         let outcome = layout::skip(&cleaned.text, "model_unavailable");
         layout::apply_to_result(cleaned, outcome);
@@ -1117,6 +1177,7 @@ fn run_job(
     let mut silence_start = Duration::ZERO;
     let mut last_interim = String::new();
     let mut first_result = false;
+    let mut kept_audio = (job.options.keep_dictation_audio && !job.options.no_history).then(Vec::new);
     let mut audio_ms = 0.0f64;
     let mut audible_ms = 0.0f64;
     let mut peak_rms = 0.0f32;
@@ -1142,7 +1203,14 @@ fn run_job(
                 // The backlog and any saved source retain captured audio.
                 // Only the owned ASR input is changed, on the capture timeline.
                 job.capture.filter_asr(&mut samples);
-                stream.add(&samples, sample_rate)?;
+                if let Some(kept) = kept_audio.as_mut() {
+                    // Keep the same post-filter, pre-VAD 16 kHz mono input fed to ASR.
+                    let input = crate::store::prepare_dictation_audio_input(&samples, sample_rate);
+                    stream.add(&input, 16_000)?;
+                    kept.extend_from_slice(&input);
+                } else {
+                    stream.add(&samples, sample_rate)?;
+                }
                 if stream.failed() {
                     // The retry budget is exhausted. Stop capture and publish
                     // only the explicitly incomplete, acknowledged raw text.
@@ -1376,6 +1444,7 @@ fn run_job(
         &control.cancel,
         if smart_unavailable { &fallback_stop } else { &control.stop_cleanup },
         job.options.written_form,
+        job.options.punctuation_model,
     ));
     if smart_unavailable {
         cleaned.pre_model_text = Some(cleaned.text.clone());
@@ -1412,7 +1481,10 @@ fn run_job(
         &control.cancel, &control.stop_cleanup, || callback(Event::Cleaning {
             session_id: id,
             original_text: guarded_text.clone(),
-        }), crate::proofreader::run);
+        }), |store, options, text, vocabulary, cancel, stop| {
+            let marked = if crate::confidence::hints_help(&options.model) { crate::confidence::mark(&recognition.word_confidence, text) } else { text.to_owned() };
+            crate::proofreader::run(store, options, &marked, vocabulary, cancel, stop)
+        });
     shape_dictation(root, &job.options, recognition_completeness, &mut cleaned,
         &control.cancel, &control.stop_cleanup, || callback(Event::Cleaning {
             session_id: id,
@@ -1440,6 +1512,8 @@ fn run_job(
         cleaned.status
     };
     Ok(DictationResult {
+        kept_audio: kept_audio.map(Arc::new),
+        word_confidence: recognition.word_confidence,
         original_text,
         output_text: cleaned.text,
         pre_model_text: cleaned.pre_model_text,
@@ -1546,6 +1620,72 @@ mod tests {
     }
 
     #[test]
+    fn each_cleanup_choice_runs_exactly_one_model_stage() {
+        use crate::domain::CleanupChoice;
+        let base = crate::domain::Settings {
+            proofreader_training_models: vec!["meta/contributor".into()],
+            notes_model: "qwen3-4b-instruct-2507".into(),
+            ..Default::default()
+        };
+        let cases = [
+            (CleanupChoice::Off, "local-rules", None, ""),
+            (CleanupChoice::SonoJot, "local-rules",
+                Some(crate::optional_llm::PROOFREADER_ID), crate::optional_llm::PROOFREADER_ID),
+            (CleanupChoice::Online("meta/contributor".into()), "local-rules", Some("meta/contributor"), ""),
+            (CleanupChoice::Local("lfm2.5-1.2b".into()), "lfm2.5-1.2b", None, "lfm2.5-1.2b"),
+        ];
+        for (choice, cleanup_model, proofreader, layout) in cases {
+            let (cleanup, options, layout_model, reason) =
+                StartOptions::cleanup_options(&base, &choice);
+            assert_eq!(cleanup, cleanup_model, "{choice:?}");
+            assert_eq!(options.enabled, proofreader.is_some(), "{choice:?}");
+            if let Some(model) = proofreader {
+                assert_eq!(options.model, model);
+            }
+            assert_eq!(layout_model, layout, "{choice:?}");
+            assert_eq!(reason.is_empty(), !layout.is_empty());
+        }
+        let (_, online, _, reason) = StartOptions::cleanup_options(
+            &base, &CleanupChoice::Online("meta/contributor".into()));
+        assert!(online.training_accepted);
+        assert_eq!(reason, "online_model");
+        // A legacy local cleanup model plus online proofreading runs online only.
+        let legacy = crate::domain::Settings {
+            cleanup_model: "qwen3-4b-instruct-2507".into(),
+            proofreader: true,
+            ..base.clone()
+        };
+        let options = StartOptions::from_settings(legacy, vec![], vec![]);
+        assert_eq!(options.cleanup_model, "local-rules");
+        assert!(options.proofreader.enabled);
+        assert!(options.layout_model.is_empty());
+        // The punctuation switch reaches the job.
+        let off = crate::domain::Settings { sonojot_punctuation: false, ..base };
+        assert!(!StartOptions::from_settings(off, vec![], vec![]).punctuation_model);
+        assert!(StartOptions::default().punctuation_model);
+    }
+
+    #[test]
+    fn layout_without_a_cleanup_model_says_why_and_never_starts() {
+        let text = "please plan the launch first book the venue then send invitations to everyone on the list and finally confirm the catering order with the supplier before friday afternoon";
+        for (reason, expected) in [("no_cleanup_model", "layout:no_cleanup_model"), ("online_model", "layout:online_model")] {
+            let options = StartOptions {
+                smart_layout: true, cleanup_mode: cleanup::Mode::Clean,
+                layout_unavailable: reason, ..Default::default()
+            };
+            let mut result = cleanup::run_interruptible_with_policy(
+                std::path::Path::new(""), text, cleanup::Mode::Original, &[], &[], "local-rules",
+                cleanup::CleanupPolicy::conservative(), &AtomicBool::new(false), &AtomicBool::new(false),
+            );
+            let before = result.text.clone();
+            shape_dictation(std::path::Path::new(""), &options, RecognitionCompleteness::Complete,
+                &mut result, &AtomicBool::new(false), &AtomicBool::new(false), || panic!("Layout must not start"));
+            assert_eq!(result.text, before);
+            assert_eq!(result.guard_reason.as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
     fn proofreader_snapshots_the_exact_model_and_its_training_choice() {
         let mut settings = crate::domain::Settings::default();
         settings.proofreader = true;
@@ -1597,9 +1737,13 @@ mod tests {
             proofreader: crate::proofreader::Options { enabled: true, ..Default::default() },
             store: Some(store),
             vocabulary: vec![
-                cleanup::Vocabulary { heard: "tax sheet".into(), written: "Tacksheet".into(), enabled: true, context: vec!["private local context".into()] },
+                cleanup::Vocabulary {
+                    kind: crate::domain::VocabularyKind::Replace,
+                    aliases: Vec::new(),
+                    heard: "tax sheet".into(), written: "Tacksheet".into(), enabled: true, context: vec!["private local context".into()] },
                 cleanup::Vocabulary { heard: "alias".into(), written: "Disabled name".into(), enabled: false, ..Default::default() },
                 cleanup::Vocabulary { written: "Tacksheet".into(), enabled: true, ..Default::default() },
+                cleanup::Vocabulary { kind: crate::domain::VocabularyKind::Hint, heard: "Kubernetes".into(), written: "Kubernetes".into(), enabled: true, ..Default::default() },
             ],
             ..Default::default()
         };
@@ -1613,7 +1757,7 @@ mod tests {
             || entered.store(true, Ordering::Release),
             |_, config, text, vocabulary, _, _| {
                 assert_eq!(text, unproofread);
-                assert_eq!(vocabulary, ["Tacksheet"]);
+                assert_eq!(vocabulary, ["Kubernetes", "Tacksheet"]);
                 crate::proofreader::Outcome {
                     text: Some("Send the link.".into()), outcome: "accepted".into(),
                     reason: "accepted".into(), model: config.model.clone(),
@@ -1729,7 +1873,9 @@ mod tests {
         assert!(options.smart_layout_app_hint);
         assert!(options.layout_app_category.get().is_none());
         assert!(!options.written_form);
-        assert_eq!(options.notes_model, "qwen3-4b-instruct-2507");
+        // Notes never shapes dictation; with no cleanup model there is none.
+        assert!(options.layout_model.is_empty());
+        assert_eq!(options.layout_unavailable, "no_cleanup_model");
         let mut settings = crate::domain::Settings::default();
         settings.cleanup_trial = false;
         settings.do_not_save_dictations = false;

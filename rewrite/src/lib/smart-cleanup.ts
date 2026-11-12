@@ -1,14 +1,7 @@
-import type { DictationRecord, Settings, Snapshot } from "./protocol";
+import type { DictationRecord, Snapshot } from "./protocol";
 import { proofreaderGuardLabel } from "./proofreader";
 
 export const SMART_CLEANUP_MODEL = "speakoflow-mini-q4_k_m";
-export const SMART_CLEANUP_HELP =
-  "Small cleanup model; may miss or occasionally change wording. Numbers, names and links are checked.";
-
-export function smartCleanupAvailable(settings: Settings): boolean {
-  return settings.setupProfile === "custom";
-}
-
 export function smartRecoverySession(snapshot: Snapshot): number | null {
   return snapshot.resultSessionId !== null &&
     snapshot.sessionId === null &&
@@ -71,6 +64,8 @@ export function guardReasonLabel(reason: string): string {
       busy: "Text model busy; earlier text kept",
       model_busy: "Text model busy; earlier text kept",
       model_unavailable: "Layout model unavailable",
+      no_cleanup_model: "No cleanup model to shape text",
+      online_model: "Online cleanup models can't shape text yet",
       model_error: "Layout model unavailable",
       no_generation_model: "Layout model unavailable",
       incomplete_recognition: "Incomplete recognition kept unchanged",
@@ -106,7 +101,7 @@ export function guardReasonLabel(reason: string): string {
     cleanup_stopped: "Cleanup stopped",
     context_limit: "Text exceeds cleanup limit",
     input_limit: "Text exceeds cleanup limit",
-    mode_not_clean: "Smart cleanup applies to Clean only",
+    mode_not_clean: "SpeakoFlow Mini applies to Clean only",
   };
   return labels[reason] ?? "Cleanup guard";
 }

@@ -114,6 +114,17 @@ pub fn cancel_ai_connect() {
 }
 
 #[tauri::command]
+pub async fn connect_openrouter_key(state: RuntimeState<'_>, key: String) -> Result<AiSettingsStatus, String> {
+    let job = Job::begin(&CONNECT)?;
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = ai::connect_key(&store, &key, &job.cancel);
+        drop(job);
+        result
+    }).await.map_err(|_| "OpenRouter key verification was interrupted.".to_string())?
+}
+
+#[tauri::command]
 pub async fn open_openrouter_privacy() -> Result<(), String> {
     crate::legal_links::open_https(
         "https://openrouter.ai/settings/privacy".into(),
@@ -331,6 +342,8 @@ fn filter_suggestions(
         // negation and model-alias context safeguards, rather than duplicating
         // an approximate list of spellings that would never apply after Save.
         let vocabulary = cleanup::Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
             heard: proposal.heard.clone(),
             written: proposal.written.clone(),
             enabled: true,
@@ -584,6 +597,9 @@ mod tests {
                 .is_empty()
         );
         let existing = vec![VocabularyEntry {
+            kind: crate::domain::VocabularyKind::Replace,
+            aliases: Vec::new(),
+            context: Vec::new(),
             id: "known".into(),
             heard: "acme".into(),
             written: "ACME".into(),
@@ -602,6 +618,7 @@ mod tests {
     #[test]
     fn source_budget_uses_recent_text_and_never_partial_words() {
         let records = vec![DictationRecord {
+            word_confidence: Vec::new(),
             id: "one".into(),
             created_at: "now".into(),
             raw: format!("{}abcdefghijk", "x ".repeat(MAX_SOURCE_BYTES / 2 - 2)),
@@ -640,6 +657,7 @@ mod tests {
     fn ordinary_history_fits_three_bounded_requests_without_dropping_text() {
         let records: Vec<_> = (0..20)
             .map(|index| DictationRecord {
+                word_confidence: Vec::new(),
                 id: index.to_string(),
                 created_at: "now".into(),
                 raw: format!("dictation{index} {}", "a word in context. ".repeat(31)),

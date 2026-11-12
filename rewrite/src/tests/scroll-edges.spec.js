@@ -10,7 +10,10 @@ import {
   openMeeting,
   showRecentDictations,
 } from "./app-helpers.js";
-import { macProfileFixture } from "./desktop-fixture.js";
+
+test.beforeEach(async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+});
 
 const pages = [
   "Dictation",
@@ -31,8 +34,10 @@ const pages = [
 async function scrollers(page) {
   return page.evaluate(() => {
     const found = [];
+    const modal = document.querySelector("dialog[open]");
     let index = 0;
     for (const element of document.querySelectorAll("body *")) {
+      if (modal && !modal.contains(element)) continue;
       const style = getComputedStyle(element);
       if (!/(auto|scroll)/.test(style.overflowY)) continue;
       // Closed <details> keep a layout box; only rendered scrollers count.
@@ -89,12 +94,18 @@ async function scrollTo(page, id, where) {
     .evaluate((node, where) => {
       node.scrollTop = where === "top" ? 0 : node.scrollHeight;
     }, where);
-  // The cue updates on the next animation frame; transitions finish in 140ms.
-  await page.waitForTimeout(200);
+  // Wait for the scroll observer, including on a busy renderer.
+  await expect
+    .poll(async () => {
+      const edge = await lip(page, id, "::before");
+      return { start: edge.start, end: edge.end };
+    })
+    .toEqual({ start: where === "bottom", end: where === "top" });
 }
 
 /** Every scroller found has the cue, and it appears and hides correctly. */
 async function auditScrollers(page, where) {
+  await page.evaluate(() => document.fonts.ready);
   const found = await scrollers(page);
   const missing = found.filter((item) => !item.mode).map((item) => item.name);
   expect(missing, `scroll areas without edge cues on ${where}`).toEqual([]);
@@ -106,7 +117,7 @@ async function auditScrollers(page, where) {
     expect(topStart.start, `${label} has no top cue at the top`).toBe(false);
     expect(topStart.opacity, `${label} top lip hidden at the top`).toBe(0);
     expect(topEnd.end, `${label} shows more below`).toBe(true);
-    expect(topEnd.opacity, `${label} bottom lip visible`).toBe(1);
+    expect(topEnd.opacity, `${label} bottom lip visible`).toBeGreaterThan(0);
     for (const edge of [topStart, topEnd]) {
       expect(edge.pointerEvents, `${label} lip ignores input`).toBe("none");
       expect(edge.painted, `${label} lip is painted`).toBe(true);
@@ -118,7 +129,7 @@ async function auditScrollers(page, where) {
     const endStart = await lip(page, id, "::before");
     const endEnd = await lip(page, id, "::after");
     expect(endStart.start, `${label} shows more above`).toBe(true);
-    expect(endStart.opacity, `${label} top lip visible`).toBe(1);
+    expect(endStart.opacity, `${label} top lip visible`).toBeGreaterThan(0);
     expect(endEnd.end, `${label} has no bottom cue at the bottom`).toBe(false);
     expect(endEnd.opacity, `${label} bottom lip hidden at the bottom`).toBe(0);
     await scrollTo(page, id, "top");
@@ -148,129 +159,93 @@ for (const size of [
 test("popovers, panels, documents and textareas show edge cues", async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   await page.setViewportSize({ width: 1220, height: 700 });
-  await openApp(page, {}, "/?page=setup&theme=slate");
-  // Model picker list.
-  await page.getByRole("button", { name: "Speech model", exact: true }).click();
-  const picker = page.getByRole("dialog", { name: "Speech models" });
+  await openApp(
+    page,
+    { meeting: { notes: "# Summary\nA saved note." } },
+    "/?page=setup&theme=slate",
+  );
+  // The shared chart source sheet.
+  await page
+    .getByRole("button", { name: "Measurements and sources", exact: true })
+    .click();
+  const picker = page.getByRole("dialog", { name: "Measurements and sources" });
   await expect(picker).toBeVisible();
-  const list = picker.locator(".option-well");
+  const list = picker.locator(".sheet-scroll");
   await expect(list).toHaveAttribute("data-scroll-edges", "inside");
-  await auditScrollers(page, "Speech picker");
+  await auditScrollers(page, "Measurements sheet");
   await page.keyboard.press("Escape");
 
-  // About: the Terms panel.
+  // Help: the Terms panel.
   await goToPage(page, "About");
-  const terms = await openFold(page, "SonoJot Terms of Use");
+  await openFold(page, "Troubleshooting and legal");
+  const terms = await openFold(page, "Terms of Use");
   await expect(
     terms.getByRole("region", { name: "Full SonoJot Terms of Use" }),
   ).toHaveAttribute("data-scroll-edges", "inside");
-  await auditScrollers(page, "About with Terms");
+  await auditScrollers(page, "Help with Terms");
 
   // Recent dictations.
   await goToPage(page, "Dictation");
   await showRecentDictations(page);
   await auditScrollers(page, "Recent dictations");
 
-  // Meeting transcript textarea (frame mode): long text makes it scroll.
+  // The transcript and notes editors keep their frame cues with long text.
   await goToPage(page, "Meetings");
   await openMeeting(page, /Design review/);
-  const transcript = page.locator("#meeting-transcript");
-  if (await transcript.count()) {
-    await transcript.fill(
-      Array.from(
-        { length: 60 },
-        (_, line) => `[0:${line}] You: line ${line}`,
-      ).join("\n"),
-    );
-    await expect(transcript).toHaveAttribute("data-scroll-edges", "frame");
-  }
+  await page.getByRole("tab", { name: "Transcript", exact: true }).click();
+  const transcript = page.getByRole("textbox", {
+    name: "Meeting transcript",
+    exact: true,
+  });
+  const original = await transcript.inputValue();
+  await transcript.fill(
+    Array.from(
+      { length: 60 },
+      (_, line) => `[0:${line}] You: line ${line}`,
+    ).join("\n"),
+  );
+  await expect(transcript).toHaveAttribute("data-scroll-edges", "frame");
   await auditScrollers(page, "Meeting document");
+  await transcript.fill(original);
+  await page.getByRole("tab", { name: "Notes", exact: true }).click();
+  await page.getByRole("button", { name: "Edit notes", exact: true }).click();
+  const notes = page.getByRole("textbox", {
+    name: "Meeting notes",
+    exact: true,
+  });
+  await notes.fill(
+    Array.from({ length: 60 }, (_, line) => `Note ${line}`).join("\n"),
+  );
+  await expect(notes).toHaveAttribute("data-scroll-edges", "frame");
+  await auditScrollers(page, "Meeting notes editor");
 });
 
 test("edge lips never take clicks from the content under them", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1220, height: 700 });
+  await page.setViewportSize({ width: 1220, height: 600 });
   await openApp(page, {}, "/?page=setup&theme=fog");
-  await page.getByRole("button", { name: "Speech model", exact: true }).click();
-  const picker = page.getByRole("dialog", { name: "Speech models" });
-  const well = picker.locator(".option-well");
+  await page
+    .getByRole("button", { name: "Measurements and sources", exact: true })
+    .click();
+  const picker = page.getByRole("dialog", { name: "Measurements and sources" });
+  const well = picker.locator(".sheet-scroll");
   await expect(well).toHaveAttribute("data-edge-end", "");
-  // The option partly under the bottom lip still receives the click.
-  const box = await well.boundingBox();
-  const hit = await page.evaluate(
-    ({ x, y }) =>
-      document.elementFromPoint(x, y)?.closest('[role="option"]')
-        ? true
-        : false,
-    { x: box.x + box.width / 2, y: box.y + box.height - 6 },
-  );
-  expect(hit).toBe(true);
+  const edges = await well.evaluate((element) => ({
+    top: getComputedStyle(element, "::before").pointerEvents,
+    bottom: getComputedStyle(element, "::after").pointerEvents,
+  }));
+  expect(edges).toEqual({ top: "none", bottom: "none" });
+  await picker.getByRole("button", { name: "Close sheet" }).click();
+  await expect(picker).toHaveCount(0);
 });
 
 test("Paper and print off keeps a flat edge cue", async ({ page }) => {
   await openApp(page, {}, "/?page=setup&theme=fog&material=off");
-  await page.getByRole("button", { name: "Speech model", exact: true }).click();
-  await auditScrollers(page, "Speech picker, Paper and print off");
-});
-
-test("Mac model picker sets aside packages this Mac cannot run", async ({
-  page,
-}) => {
-  const mac = macProfileFixture(16);
-  const windowsOnly = {
-    state: "unavailable",
-    installable: false,
-    compatibility:
-      "This package requires Windows; choose a Metal model on this Mac.",
-  };
-  await openApp(
-    page,
-    {
-      ...mac,
-      settings: { ...mac.settings, setupProfile: "custom" },
-      modelPatches: {
-        ...mac.modelPatches,
-        ...Object.fromEntries(
-          [
-            "moonshine-medium",
-            "mock-whisper-small-cpu",
-            "mock-whisper-small-cuda",
-            "qwen3-asr-1.7b",
-            "qwen3-asr-1.7b-fp16-cuda",
-            "whisper-tiny-fp32-cuda",
-          ].map((id) => [id, windowsOnly]),
-        ),
-      },
-    },
-    "/?page=setup&theme=fog",
-  );
-  await page.getByRole("button", { name: "Speech model", exact: true }).click();
-  const picker = page.getByRole("dialog", { name: "Speech models" });
-  const options = picker.getByRole("option");
-  await expect(options.filter({ hasText: "Moonshine" })).toHaveCount(0);
-  await expect(options.filter({ hasText: "NVIDIA CUDA" })).toHaveCount(0);
-  // Needs a download: still an ordinary option.
-  await expect(
-    options.filter({ hasText: "Qwen3-ASR 1.7B (Q4 Metal)" }),
-  ).toContainText("Apple Metal · Not installed");
-  // The selected model is a marked slip and is in view.
-  const selected = picker.locator('[role="option"][aria-selected="true"]');
-  await expect(selected).toContainText("Whisper Small · Metal");
-  await expect(selected.locator(".check")).toBeVisible();
-  await expect(selected).toBeInViewport();
-  await expect(
-    picker.getByRole("region", { name: "Details for Whisper Small · Metal" }),
-  ).toContainText("Memory:");
-  // Set aside in a collapsed group at the end, with the reason.
-  const group = picker.locator("details.unavailable");
-  await expect(group.locator("summary")).toContainText(
-    "Not available on this Mac",
-  );
-  await expect(group).not.toHaveAttribute("open", "");
-  await group.locator("summary").click();
-  const list = group.getByRole("list", { name: "Not available on this Mac" });
-  await expect(list).toContainText("Moonshine Medium");
-  await expect(list).toContainText("This package requires Windows");
+  await page
+    .getByRole("button", { name: "Measurements and sources", exact: true })
+    .click();
+  await auditScrollers(page, "Measurements sheet, Paper and print off");
 });

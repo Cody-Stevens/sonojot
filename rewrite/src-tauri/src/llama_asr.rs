@@ -465,6 +465,7 @@ fn request_body(samples: &[f32]) -> Result<serde_json::Value, String> {
             "type":"input_audio", "input_audio":{"data":audio, "format":"wav"}
         }]}],
         "temperature":0,
+        "logprobs":true, "top_logprobs":5,
         "max_tokens":crate::sherpa::qwen_max_tokens(samples.len()),
         "cache_prompt":false,
     });
@@ -506,6 +507,8 @@ struct Completion {
 struct Choice {
     message: Message,
     finish_reason: String,
+    #[serde(default)]
+    logprobs: serde_json::Value,
 }
 #[derive(Deserialize)]
 struct Message {
@@ -532,7 +535,7 @@ impl LocalApi {
         })
     }
 
-    fn transcribe(&self, samples: &[f32]) -> Result<(String, Option<i64>, String), String> {
+    fn transcribe(&self, samples: &[f32]) -> Result<(String, Option<i64>, String, Vec<crate::confidence::WordConfidence>), String> {
         let response = self
             .client
             .post(format!("{}/v1/chat/completions", self.base))
@@ -565,7 +568,8 @@ impl LocalApi {
         if tokens.is_some_and(|count| count < 0) {
             return Err("Local speech server returned an invalid completion token count.".into());
         }
-        Ok((choice.message.content, tokens, choice.finish_reason))
+        let confidence = crate::confidence::from_tokens(&choice.message.content, &choice.logprobs["content"]);
+        Ok((choice.message.content, tokens, choice.finish_reason, confidence))
     }
 }
 
@@ -757,7 +761,7 @@ impl Server {
     pub fn transcribe(
         &self,
         samples_16k_mono: &[f32],
-    ) -> Result<(String, Option<i64>, String), String> {
+    ) -> Result<(String, Option<i64>, String, Vec<crate::confidence::WordConfidence>), String> {
         self.api.transcribe(samples_16k_mono)
     }
 }
@@ -998,6 +1002,7 @@ mod tests {
         let expected = serde_json::json!({
             "messages":[{"role":"user", "content":[{"type":"input_audio", "input_audio":{"data":encoded,"format":"wav"}}]}],
             "temperature":0,"max_tokens":33,"cache_prompt":false,
+            "logprobs":true,"top_logprobs":5,
         });
         #[cfg(feature = "fidelity-eval")]
         let expected = {
@@ -1170,6 +1175,18 @@ mod tests {
 
     fn completion(finish: &str) -> String {
         serde_json::json!({"choices":[{"message":{"content":"language English<asr_text>Hello there."},"finish_reason":finish}],"usage":{"completion_tokens":8}}).to_string()
+    }
+
+    #[test]
+    fn mock_llama_confidence_survives_protocol_parsing() {
+        let text = "language English<asr_text>Hello there.";
+        let value = serde_json::json!({"choices":[{"message":{"content":text},"finish_reason":"stop",
+            "logprobs":{"content":[{"token":"language English<asr_text>","logprob":-0.01},{"token":"Hello", "logprob":-0.1},{"token":" there.","logprob":-1.0}]}}]});
+        let (api, server) = mock("200 OK", value.to_string());
+        let recognition = crate::sherpa::llama_test_recognition(api.transcribe(&[0.0;160]).unwrap());
+        assert_eq!(recognition.word_confidence.len(),2);
+        assert_eq!(crate::confidence::mark(&recognition.word_confidence, "Hello, there!"), "Hello, \u{27e6}there\u{27e7}!");
+        server.join().unwrap();
     }
 
     #[test]

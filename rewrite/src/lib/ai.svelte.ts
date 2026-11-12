@@ -68,11 +68,14 @@ class AiState {
     return saved === true;
   }
 
-  async connect(): Promise<void> {
+  async connect(key?: string): Promise<void> {
     if (!app.native) return;
     await this.enqueue("ai-connect", async () => {
-      if (this.data?.connected) return;
-      this.data = await call("connect_openrouter");
+      if (this.data?.connected && key === undefined) return;
+      this.data =
+        key === undefined
+          ? await call("connect_openrouter")
+          : await call("connect_openrouter_key", { key });
     });
   }
 

@@ -22,7 +22,7 @@ class LibraryState {
     this.version++;
     this.data = data;
     const download = data.models.find(installing);
-    if (download) this.downloadId = download.id;
+    this.downloadId = download?.id ?? "";
     this.error = "";
     this.syncPolling();
   }

@@ -17,7 +17,6 @@ import {
   needsTrainingAcceptance,
   proofreaderAccountBlocked,
   proofreaderGuardLabel,
-  proofreaderModels,
   proofreaderMetadata,
   proofreaderOutcomeLabel,
   trainingAcceptance,
@@ -34,7 +33,7 @@ const model = (id: string, patch = {}) =>
     ...patch,
   });
 
-test("legacy settings keep proofreading off and a separate Luna choice", () => {
+test("new settings keep proofreading off; saved online models survive", () => {
   const settings = settingsSchema.parse({
     ...previewSnapshot.settings,
     proofreader: undefined,
@@ -42,8 +41,14 @@ test("legacy settings keep proofreading off and a separate Luna choice", () => {
     proofreaderTrainingModels: undefined,
   });
   assert.equal(settings.proofreader, false);
-  assert.equal(settings.proofreaderModel, "openai/gpt-6-luna");
+  assert.equal(settings.proofreaderModel, "anthropic/claude-opus-5.5");
   assert.deepEqual(settings.proofreaderTrainingModels, []);
+  for (const model of ["openai/gpt-6-luna", "anthropic/claude-haiku-5.5"]) {
+    assert.equal(
+      settingsSchema.parse({ ...settings, proofreaderModel: model }).proofreaderModel,
+      model,
+    );
+  }
   const next = {
     ...settings,
     proofreader: true,
@@ -71,19 +76,6 @@ test("catalog parsing retains capability metadata and safely defaults older cata
     aiModelSchema.safeParse({ ...training, trainingRequired: "yes" }).success,
     false,
   );
-});
-
-test("proofreading search uses the text catalog including legacy models, never audio-only models", () => {
-  const models = [
-    model("one/legacy"),
-    model("one/text", { inputModalities: ["text", "audio"] }),
-    model("one/audio", { inputModalities: ["audio"] }),
-  ];
-  assert.deepEqual(
-    proofreaderModels(models, "  ONE/ ").map(({ id }) => id),
-    ["one/legacy", "one/text"],
-  );
-  assert.deepEqual(proofreaderModels(models, "missing"), []);
 });
 
 test("cloud consent requires the current notice, independent of connection or training choice", () => {

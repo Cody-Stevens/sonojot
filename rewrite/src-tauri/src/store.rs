@@ -18,6 +18,10 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 #[path = "learning.rs"]
 pub mod learning;
+#[path = "dictation_audio.rs"]
+mod dictation_audio;
+pub(crate) use dictation_audio::prepare_input as prepare_dictation_audio_input;
+pub use dictation_audio::{DictationAudioUsage, DeletedDictationAudio};
 
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_JSON_BYTES: u64 = 32 * 1024 * 1024;
@@ -90,6 +94,7 @@ impl Store {
         // Retire the unassociated content cache; Copy-last is session-only.
         store.clear_dictation_caches_unlocked()?;
         store.clear_abandoned_dictation_writes()?;
+        store.purge_dictation_audio()?;
         Ok(store)
     }
 
@@ -176,6 +181,7 @@ impl Store {
             let mut settings = Settings::default();
             if self.root.join("setup-seen.json").is_file() {
                 settings.setup_profile = Some(crate::domain::SetupProfile::Custom);
+                settings.meeting_notes_preset = None;
             }
             return Ok(settings);
         }
@@ -207,9 +213,14 @@ impl Store {
     pub fn save_settings(&self, settings: &Settings) -> Result<(), String> {
         settings.validate()?;
         let _guard = self.lock()?;
+        self.save_settings_unlocked(settings)
+    }
+    pub(crate) fn save_settings_unlocked(&self, settings: &Settings) -> Result<(), String> {
+        settings.validate()?;
         let old = self.settings_unlocked()?;
         if old.do_not_save_dictations != settings.do_not_save_dictations
             || old.learn_from_corrections != settings.learn_from_corrections
+            || old.keep_dictation_audio != settings.keep_dictation_audio
         {
             // Invalidate before I/O: a failed save must never authorize stale work.
             self.invalidate_privacy_unlocked();
@@ -255,6 +266,8 @@ impl Store {
                 }
                 e.heard = e.heard.trim().into();
                 e.written = e.written.trim().into();
+                e.aliases = e.aliases.iter().map(|s| s.trim().to_owned()).collect();
+                e.context = e.context.iter().map(|s| s.trim().to_lowercase()).collect();
                 e.scope = e
                     .scope
                     .map(|scope| scope.trim().into())
@@ -346,18 +359,53 @@ impl Store {
         target_app: Option<&str>,
         cleanup_status: Option<&str>,
     ) -> Result<Option<DictationRecord>, String> {
+        self.commit_dictation_with_confidence(generation, raw, published, recognition_completeness, recognition_warnings, pre_model_text, publication_stage, guard_reason, target_app, cleanup_status, &[])
+    }
+    pub fn commit_dictation_with_confidence(
+        &self,
+        generation: u64,
+        raw: &str,
+        published: &str,
+        recognition_completeness: RecognitionCompleteness,
+        recognition_warnings: &[String],
+        pre_model_text: Option<&str>,
+        publication_stage: Option<&str>,
+        guard_reason: Option<&str>,
+        target_app: Option<&str>,
+        cleanup_status: Option<&str>,
+        word_confidence: &[crate::confidence::WordConfidence],
+    ) -> Result<Option<DictationRecord>, String> {
+        self.commit_dictation_with_audio(generation, raw, published, recognition_completeness,
+            recognition_warnings, pre_model_text, publication_stage, guard_reason, target_app,
+            cleanup_status, word_confidence, None)
+    }
+    pub fn commit_dictation_with_audio(
+        &self,
+        generation: u64,
+        raw: &str,
+        published: &str,
+        recognition_completeness: RecognitionCompleteness,
+        recognition_warnings: &[String],
+        pre_model_text: Option<&str>,
+        publication_stage: Option<&str>,
+        guard_reason: Option<&str>,
+        target_app: Option<&str>,
+        cleanup_status: Option<&str>,
+        word_confidence: &[crate::confidence::WordConfidence],
+        audio: Option<&[f32]>,
+    ) -> Result<Option<DictationRecord>, String> {
         validate_text(raw, "Raw dictation")?;
         validate_text(published, "Published dictation")?;
         if let Some(text) = pre_model_text {
             validate_text(text, "Original cleanup text")?;
         }
         let _guard = self.lock()?;
-        if generation != self.privacy_generation()
-            || self.settings_unlocked()?.do_not_save_dictations
-        {
+        let settings = self.settings_unlocked()?;
+        if generation != self.privacy_generation() || settings.do_not_save_dictations {
             return Ok(None);
         }
         let value = DictationRecord {
+            word_confidence: word_confidence.to_vec(),
             id: new_id(),
             created_at: now(),
             raw: raw.into(),
@@ -377,6 +425,11 @@ impl Store {
                 .join(format!("{}.json", value.id)),
             &value,
         )?;
+        if settings.keep_dictation_audio {
+            if let Some(samples) = audio.filter(|s| !s.is_empty()) {
+                self.save_dictation_audio_unlocked(&value.id, samples)?;
+            }
+        }
         Ok(Some(value))
     }
     pub fn get_dictation(&self, id: &str) -> Result<DictationRecord, String> {
@@ -394,6 +447,16 @@ impl Store {
         validate_text(&record.raw, "Raw dictation")?;
         validate_text(&record.published, "Published dictation")?;
         Ok(record)
+    }
+
+    pub fn export_dictation(&self, id: &str, path: &Path) -> Result<(), String> {
+        let record = self.get_dictation(id)?;
+        self.check_export_destination(path)?;
+        let warning = if record.recognition_completeness == RecognitionCompleteness::Incomplete {
+            "Recognition was incomplete. This text was not automatically pasted.\n\n"
+        } else { "" };
+        let contents = format!("# Dictation\n\n{}\n\n{}{}\n", record.created_at, warning, record.published);
+        atomic_write(path, contents.as_bytes())
     }
 
     /// Returns at most 100 immutable records, newest first. Text is never truncated.
@@ -533,6 +596,7 @@ impl Store {
         // Remove derivatives first: an I/O failure cannot orphan private excerpts.
         self.write_learning_unlocked(&entries)?;
         self.clear_dictation_caches_unlocked()?;
+        self.remove_owned_unlocked(&self.dictation_audio_path(id))?;
         self.remove_owned_unlocked(&self.root.join("dictations").join(format!("{id}.json")))
     }
 
@@ -550,6 +614,7 @@ impl Store {
         entries.retain(|e| e.source_ids.is_empty() && e.source_type == "manual");
         self.write_learning_unlocked(&entries)?;
         self.clear_dictation_caches_unlocked()?;
+        self.delete_dictation_audio_unlocked()?;
         for (index, (_, path)) in paths.iter().enumerate() {
             self.remove_owned_unlocked(path).map_err(|error| {
                 format!("Deleted {index} of {} dictations. {error}", paths.len())
@@ -778,6 +843,8 @@ impl Store {
             .learned_vocabulary_for(raw, mode, byte_budget)?
             .into_iter()
             .map(|entry| crate::cleanup::Vocabulary {
+                kind: crate::domain::VocabularyKind::Replace,
+                aliases: Vec::new(),
                 heard: entry.heard,
                 written: entry.written,
                 enabled: true,
@@ -817,6 +884,9 @@ impl Store {
             entry.enabled = true;
         } else {
             entries.push(VocabularyEntry {
+                kind: crate::domain::VocabularyKind::Replace,
+                aliases: Vec::new(),
+                context: Vec::new(),
                 id: new_id(),
                 heard: heard.trim().into(),
                 written: written.trim().into(),
@@ -883,6 +953,7 @@ impl Store {
         };
         if config.is_object() && !self.root.join("settings.json").exists() {
             let mut settings = Settings::default();
+            settings.meeting_notes_preset = None;
             if let Some(v) = field(&config, "Hotkey").and_then(Value::as_str) {
                 settings.hotkey = v.replace(' ', "");
             }
@@ -916,6 +987,9 @@ impl Store {
                     if let Some((heard, written)) = pair.split_once('=') {
                         if !heard.trim().is_empty() && !written.trim().is_empty() {
                             entries.push(VocabularyEntry {
+                                kind: crate::domain::VocabularyKind::Replace,
+                                aliases: Vec::new(),
+                                context: Vec::new(),
                                 id: new_id(),
                                 heard: heard.trim().into(),
                                 written: written.trim().into(),
@@ -948,6 +1022,9 @@ impl Store {
                                 "confirmed" | "active" | "approved"
                             );
                         entries.push(VocabularyEntry {
+                            kind: crate::domain::VocabularyKind::Replace,
+                            aliases: Vec::new(),
+                            context: Vec::new(),
                             id: new_id(),
                             heard,
                             written,
@@ -984,6 +1061,7 @@ impl Store {
                     self.write(
                         &dest,
                         &DictationRecord {
+                            word_confidence: Vec::new(),
                             id,
                             created_at: string_field(&legacy, "TimestampUtc"),
                             raw,
@@ -1292,11 +1370,25 @@ fn validate_vocabulary(entries: &[VocabularyEntry]) -> Result<(), String> {
         if !ids.insert(&entry.id) {
             return Err("Vocabulary identifiers must be unique.".into());
         }
+        if entry.kind == crate::domain::VocabularyKind::Hint
+            && (entry.heard != entry.written || !entry.aliases.is_empty()
+                || !entry.context.is_empty() || entry.scope.is_some()) {
+            return Err("A vocabulary hint needs identical heard and written text, without aliases or context rules.".into());
+        }
         for value in [&entry.heard, &entry.written] {
             if value.trim().is_empty() || value.len() > 4096 || value.chars().any(char::is_control)
             {
                 return Err("Vocabulary phrases must contain between 1 and 4,096 bytes without control characters.".into());
             }
+        }
+        if entry.aliases.len() > 32 || entry.context.len() > 32 {
+            return Err("Use at most 32 aliases and 32 context words per entry.".into());
+        }
+        if entry.aliases.iter().any(|alias| !crate::cleanup::valid_alias(alias)) {
+            return Err("Each alias needs 1-4 words, spaces, hyphens or dots, at most 250 bytes.".into());
+        }
+        if entry.context.iter().any(|word| word.is_empty() || word.len() > 128 || !word.chars().all(char::is_alphanumeric)) {
+            return Err("Context words need only letters or numbers, at most 128 bytes each.".into());
         }
         if entry
             .scope
@@ -1840,8 +1932,71 @@ mod tests {
         fs::write(directory.join("setup-seen.json"), b"{\"seen\":true}").unwrap();
         let mut expected = Settings::default();
         expected.setup_profile = Some(crate::domain::SetupProfile::Custom);
+        expected.meeting_notes_preset = None;
         assert_eq!(store.load_settings().unwrap(), expected);
         assert!(!directory.join("settings.json").exists());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn automatic_notes_defaults_distinguish_new_and_existing_installs() {
+        let (directory, store) = temp_store("notes-defaults");
+        assert_eq!(store.load_settings().unwrap().meeting_notes_preset, crate::domain::NEW_INSTALL_MEETING_NOTES_PRESET);
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("meetingNotesPreset");
+        old.as_object_mut().unwrap().remove("meetingNotesInstructions");
+        store.write(&store.root().join("settings.json"), &serde_json::json!({"schemaVersion": 1, "settings": old})).unwrap();
+        let mut loaded = store.load_settings().unwrap();
+        assert_eq!(loaded.meeting_notes_preset, None);
+        loaded.meeting_notes_preset = Some(crate::meeting_ai::NotesPreset::Custom);
+        loaded.meeting_notes_instructions = "Decisions and owners".into();
+        store.save_settings(&loaded).unwrap();
+        assert_eq!(store.load_settings().unwrap(), loaded);
+        loaded.meeting_notes_preset = None;
+        store.save_settings(&loaded).unwrap();
+        assert_eq!(store.load_settings().unwrap().meeting_notes_preset, None);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn vocabulary_hints_round_trip_and_downgrade_to_identity_rules() {
+        let (directory, store) = temp_store("vocabulary-hints");
+        let old = serde_json::json!({"schemaVersion": 1, "entries": [{"id":"old", "heard":"omar key", "written":"Omarchy", "enabled":true}]});
+        store.write(&store.root().join("vocabulary.json"), &old).unwrap();
+        let mut entries = store.get_vocabulary().unwrap();
+        assert_eq!(entries[0].kind, crate::domain::VocabularyKind::Replace);
+        entries.push(serde_json::from_value(serde_json::json!({"id":"hint", "kind":"hint", "heard":"Kubernetes", "written":"Kubernetes", "enabled":true})).unwrap());
+        let saved = store.save_vocabulary(&entries).unwrap();
+        assert_eq!(store.get_vocabulary().unwrap(), saved);
+        let mut downgraded = serde_json::to_value(&saved).unwrap();
+        for entry in downgraded.as_array_mut().unwrap() { entry.as_object_mut().unwrap().remove("kind"); }
+        let legacy: Vec<VocabularyEntry> = serde_json::from_value(downgraded).unwrap();
+        validate_vocabulary(&legacy).unwrap();
+        assert_eq!(legacy[1].heard, legacy[1].written);
+        assert_eq!(legacy[1].kind, crate::domain::VocabularyKind::Replace);
+        let mut invalid = saved;
+        invalid[1].aliases.push("cooper netties".into());
+        assert!(store.save_vocabulary(&invalid).is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn vocabulary_alias_cli_shape_migrates_and_round_trips() {
+        let (directory, store) = temp_store("confirmed-aliases");
+        let old = serde_json::json!({"schemaVersion": 1, "entries": [{"id": "term", "heard": "Tacksheet", "written": "Tacksheet", "enabled": true}]});
+        fs::write(directory.join("vocabulary.json"), serde_json::to_vec(&old).unwrap()).unwrap();
+        let mut entry = store.get_vocabulary().unwrap().remove(0);
+        assert!(entry.aliases.is_empty() && entry.context.is_empty());
+        // save_vocabulary's CLI argument uses this exact domain deserializer.
+        entry = serde_json::from_value(serde_json::json!({"id": "term", "heard": "Tacksheet", "written": "Tacksheet", "enabled": true,
+            "aliases": [" tax sheet ", "Tackett"], "context": [" Project "], "scope": null})).unwrap();
+        store.save_vocabulary(&[entry]).unwrap();
+        let saved = store.get_vocabulary().unwrap().remove(0);
+        assert_eq!(saved.aliases, ["tax sheet", "Tackett"]);
+        assert_eq!(saved.context, ["project"]);
+        let mut invalid = saved;
+        invalid.aliases = vec!["a b c d e".into()];
+        assert!(store.save_vocabulary(&[invalid]).is_err());
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1857,6 +2012,9 @@ mod tests {
         assert!(store.load_settings().unwrap().cleanup_trial);
         let saved = store
             .save_vocabulary(&[VocabularyEntry {
+                kind: crate::domain::VocabularyKind::Replace,
+                aliases: Vec::new(),
+                context: Vec::new(),
                 id: String::new(),
                 heard: "quinn".into(),
                 written: "Qwen".into(),
@@ -1872,6 +2030,7 @@ mod tests {
         );
         let blank = store
             .save_vocabulary(&[VocabularyEntry {
+                kind: crate::domain::VocabularyKind::Replace,
                 scope: Some("   ".into()),
                 ..saved[0].clone()
             }])
@@ -1901,6 +2060,9 @@ mod tests {
         let mut vocabulary = serde_json::to_value(&VocabularyFile {
             schema_version: 1,
             entries: vec![VocabularyEntry {
+                kind: crate::domain::VocabularyKind::Replace,
+                aliases: Vec::new(),
+                context: Vec::new(),
                 id: "one".into(),
                 heard: "grock".into(),
                 written: "Grok".into(),
@@ -1922,6 +2084,24 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].scope, None);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn dictation_markdown_export_preserves_source_and_protects_data() {
+        let (directory, store) = temp_store("dictation-export");
+        let record = store.record_dictation("raw words", "Final words.", RecognitionCompleteness::Incomplete, &[]).unwrap();
+        let path = directory.with_extension("md");
+        store.export_dictation(&record.id, &path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("Final words."));
+        assert!(text.contains("Recognition was incomplete"));
+        assert!(!text.contains("raw words"));
+        assert_eq!(store.get_dictation(&record.id).unwrap().raw, "raw words");
+        assert!(store.export_dictation(&record.id, &directory.join("settings.json")).unwrap_err().contains("outside the app data"));
+        assert!(store.export_dictation("missing", &path).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        fs::remove_file(path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2068,12 +2248,15 @@ mod tests {
     fn proofread_history_preserves_recovery_and_content_free_status() {
         let (directory, store) = temp_store("proofreader-history");
         let status = "punctuation_model;proofreader_model=openai/gpt-6-luna;proofreader_outcome=accepted;proofreader_reason=accepted";
-        let record = store.commit_dictation_with_status(
+        let record = store.commit_dictation_with_confidence(
             store.privacy_generation(), "send the the link", "Send the link.",
             RecognitionCompleteness::Complete, &[], Some("Send the the link."),
             Some("proofread"), None, None, Some(status),
+            &[crate::confidence::WordConfidence { word: "send".into(), probability: 0.8 }],
         ).unwrap().unwrap();
         let loaded = store.get_dictation(&record.id).unwrap();
+        assert_eq!(loaded.word_confidence.len(), 1);
+        assert_eq!(loaded.word_confidence[0].probability, 0.8);
         assert_eq!(loaded.raw, "send the the link");
         assert_eq!(loaded.pre_model_text.as_deref(), Some("Send the the link."));
         assert_eq!(loaded.publication_stage.as_deref(), Some("proofread"));

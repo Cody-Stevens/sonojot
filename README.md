@@ -2,9 +2,25 @@
 
 SonoJot is a local-first dictation and meeting transcription app for Windows and macOS, with an alpha Linux build. Speak into any app, keep the raw recognition, apply conservative cleanup, or transcribe a meeting. Speech models run on your computer. Optional cloud AI features send selected content to the provider you configure; see the [Privacy Notice](https://sonojot.com/privacy).
 
-Get official builds and platform availability at **[sonojot.com](https://sonojot.com)**.
-
 ![SonoJot dictation settings](web/public/shots/app-dictation-demo-fog.webp)
+
+## Download
+
+Download SonoJot from **[sonojot.com](https://sonojot.com)**. It is free.
+
+- Windows, x64: signed installer.
+- macOS 14 or newer, Apple Silicon: signed and notarized DMG.
+- Linux (alpha): build from source on Arch Linux; see [Build from source](#build-from-source).
+
+The same installers are attached to [GitHub Releases](https://github.com/Cody-Stevens/sonojot/releases), with SHA-256 checksums. Installed copies update themselves from releases.sonojot.com. Releases marked *Pre-release* are nightly test builds for Windows: newer and less tested.
+
+## Models
+
+Speech recognition runs on your computer with open models you choose in Setup or Models, such as Qwen3-ASR, Parakeet, Whisper and Moonshine. Each model downloads from its publisher under its own license. SonoJot's own punctuation and cleanup models are published at [huggingface.co/SonoJot](https://huggingface.co/SonoJot). The [models page](https://sonojot.com/#models) compares accuracy, size and speed.
+
+## Feedback
+
+I'd like to hear how SonoJot works for you: what you dictate, what went wrong, and which platform you use. Post in [Discussions](https://github.com/Cody-Stevens/sonojot/discussions), open an [issue](https://github.com/Cody-Stevens/sonojot/issues) for a bug, or email support@sonojot.com. You can also send a bug report from inside the app. Please don't attach private recordings, transcripts or keys.
 
 ## Build from source
 
@@ -46,4 +62,4 @@ To build the website, run `npm ci` and then `npm run build` in `web/`. Hardware-
 
 SonoJot source is licensed under [Apache-2.0](LICENSE). Third-party code, fonts, downloaded models and runtimes retain their own licenses; see [third-party notices](rewrite/THIRD_PARTY_NOTICES.md). The source license grants no trademark rights. See the [Terms of Use](https://sonojot.com/terms), [Privacy Notice](https://sonojot.com/privacy), and [Trademark Policy](https://sonojot.com/trademarks).
 
-Report bugs and suggest features through [GitHub issues](https://github.com/Cody-Stevens/sonojot/issues), or email support@sonojot.com. Do not attach private recordings, transcripts, or keys. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending changes.
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending changes.

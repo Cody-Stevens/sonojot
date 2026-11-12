@@ -94,6 +94,8 @@ enum SpeechUpdate {
 }
 
 struct Publication {
+    kept_audio: Option<Arc<Vec<f32>>>,
+    word_confidence: Vec<crate::confidence::WordConfidence>,
     session_id: u64,
     original_text: String,
     text: String,
@@ -125,7 +127,7 @@ impl Publication {
         // Saved before delivery: target_app identifies the captured intended
         // destination, not proof of a successful paste. The Store rechecks
         // current retention and the privacy generation under its write lock.
-        store.commit_dictation_with_status(
+        store.commit_dictation_with_audio(
             privacy_generation,
             &self.original_text,
             &self.text,
@@ -136,6 +138,8 @@ impl Publication {
             self.guard_reason.as_deref(),
             self.target_app.as_deref(),
             Some(&self.cleanup_status),
+            &self.word_confidence,
+            self.kept_audio.as_deref().map(Vec::as_slice),
         )
     }
 
@@ -336,6 +340,8 @@ impl Control {
                     state.delivery_notice = Some("Text ready".into());
                 }
                 return SpeechUpdate::Publish(Publication {
+                    kept_audio: result.kept_audio,
+                    word_confidence: result.word_confidence,
                     session_id: id,
                     original_text: result.original_text,
                     text: result.output_text,
@@ -600,6 +606,7 @@ impl Runtime {
         // Copy-last is temporary. Saved history remains accessible by record ID.
         let last_published = String::new();
         let snapshot = Snapshot {
+            local_proofreader_available: false,
             // The menu bar icon is the idle control. The sheet stays closed until
             // a click or a new recording.
             tab_visible: !cfg!(target_os = "macos") && !settings.start_tab_hidden,
@@ -685,8 +692,12 @@ impl Runtime {
         {
             return;
         }
-        let _ = self.engine.prewarm(snapshot.settings.asr_model);
-        if snapshot.settings.cleanup_model == "local-rules"
+        let _ = self.engine.prewarm(snapshot.settings.asr_model.clone());
+        // Only a local cleanup model that will actually run is warmed; the
+        // single cleanup choice may have moved to SonoJot or an online model.
+        let choice = snapshot.settings.cleanup_choice(snapshot.local_proofreader_available);
+        if !matches!(choice, crate::domain::CleanupChoice::Local(_))
+            || snapshot.settings.cleanup_model == "local-rules"
             || (snapshot.settings.cleanup_model == crate::optional_llm::SMART_CLEANUP_ID
                 && snapshot.settings.cleanup_mode != CleanupMode::Clean)
         {
@@ -714,6 +725,7 @@ impl Runtime {
         drop(snapshot);
         // Selection commits take coordinator -> snapshot. Never invert that
         // order by holding the snapshot while reading update admission.
+        value.local_proofreader_available = crate::optional_llm::proofreader_present(&self.store.models_dir());
         value.update = self.updater.snapshot()?;
         Ok(value)
     }
@@ -967,7 +979,7 @@ impl Runtime {
                 .scope
                 .as_deref()
                 .map(str::trim)
-                .filter(|scope| !scope.is_empty())
+                .filter(|scope| !scope.is_empty() && entry.kind != crate::domain::VocabularyKind::Hint)
             {
                 confirmed.push(crate::structured_clean::VocabularyEntry {
                     id: Some(entry.id.clone()),
@@ -980,10 +992,12 @@ impl Runtime {
                 });
             }
             vocabulary.push(cleanup::Vocabulary {
+                kind: entry.kind,
+                aliases: entry.aliases,
                 heard: entry.heard,
                 written: entry.written,
                 enabled: true,
-                context: vec![],
+                context: entry.context,
             });
         }
         // Learned aliases require actual ASR text and nearby scope evidence.
@@ -1462,6 +1476,7 @@ pub fn compositor_binds() -> bool {
 }
 
 pub fn register_shortcut(app: &AppHandle, value: &str, mode: HotkeyMode) -> Result<(), String> {
+    crate::domain::validate_hotkey(value)?;
     #[cfg(target_os = "linux")]
     if crate::hyprland::active() {
         let executable = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -1577,6 +1592,7 @@ mod publication_boundary_tests {
                 privacy_generation: 0,
             },
             Snapshot {
+                local_proofreader_available: false,
                 session_id: Some(id),
                 capture_generation: Some(generation),
                 state,
@@ -1654,7 +1670,12 @@ mod publication_boundary_tests {
         let (mut control, mut state) = active(7, 2, AppState::Cleaning);
         control.target_app = Some(Arc::new(OnceLock::from(String::from("outlook.exe"))));
         control.no_history = true;
-        let SpeechUpdate::Publish(publication) = control.on_speech(&mut state, completed(7, "raw words", "Published words.", "safe_formatting")) else { panic!("publication missing"); };
+        store.save_settings(&Settings { keep_dictation_audio: true, ..Settings::default() }).unwrap();
+        let mut event = completed(7, "synthetic input", "Synthetic input.", "safe_formatting");
+        if let Event::Completed { result, .. } = &mut event {
+            result.kept_audio = Some(Arc::new(vec![0.25; 160]));
+        }
+        let SpeechUpdate::Publish(publication) = control.on_speech(&mut state, event) else { panic!("publication missing"); };
         assert!(publication.save(&store, store.privacy_generation()).unwrap().is_none());
         assert_eq!(store.count_dictations().unwrap(), 0);
         assert_eq!(std::fs::read_dir(directory.join("dictations")).unwrap().count(), 0);
@@ -1822,6 +1843,8 @@ mod publication_boundary_tests {
         Event::Completed {
             session_id: id,
             result: DictationResult {
+                kept_audio: None,
+                word_confidence: Vec::new(),
                 original_text: raw.into(),
                 output_text: output.into(),
                 pre_model_text: None,
@@ -2432,6 +2455,7 @@ mod command_order_tests {
     fn repeated_stop_then_cancel_keep_the_pending_start_identity() {
         let invalidation = AtomicU64::new(4);
         let snapshot = Snapshot {
+            local_proofreader_available: false,
             capture_generation: Some(4),
             state: AppState::Loading,
             ..Default::default()

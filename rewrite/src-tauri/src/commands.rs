@@ -263,7 +263,12 @@ pub async fn save_settings(
         }
         Ok(())
     };
-    crate::resource_manager::with_model_selection(ids_changed, commit)?;
+    let channel_changed = old.update_channel != settings.update_channel;
+    if channel_changed {
+        state.updater.change_channel(|| crate::resource_manager::with_model_selection(ids_changed, commit))?;
+    } else {
+        crate::resource_manager::with_model_selection(ids_changed, commit)?;
+    }
     // Keep the shared resource coordinator on the current overlap/retention
     // choices without a restart. Idempotent; the next lease acquire observes
     // the new mode. Startup path already configures in lib.rs setup. Runs
@@ -282,6 +287,10 @@ pub async fn save_settings(
     }
     if !state.snapshot()?.settings.cursor_indicator {
         windows::close_cursor(&app);
+    }
+    if channel_changed {
+        // Offer the new channel's newest build now, not at the next timed check.
+        crate::updater::request_check(state.inner(), &app, false)?;
     }
     state.emit(&app);
     state.snapshot()
@@ -668,7 +677,12 @@ pub async fn copy_text(
 }
 
 #[tauri::command]
-pub fn list_meetings(state: AppStateHandle<'_>) -> Result<Vec<MeetingSummary>, String> {
+pub async fn search_meetings(state: AppStateHandle<'_>, query: String) -> Result<Vec<crate::meetings::MeetingSearchMatch>, String> {
+    let meetings = state.meetings.clone();
+    tauri::async_runtime::spawn_blocking(move || meetings.search(&query)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub fn list_meetings(state: AppStateHandle<'_>) -> Result<Vec<crate::meetings::MeetingListItem>, String> {
     state.meetings.list()
 }
 #[tauri::command]
@@ -852,7 +866,7 @@ mod meeting_source_tests {
 }
 
 pub fn finish_recording(app: &AppHandle, runtime: &Arc<Runtime>) -> Result<MeetingDetail, String> {
-    finish_meeting_capture(app, runtime, false)
+    finish_meeting_capture(app, runtime, false, None)
 }
 
 pub(crate) fn take_finalizing_recording(
@@ -873,9 +887,13 @@ fn finish_meeting_capture(
     app: &AppHandle,
     runtime: &Arc<Runtime>,
     transcribe: bool,
+    expected_id: Option<&str>,
 ) -> Result<MeetingDetail, String> {
     let _control = lock(&runtime.control)?;
     let mut active = lock(&runtime.recorder)?;
+    if expected_id.is_some_and(|expected| active.as_ref().is_none_or(|(id, _)| id != expected)) {
+        return Err("The recording changed. Open the current recording before discarding it.".into());
+    }
     // Persist the busy state before relinquishing capture ownership. A restart
     // can recover this checkpoint even if the writer never returns.
     let (id, recorder, finalizing) = take_finalizing_recording(&runtime.meetings, &mut active)?;
@@ -948,10 +966,25 @@ pub async fn stop_meeting(
 ) -> Result<MeetingDetail, String> {
     let runtime = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        finish_meeting_capture(&app, &runtime, true)
+        finish_meeting_capture(&app, &runtime, true, None)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn discard_meeting(app: AppHandle, state: AppStateHandle<'_>, id: String, confirmed: bool) -> Result<(), String> {
+    if !confirmed { return Err("Confirm before discarding the recording.".into()); }
+    let runtime = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let detail = finish_meeting_capture(&app, &runtime, false, Some(&id))?;
+        if detail.status == "finalizing" {
+            return Err("The recording is still saving. Its audio is kept; delete the meeting after saving finishes.".into());
+        }
+        runtime.meetings.delete(&id)?;
+        runtime.emit(&app);
+        Ok(())
+    }).await.map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -959,11 +992,16 @@ pub async fn import_media(
     app: AppHandle,
     state: AppStateHandle<'_>,
     path: String,
+    speaker: Option<String>,
 ) -> Result<MeetingDetail, String> {
+    let speaker = crate::meetings::validate_transcription_speaker(speaker.as_deref())?;
     let runtime = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _activity = crate::resource_manager::begin_update_activity(crate::resource_manager::UpdateActivity::Media)?;
         let meeting = runtime.meetings.begin_import(Path::new(&path))?;
+        if speaker.is_some() {
+            runtime.meetings.set_import_speaker(&meeting.id, speaker.as_deref())?;
+        }
         runtime.emit(&app);
         let result = runtime.meetings.finish_import(
             &meeting.id,
@@ -982,16 +1020,23 @@ pub async fn transcribe_meeting(
     state: AppStateHandle<'_>,
     id: String,
     model: Option<String>,
+    speaker: Option<String>,
+    no_diarize: Option<bool>,
 ) -> Result<MeetingDetail, String> {
     let runtime = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let job = runtime
             .meetings
-            .begin_transcription(&id, model.as_deref())?;
+            .begin_transcription_with_options(&id, model.as_deref(), speaker.as_deref(), no_diarize.unwrap_or(false))?;
         transcribe_saved_meeting(&app, &runtime, job)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn get_timed_transcript(state: AppStateHandle<'_>, id: String, latest_attempt: Option<bool>) -> Result<serde_json::Value, String> {
+    state.meetings.timed_transcript_attempt(&id, latest_attempt.unwrap_or(false))
 }
 
 fn transcribe_saved_meeting(
@@ -1005,7 +1050,8 @@ fn transcribe_saved_meeting(
     // Unknown IDs error; never fall back to another installed model or cloud.
     let mut recognizer = None;
     let mut granite = None;
-    let result = job.run_recognition(move |audio, model, cancel| {
+    let (notes_preset, notes_instructions) = job.notes_settings();
+    let result = job.run_with_notes(move |audio, model, cancel| {
         runtime.emit(app);
         if crate::granite_speech::is_granite(model) {
             if granite.is_none() {
@@ -1017,6 +1063,11 @@ fn transcribe_saved_meeting(
             recognizer = Some(crate::asr::Recognizer::load_interruptible(&runtime.models_root, model, cancel)?);
         }
         crate::asr::transcribe_file_recognition_with(recognizer.as_mut().unwrap(), audio, cancel)
+    }, notes_preset, &notes_instructions, |transcript, preset, instructions, cancel| {
+        runtime.emit(app);
+        let snapshot = crate::ai::snapshot_notes_config(&runtime.store)?;
+        crate::meeting_ai::generate_notes_with_snapshot(&runtime.models_root, &runtime.store,
+            &snapshot, transcript, preset, instructions, cancel)
     });
     runtime.emit(app);
     // Publishing recognition wakes the idle title worker for every source.
@@ -1102,6 +1153,14 @@ pub fn rename_meeting_speaker(
     to: String,
 ) -> Result<MeetingDetail, String> {
     let result = state.meetings.rename_speaker(&id, &from, &to)?;
+    state.emit(&app);
+    Ok(result)
+}
+#[tauri::command]
+pub fn reassign_meeting_passage(
+    app: AppHandle, state: AppStateHandle<'_>, id: String, clock: String, from: String, to: String,
+) -> Result<MeetingDetail, String> {
+    let result = state.meetings.reassign_passage(&id, &clock, &from, &to)?;
     state.emit(&app);
     Ok(result)
 }
@@ -1208,6 +1267,29 @@ pub fn list_dictations(
 #[tauri::command]
 pub fn count_dictations(state: AppStateHandle<'_>) -> Result<usize, String> {
     state.store.count_dictations()
+}
+
+#[tauri::command]
+pub async fn export_dictation(state: AppStateHandle<'_>, id: String, path: String) -> Result<(), String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.export_dictation(&id, Path::new(&path)))
+        .await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn copy_shortcut_command() -> Result<(), String> {
+    platform::copy_text("sonojot --shortcut press").await
+}
+
+#[tauri::command]
+pub fn get_cli_path() -> Result<String, String> {
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    Ok(crate::agent_integration::cli_beside(&executable).to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn copy_cli_path() -> Result<(), String> {
+    platform::copy_text(&get_cli_path()?).await
 }
 
 #[tauri::command]
@@ -1339,7 +1421,7 @@ fn punctuation_model_page_url(
     use crate::punctuation_model::Package;
     let package = match id {
         Some(id) => Package::from_id(id).ok_or("Unknown punctuation package.")?,
-        None => selected().unwrap_or(Package::V2),
+        None => selected().unwrap_or(if Package::LATEST.released() { Package::LATEST } else { Package::V2 }),
     };
     Ok(package.page_url())
 }
@@ -1350,15 +1432,17 @@ mod punctuation_model_page_tests {
     use crate::punctuation_model::Package;
 
     #[test]
-    fn default_page_follows_the_verified_package_or_released_v2() {
+    fn default_page_follows_the_verified_package_or_the_newest_published() {
+        let fallback = if Package::V3.released() { Package::V3 } else { Package::V2 };
         for (selected, expected) in [
             (Some(Package::V1), "https://huggingface.co/SonoJot/sonojot-punct-v1"),
             (Some(Package::V2), "https://huggingface.co/SonoJot/sonojot-punct-v2"),
-            (None, "https://huggingface.co/SonoJot/sonojot-punct-v2"),
+            (Some(Package::V3), "https://huggingface.co/SonoJot/sonojot-punct-v3"),
+            (None, fallback.page_url()),
         ] {
             assert_eq!(punctuation_model_page_url(None, || selected).unwrap(), expected);
         }
-        assert!(Package::V2.released(), "The default model page must be published.");
+        assert!(fallback.released(), "The default model page must be published.");
     }
 
     #[test]
@@ -1366,10 +1450,11 @@ mod punctuation_model_page_tests {
         for (id, expected) in [
             ("sonojot-punct-v1", "https://huggingface.co/SonoJot/sonojot-punct-v1"),
             ("sonojot-punct-v2", "https://huggingface.co/SonoJot/sonojot-punct-v2"),
+            ("sonojot-punct-v3", "https://huggingface.co/SonoJot/sonojot-punct-v3"),
         ] {
             assert_eq!(punctuation_model_page_url(Some(id), || panic!("explicit link must not verify models")).unwrap(), expected);
         }
-        for id in ["", "sonojot-punct-v3", "../sonojot-punct-v1", "https://huggingface.co/SonoJot/sonojot-punct-v2",
+        for id in ["", "sonojot-punct-v4", "../sonojot-punct-v1", "https://huggingface.co/SonoJot/sonojot-punct-v2",
             "https://example.com", "file:///C:/Windows", "--help"] {
             assert_eq!(punctuation_model_page_url(Some(id), || panic!("invalid id must not verify models")).unwrap_err(),
                 "Unknown punctuation package.");
@@ -1420,4 +1505,25 @@ pub fn get_diagnostics(state: AppStateHandle<'_>) -> Result<String, String> {
         "models": model_catalog(&state.models_root), "microphoneCount": snapshot.devices.len(), "meetingCount": state.meetings.list()?.len(),
         "runtime": "Rust + Tauri", "dataSchema": 1,
         "lastDelivery": state.last_delivery.lock().ok().and_then(|value| value.clone()) }).to_string())
+}
+
+#[tauri::command]
+pub fn get_dictation_audio_usage(state: AppStateHandle<'_>) -> Result<crate::store::DictationAudioUsage, String> {
+    state.store.dictation_audio_usage()
+}
+
+#[tauri::command]
+pub fn delete_dictation_audio(state: AppStateHandle<'_>) -> Result<crate::store::DeletedDictationAudio, String> {
+    state.store.delete_dictation_audio()
+}
+
+#[cfg(test)]
+mod help_command_tests {
+    #[test]
+    fn cli_path_uses_the_same_installation_as_the_app() {
+        let executable = std::env::current_exe().unwrap();
+        let path = super::get_cli_path().unwrap();
+        assert_eq!(std::path::Path::new(&path), crate::agent_integration::cli_beside(&executable));
+        assert_eq!(std::path::Path::new(&path).parent(), executable.parent());
+    }
 }

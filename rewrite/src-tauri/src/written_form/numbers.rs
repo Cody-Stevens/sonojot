@@ -423,6 +423,67 @@ pub(super) fn year(t: &[&str]) -> Option<i128> {
     }
     None
 }
+const SEASONS: [&str; 5] = ["spring", "summer", "fall", "autumn", "winter"];
+/// Words that may follow a loosely cued two-digit year: the year closes its
+/// phrase ("back in ninety nine we..."), it does not count a noun.
+const CLAUSE_WORDS: [&str; 30] = [
+    "we", "i", "you", "he", "she", "they", "it", "when", "and", "but", "so", "or", "the",
+    "that", "there", "this", "was", "is", "were", "because", "before", "after", "until",
+    "then", "where", "if", "my", "our", "everyone", "everything",
+];
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum YearCue {
+    /// "<month|season> of": any two-digit value.
+    Named,
+    /// "back in", "since", "class of", "in the year", "circa": a plausible
+    /// spoken year (twenty, ninety nine, oh five) that closes its phrase.
+    Loose,
+}
+/// A cue immediately before a span that names a year.
+pub(super) fn year_cue(before: &str) -> Option<YearCue> {
+    let bt = tokens(before);
+    let words: Vec<&str> = bt.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        [.., cue, "of"] if month(cue).is_some() || SEASONS.contains(cue) => Some(YearCue::Named),
+        [.., "back", "in"] | [.., "class", "of"] | [.., "in", "the", "year"] => {
+            Some(YearCue::Loose)
+        }
+        [.., "since"] | [.., "circa"] => Some(YearCue::Loose),
+        _ => None,
+    }
+}
+/// A cued year spoken as two digits keeps two digits ('24, '05), never 2024.
+/// `after` is empty when the speaker closed the span with a mark.
+fn short_year(t: &[&str], before: &str, after: &str) -> Option<String> {
+    let cue = year_cue(before)?;
+    if let Some(next) = tokens(after).first() {
+        if value(next).is_some()
+            || scale(next).is_some()
+            || matches!(next.as_str(), "hundred" | "oh" | "o")
+            || next.bytes().all(|b| b.is_ascii_digit())
+            || cue == YearCue::Loose && !CLAUSE_WORDS.contains(&next.as_str())
+        {
+            return None;
+        }
+    }
+    if let [zero, digit] = t {
+        if matches!(*zero, "oh" | "o") {
+            return value(digit)
+                .filter(|v| (1..=9).contains(v))
+                .map(|v| format!("'0{v}"));
+        }
+    }
+    if (1..=2).contains(&t.len()) && t.iter().all(|w| value(w).is_some()) {
+        let v = integer(t, false).filter(|v| (10..=99).contains(v))?;
+        // Loose cues need a year-shaped value: a tens word or tens plus unit,
+        // never a teen ("since ten" is usually a time).
+        if cue == YearCue::Loose && v < 20 {
+            return None;
+        }
+        return Some(format!("'{v}"));
+    }
+    None
+}
 fn range(t: &[&str], force: bool) -> Option<(String, String)> {
     if t.iter().filter(|w| **w == "to").count() != 1 {
         return None;
@@ -824,7 +885,9 @@ pub(super) fn candidate(
                 _ => "x",
             }
         )),
-        Class::Year => year(t).map(|n| n.to_string()),
+        Class::Year => year(t)
+            .map(|n| n.to_string())
+            .or_else(|| short_year(t, before, after)),
         Class::Date => date(t),
         Class::Time => time(t, before),
         Class::Ordinal => {

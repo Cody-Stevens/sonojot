@@ -1574,6 +1574,7 @@ impl Engine {
     fn transcribe_segment(&self, samples: &[f32], mut evidence: Option<&mut serde_json::Value>) -> Result<crate::asr::RecognitionResult, String> {
         if samples.is_empty() {
             return Ok(crate::asr::RecognitionResult {
+                word_confidence: Vec::new(),
                 original_text: None,
                 segments: Vec::new(),
                 text: String::new(),
@@ -1585,7 +1586,7 @@ impl Engine {
         if (self.model_id == QWEN_FP16_CUDA_ID || self.model_id == gpu_catalog_extra::WHISPER_TURBO_FP32_CUDA_ID)
             && !crate::sherpa::confirm_speech(samples, evidence.as_deref_mut())?
         {
-            return Ok(crate::asr::RecognitionResult { original_text: None, segments: Vec::new(), text: String::new(),
+            return Ok(crate::asr::RecognitionResult { word_confidence: Vec::new(), original_text: None, segments: Vec::new(), text: String::new(),
                 completeness: RecognitionCompleteness::Complete, warnings: Vec::new() });
         }
         if self.model_id == QWEN_FP16_CUDA_ID {
@@ -1598,6 +1599,7 @@ impl Engine {
                     *evidence = serde_json::json!({"native_text": &text});
                 }
                 Ok(crate::asr::RecognitionResult {
+                    word_confidence: Vec::new(),
                     original_text: None,
                     segments: Vec::new(),
                     text,
@@ -1606,6 +1608,7 @@ impl Engine {
                 })
             }
             Err(error) => Ok(crate::asr::RecognitionResult {
+                word_confidence: Vec::new(),
                 original_text: None,
                 segments: Vec::new(),
                 text: String::new(),
@@ -1687,6 +1690,7 @@ impl Stream<'_> {
     pub fn finish_recognition(mut self) -> Result<crate::asr::RecognitionResult, String> {
         self.drain_vad(true)?;
         Ok(crate::asr::RecognitionResult {
+            word_confidence: Vec::new(),
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
             text: crate::asr::assemble_segments(&self.ledger, false),
@@ -1714,6 +1718,7 @@ impl Stream<'_> {
             "observed_execution": null,
         });
         let recognition = crate::asr::RecognitionResult {
+            word_confidence: Vec::new(),
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
             text: crate::asr::assemble_segments(&self.ledger, false),

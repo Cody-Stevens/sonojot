@@ -180,15 +180,8 @@ class SetupProfilesState {
       const next = await call("apply_setup_profile", { profile });
       app.apply(next);
       if (profile !== "custom") {
-        // Automatic profiles name local Notes models, so their route must agree.
-        if (
-          ai.data?.backend !== "local" &&
-          !(await ai.save({ backend: "local" }))
-        ) {
-          throw new Error(
-            "Models were saved, but Notes still uses OpenRouter. Choose a local Notes model in Custom.",
-          );
-        }
+        // The native reset commits every local and online route together.
+        await ai.refresh();
       }
       return next;
     } finally {
@@ -196,12 +189,12 @@ class SetupProfilesState {
     }
   }
 
-  async use(profile = this.selected): Promise<void> {
+  async use(profile = this.selected, confirmed = false): Promise<void> {
     if (this.applyLocked || (profile !== "custom" && !this.hardware)) return;
     this.failure = null;
     // Own the whole operation, including confirmation, across route changes.
     const deferredNotes = await app.perform("setup-profile", () =>
-      this.useProfile(profile).catch((failure: unknown) => {
+      this.useProfile(profile, confirmed).catch((failure: unknown) => {
         const message = errorMessage(failure);
         // A Notes failure after the profile saved keeps its own banner and
         // Open Models action; everything else belongs to the profile card.
@@ -218,13 +211,17 @@ class SetupProfilesState {
     if (deferredNotes) void this.prepareNotesAfterCheck(deferredNotes);
   }
 
-  private async useProfile(profile: SetupProfile): Promise<string | undefined> {
+  private async useProfile(
+    profile: SetupProfile,
+    confirmed = false,
+  ): Promise<string | undefined> {
     if (
       app.snapshot.settings.setupProfile === "custom" &&
       profile !== "custom" &&
+      !confirmed &&
       !(await app.confirm(
         `Use ${profileLabel(profile)}?`,
-        "Replace your Speech, Cleanup and Notes model choices with this profile.",
+        "Replace your dictation speech, meeting speech, Cleanup and Notes choices with this profile. Your OpenRouter connection stays saved.",
         "Use this",
       ))
     )

@@ -9,7 +9,6 @@ import {
   guardReasonLabel,
   historyVersions,
   publicationLabel,
-  smartCleanupAvailable,
   smartRecoverySession,
 } from "./smart-cleanup";
 
@@ -26,25 +25,18 @@ test("guard metadata has a readable label and tolerates newer reasons", () => {
   assert.equal(guardReasonLabel("layout:future_guard"), "Layout skipped");
 });
 
-test("Smart choice is available only in Custom and never selected by default", () => {
-  for (const setupProfile of [
-    null,
-    "accurate",
-    "balanced",
-    "light",
-    "custom",
-  ] as const) {
-    assert.equal(
-      smartCleanupAvailable({
-        ...previewSnapshot.settings,
-        setupProfile,
-      }),
-      setupProfile === "custom",
-    );
-  }
+test("SpeakoFlow is never the cleanup model by default", () => {
   assert.notEqual(
     previewSnapshot.settings.cleanupModel,
     "speakoflow-mini-q4_k_m",
+  );
+  assert.equal(
+    guardReasonLabel("layout:online_model"),
+    "Online cleanup models can't shape text yet",
+  );
+  assert.equal(
+    guardReasonLabel("layout:no_cleanup_model"),
+    "No cleanup model to shape text",
   );
 });
 
