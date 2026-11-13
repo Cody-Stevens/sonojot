@@ -120,9 +120,9 @@
   "qwen3-asr-1.7b-q8-metal": {
     "ted": null,
     "mac": {
-      "value": 5.25,
-      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
-      "note": "Selected sectioner A"
+      "value": 3.41,
+      "source": "rewrite/evaluation/BENCHMARK-MAC-M4-2026-11-13.md",
+      "note": "Mac mini M4 16 GB, app worker (automatic language, 20 s sections), TED-12, 42/1,233 words, Whisper English normaliser"
     },
     "ami": null,
     "ram": {
@@ -130,10 +130,10 @@
         2.8,
         3.77
       ],
-      "measuredPeak": 2.91,
+      "measuredPeak": 3.28,
       "estimated": false,
-      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
-      "note": "Unified memory, M1 Pro 16 GB, evaluator + worker + server; counted once"
+      "source": "rewrite/evaluation/BENCHMARK-MAC-M4-2026-11-13.md",
+      "note": "Unified memory, M4 16 GB, evaluator + worker + server, sampled every 100 ms; counted once (M1 Pro: 2.91 GB)"
     },
     "vram": {
       "planningRange": [
@@ -146,18 +146,18 @@
       "note": "Unified memory; see ramGB"
     },
     "wait": {
-      "seconds": 0.777,
-      "label": "0.78 s",
-      "basis": "Median final delay on Apple Silicon",
-      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md"
+      "seconds": 1.121,
+      "label": "1.12 s",
+      "basis": "Median wait after speech ends, real-time replay of TED-12 on an M4",
+      "source": "rewrite/evaluation/BENCHMARK-MAC-M4-2026-11-13.md"
     }
   },
   "qwen3-asr-1.7b-q4-metal": {
     "ted": null,
     "mac": {
-      "value": 5.25,
-      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
-      "note": "Selected sectioner A"
+      "value": 3.24,
+      "source": "rewrite/evaluation/BENCHMARK-MAC-M4-2026-11-13.md",
+      "note": "Mac mini M4 16 GB, app worker (automatic language, 20 s sections), TED-12, 40/1,233 words, Whisper English normaliser"
     },
     "ami": null,
     "ram": {
@@ -165,10 +165,10 @@
         2.36,
         3.15
       ],
-      "measuredPeak": 2.35,
+      "measuredPeak": 2.41,
       "estimated": false,
-      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md",
-      "note": "M1 Pro 16 GB; an M4 16 GB run saw 2.16 GB"
+      "source": "rewrite/evaluation/BENCHMARK-MAC-M4-2026-11-13.md",
+      "note": "Unified memory, M4 16 GB, evaluator + worker + server, sampled every 100 ms; counted once (M1 Pro: 2.35 GB)"
     },
     "vram": {
       "planningRange": [
@@ -181,10 +181,10 @@
       "note": "Unified memory; see ramGB"
     },
     "wait": {
-      "seconds": 0.685,
-      "label": "0.69 s",
-      "basis": "Median final delay on Apple Silicon",
-      "source": "rewrite/evaluation/BENCHMARK-MAC-METAL-2026-09-28.md"
+      "seconds": 0.788,
+      "label": "0.79 s",
+      "basis": "Median wait after speech ends, real-time replay of TED-12 on an M4",
+      "source": "rewrite/evaluation/BENCHMARK-MAC-M4-2026-11-13.md"
     }
   },
   "parakeet-tdt-0.6b-v2": {
@@ -227,7 +227,11 @@
       "source": "docs/research/ParakeetFineTuneDesktop.md",
       "note": "int8 export, sherpa-onnx 1.13.8, full clips (stock Parakeet int8: 3.97)"
     },
-    "mac": null,
+    "mac": {
+      "value": 3.73,
+      "source": "rewrite/evaluation/BENCHMARK-MAC-M4-2026-11-13.md",
+      "note": "Mac mini M4 16 GB, app worker (VAD, 20 s sections), TED-12, 46/1,233 words, Whisper English normaliser"
+    },
     "ami": null,
     "ram": {
       "planningRange": [

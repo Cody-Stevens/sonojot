@@ -258,14 +258,14 @@ pub async fn save_settings(
             snapshot.settings = settings.clone();
             snapshot.error = None;
             if shortcut_changed {
-                snapshot.capabilities.global_shortcut = true;
+                snapshot.capabilities.global_shortcut = !crate::flavor::SYNC_TEST;
             }
         }
         Ok(())
     };
     let channel_changed = old.update_channel != settings.update_channel;
     if channel_changed {
-        state.updater.change_channel(|| crate::resource_manager::with_model_selection(ids_changed, commit))?;
+        state.updater.change_channel(settings.update_channel, || crate::resource_manager::with_model_selection(ids_changed, commit))?;
     } else {
         crate::resource_manager::with_model_selection(ids_changed, commit)?;
     }
@@ -1278,7 +1278,7 @@ pub async fn export_dictation(state: AppStateHandle<'_>, id: String, path: Strin
 
 #[tauri::command]
 pub async fn copy_shortcut_command() -> Result<(), String> {
-    platform::copy_text("sonojot --shortcut press").await
+    platform::copy_text(&format!("{} --shortcut press", crate::flavor::SLUG)).await
 }
 
 #[tauri::command]

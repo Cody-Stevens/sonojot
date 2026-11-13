@@ -340,3 +340,113 @@ test("a repair offer says it reinstalls the same version", () => {
   });
   assert.equal(updateButtonLabel(plain, false), "Update available");
 });
+
+test("channel changes name the destination for newer nightly and older stable offers", () => {
+  for (const [switchChannel, name, version, older] of [
+    ["nightly", "Nightly", "0.28.10-nightly.202611130300", false],
+    ["stable", "Stable", "0.28.9", true],
+  ] as const) {
+    const status = updateStatusSchema.parse({
+      state: "available",
+      version,
+      notes: null,
+      size: null,
+      older,
+      switchChannel,
+    });
+    assert.equal(
+      updateStatusLabel(status),
+      `Switch to ${name}: ${version} is available.`,
+    );
+    assert.equal(updateButtonLabel(status, false), `Switch to ${name}`);
+    assert.equal(updateAction(status, false)?.label, `Download ${version}`);
+    assert.match(
+      updateTooltip(status, false, null),
+      new RegExp(`Switch to ${name}`),
+    );
+    assert.equal(
+      updateNoticeMessage({
+        status,
+        installing: false,
+        noticeDismissed: false,
+      }),
+      updateStatusLabel(status),
+    );
+    const downloading = updateStatusSchema.parse({
+      state: "downloading",
+      percent: 42,
+      switchChannel,
+    });
+    assert.equal(
+      updateStatusLabel(downloading),
+      `Downloading ${name} to switch · 42%`,
+    );
+    const ready = updateStatusSchema.parse({
+      state: "ready",
+      version,
+      notes: null,
+      switchChannel,
+    });
+    assert.equal(
+      updateStatusLabel(ready),
+      `${name} ${version} is ready. Restart to switch.`,
+    );
+    assert.equal(updateButtonLabel(ready, false), "Restart to switch");
+    assert.equal(updateAction(ready, false)?.label, "Restart to switch");
+    assert.equal(
+      updateNoticeMessage({
+        status: ready,
+        installing: true,
+        noticeDismissed: false,
+      }),
+      "Restarting to switch…",
+    );
+    assert.equal(
+      updateActionDisabled(
+        ready,
+        false,
+        "Transcription is in progress.",
+        true,
+        () => false,
+      ),
+      true,
+    );
+  }
+});
+
+test("no Mac build and already-newest checks always give an explicit result", () => {
+  for (const reason of ["noBuild", "noNewer"] as const) {
+    const status = updateStatusSchema.parse({
+      state: "current",
+      channel: "nightly",
+      version: "0.28.9",
+      platform: "Mac",
+      reason,
+    });
+    assert.equal(
+      updateStatusLabel(status),
+      "Nightly has no Mac build newer than 0.28.9 yet. You'll get Nightly builds here when they're published.",
+    );
+    assert.equal(updateAction(status, false), null);
+  }
+  for (const [channel, name] of [
+    ["nightly", "Nightly"],
+    ["stable", "Stable"],
+  ] as const) {
+    const status = updateStatusSchema.parse({
+      state: "current",
+      channel,
+      version: "0.28.10-nightly.202611130300",
+      platform: "Mac",
+      reason: "current",
+    });
+    assert.equal(
+      updateStatusLabel(status),
+      `You're already on the newest ${name} build.`,
+    );
+    assert.equal(
+      updateActionDisabled(status, false, null, true, () => false),
+      false,
+    );
+  }
+});

@@ -40,7 +40,7 @@ async function shot(page, name) {
 }
 const card = (page, id) => page.locator(`[data-model-id="${id}"]`);
 
-/** The native frontier when SonoJot Parakeet is offered and the default switch is OFF. */
+/** The native frontier when SonoJot Parakeet is offered on a non-English system (Qwen stays recommended). The English default is in parakeet-default.spec.js. */
 function offered(fixture, dictation) {
   return {
     ...fixture,

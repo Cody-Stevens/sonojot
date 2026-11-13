@@ -12,6 +12,8 @@ name = "sonojot_core"
 crate-type = ["rlib"]
 
 [features]
+synctest = []
+sync-test-vectors = []
 custom-protocol = ["tauri/custom-protocol"]
 fidelity-eval = []
 
@@ -43,8 +45,10 @@ tauri-build = { version = "2", features = [] }
 nnnoiseless = { version = "=0.5.2", default-features = false }
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "=2.3.3"
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2"
 tauri-plugin-updater = "=2.10.1"
 tauri-plugin-process = "=2.3.1"
 serde = { version = "1", features = ["derive"] }
@@ -67,6 +71,12 @@ image = { version = "0.23", default-features = false, features = ["png"] }
 pulldown-cmark = "0.13"
 rusttype = "0.8"
 sha2 = "0.10.9"
+chacha20poly1305 = "=0.10.1"
+hkdf = "=0.12.4"
+hpke = { version = "=0.12.0", default-features = false, features = ["std", "x25519"] }
+rand = "=0.8.5"
+zeroize = { version = "=1.8.2", features = ["derive"] }
+subtle = "=2.6.1"
 bzip2 = "0.4.4"
 tar = "0.4"
 flate2 = "1"
@@ -103,3 +113,7 @@ block2 = "0.6"
 coreaudio-rs = "0.11.3"
 whisper-rs = { version = "0.16.0", features = ["metal"] }
 security-framework = "3"
+
+[[example]]
+name = "sync_vectors"
+required-features = ["sync-test-vectors"]

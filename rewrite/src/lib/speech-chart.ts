@@ -41,11 +41,17 @@ export function speechScore(
     (meeting
       ? data?.ami
       : mac
-        ? String(data?.mac?.source).includes("MAC-METAL")
+        ? macMeasured(data?.mac)
           ? data?.mac
           : null
         : data?.ted) ?? null
   );
+}
+/** A Mac score counts only when a Mac benchmark report measured it (Metal or CPU). */
+function macMeasured(score: Score | null | undefined): boolean {
+  return [score?.source ?? []]
+    .flat()
+    .some((source) => /evaluation\/BENCHMARK-MAC-/.test(source));
 }
 export function gpuModel(model: Pick<ModelEntry, "backend">): boolean {
   return /cuda|metal|nvidia/i.test(model.backend);

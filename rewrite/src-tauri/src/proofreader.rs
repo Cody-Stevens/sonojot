@@ -113,27 +113,49 @@ impl Provider for Local {
             stop,
         )?;
         ai::proofreader_checkpoint(cancel, stop, deadline)?;
-        let mut out = String::new();
-        // Preserve separators exactly; bounded chunks keep the trained context size.
-        for chunk in local_chunks(text) {
+        let out = proofread_local(text, |chunk| {
             ai::proofreader_checkpoint(cancel, stop, deadline)?;
-            let prompt = format!("{LOCAL_INSTRUCTION}{vocabulary_block}\n\nText:\n{chunk}");
-            let proposed = cleanup::generate_local(
+            let prompt = format!("{LOCAL_INSTRUCTION}{vocabulary_block}
+
+Text:
+{chunk}");
+            cleanup::generate_local(
                 &self.root,
                 crate::optional_llm::PROOFREADER_ID,
                 "",
                 &prompt,
                 1024,
                 cancel,
-            )?;
-            let trimmed = chunk.trim();
-            let accepted = guard(trimmed, proposed.trim()).map_err(str::to_owned)?;
-            out.push_str(&chunk[..chunk.len() - chunk.trim_start().len()]);
-            out.push_str(accepted);
-            out.push_str(&chunk[chunk.trim_end().len()..]);
-        }
+            )
+        })?;
         Ok(serde_json::json!({"choices":[{"finish_reason":"stop","message":{"content":out}}]}))
     }
+}
+/// Proofread `text` chunk by chunk under the caller's text lease. After the
+/// first successful generation the model is marked resident, so the next
+/// dictation's admission reuses it instead of planning a fresh GPU load. A
+/// fresh plan on a busy card counted as memory pressure and released the
+/// punctuation helper and the idle speech model after every dictation.
+fn proofread_local(
+    text: &str,
+    mut generate: impl FnMut(&str) -> Result<String, String>,
+) -> Result<String, String> {
+    let mut out = String::new();
+    let mut resident = false;
+    // Preserve separators exactly; bounded chunks keep the trained context size.
+    for chunk in local_chunks(text) {
+        let proposed = generate(chunk)?;
+        if !resident {
+            crate::resource_manager::note_text_loaded(crate::optional_llm::PROOFREADER_ID);
+            resident = true;
+        }
+        let trimmed = chunk.trim();
+        let accepted = guard(trimmed, proposed.trim()).map_err(str::to_owned)?;
+        out.push_str(&chunk[..chunk.len() - chunk.trim_start().len()]);
+        out.push_str(accepted);
+        out.push_str(&chunk[chunk.trim_end().len()..]);
+    }
+    Ok(out)
 }
 fn local_chunks(text: &str) -> Vec<&str> {
     let re = regex::Regex::new(r"\S+").unwrap();
@@ -688,6 +710,31 @@ mod tests {
                 }
             })
         }
+    }
+
+    #[test]
+    fn local_proofreader_marks_its_model_resident_after_the_first_chunk() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        crate::resource_manager::reset_for_tests(
+            crate::domain::MemoryMode::Overlap,
+            crate::domain::ModelRetention::OnExit,
+        );
+        let id = crate::optional_llm::PROOFREADER_ID;
+        crate::resource_manager::acquire_text("proofreader", id).unwrap();
+        assert_eq!(crate::resource_manager::model_state_blocking(id), (true, false));
+        // A failed first generation does not claim the model is loaded.
+        assert!(proofread_local("hello there.", |_| Err("load failed".into())).is_err());
+        assert_eq!(crate::resource_manager::model_state_blocking(id), (true, false));
+        let out = proofread_local("hello there.", |chunk| Ok(chunk.into())).unwrap();
+        assert_eq!(out, "hello there.");
+        assert_eq!(crate::resource_manager::model_state_blocking(id), (true, true));
+        crate::resource_manager::notify_text_finished();
+        // Still resident (idle) for the next dictation.
+        assert_eq!(crate::resource_manager::model_state_blocking(id), (false, true));
+        crate::resource_manager::reset_for_tests(
+            crate::domain::MemoryMode::Overlap,
+            crate::domain::ModelRetention::OnExit,
+        );
     }
 
     #[test]

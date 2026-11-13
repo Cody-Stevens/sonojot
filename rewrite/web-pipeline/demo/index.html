@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SonoJot in the browser</title>
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <main class="sheet">
+      <h1>SonoJot in the browser</h1>
+      <p class="help">Speech recognition, punctuation and cleanup run on this computer. Audio never leaves the page.</p>
+
+      <section class="row">
+        <button id="preload" type="button">Download models</button>
+        <label class="field">Device
+          <select id="device">
+            <option value="auto">Automatic</option>
+            <option value="webgpu">WebGPU</option>
+            <option value="wasm">WASM</option>
+          </select>
+        </label>
+        <label class="field">Cleanup
+          <select id="cleanup">
+            <option value="clean">Clean</option>
+            <option value="format">Format only</option>
+            <option value="original">Original</option>
+          </select>
+        </label>
+      </section>
+      <div class="progress" hidden><div class="bar"></div></div>
+      <p id="status" class="help" aria-live="polite">Models are not loaded.</p>
+
+      <section class="row">
+        <button id="record" type="button">Record</button>
+        <label class="file">Choose a recording<input id="file" type="file" accept="audio/*,video/*" /></label>
+      </section>
+
+      <section id="output" hidden>
+        <h2>Text</h2>
+        <p id="text" class="result"></p>
+        <h2>What the speech model heard</h2>
+        <p id="raw" class="result raw"></p>
+        <p id="timings" class="help"></p>
+      </section>
+
+      <section class="row cache">
+        <button id="cache-info" type="button" class="quiet">Stored models</button>
+        <button id="clear" type="button" class="quiet">Remove stored models</button>
+        <span id="cache" class="help"></span>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -35,6 +35,14 @@ pub struct Store {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SyncCommit {
+    before: Vec<VocabularyEntry>,
+    remote: Vec<VocabularyEntry>,
+    metadata: crate::sync_engine::Metadata,
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SettingsFile {
     schema_version: u32,
@@ -64,6 +72,8 @@ struct DictationHeader {
 impl Store {
     /// Opening a custom directory never reads legacy data implicitly.
     pub fn open(root: Option<PathBuf>) -> Result<Self, String> {
+        let seed_daily = crate::flavor::SYNC_TEST && root.is_none()
+            && crate::environment::var_os("DATA_DIR").is_none() && !cfg!(test);
         let root = root
             .or_else(|| crate::environment::var_os("DATA_DIR").map(PathBuf::from))
             .map(Ok)
@@ -80,6 +90,16 @@ impl Store {
             .map_err(|e| format!("Cannot create the app data directory: {e}"))?;
         let root = fs::canonicalize(root)
             .map_err(|e| format!("Cannot open the app data directory: {e}"))?;
+        if crate::flavor::SYNC_TEST {
+            let parent = data_parent()?;
+            for name in [DATA_DIR_NAME, PREVIOUS_DATA_DIR_NAME, "EavesdropperData"] {
+                if let Ok(daily) = fs::canonicalize(parent.join(name)) {
+                    if root.starts_with(&daily) || daily.starts_with(&root) {
+                        return Err("Sync Test must use a separate data directory from the daily app.".into());
+                    }
+                }
+            }
+        }
         let store = Self {
             root: Arc::new(root),
             gate: Arc::new(Mutex::new(())),
@@ -95,7 +115,61 @@ impl Store {
         store.clear_dictation_caches_unlocked()?;
         store.clear_abandoned_dictation_writes()?;
         store.purge_dictation_audio()?;
+        let pending = store.root.join("sync-pending.json");
+        if pending.exists() {
+            let resumed = (|| -> Result<(), String> {
+                let mut commit: SyncCommit = store.read(&pending)?;
+                validate_vocabulary(&commit.before)?;
+                validate_vocabulary(&commit.remote)?;
+                store.commit_synced_vocabulary(&commit.before, &commit.remote, &mut commit.metadata)
+            })();
+            if resumed.is_err() {
+                // Never make local dictation depend on a readable sync journal.
+                let quarantine = store.root.join(format!(
+                    "sync-pending-{}.corrupt", uuid::Uuid::new_v4()
+                ));
+                let quarantined = fs::rename(&pending, &quarantine).is_ok();
+                let notice = if quarantined {
+                    "An unreadable sync journal was quarantined. Your local words are available. Review them before syncing again."
+                } else {
+                    "An unreadable sync journal could not be quarantined. Your local words are available. Review them before syncing again."
+                };
+                eprintln!("{notice}");
+                let _ = store.write(&store.root.join("sync-notice.json"), &notice);
+            }
+        }
+        if seed_daily {
+            store.seed_daily_vocabulary(&existing_data_folder(&data_parent()?))?;
+        }
         Ok(store)
+    }
+
+    /// Read only the daily vocabulary file, never open or migrate its Store.
+    /// The destination file itself is also a one-shot guard if a marker write is interrupted.
+    fn seed_daily_vocabulary(&self, daily: &Path) -> Result<(), String> {
+        let marker = self.root.join("synctest-seed.json");
+        if marker.exists() { return Ok(()); }
+        let destination = self.root.join("vocabulary.json");
+        let source = daily.join("vocabulary.json");
+        let (status, count) = if destination.exists() {
+            ("existing-test-vocabulary", 0)
+        } else if source.is_file() {
+            let mut bytes = Vec::new();
+            File::open(&source).map_err(|e| format!("Cannot read daily vocabulary: {e}"))?
+                .take(MAX_JSON_BYTES + 1).read_to_end(&mut bytes)
+                .map_err(|e| format!("Cannot read daily vocabulary: {e}"))?;
+            if bytes.len() as u64 > MAX_JSON_BYTES { return Err("Daily vocabulary is too large.".into()); }
+            let value: VocabularyFile = serde_json::from_slice(&bytes)
+                .map_err(|_| "Cannot read the daily vocabulary format.")?;
+            if value.schema_version != 1 { return Err("Unsupported daily vocabulary schema.".into()); }
+            validate_vocabulary(&value.entries)?;
+            // Copy validated bytes, preserving IDs, aliases, disabled entries and spelling.
+            atomic_write(&destination, &bytes)?;
+            ("seeded", value.entries.len())
+        } else {
+            ("no-daily-vocabulary", 0)
+        };
+        self.write(&marker, &serde_json::json!({"status":status,"source":source,"count":count}))
     }
 
     pub fn root(&self) -> &Path {
@@ -284,7 +358,56 @@ impl Store {
                 entries: entries.clone(),
             },
         )?;
+        crate::sync_account::wake();
         Ok(entries)
+    }
+    pub(crate) fn commit_synced_vocabulary(
+        &self,
+        before: &[VocabularyEntry],
+        remote: &[VocabularyEntry],
+        metadata: &mut crate::sync_engine::Metadata,
+    ) -> Result<(), String> {
+        let _guard = self.lock()?;
+        let current = self.vocabulary_unlocked()?;
+        let merged = crate::sync_engine::merge(before, &current, remote);
+        validate_vocabulary(&merged.entries)?;
+        for entry in merged.conflicts {
+            if !metadata.conflicts.contains(&entry) {
+                metadata.conflicts.push(entry)
+            }
+        }
+        // The journal preserves conflicting local edits across a crash between files.
+        let pending = self.root.join("sync-pending.json");
+        self.write(&pending, &SyncCommit { before: before.to_vec(), remote: remote.to_vec(), metadata: metadata.clone() })?;
+        self.write(
+            &self.root.join("vocabulary.json"),
+            &VocabularyFile {
+                schema_version: 1,
+                entries: merged.entries,
+            },
+        )?;
+        self.write(&self.root.join("sync-state.json"), metadata)?;
+        self.remove_owned_unlocked(&pending)
+    }
+    pub(crate) fn resolve_sync_conflict(
+        &self,
+        chosen: &VocabularyEntry,
+        metadata: &mut crate::sync_engine::Metadata,
+    ) -> Result<(), String> {
+        let _guard = self.lock()?;
+        let mut entries = self.vocabulary_unlocked()?;
+        entries.retain(|e| e.id != chosen.id);
+        entries.push(chosen.clone());
+        validate_vocabulary(&entries)?;
+        self.write(
+            &self.root.join("vocabulary.json"),
+            &VocabularyFile {
+                schema_version: 1,
+                entries,
+            },
+        )?;
+        metadata.conflicts.retain(|e| e.id != chosen.id);
+        self.write(&self.root.join("sync-state.json"), metadata)
     }
     /// A dictation is append-only; raw ASR and the finished result occupy distinct fields.
     pub fn record_dictation(
@@ -907,6 +1030,7 @@ impl Store {
 
     pub fn import_legacy_default(&self) -> Result<MigrationReport, String> {
         let mut report = MigrationReport::default();
+        if crate::flavor::SYNC_TEST { return Ok(report); }
         let mut roots = Vec::new();
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
             roots.push(PathBuf::from(local).join("EavesdropperData"));
@@ -1134,17 +1258,24 @@ pub(crate) const PREVIOUS_DATA_DIR_NAME: &str = "EavesdropperNext";
 /// Where the per-user data folder lives: `%LOCALAPPDATA%`, macOS Application
 /// Support, or the XDG data directory.
 fn data_parent() -> Result<PathBuf, String> {
-    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+    data_parent_from(|name| std::env::var_os(name))
+}
+
+/// `data_parent` with the environment passed in. `LOCALAPPDATA` wins on every
+/// platform, which is how a test copy of the app gets its own data folder; the
+/// CLI uses the same rule so its socket is the app's.
+pub(crate) fn data_parent_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Result<PathBuf, String> {
+    if let Some(local) = var("LOCALAPPDATA") {
         return Ok(PathBuf::from(local));
     }
     #[cfg(target_os = "macos")]
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = var("HOME") {
         return Ok(PathBuf::from(home).join("Library/Application Support"));
     }
-    if let Some(data) = std::env::var_os("XDG_DATA_HOME") {
+    if let Some(data) = var("XDG_DATA_HOME") {
         return Ok(PathBuf::from(data));
     }
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = var("HOME") {
         return Ok(PathBuf::from(home).join(".local/share"));
     }
     Err("Set SONOJOT_DATA_DIR to a writable data directory.".into())
@@ -1183,6 +1314,9 @@ fn resolve_default_root() -> Result<(PathBuf, DataFolder), String> {
     DEFAULT_ROOT
         .get_or_init(|| {
             let parent = data_parent()?;
+            if crate::flavor::SYNC_TEST {
+                return Ok((parent.join(crate::flavor::NAME), DataFolder::Current));
+            }
             if cfg!(test) {
                 return Ok((existing_data_folder(&parent), DataFolder::Current));
             }
@@ -1359,7 +1493,7 @@ pub(crate) fn validate_text(text: &str, label: &str) -> Result<(), String> {
     }
     Ok(())
 }
-fn validate_vocabulary(entries: &[VocabularyEntry]) -> Result<(), String> {
+pub(crate) fn validate_vocabulary(entries: &[VocabularyEntry]) -> Result<(), String> {
     if entries.len() > MAX_VOCABULARY_ENTRIES {
         return Err("Vocabulary is limited to 2,000 entries.".into());
     }
@@ -1518,6 +1652,40 @@ fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn synctest_seed_is_read_only_one_shot_and_keeps_existing_words() {
+        let (root, store) = temp_store("synctest-seed");
+        let daily = root.join("daily-fixture");
+        fs::create_dir(&daily).unwrap();
+        let bytes = br#"{"schemaVersion":1,"entries":[{"id":"word1","heard":"sono jot","written":"SonoJot","enabled":true}]}"#;
+        fs::write(daily.join("vocabulary.json"), bytes).unwrap();
+        store.seed_daily_vocabulary(&daily).unwrap();
+        assert_eq!(fs::read(daily.join("vocabulary.json")).unwrap(), bytes);
+        assert_eq!(fs::read(root.join("vocabulary.json")).unwrap(), bytes);
+        assert_eq!(store.get_vocabulary().unwrap().len(), 1);
+        store.save_vocabulary(&[]).unwrap();
+        store.seed_daily_vocabulary(&daily).unwrap();
+        assert!(store.get_vocabulary().unwrap().is_empty());
+        // An interrupted seed before the marker is persisted must not replace edits.
+        fs::remove_file(root.join("synctest-seed.json")).unwrap();
+        store.seed_daily_vocabulary(&daily).unwrap();
+        assert!(store.get_vocabulary().unwrap().is_empty());
+        assert_eq!(fs::read(daily.join("vocabulary.json")).unwrap(), bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn synctest_seed_rejects_invalid_vocabulary_without_marking_complete() {
+        let (root, store) = temp_store("synctest-invalid-seed");
+        let daily = root.join("daily-fixture");
+        fs::create_dir(&daily).unwrap();
+        fs::write(daily.join("vocabulary.json"), br#"{"schemaVersion":99,"entries":[]}"#).unwrap();
+        assert!(store.seed_daily_vocabulary(&daily).is_err());
+        assert!(!root.join("vocabulary.json").exists());
+        assert!(!root.join("synctest-seed.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn sample(store: &Store, text: &str) -> DictationRecord {
         store
@@ -1937,6 +2105,33 @@ mod tests {
         let stock = crate::optional_asr::find("parakeet-tdt-0.6b-v2").unwrap();
         assert!(crate::optional_asr::published(stock));
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn upgrading_keeps_qwen_and_granite_meeting_choices() {
+        // November 12, 2026: Balanced now recommends SonoJot Parakeet on English
+        // NVIDIA PCs and Macs. Saved Qwen dictation and a Granite meeting choice
+        // must survive loading unchanged, and the file is not rewritten.
+        for (name, asr, meeting) in [
+            ("qwen-upgrade", "qwen3-asr-1.7b-q8-cuda", ""),
+            ("qwen-mac-upgrade", "qwen3-asr-1.7b-q4-metal", ""),
+            ("granite-upgrade", "qwen3-asr-1.7b-q8-cuda", crate::granite_model::GRANITE_ID),
+        ] {
+            let (directory, store) = temp_store(name);
+            let original = serde_json::json!({ "schemaVersion": 1, "settings": {
+                "setupProfile": "balanced", "asrModel": asr,
+                "meetingAsrModel": meeting, "cleanupModel": "local-rules",
+                "notesModel": "qwen3-4b-instruct-2507", "meetingSourceMigrated": true
+            }});
+            let bytes = serde_json::to_vec_pretty(&original).unwrap();
+            fs::write(directory.join("settings.json"), &bytes).unwrap();
+            let loaded = store.load_settings().unwrap();
+            assert_eq!(loaded.asr_model, asr, "{name}");
+            assert_eq!(loaded.meeting_asr_model, meeting, "{name}");
+            assert_eq!(loaded.setup_profile, Some(crate::domain::SetupProfile::Balanced));
+            assert_eq!(fs::read(directory.join("settings.json")).unwrap(), bytes, "{name}");
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[test]

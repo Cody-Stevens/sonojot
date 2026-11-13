@@ -1,0 +1,135 @@
+:root {
+  --ink: #28352c;
+  --soft-ink: #5b6052;
+  --sheet: #f9f7ef;
+  --card: #fffdf7;
+  --dye: #34432e;
+  --dye-ink: #f6efdc;
+  --edge: #b3aa90;
+  --well: #bcbba755;
+  --page: #e7e3d6;
+  color-scheme: light;
+  font: 18px/1.5 "Source Serif 4", Georgia, serif;
+  color: var(--ink);
+  background: var(--page);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f3eedf;
+    --soft-ink: #c6cbbe;
+    --sheet: #242824;
+    --card: #3b443a;
+    --dye: #c7d1b7;
+    --dye-ink: #253024;
+    --edge: #5b6457;
+    --well: #18201855;
+    --page: #1b1f1b;
+    color-scheme: dark;
+  }
+}
+body {
+  margin: 0;
+  padding: 36px 16px;
+}
+.sheet {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 27px 36px 36px;
+  background: var(--sheet);
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  box-shadow: 0 1px 2px #0002;
+}
+h1 {
+  margin: 0 0 9px;
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+h2 {
+  margin: 27px 0 9px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.help {
+  color: var(--soft-ink);
+  margin: 9px 0;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+  margin: 18px 0;
+}
+button,
+.file {
+  font: inherit;
+  color: var(--dye-ink);
+  background: var(--dye);
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 18px;
+  cursor: pointer;
+  box-shadow: 0 1px 1px #0003;
+}
+button.quiet {
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: none;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.file input {
+  display: none;
+}
+.field {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  padding: 3px 9px;
+  appearance: none;
+}
+.progress {
+  height: 9px;
+  background: var(--well);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.bar {
+  height: 100%;
+  width: 0;
+  background: var(--dye);
+  transition: width 140ms;
+}
+.result {
+  margin: 0;
+  padding: 18px;
+  background: var(--card);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  white-space: pre-wrap;
+}
+.raw {
+  color: var(--soft-ink);
+}
+.cache {
+  margin-top: 36px;
+}
+@media (max-width: 520px) {
+  body {
+    padding: 16px;
+  }
+  .sheet {
+    padding: 18px;
+  }
+}

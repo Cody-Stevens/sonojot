@@ -345,6 +345,22 @@ test("unchanged tours reapply no profile, including Custom", () => {
   }
   assert.equal(shouldApplyTourProfile("custom", "balanced"), true);
 });
+test("Balanced on SonoJot Parakeet explains it honestly and names Qwen as multilingual", () => {
+  const speech = {
+    id: "parakeet-tdt-0.6b-v2-sonojot-ft2",
+    backend: "sherpa-onnx-cpu",
+  } as ModelEntry;
+  const text = plainProfileReason("balanced", speech);
+  assert.match(text, /SonoJot Parakeet/);
+  assert.match(text, /English dictation and meetings/);
+  assert.match(text, /faster and smaller/);
+  assert.match(text, /multilingual/);
+  // No claim that it is the most accurate, and no em dashes.
+  assert.doesNotMatch(text, /most accurate|fewest|best/i);
+  assert.doesNotMatch(text, /—/);
+  // Light keeps its own wording on any model.
+  assert.match(plainProfileReason("light", speech), /^Light uses a smaller/);
+});
 test("plain recommendation has no dependency on diagnostic reason strings", () => {
   assert.equal(
     plainProfileReason("light", undefined).includes("benchmark"),

@@ -106,6 +106,7 @@ pub(crate) fn needs_setup(runtime: &Runtime) -> bool {
 
 #[tauri::command]
 pub fn begin_onboarding(state: State<'_, Arc<Runtime>>) -> Result<bool, String> {
+    if crate::flavor::SYNC_TEST { return Ok(false); }
     let _gate = lock(&MARKER_GATE)?;
     let progress = read(state.store.root())?;
     let needs = required(&state.snapshot()?.settings, progress.as_ref());

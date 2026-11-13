@@ -1,0 +1,55 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-08",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false
+  },
+  "name": "sonojot-sync-unconfigured",
+  "env": {
+    "staging": {
+      "name": "sonojot-sync-staging",
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "PUBLIC_ORIGIN": "https://sonojot-sync-staging.example.workers.dev",
+        "MAIL_ENABLED": "false",
+        "WORKOS_CLIENT_ID": "",
+        "SYNC_TEST_IDENTITY": "true"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "sonojot-sync-staging",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "CONTENT",
+          "bucket_name": "sonojot-sync-staging"
+        },
+        {
+          "binding": "BACKUPS",
+          "bucket_name": "sonojot-sync-backups-staging"
+        }
+      ],
+      "send_email": [
+        {
+          "name": "MAIL"
+        }
+      ],
+      "triggers": {
+        "crons": [
+          "17 3 * * *"
+        ]
+      },
+      "workers_dev": true
+    }
+  }
+}

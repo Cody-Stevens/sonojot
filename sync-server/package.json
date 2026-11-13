@@ -1,0 +1,28 @@
+{
+  "name": "sonojot-sync",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "types": "node scripts/types.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node scripts/staging-guard.mjs build",
+    "deploy:staging": "node scripts/staging-guard.mjs deploy",
+    "migrate:staging": "node scripts/staging-guard.mjs migrate",
+    "test:e2e": "node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "@workos-inc/node": "12.1.0",
+    "jose": "6.2.15"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "esbuild": "0.25.12",
+    "miniflare": "5.20261104.0-beta",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7",
+    "wrangler": "4.158.0"
+  }
+}

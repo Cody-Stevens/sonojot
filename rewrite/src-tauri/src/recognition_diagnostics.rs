@@ -163,6 +163,33 @@ pub(crate) fn event(kind: &'static str, model: &str, pid: u32, session: u64, ms:
     );
 }
 
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn sync_keychain_error(operation: &'static str, status: i32) {
+    let Some(log) = LOG.get() else { return };
+    let Ok(directory) = log.lock() else { return };
+    append_line(&directory, &keychain_error_line(operation, status), LIMIT);
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn keychain_error_line(operation: &'static str, status: i32) -> String {
+    let mut value: serde_json::Value = serde_json::from_str(&event_line(
+        "sync-keychain-error", "", std::process::id(), 0, 0, 0,
+    )).expect("diagnostic metadata is valid JSON");
+    value["operation"] = serde_json::json!(operation);
+    value["osStatus"] = serde_json::json!(status);
+    value.to_string() + "\n"
+}
+
+#[test]
+fn keychain_diagnostic_keeps_signed_osstatus_and_no_credential_fields() {
+    let value: serde_json::Value = serde_json::from_str(&keychain_error_line("save", -25337)).unwrap();
+    assert_eq!(value["osStatus"], -25337);
+    assert_eq!(value["operation"], "save");
+    assert_eq!(value["event"], "sync-keychain-error");
+    assert!(value.get("account").is_none());
+    assert!(value.get("password").is_none());
+}
+
 pub(crate) fn capture_completion(model: &str, session: u64, capture: &crate::audio::CaptureDiagnostics) {
     let Some(log) = LOG.get() else { return };
     let Ok(directory) = log.lock() else { return };
@@ -178,6 +205,14 @@ fn capture_completion_line(model: &str, session: u64, capture: &crate::audio::Ca
     value.to_string() + "\n"
 }
 
+/// Catalog labels only: letters, digits, '-' and '.', at most 80 bytes.
+pub(crate) fn label_allowed(model: &str) -> bool {
+    model.len() <= 80
+        && model
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+}
+
 fn event_line(
     kind: &'static str,
     model: &str,
@@ -187,11 +222,7 @@ fn event_line(
     value: u64,
 ) -> String {
     // IDs are catalog labels, never an arbitrary path or error message.
-    let model = if model.len() <= 80
-        && model
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
-    {
+    let model = if label_allowed(model) {
         model
     } else {
         "invalid-model-id"

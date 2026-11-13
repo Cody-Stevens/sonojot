@@ -17,6 +17,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 
 /// Every command the CLI can invoke, with its arguments.
 pub const COMMANDS: &[(&str, &str)] = &[
+    ("sync_command", "operation, args?; recovery codes through stdin only"),
     ("ping", ""),
     ("commands", ""),
     ("get_state", ""),
@@ -212,6 +213,7 @@ async fn dispatch(app: AppHandle, command: &str, args: Value) -> Result<Value, S
     let s = || app.state::<Arc<Runtime>>();
     let h = || app.clone();
     match command {
+        "sync_command" => crate::sync_account::sync_command(app.clone(), arg(a, "operation")?, a.get("args").cloned()).await,
         "ping" => Ok(json!({ "version": env!("CARGO_PKG_VERSION"), "protocol": PROTOCOL_VERSION, "pid": std::process::id() })),
         "commands" => Ok(Value::Array(COMMANDS.iter().map(|(name, args)| json!({ "command": name, "args": args })).collect())),
         // The last published state, without get_snapshot's device and model

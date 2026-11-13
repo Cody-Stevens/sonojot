@@ -1,0 +1,12 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE accounts(id TEXT PRIMARY KEY,email TEXT NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,bytes_used INTEGER NOT NULL DEFAULT 0 CHECK(bytes_used>=0),quota INTEGER NOT NULL DEFAULT 524288,epoch INTEGER NOT NULL DEFAULT 1,deleted_at INTEGER);
+CREATE TABLE identities(provider TEXT NOT NULL,subject TEXT NOT NULL,account TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,PRIMARY KEY(provider,subject));
+CREATE TABLE devices(id TEXT NOT NULL,account TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,platform TEXT NOT NULL,public_key TEXT NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,revoked_at INTEGER,PRIMARY KEY(account,id));
+CREATE TABLE sessions(hash TEXT PRIMARY KEY,account TEXT NOT NULL,device TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,fresh_at INTEGER NOT NULL,FOREIGN KEY(account,device) REFERENCES devices(account,id) ON DELETE CASCADE);
+CREATE TABLE auth_requests(id TEXT PRIMARY KEY,provider TEXT NOT NULL,challenge TEXT NOT NULL,nonce TEXT NOT NULL,device TEXT NOT NULL,public_key TEXT NOT NULL,platform TEXT NOT NULL,redirect TEXT NOT NULL,expires_at INTEGER NOT NULL,account TEXT,grant_hash TEXT,used INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE email_codes(id TEXT PRIMARY KEY REFERENCES auth_requests(id) ON DELETE CASCADE,email TEXT NOT NULL,hash TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,expires_at INTEGER NOT NULL);
+CREATE TABLE rate_limits(key TEXT PRIMARY KEY,count INTEGER NOT NULL,expires_at INTEGER NOT NULL);
+CREATE TABLE wraps(account TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,kind TEXT NOT NULL,ref TEXT NOT NULL,ciphertext TEXT NOT NULL,rev INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(account,kind,ref));
+CREATE TABLE pairings(id TEXT PRIMARY KEY,account TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,device TEXT NOT NULL,public_key TEXT NOT NULL,commitment TEXT NOT NULL,approver TEXT,nonce_a TEXT,nonce_b TEXT,state TEXT NOT NULL DEFAULT 'committed',ciphertext TEXT,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,location TEXT NOT NULL DEFAULT 'Unknown');
+CREATE INDEX sessions_account ON sessions(account);
+CREATE INDEX pairings_account ON pairings(account,expires_at);

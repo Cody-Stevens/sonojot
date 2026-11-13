@@ -64,6 +64,8 @@ export function plainProfileReason(profile: AutomaticProfile, speech: ModelEntry
   const name = profileLabel(profile);
   if (!speech) return `${name} balances speech accuracy with the memory available on this computer.`;
   if (profile === "light") return "Light uses a smaller speech model to leave more memory for other apps.";
+  if (speech.id === "parakeet-tdt-0.6b-v2-sonojot-ft2")
+    return `${name} uses SonoJot Parakeet, tuned by SonoJot for English dictation and meetings. It is faster and smaller than Qwen3-ASR, the multilingual choice.`;
   if (/qwen/i.test(speech.id) && /metal|cuda/i.test(speech.backend))
     return `${name} runs Qwen3-ASR on the graphics chip and leaves room for other apps.`;
   if (/qwen/i.test(speech.id)) return `${name} uses Qwen3-ASR for accuracy on this computer's processor.`;

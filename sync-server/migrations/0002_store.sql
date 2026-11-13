@@ -1,0 +1,12 @@
+ALTER TABLE accounts ADD COLUMN seq INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE objects(account TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,id TEXT NOT NULL,rev INTEGER NOT NULL,size INTEGER NOT NULL,body_key TEXT NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL,PRIMARY KEY(account,id));
+CREATE TABLE changes(account TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,seq INTEGER NOT NULL,id TEXT NOT NULL,rev INTEGER NOT NULL,deleted INTEGER NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(account,seq));
+CREATE TABLE holds(account TEXT NOT NULL,object TEXT NOT NULL,device TEXT NOT NULL,rev INTEGER NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(account,object,device),FOREIGN KEY(account,object) REFERENCES objects(account,id) ON DELETE CASCADE,FOREIGN KEY(account,device) REFERENCES devices(account,id) ON DELETE CASCADE);
+CREATE TABLE trash(body_key TEXT PRIMARY KEY,account TEXT NOT NULL,purge_at INTEGER NOT NULL);
+CREATE TABLE operations(name TEXT PRIMARY KEY,last_ok INTEGER,last_failure INTEGER,count INTEGER NOT NULL DEFAULT 0);
+CREATE TRIGGER object_insert_quota BEFORE INSERT ON objects WHEN NOT EXISTS(SELECT 1 FROM objects WHERE account=NEW.account AND id=NEW.id) AND (SELECT bytes_used+NEW.size>quota FROM accounts WHERE id=NEW.account) BEGIN SELECT RAISE(ABORT,'quota'); END;
+CREATE TRIGGER object_update_quota BEFORE UPDATE ON objects WHEN (SELECT bytes_used+NEW.size-OLD.size>quota FROM accounts WHERE id=NEW.account) BEGIN SELECT RAISE(ABORT,'quota'); END;
+CREATE TRIGGER object_insert_change AFTER INSERT ON objects BEGIN  UPDATE accounts SET bytes_used=bytes_used+NEW.size,seq=seq+1 WHERE id=NEW.account;  INSERT INTO changes SELECT NEW.account,seq,NEW.id,NEW.rev,NEW.deleted,NEW.updated_at FROM accounts WHERE id=NEW.account; END;
+CREATE TRIGGER object_update_change AFTER UPDATE ON objects BEGIN  UPDATE accounts SET bytes_used=bytes_used+NEW.size-OLD.size,seq=seq+1 WHERE id=NEW.account;  INSERT INTO changes SELECT NEW.account,seq,NEW.id,NEW.rev,NEW.deleted,NEW.updated_at FROM accounts WHERE id=NEW.account;  INSERT OR IGNORE INTO trash VALUES(OLD.body_key,OLD.account,NEW.updated_at+2592000);  DELETE FROM holds WHERE account=NEW.account AND object=NEW.id; END;
+CREATE INDEX changes_time ON changes(at);
+CREATE INDEX trash_time ON trash(purge_at);

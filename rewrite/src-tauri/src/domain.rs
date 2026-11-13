@@ -144,7 +144,7 @@ impl Default for Settings {
             cleanup_model: "local-rules".into(),
             notes_model: "qwen3-4b-instruct-2507".into(),
             text_acceleration: TextAcceleration::Auto,
-            start_tab_hidden: false,
+            start_tab_hidden: crate::flavor::SYNC_TEST,
             cursor_indicator: true,
             // The legacy app always kept both sides; a one-sided meeting loses the other speakers.
             meeting_source: "both".into(),
@@ -350,6 +350,8 @@ pub struct Device {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
+    #[serde(default)]
+    pub sync: bool,
     pub auto_paste: bool,
     /// True only when a meeting can record system audio right now.
     pub system_audio: bool,

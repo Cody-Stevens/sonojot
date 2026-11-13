@@ -232,7 +232,35 @@ pub(crate) async fn copy_text_after_claim<G>(
     copy_with_retry(text).await.map(|_| ())
 }
 
+const SECRET_CLIPBOARD_FORMATS: [(&str, u32); 3] = [
+    ("ExcludeClipboardContentFromMonitorProcessing", 1),
+    ("CanIncludeInClipboardHistory", 0),
+    ("CanUploadToCloudClipboard", 0),
+];
+fn publish_clipboard<T>(
+    secret: bool,
+    mut flag: impl FnMut(&str, u32) -> Result<(), String>,
+    text: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    if secret {
+        for (name, value) in SECRET_CLIPBOARD_FORMATS {
+            flag(name, value)?;
+        }
+    }
+    text()
+}
+pub(crate) async fn copy_secret_after_claim<G>(
+    text: &str,
+    claim: impl FnOnce() -> Result<G, String>,
+) -> Result<(), String> {
+    let _gate = delivery_gate().lock().await;
+    let _claim = claim()?;
+    copy_with_retry_mode(text, true).await.map(|_| ())
+}
 async fn copy_with_retry(text: &str) -> Result<(u32, u8), String> {
+    copy_with_retry_mode(text, false).await
+}
+async fn copy_with_retry_mode(text: &str, secret: bool) -> Result<(u32, u8), String> {
     if text.contains('\0') {
         return Err("Clipboard text contains a NUL character.".into());
     }
@@ -242,7 +270,23 @@ async fn copy_with_retry(text: &str) -> Result<(u32, u8), String> {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         }
         let owned = text.to_owned();
-        match tokio::task::spawn_blocking(move || native::set_clipboard(&owned)).await {
+        match tokio::task::spawn_blocking(move || {
+            #[cfg(windows)]
+            {
+                if secret {
+                    native::set_clipboard_mode(&owned, true)
+                } else {
+                    native::set_clipboard(&owned)
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = secret;
+                native::set_clipboard(&owned)
+            }
+        })
+        .await
+        {
             Ok(Ok(sequence)) => return Ok((sequence, attempt as u8 + 1)),
             Ok(Err(error)) => last_error = error,
             Err(error) => return Err(format!("Clipboard worker failed: {error}")),
@@ -368,11 +412,12 @@ pub fn startup_enabled(installed_executable: &Path) -> Result<bool, String> {
 /// An absent, disabled or unrelated registration is never enabled here.
 pub fn reconcile_startup_registration(installed_executable: &Path) -> Result<bool, String> {
     let executable = validated_startup_executable(installed_executable)?;
-    native::migrate_startup_registration(&executable)?;
+    if !crate::flavor::SYNC_TEST { native::migrate_startup_registration(&executable)?; }
     native::startup_enabled(&executable)
 }
 
 fn legacy_startup_executables(executable: &Path) -> Vec<PathBuf> {
+    if crate::flavor::SYNC_TEST { return Vec::new(); }
     let (branded, cargo, previous) = if cfg!(windows) {
         ("SonoJot.exe", "sonojot.exe", "eavesdropper-next.exe")
     } else {
@@ -502,7 +547,7 @@ mod native {
     // Task Manager keeps each Run value's enabled/disabled choice here, by name.
     const APPROVED_KEY: &str =
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
-    const RUN_VALUE: &str = "SonoJot";
+    const RUN_VALUE: &str = crate::flavor::NAME;
     // Builds up to 0.28.3 registered under this name. The C# app's own
     // "Eavesdropper" value is a different name and is never touched.
     const PREVIOUS_RUN_VALUE: &str = "EavesdropperNext";
@@ -702,6 +747,9 @@ mod native {
     }
 
     pub(super) fn set_clipboard(text: &str) -> Result<u32, String> {
+        set_clipboard_mode(text, false)
+    }
+    pub(super) fn set_clipboard_mode(text: &str, secret: bool) -> Result<u32, String> {
         let utf16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         unsafe {
             let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
@@ -740,12 +788,49 @@ mod native {
             }
             std::ptr::copy_nonoverlapping(utf16.as_ptr(), destination, utf16.len());
             GlobalUnlock(memory);
-            if EmptyClipboard() == 0 || SetClipboardData(13 /* CF_UNICODETEXT */, memory).is_null()
-            {
+            if EmptyClipboard() == 0 {
                 let error = std::io::Error::last_os_error().to_string();
                 GlobalFree(memory);
                 return Err(error);
             }
+            // Install every opt-out before exposing the text; fail closed.
+            super::publish_clipboard(
+                secret,
+                |name, value| {
+                    let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+                    let format = RegisterClipboardFormatW(name.as_ptr());
+                    let flag = GlobalAlloc(GMEM_MOVEABLE, size_of::<u32>());
+                    if format == 0 || flag.is_null() {
+                        if !flag.is_null() {
+                            GlobalFree(flag);
+                        }
+                        GlobalFree(memory);
+                        return Err("Cannot protect clipboard history.".into());
+                    }
+                    let destination = GlobalLock(flag).cast::<u32>();
+                    if destination.is_null() {
+                        GlobalFree(flag);
+                        GlobalFree(memory);
+                        return Err("Cannot protect clipboard history.".into());
+                    }
+                    *destination = value;
+                    GlobalUnlock(flag);
+                    if SetClipboardData(format, flag).is_null() {
+                        GlobalFree(flag);
+                        GlobalFree(memory);
+                        return Err("Cannot protect clipboard history.".into());
+                    }
+                    Ok(())
+                },
+                || {
+                    if SetClipboardData(13 /* CF_UNICODETEXT */, memory).is_null() {
+                        let error = std::io::Error::last_os_error().to_string();
+                        GlobalFree(memory);
+                        return Err(error);
+                    }
+                    Ok(())
+                },
+            )?;
             // Closing the clipboard/owner can itself advance the sequence number.
             // Inspect text as well as this token before injecting, so an unrelated
             // writer in the close/read gap can never replace our paste payload.
@@ -979,7 +1064,7 @@ mod native {
                 .map_err(|e| format!("Cannot register launch at login: {e}"))
         } else {
             // A leftover pre-SonoJot value for this installation would still launch it.
-            if key
+            if !crate::flavor::SYNC_TEST && key
                 .get_value::<String, _>(PREVIOUS_RUN_VALUE)
                 .is_ok_and(|command| run_command_belongs_to(&command, executable))
             {
@@ -1057,6 +1142,12 @@ mod native {
                     &startup_command(&executable.with_file_name("eavesdropper-next.exe")),
                 )
                 .unwrap();
+            if crate::flavor::SYNC_TEST {
+                assert!(!hand_over_run_value(&keys.run, None, executable).unwrap());
+                assert!(keys.run.get_value::<String, _>(PREVIOUS_RUN_VALUE).is_ok());
+                assert!(keys.run.get_value::<String, _>(RUN_VALUE).is_err());
+                return;
+            }
             assert!(hand_over_run_value(&keys.run, None, executable).unwrap());
             assert_eq!(
                 keys.run.get_value::<String, _>(RUN_VALUE).unwrap(),
@@ -1566,12 +1657,12 @@ mod native {
     }
 
     #[cfg(target_os = "macos")]
-    const LABEL: &str = "studio.codystevens.sonojot";
+    const LABEL: &str = if crate::flavor::SYNC_TEST { crate::flavor::IDENTIFIER } else { "studio.codystevens.sonojot" };
     // Builds up to 0.28.3 used this launchd label and file name.
     #[cfg(target_os = "macos")]
     const PREVIOUS_LABEL: &str = "studio.codystevens.eavesdropper-next";
     #[cfg(not(target_os = "macos"))]
-    const LABEL: &str = "sonojot";
+    const LABEL: &str = crate::flavor::SLUG;
     // Builds up to 0.28.3 used this autostart file name.
     #[cfg(not(target_os = "macos"))]
     const PREVIOUS_LABEL: &str = "eavesdropper-next";
@@ -1612,7 +1703,9 @@ mod native {
                 .replace('\'', "&apos;");
             // Associate the job with the SonoJot bundle in System Settings.
             // launchd.plist(5) defines this display metadata.
-            let association = if branded {
+            let association = if crate::flavor::SYNC_TEST {
+                "<key>AssociatedBundleIdentifiers</key><string>studio.codystevens.sonojot.synctest</string>"
+            } else if branded {
                 "<key>AssociatedBundleIdentifiers</key><string>studio.codystevens.eavesdropper.next</string>"
             } else {
                 ""
@@ -1629,7 +1722,7 @@ mod native {
                 .replace('`', "\\\\`")
                 .replace('$', "\\\\$")
                 .replace('%', "%%");
-            let name = if branded { "SonoJot" } else { "Eavesdropper" };
+            let name = if branded { crate::flavor::NAME } else { "Eavesdropper" };
             let arguments = if branded { " --startup" } else { "" };
             format!("[Desktop Entry]\nType=Application\nName={name}\nExec=\"{escaped}\"{arguments}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
         }
@@ -1696,7 +1789,7 @@ mod native {
         } else {
             // A leftover pre-SonoJot file for this installation would still launch it.
             let previous = registration_path_for(PREVIOUS_LABEL)?;
-            if std::fs::read_to_string(&previous)
+            if !crate::flavor::SYNC_TEST && std::fs::read_to_string(&previous)
                 .is_ok_and(|actual| previous_registration(&actual, executable))
             {
                 let _ = std::fs::remove_file(&previous);
@@ -1907,5 +2000,57 @@ mod tests {
             .block_on(copy_text("left\0right"))
             .unwrap_err()
             .contains("NUL"));
+    }
+}
+
+#[cfg(test)]
+mod secret_clipboard_tests {
+    #[test]
+    fn sync_recovery_clipboard_sets_all_opt_outs_before_text_and_fails_closed() {
+        use std::cell::RefCell;
+        let events = RefCell::new(Vec::new());
+        super::publish_clipboard(
+            true,
+            |name, value| {
+                events.borrow_mut().push(format!("{name}={value}"));
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("text".into());
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            &*events.borrow(),
+            &[
+                "ExcludeClipboardContentFromMonitorProcessing=1",
+                "CanIncludeInClipboardHistory=0",
+                "CanUploadToCloudClipboard=0",
+                "text"
+            ]
+        );
+        for failed in 0..3 {
+            let mut count = 0;
+            let mut published = false;
+            assert!(super::publish_clipboard(
+                true,
+                |_, _| {
+                    let n = count;
+                    count += 1;
+                    if n == failed {
+                        Err("clipboard unavailable".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+                || {
+                    published = true;
+                    Ok(())
+                }
+            )
+            .is_err());
+            assert!(!published);
+        }
     }
 }

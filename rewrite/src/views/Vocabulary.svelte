@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import LocalLearning from "../components/LocalLearning.svelte";
+  import SyncWords from "../components/SyncWords.svelte";
   import Toggle from "../components/Toggle.svelte";
   import Icon from "../components/Icon.svelte";
   import { cleanupChoice } from "../lib/cleanup-choice";
@@ -226,6 +227,11 @@
     {/each}
   </div>
 </header>
+{#if app.snapshot.capabilities.sync}<SyncWords
+    onpull={() => {
+      if (!app.dirty) void load();
+    }}
+  />{/if}
 {#if tab === "all"}
   <section class="stock paper-card words-paper" aria-label="Your words">
     <div class="word-wells">

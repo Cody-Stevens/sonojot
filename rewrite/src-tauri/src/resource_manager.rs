@@ -2012,6 +2012,31 @@ pub fn asr_release_pending_blocking() -> bool {
         .unwrap_or(true)
 }
 
+#[derive(Clone, Copy)]
+enum PressureStage {
+    Asr = 1,
+    Text = 2,
+}
+
+/// Metadata only: which load's admission found memory short and evicted idle
+/// work (the warm punctuation helper, idle speech, an idle text model). The
+/// helper's own release entry then names `resource-manager.rs` as its caller.
+fn pressure_evict_event(model_id: &str, stage: PressureStage) {
+    // "local/p5i" -> "local-p5i": the log keeps only letters, digits, '-', '.'.
+    let label: String = model_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '-' })
+        .collect();
+    crate::recognition_diagnostics::event(
+        "pressure-evict",
+        &label,
+        std::process::id(),
+        0,
+        0,
+        stage as u64,
+    );
+}
+
 /// Memory-pressure path: evict idle workers immediately, never active.
 /// Serialized like `release_idle` (lease mutex held across shutdown). ASR
 /// pending is requested but never counted until `confirm_asr_released`.
@@ -2296,6 +2321,7 @@ pub fn acquire_asr_with_admission(model_id: &str, what: &str) -> Result<(), Stri
             LockedAdmission::Insufficient(error) => {
                 evicted = true;
                 pressure_warning = Some(error);
+                pressure_evict_event(model_id, PressureStage::Asr);
                 // Try to reclaim confirmed-idle once, then recheck with a
                 // fresh sample (the eviction itself moves the generation).
                 evict_idle_on_pressure();
@@ -2462,6 +2488,7 @@ pub fn acquire_text_with_admission(role: &str, model_id: &str, what: &str) -> Re
             LockedAdmission::Insufficient(error) => {
                 evicted = true;
                 pressure_warning = Some(error);
+                pressure_evict_event(model_id, PressureStage::Text);
                 evict_idle_on_pressure();
                 wait_for_pressure_release();
             }
@@ -3492,6 +3519,32 @@ pub(crate) mod tests {
         assert!(parse_gpu_table("0, 8192\n1, 8192, 7000\n").is_none());
         assert!(parse_gpu_table("0, 0, 0\n").is_none());
         assert!(parse_gpu_table("").is_none());
+    }
+
+    #[test]
+    fn a_resident_proofreader_is_reused_on_a_busy_gpu_without_pressure() {
+        let _gate = test_gate();
+        reset_for_tests(MemoryMode::Overlap, ModelRetention::OnExit);
+        let id = crate::optional_llm::PROOFREADER_ID;
+        let hardware = probe_hardware();
+        // Qwen speech and the proofreader share a 12 GiB card with 2 GiB free.
+        let gpu = Some((12288 * MIB, 2048 * MIB));
+        {
+            let mut state = shared().lock().unwrap();
+            state.asr_loaded = Some("qwen3-asr-1.7b-q8-cuda".into());
+        }
+        // Not marked resident: a fresh load is planned and counts as pressure,
+        // which evicts idle work (the punctuation helper and idle speech).
+        let fresh = try_acquire_text_locked("proofreader", id, "test", &hardware, gpu, generation_blocking(), false);
+        assert!(matches!(fresh, LockedAdmission::Insufficient(_)));
+        // Marked resident after its first run: reused, nothing to evict.
+        shared().lock().unwrap().text_loaded = Some(id.into());
+        let reused = try_acquire_text_locked("proofreader", id, "test", &hardware, gpu, generation_blocking(), false);
+        assert!(matches!(reused, LockedAdmission::Admitted(_)));
+        assert!(!text_cpu_required(id));
+        notify_text_finished();
+        assert!(!asr_release_pending());
+        reset_for_tests(MemoryMode::Overlap, ModelRetention::OnExit);
     }
 
     #[test]

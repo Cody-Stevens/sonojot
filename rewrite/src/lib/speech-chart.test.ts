@@ -44,7 +44,7 @@ test("speech scores keep exact packages, corpus and platform separate", () => {
   );
   assert.equal(
     speechScore("qwen3-asr-1.7b-q4-metal", true, false)?.value,
-    5.25,
+    3.24,
   );
   assert.equal(speechScore("qwen3-asr-1.7b-q4-metal", false, false), null);
   assert.equal(speechScore("qwen3-asr-1.7b-q8-cuda", true, false), null);
@@ -108,4 +108,14 @@ test("setup differences use the active SonoJot cleanup before an inactive online
 test("SonoJot Parakeet keeps its own short name, apart from stock Parakeet", () => {
   assert.equal(shortSpeechName(SONOJOT_PARAKEET, "x"), "SonoJot Parakeet");
   assert.equal(shortSpeechName("parakeet-tdt-0.6b-v2", "x"), "Parakeet");
+});
+
+test("a Mac shows SonoJot Parakeet's word errors measured on a Mac, not Windows ones", () => {
+  // November 13, 2026: TED-12 through the app's worker on an M4 Mac mini.
+  const mac = speechScore(SONOJOT_PARAKEET, true, false);
+  assert.equal(mac?.value, 3.73);
+  assert.match(String(mac?.source), /BENCHMARK-MAC-M4/);
+  assert.equal(speechScore(SONOJOT_PARAKEET, false, false)?.value, 3.89);
+  // A Windows run stored in the mac slot never appears on a Mac.
+  assert.equal(speechScore("qwen3-asr-1.7b-q8-cuda", true, false), null);
 });

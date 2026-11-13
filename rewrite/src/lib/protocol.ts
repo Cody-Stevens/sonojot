@@ -122,6 +122,13 @@ export const updateStatusSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),
   z.object({ state: z.literal("checking") }),
   z.object({
+    state: z.literal("current"),
+    channel: z.enum(["stable", "nightly"]),
+    version: z.string().min(1),
+    platform: z.string().min(1),
+    reason: z.enum(["noBuild", "noNewer", "current"]),
+  }),
+  z.object({
     state: z.literal("available"),
     version: z.string().min(1),
     notes: z.string().nullable(),
@@ -130,16 +137,19 @@ export const updateStatusSchema = z.discriminatedUnion("state", [
     repair: z.boolean().optional(),
     /** Older than this build: the newest build on the channel just chosen. */
     older: z.boolean().optional(),
+    switchChannel: z.enum(["stable", "nightly"]).nullish(),
   }),
   z.object({
     state: z.literal("downloading"),
     percent: z.number().finite().min(0).max(100).nullable(),
+    switchChannel: z.enum(["stable", "nightly"]).nullish(),
   }),
   z.object({
     state: z.literal("ready"),
     version: z.string().min(1),
     notes: z.string().nullable(),
     older: z.boolean().optional(),
+    switchChannel: z.enum(["stable", "nightly"]).nullish(),
   }),
   z.object({ state: z.literal("error"), message: z.string() }),
 ]);
@@ -240,6 +250,7 @@ export const snapshotSchema = z.object({
   meetingRecording: z.boolean(),
   activeMeetingId: z.string().nullable(),
   capabilities: z.object({
+    sync: z.boolean().default(false),
     autoPaste: z.boolean(),
     systemAudio: z.boolean(),
     systemAudioStatus: systemAudioStatusSchema.default("unsupported"),
@@ -765,6 +776,7 @@ export const previewSnapshot: Snapshot = {
   meetingRecording: false,
   activeMeetingId: null,
   capabilities: {
+    sync: false,
     autoPaste: false,
     systemAudio: false,
     systemAudioStatus: "unsupported",

@@ -1,12 +1,30 @@
 {
   "schema": 1,
   "next": [
+    "Switching update channels offers a clear download and restart action, or explains when no build is available for your computer.",
+    "Nightly releases now include signed and notarized builds for Apple Silicon Macs when the Mac build succeeds.",
+    "Builds without a configured staging server keep vocabulary sync disabled and explain why.",
+    "Mac sync sign-in explains keychain errors; the separate Sync Test app can save its test credentials without unlocking the login keychain.",
+    "Encrypted vocabulary sync is available in nightly and other prerelease builds; stable builds keep sync disabled.",
+    "Sync Test can sign into isolated staging test accounts and pause its connection from the command line.",
     "The Updates screen and the update prompt are tidier: buttons line up, and a long download no longer pushes the side bar out of place.",
     "After an update, SonoJot no longer says it closed unexpectedly. It shows what's new instead.",
     "See changes shows what an update brings before you install it, and What's new in Settings > Updates shows the notes for your version.",
-    "New speech model: SonoJot Parakeet, our own tuned version of Parakeet. It makes about a fifth fewer errors on dictation than Parakeet in our tests, at the same size and speed. It replaces Parakeet in the speech list and is the Balanced choice for new English setups on computers without an NVIDIA graphics card or Apple Silicon. If you use Parakeet now, nothing changes until you choose the new one."
+    "New speech model: SonoJot Parakeet, our own tuned version of Parakeet. It makes about a fifth fewer errors on dictation than Parakeet in our tests, at the same size and speed. It replaces Parakeet in the speech list. If you use Parakeet now, nothing changes until you choose the new one.",
+    "New English setups now start on SonoJot Parakeet for dictation and meetings on every computer, including NVIDIA PCs and Macs. It ties Qwen3-ASR on meetings in our tests and is faster and smaller. Qwen3-ASR stays one tap away in Speech as the multilingual choice, other languages keep Qwen, and your saved choices do not change.",
+    "On a Mac, the Speech screen now shows word errors measured in the Mac app for SonoJot Parakeet and Qwen3-ASR, and the chart marks SonoJot Parakeet as recommended."
   ],
   "releases": [
+    {
+      "version": "0.28.10-nightly.202611122336",
+      "date": "2026-11-12",
+      "notes": [
+        "The Updates screen and the update prompt are tidier: buttons line up, and a long download no longer pushes the side bar out of place.",
+        "After an update, SonoJot no longer says it closed unexpectedly. It shows what's new instead.",
+        "See changes shows what an update brings before you install it, and What's new in Settings > Updates shows the notes for your version.",
+        "New speech model: SonoJot Parakeet, our own tuned version of Parakeet. It makes about a fifth fewer errors on dictation than Parakeet in our tests, at the same size and speed. It replaces Parakeet in the speech list and is the Balanced choice for new English setups on computers without an NVIDIA graphics card or Apple Silicon. If you use Parakeet now, nothing changes until you choose the new one."
+      ]
+    },
     {
       "version": "0.28.10-nightly.202611121621",
       "date": "2026-11-12",

@@ -532,6 +532,7 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<bool, String> {
 /// one include line to the user's config the first time, then reloads
 /// Hyprland's config when anything changed.
 pub fn install_shortcut(hotkey: &str, hold: bool, executable: &Path) -> Result<(), String> {
+    if crate::flavor::SYNC_TEST { return Ok(()); }
     let keys = parse_hotkey(hotkey)?;
     let lua = lua();
     let dir = config_dir().ok_or("Cannot find the Hyprland config folder.")?;
@@ -576,6 +577,7 @@ fn reload() -> Result<(), String> {
 /// launch binds the shortcut again. A crash leaves the bind; the key then
 /// runs a messenger that finds no app.
 pub fn release_shortcut() {
+    if crate::flavor::SYNC_TEST { return; }
     let lua = lua();
     let Some(dir) = config_dir() else { return };
     let generated = dir.join(if lua { "sonojot.lua" } else { "sonojot.conf" });

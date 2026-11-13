@@ -1,3 +1,4 @@
+pub mod flavor;
 mod confidence;
 pub mod acceleration;
 mod permissions;
@@ -74,6 +75,11 @@ mod setup_commands;
 mod sherpa;
 pub mod speech;
 pub mod store;
+pub mod sync_crypto;
+mod sync_account;
+mod sync_client;
+mod sync_engine;
+mod secret_store;
 pub mod structured_clean;
 pub mod system_audio;
 pub mod system_audio_commands;
@@ -179,7 +185,11 @@ pub fn run() {
     {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
-    let application = tauri::Builder::default()
+    let context = tauri::generate_context!();
+    if flavor::SYNC_TEST {
+        assert_eq!(context.config().identifier, flavor::IDENTIFIER, "Build Sync Test with tauri.synctest.conf.json");
+    }
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let app = app.clone();
             tauri::async_runtime::spawn_blocking(move || {
@@ -187,10 +197,16 @@ pub fn run() {
             });
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init());
+    let builder = if flavor::SYNC_TEST { builder } else {
+        builder.plugin(tauri_plugin_deep_link::init())
+            .plugin(tauri_plugin_updater::Builder::new().build())
+    };
+    let application = builder
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            sync_account::sync_command,
             reports::get_pending_crash,
             changelog::get_whats_new,
             changelog::dismiss_whats_new,
@@ -333,6 +349,22 @@ pub fn run() {
                 runtime.report(app.handle(), error);
             }
             app.manage(runtime.clone());
+            app.manage(sync_account::SyncService::default());
+            sync_account::start_scheduler(app.handle());
+            if flavor::sync_enabled() && !flavor::SYNC_TEST {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() { sync_account::callback(&handle, url.to_string()); }
+                });
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    for url in urls { sync_account::callback(app.handle(), url.to_string()); }
+                }
+                // Installed Linux builds repair AppImage registration; debug builds do not
+                // replace the user's installed handler.
+                #[cfg(all(target_os="linux",not(debug_assertions)))]
+                let _ = app.deep_link().register_all();
+            }
             // Needs the update channel from settings, so it starts after the runtime.
             // A failure only loses What's new; it never stops SonoJot starting.
             if let Ok(changelog) = changelog::Changelog::start(
@@ -380,12 +412,12 @@ pub fn run() {
             match app::register_shortcut(app.handle(), &settings.hotkey, settings.hotkey_mode) {
                 Ok(()) => {
                     if let Ok(mut snapshot) = runtime.snapshot.lock() {
-                        snapshot.capabilities.global_shortcut = true;
+                        snapshot.capabilities.global_shortcut = !flavor::SYNC_TEST;
                     }
                 }
                 Err(error) => runtime.report(app.handle(), error),
             }
-            let settings = MenuItem::with_id(app, "settings", "Open SonoJot", true, None::<&str>)?;
+            let settings = MenuItem::with_id(app, "settings", format!("Open {}", flavor::NAME), true, None::<&str>)?;
             let dictation = MenuItem::with_id(
                 app,
                 "dictation",
@@ -412,7 +444,7 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
-            let quit = MenuItem::with_id(app, "quit", "Quit SonoJot", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", format!("Quit {}", flavor::NAME), true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
                 &[&settings, &screen_tab, &dictation, &copy, &separator, &quit],
@@ -424,7 +456,7 @@ pub fn run() {
             TrayIconBuilder::with_id("sonojot")
                 .icon(tray_icon()?)
                 .icon_as_template(cfg!(target_os = "macos"))
-                .tooltip("SonoJot · local dictation")
+                .tooltip(if flavor::SYNC_TEST { flavor::NAME } else { "SonoJot · local dictation" })
                 .menu(&menu)
                 .show_menu_on_left_click(cfg!(not(target_os = "macos")))
                 .on_menu_event(|app, event| {
@@ -564,7 +596,7 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", not(feature = "synctest")))]
             {
                 let data = runtime.store.root().to_path_buf();
                 std::thread::spawn(move || omarchy::pin_tray_once(&data));
@@ -588,7 +620,9 @@ pub fn run() {
                 if let Err(error) = onboarding::recover(&setup_app, &setup_runtime).await {
                     setup_runtime.report(&setup_app, error);
                 }
-                let result = if setup_commands::needs_first_setup(&setup_runtime) {
+                let result = if flavor::SYNC_TEST {
+                    windows::show_settings_page(&setup_app, "sync")
+                } else if setup_commands::needs_first_setup(&setup_runtime) {
                     windows::show_settings_page(&setup_app, "setup")
                 } else if setup_app.state::<reports::CrashReports>().pending().ok().flatten().is_some() {
                     // Crash evidence also opens the app when login used --startup.
@@ -682,6 +716,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let tauri::WindowEvent::Focused(true) = event {
+                    sync_account::wake();
                     updater::window_focused(window.app_handle());
                 }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -698,7 +733,7 @@ pub fn run() {
                 }
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("SonoJot could not start");
     application.run(|_app, event| {
         if matches!(event, tauri::RunEvent::Exit) {

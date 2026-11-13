@@ -1,6 +1,10 @@
 <script lang="ts">
   import { app } from "../../lib/app.svelte";
-  import { updateOffered, updateStatusLabel } from "../../lib/updates";
+  import {
+    updateOffered,
+    updateStatusLabel,
+    updateRestartLabel,
+  } from "../../lib/updates";
   import { whatsNew } from "../../lib/whats-new.svelte";
   import UpdateAction from "../UpdateAction.svelte";
   import Sheet from "./Sheet.svelte";
@@ -15,7 +19,7 @@
 <Sheet title="Updates" {onclose}>
   <p class="update-line" role="status">
     {update.installing
-      ? "Restarting to update…"
+      ? updateRestartLabel(update.status)
       : updateStatusLabel(update.status)}
   </p>
   {#if update.installProblem}<p class="update-line" data-text-surface="flat">
@@ -33,7 +37,7 @@
         onclick={() => void whatsNew.showOffer()}>See changes</button
       >
     {/if}
-    {#if update.status.state === "idle" || update.status.state === "error"}
+    {#if update.status.state === "idle" || update.status.state === "error" || update.status.state === "current"}
       <button
         type="button"
         class="button"

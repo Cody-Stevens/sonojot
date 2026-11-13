@@ -6,7 +6,10 @@
 
 use serde_json::{json, Value};
 use sonojot_core::cli_protocol::{call, CallError, Request, PROTOCOL_VERSION};
-use std::{process::ExitCode, time::{Duration, Instant}};
+use std::{
+    process::ExitCode,
+    time::{Duration, Instant},
+};
 
 const EXIT_FAILED: u8 = 1;
 const EXIT_USAGE: u8 = 2;
@@ -26,6 +29,10 @@ fn main() -> ExitCode {
             "--no-diarize" => options.no_diarize = true,
             "--latest-attempt" => options.latest_attempt = true,
             "--key-stdin" => options.key_stdin = true,
+            "--stdin" => options.sync_stdin = true,
+            "--no-browser" => options.no_browser = true,
+            "--rekey" => options.rekey = Some(true),
+            "--sign-out-only" => options.rekey = Some(false),
             "-h" | "--help" => words.insert(0, "help".into()),
             "--version" | "-V" => words.insert(0, "version".into()),
             flag if flag.starts_with("--") && flag.len() > 2 => {
@@ -65,6 +72,9 @@ struct Options {
     no_diarize: bool,
     latest_attempt: bool,
     key_stdin: bool,
+    sync_stdin: bool,
+    no_browser: bool,
+    rekey: Option<bool>,
     values: std::collections::HashMap<String, String>,
 }
 
@@ -81,7 +91,9 @@ enum Failure {
 }
 
 impl From<String> for Failure {
-    fn from(message: String) -> Self { Failure::Failed(message) }
+    fn from(message: String) -> Self {
+        Failure::Failed(message)
+    }
 }
 
 type Outcome<T = ()> = Result<T, Failure>;
@@ -93,28 +105,65 @@ fn usage(message: &str) -> ExitCode {
 
 fn run(words: &[&str], options: &Options) -> Outcome {
     if options.key_stdin && words != ["invoke", "connect_openrouter_key"] {
-        return Err(Failure::Usage("Use --key-stdin with `invoke connect_openrouter_key`, without JSON arguments.".into()));
+        return Err(Failure::Usage(
+            "Use --key-stdin with `invoke connect_openrouter_key`, without JSON arguments.".into(),
+        ));
     }
     let client = Client { options };
     match words {
-        [] | ["help"] => { print!("{}", help()); Ok(()) }
-        ["guide"] | ["help", "agents"] | ["agents"] => { print!("{}", guide()); Ok(()) }
-        ["version"] => { println!("sonojot-cli {} (protocol {PROTOCOL_VERSION})", env!("CARGO_PKG_VERSION")); Ok(()) }
+        ["synctest-verify"] if sonojot_core::flavor::SYNC_TEST => {
+            println!("{}", sonojot_core::flavor::verify()?);
+            Ok(())
+        }
+        [] | ["help"] => {
+            print!("{}", help());
+            Ok(())
+        }
+        ["guide"] | ["help", "agents"] | ["agents"] => {
+            print!("{}", guide());
+            Ok(())
+        }
+        ["version"] => {
+            println!(
+                "sonojot-cli {} (protocol {PROTOCOL_VERSION})",
+                env!("CARGO_PKG_VERSION")
+            );
+            Ok(())
+        }
         ["mcp"] => mcp_stub(),
         ["agents", rest @ ..] => agents(rest),
+        ["sync", rest @ ..] => sync_commands(&client, rest),
         ["ping"] => client.print("ping", json!({})),
         ["commands"] => client.print("commands", json!({})),
         ["invoke", "connect_openrouter_key"] if options.key_stdin => {
             use std::io::IsTerminal;
             let stdin = std::io::stdin();
             if stdin.is_terminal() {
-                return Err(Failure::Usage("Pipe the OpenRouter key into standard input.".into()));
+                return Err(Failure::Usage(
+                    "Pipe the OpenRouter key into standard input.".into(),
+                ));
             }
-            client.print("connect_openrouter_key", json!({ "key": read_key_stdin(stdin.lock())? }))
+            client.print(
+                "connect_openrouter_key",
+                json!({ "key": read_key_stdin(stdin.lock())? }),
+            )
         }
         ["invoke", command] => client.print(command, json!({})),
         ["invoke", command, args] => {
-            let args: Value = serde_json::from_str(args).map_err(|e| Failure::Usage(format!("Arguments must be a JSON object: {e}")))?;
+            let args: Value = serde_json::from_str(args)
+                .map_err(|e| Failure::Usage(format!("Arguments must be a JSON object: {e}")))?;
+            if *command == "sync_command"
+                && matches!(
+                    args["operation"].as_str(),
+                    Some("recovery_use" | "callback")
+                )
+            {
+                return Err(Failure::Usage("Use sync recovery use --stdin or sync callback --stdin so codes stay out of arguments.".into()));
+            }
+            #[cfg(feature = "synctest")]
+            if *command == "sync_command" && args["operation"] == "test_signin" {
+                return Err(Failure::Usage("Use sync test-sign-in <subject> --stdin.".into()));
+            }
             client.print(command, args)
         }
         ["status"] => {
@@ -137,7 +186,10 @@ fn run(words: &[&str], options: &Options) -> Outcome {
         ["snapshot"] => client.print("get_snapshot", json!({})),
         ["diagnostics"] => client.print("get_diagnostics", json!({})),
         ["quit"] => {
-            let options = Options { no_launch: true, ..Default::default() };
+            let options = Options {
+                no_launch: true,
+                ..Default::default()
+            };
             Client { options: &options }.print("quit_app", json!({}))
         }
         ["open"] => client.print("show_page", json!({ "page": "dictation" })),
@@ -149,18 +201,173 @@ fn run(words: &[&str], options: &Options) -> Outcome {
         ["models"] | ["models", "list"] => client.print("get_model_library", json!({})),
         ["ai"] | ["ai", "settings"] => client.print("get_ai_settings", json!({})),
         ["update", rest @ ..] | ["updates", rest @ ..] => update(&client, rest),
-        _ => Err(Failure::Usage(format!("Unknown command: {}", words.join(" ")))),
+        _ => Err(Failure::Usage(format!(
+            "Unknown command: {}",
+            words.join(" ")
+        ))),
+    }
+}
+
+fn sync_commands(client: &Client<'_>, words: &[&str]) -> Outcome {
+    let o = client.options;
+    let send = |operation: &str, args: Value| {
+        client.print("sync_command", json!({"operation":operation,"args":args}))
+    };
+    let confirm = || {
+        if o.confirm {
+            Ok(())
+        } else {
+            Err(Failure::Usage("This action needs --confirm.".into()))
+        }
+    };
+    let file = || {
+        o.values
+            .get("file")
+            .cloned()
+            .ok_or_else(|| Failure::Usage("Choose --file <path>.".into()))
+    };
+    match words {
+        [] | ["status"] => send("status", json!({})),
+        #[cfg(all(target_os = "macos", feature = "synctest"))]
+        ["test-credentials"] => send("test_credentials", json!({})),
+        #[cfg(all(target_os = "macos", feature = "synctest"))]
+        ["test-credentials", phase] => send("test_credentials", json!({"phase":phase})),
+        #[cfg(feature = "synctest")]
+        ["test-offline", mode] if matches!(*mode, "on" | "off") => {
+            send("test_offline", json!({"offline": *mode == "on"}))
+        }
+        #[cfg(feature = "synctest")]
+        ["test-sign-in", subject] => {
+            use std::io::IsTerminal;
+            let stdin = std::io::stdin();
+            if !o.sync_stdin || stdin.is_terminal() {
+                return Err(Failure::Usage("Pipe the test token through standard input with --stdin.".into()));
+            }
+            let value = zeroize::Zeroizing::new(read_key_stdin(stdin.lock())?);
+            send("test_signin", json!({"subject":subject,"token":*value}))
+        }
+        ["signin"] => send(
+            "signin",
+            json!({"provider":o.values.get("provider").map(String::as_str).unwrap_or("authkit"),"server":o.values.get("server"),"noBrowser":o.no_browser}),
+        ),
+        ["status", "remote"] => send("remote_status",json!({})),
+        ["now"] => send("now", json!({})),
+        ["signout"] => send("signout", json!({"noBrowser":o.no_browser})),
+        ["reset", "request"] => { confirm()?; send("reset_request",json!({"confirmed":true})) }
+        ["reset", "cancel"] => send("reset_cancel",json!({})),
+        ["journal", "acknowledge"] => { confirm()?; send("journal_ack",json!({"confirmed":true})) }
+        ["setup"] | ["reset"] => {
+            confirm()?;
+            send(words[0], json!({"confirmed":true}))
+        }
+        ["link", provider] => send(
+            "signin",
+            json!({"provider":provider,"link":true,"noBrowser":o.no_browser}),
+        ),
+        ["conflicts"] => send("conflicts", json!({})),
+        ["use-local", id] => {
+            confirm()?;
+            send("use_local", json!({"id":id,"confirmed":true}))
+        }
+        ["devices", "list"] => send("devices", json!({})),
+        ["devices", "remove", device] => {
+            confirm()?;
+            if o.rekey == Some(false) {
+                eprintln!("Sign out only: this device keeps its keys and can regain access by signing in again.");
+            }
+            send(
+                "remove",
+                json!({"device":device,"rekey":o.rekey,"confirmed":true}),
+            )
+        }
+        ["devices", "add"] => send("pair_start", json!({})),
+        ["devices", "requests"] => send("pair_list", json!({})),
+        ["devices", step, id] if ["accept", "poll", "deny"].contains(step) => {
+            send(&format!("pair_{step}"), json!({"id":id}))
+        }
+        ["devices", step, id] if ["approve", "confirm"].contains(step) => {
+            confirm()?;
+            send(&format!("pair_{step}"), json!({"id":id,"confirmed":true}))
+        }
+        ["recovery", "show"] => {
+            confirm()?;
+            send("recovery_show", json!({"confirmed":true}))
+        }
+        ["recovery", "new"] => {
+            confirm()?;
+            let path = file()?;
+            client.call(
+                "sync_command",
+                json!({"operation":"recovery_new","args":{"confirmed":true}}),
+            )?;
+            send("recovery_download", json!({"path":path,"confirmed":true}))
+        }
+        ["recovery", "saved"] => {
+            confirm()?;
+            send("recovery_ack", json!({"confirmed":true}))
+        }
+        ["recovery", op] if ["copy", "print"].contains(op) => {
+            confirm()?;
+            send(&format!("recovery_{op}"), json!({"confirmed":true}))
+        }
+        ["recovery", "download"] => {
+            confirm()?;
+            send(
+                "recovery_download",
+                json!({"path":file()?,"confirmed":true}),
+            )
+        }
+        ["recovery", "use"] | ["callback"] => {
+            if !o.sync_stdin {
+                return Err(Failure::Usage(
+                    "Use --stdin and pipe the code or callback URL through standard input.".into(),
+                ));
+            }
+            use std::io::IsTerminal;
+            let stdin = std::io::stdin();
+            if stdin.is_terminal() {
+                return Err(Failure::Usage(
+                    "Pipe the value through standard input.".into(),
+                ));
+            }
+            let mut value = read_key_stdin(stdin.lock())?;
+            let result = if words[0] == "callback" {
+                send("callback", json!({"url":value}))
+            } else {
+                send("recovery_use", json!({"code":value}))
+            };
+            use zeroize::Zeroize;
+            value.zeroize();
+            result
+        }
+        ["account", "export"] => send("account_export_file", json!({"path":file()?})),
+        ["account", "delete"] => {
+            confirm()?;
+            send("account_delete", json!({"confirmed":true}))
+        }
+        _ => Err(Failure::Usage(
+            "Use sync signin|status|now|signout|setup|devices|recovery|account. See docs/CLI.md."
+                .into(),
+        )),
     }
 }
 
 fn read_key_stdin(input: impl std::io::Read) -> Outcome<String> {
     use std::io::Read;
     let mut value = String::new();
-    input.take(4099).read_to_string(&mut value)
+    input
+        .take(4099)
+        .read_to_string(&mut value)
         .map_err(|_| Failure::Usage("Could not read the key from standard input.".into()))?;
     let key = value.trim();
-    if value.len() > 4098 || key.is_empty() || key.len() > 4096 || key.chars().any(char::is_whitespace) {
-        return Err(Failure::Usage("Pipe one key of at most 4,096 bytes into standard input.".into()));
+    if value.len() > 4098
+        || key.is_empty()
+        || key.len() > 4096
+        || key.chars().any(char::is_whitespace)
+    {
+        return Err(Failure::Usage(
+            "Pipe one key of at most 4,096 bytes into standard input.".into(),
+        ));
     }
     Ok(key.to_owned())
 }
@@ -170,19 +377,46 @@ mod key_stdin_tests {
     use super::*;
 
     #[test]
+    #[cfg(not(feature = "synctest"))]
+    fn default_build_has_no_test_signin_command() {
+        let options = Options { no_launch: true, ..Options::default() };
+        assert!(matches!(run(&["sync", "test-sign-in", "synctest-fixture"], &options), Err(Failure::Usage(_))));
+        assert!(matches!(run(&["sync", "test-offline", "on"], &options), Err(Failure::Usage(_))));
+        assert!(matches!(run(&["sync", "test-credentials"], &options), Err(Failure::Usage(_))));
+    }
+
+    #[test]
     fn reads_a_piped_key_without_a_command_line_argument() {
-        assert!(matches!(read_key_stdin(&b"sk-test-placeholder\r\n"[..]), Ok(key) if key == "sk-test-placeholder"));
+        assert!(
+            matches!(read_key_stdin(&b"sk-test-placeholder\r\n"[..]), Ok(key) if key == "sk-test-placeholder")
+        );
         assert!(matches!(read_key_stdin(&b"\n"[..]), Err(Failure::Usage(_))));
-        assert!(matches!(read_key_stdin(&b"one\ntwo"[..]), Err(Failure::Usage(_))));
-        assert!(matches!(read_key_stdin(&vec![b'x'; 5000][..]), Err(Failure::Usage(_))));
+        assert!(matches!(
+            read_key_stdin(&b"one\ntwo"[..]),
+            Err(Failure::Usage(_))
+        ));
+        assert!(matches!(
+            read_key_stdin(&vec![b'x'; 5000][..]),
+            Err(Failure::Usage(_))
+        ));
     }
 
     #[test]
     fn stdin_errors_and_invalid_flag_usage_do_not_echo_input() {
-        let options = Options { key_stdin: true, ..Options::default() };
-        let result = run(&["invoke", "connect_openrouter_key", "secret-placeholder"], &options);
-        assert!(matches!(result, Err(Failure::Usage(message)) if !message.contains("secret-placeholder")));
-        assert!(matches!(read_key_stdin(&[0xff][..]), Err(Failure::Usage(message)) if message == "Could not read the key from standard input."));
+        let options = Options {
+            key_stdin: true,
+            ..Options::default()
+        };
+        let result = run(
+            &["invoke", "connect_openrouter_key", "secret-placeholder"],
+            &options,
+        );
+        assert!(
+            matches!(result, Err(Failure::Usage(message)) if !message.contains("secret-placeholder"))
+        );
+        assert!(
+            matches!(read_key_stdin(&[0xff][..]), Err(Failure::Usage(message)) if message == "Could not read the key from standard input.")
+        );
     }
 }
 
@@ -198,35 +432,58 @@ fn agents(words: &[&str]) -> Outcome {
         // The installer: respects an earlier `agents remove`.
         ["ensure"] => ensure(&cli, &data).unwrap_or_default(),
         // The uninstaller: removes, and lets a later install register again.
-        ["uninstall"] => { let items = run(Mode::Remove, &cli, &data); forget(&data); items }
+        ["uninstall"] => {
+            let items = run(Mode::Remove, &cli, &data);
+            forget(&data);
+            items
+        }
         _ => return Err(Failure::Usage("Use `agents status|install|remove`.".into())),
     };
     emit(&serde_json::to_value(&items).map_err(|e| e.to_string())?);
     if items.iter().any(|item| item.state == "failed") {
-        return Err(Failure::Failed("Some targets could not be updated; see `detail`.".into()));
+        return Err(Failure::Failed(
+            "Some targets could not be updated; see `detail`.".into(),
+        ));
     }
     Ok(())
 }
 
 fn settings(client: &Client, words: &[&str]) -> Outcome {
     match words {
-        [] | ["get"] => { emit(&client.call("get_state", json!({}))?["settings"]); Ok(()) }
-        ["get", key] => { emit(&client.call("get_state", json!({}))?["settings"][key]); Ok(()) }
+        [] | ["get"] => {
+            emit(&client.call("get_state", json!({}))?["settings"]);
+            Ok(())
+        }
+        ["get", key] => {
+            emit(&client.call("get_state", json!({}))?["settings"][key]);
+            Ok(())
+        }
         ["set", pairs @ ..] if !pairs.is_empty() => {
             let mut settings = client.call("get_state", json!({}))?["settings"].take();
-            let object = settings.as_object_mut().ok_or("SonoJot returned no settings.".to_string())?;
+            let object = settings
+                .as_object_mut()
+                .ok_or("SonoJot returned no settings.".to_string())?;
             for pair in pairs {
-                let (key, value) = pair.split_once('=').ok_or_else(|| Failure::Usage(format!("Use key=value, not `{pair}`.")))?;
+                let (key, value) = pair
+                    .split_once('=')
+                    .ok_or_else(|| Failure::Usage(format!("Use key=value, not `{pair}`.")))?;
                 if !object.contains_key(key) {
-                    return Err(Failure::Usage(format!("Unknown setting `{key}`. Run `sonojot-cli settings get` to list them.")));
+                    return Err(Failure::Usage(format!(
+                        "Unknown setting `{key}`. Run `sonojot-cli settings get` to list them."
+                    )));
                 }
-                object.insert(key.into(), serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.into())));
+                object.insert(
+                    key.into(),
+                    serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.into())),
+                );
             }
             let saved = client.call("save_settings", json!({ "settings": settings }))?;
             emit(&saved["settings"]);
             Ok(())
         }
-        _ => Err(Failure::Usage("Use `settings get [key]` or `settings set key=value ...`.".into())),
+        _ => Err(Failure::Usage(
+            "Use `settings get [key]` or `settings set key=value ...`.".into(),
+        )),
     }
 }
 
@@ -236,12 +493,19 @@ fn dictation(client: &Client, words: &[&str]) -> Outcome {
         ["stop"] => client.print_state("stop_dictation"),
         ["cancel"] => client.print_state("cancel_dictation"),
         ["history"] => {
-            let limit: usize = client.options.value("limit").map(str::parse).transpose()
-                .map_err(|_| Failure::Usage("--limit must be a number.".into()))?.unwrap_or(20);
+            let limit: usize = client
+                .options
+                .value("limit")
+                .map(str::parse)
+                .transpose()
+                .map_err(|_| Failure::Usage("--limit must be a number.".into()))?
+                .unwrap_or(20);
             client.print("list_dictations", json!({ "limit": limit }))
         }
         ["copy-last"] => client.print("copy_last_dictation", json!({})),
-        _ => Err(Failure::Usage("Use `dictation start|stop|cancel|history|copy-last`.".into())),
+        _ => Err(Failure::Usage(
+            "Use `dictation start|stop|cancel|history|copy-last`.".into(),
+        )),
     }
 }
 
@@ -361,16 +625,26 @@ fn meetings(client: &Client, words: &[&str]) -> Outcome {
 /// before it installs it. Installing restarts SonoJot, so it needs --confirm.
 fn update(client: &Client, words: &[&str]) -> Outcome {
     match words {
-        [] | ["status"] => { emit(&update_summary(&client.call("get_state", json!({}))?)); Ok(()) }
-        ["check"] => { emit(&update_summary(&check_updates(client, false)?)); Ok(()) }
+        [] | ["status"] => {
+            emit(&update_summary(&client.call("get_state", json!({}))?));
+            Ok(())
+        }
+        ["check"] => {
+            emit(&update_summary(&check_updates(client, false)?));
+            Ok(())
+        }
         ["install"] => install_update(client, false),
         ["repair"] => install_update(client, true),
-        _ => Err(Failure::Usage("Use `update status|check|install|repair`.".into())),
+        _ => Err(Failure::Usage(
+            "Use `update status|check|install|repair`.".into(),
+        )),
     }
 }
 
 fn update_state(state: &Value) -> &str {
-    state["update"]["status"]["state"].as_str().unwrap_or_default()
+    state["update"]["status"]["state"]
+        .as_str()
+        .unwrap_or_default()
 }
 
 fn update_summary(state: &Value) -> Value {
@@ -382,7 +656,8 @@ fn update_summary(state: &Value) -> Value {
         (Some(problem), _) => json!(problem),
         (None, Some(cli)) if !app.is_empty() && cli != app => json!(format!(
             "sonojot-cli is {cli} but SonoJot is {app}: the last update did not finish. \
-Run `sonojot-cli update repair --confirm`.")),
+Run `sonojot-cli update repair --confirm`."
+        )),
         (None, None) if cfg!(windows) => json!("sonojot-cli is missing from the SonoJot folder."),
         _ => Value::Null,
     };
@@ -399,11 +674,17 @@ Run `sonojot-cli update repair --confirm`.")),
 /// The version of the `sonojot-cli` installed beside this one. During an
 /// update this process may be a renamed older copy, so ask the file itself.
 fn installed_cli_version() -> Option<String> {
-    let name = if cfg!(windows) { "sonojot-cli.exe" } else { "sonojot-cli" };
-    let cli = std::env::current_exe().ok()?.parent()?.join(name);
-    let output = std::process::Command::new(cli).arg("version")
-        .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
-    String::from_utf8_lossy(&output.stdout).split_whitespace().nth(1).map(str::to_owned)
+    let cli = sonojot_core::agent_integration::cli_beside(&std::env::current_exe().ok()?);
+    let output = std::process::Command::new(cli)
+        .arg("version")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .nth(1)
+        .map(str::to_owned)
 }
 
 /// Asks the app to check now and waits for the answer. `reinstall` also
@@ -413,7 +694,9 @@ fn check_updates(client: &Client, reinstall: bool) -> Outcome<Value> {
     let started = Instant::now();
     while update_state(&state) == "checking" {
         if started.elapsed() > Duration::from_secs(120) {
-            return Err(Failure::Failed("The update check did not finish within 2 minutes.".into()));
+            return Err(Failure::Failed(
+                "The update check did not finish within 2 minutes.".into(),
+            ));
         }
         std::thread::sleep(Duration::from_millis(500));
         state = client.call("get_state", json!({}))?;
@@ -423,7 +706,9 @@ fn check_updates(client: &Client, reinstall: bool) -> Outcome<Value> {
 
 fn install_update(client: &Client, repair: bool) -> Outcome {
     if !client.options.confirm {
-        return Err(Failure::Usage("Installing an update restarts SonoJot. Add --confirm.".into()));
+        return Err(Failure::Usage(
+            "Installing an update restarts SonoJot. Add --confirm.".into(),
+        ));
     }
     let mut state = client.call("get_state", json!({}))?;
     // An offer already in progress is used as it is. A fresh check repairs on
@@ -432,15 +717,27 @@ fn install_update(client: &Client, repair: bool) -> Outcome {
         state = check_updates(client, repair)?;
     }
     match update_state(&state) {
-        "idle" if repair => return Err(Failure::Failed("No release was found to reinstall.".into())),
+        "idle" if repair => {
+            return Err(Failure::Failed("No release was found to reinstall.".into()))
+        }
         "idle" => {
             emit(&json!({ "upToDate": true, "currentVersion": state["version"] }));
             return Ok(());
         }
-        "error" => return Err(Failure::Failed(state["update"]["status"]["message"].as_str().unwrap_or("The update failed.").into())),
+        "error" => {
+            return Err(Failure::Failed(
+                state["update"]["status"]["message"]
+                    .as_str()
+                    .unwrap_or("The update failed.")
+                    .into(),
+            ))
+        }
         _ => {}
     }
-    let version = state["update"]["status"]["version"].as_str().unwrap_or_default().to_owned();
+    let version = state["update"]["status"]["version"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     if update_state(&state) == "available" {
         state = client.call("download_update", json!({}))?;
     }
@@ -449,22 +746,37 @@ fn install_update(client: &Client, repair: bool) -> Outcome {
     while update_state(&state) == "downloading" {
         let percent = state["update"]["status"]["percent"].as_u64();
         if percent != shown && percent.is_some() {
-            eprintln!("Downloading SonoJot {version}: {}%", percent.unwrap_or_default());
+            eprintln!(
+                "Downloading SonoJot {version}: {}%",
+                percent.unwrap_or_default()
+            );
             shown = percent;
         }
         if started.elapsed() > Duration::from_secs(30 * 60) {
-            return Err(Failure::Failed("The download did not finish within 30 minutes.".into()));
+            return Err(Failure::Failed(
+                "The download did not finish within 30 minutes.".into(),
+            ));
         }
         std::thread::sleep(Duration::from_millis(500));
         state = client.call("get_state", json!({}))?;
     }
     if update_state(&state) != "ready" {
-        return Err(Failure::Failed(state["update"]["status"]["message"].as_str().unwrap_or("The update could not be downloaded.").into()));
+        return Err(Failure::Failed(
+            state["update"]["status"]["message"]
+                .as_str()
+                .unwrap_or("The update could not be downloaded.")
+                .into(),
+        ));
     }
-    let version = state["update"]["status"]["version"].as_str().unwrap_or(&version).to_owned();
+    let version = state["update"]["status"]["version"]
+        .as_str()
+        .unwrap_or(&version)
+        .to_owned();
     if let Some(reason) = state["update"]["restartBlockedReason"].as_str() {
-        return Err(Failure::Failed(format!("SonoJot {version} is downloaded, but SonoJot can't restart yet: {reason} \
-Run `sonojot-cli update install --confirm` again afterwards.")));
+        return Err(Failure::Failed(format!(
+            "SonoJot {version} is downloaded, but SonoJot can't restart yet: {reason} \
+Run `sonojot-cli update install --confirm` again afterwards."
+        )));
     }
     eprintln!("Installing SonoJot {version}. SonoJot will restart.");
     client.call("restart_to_update", json!({}))?;
@@ -474,12 +786,17 @@ Run `sonojot-cli update install --confirm` again afterwards.")));
 /// Waits for the installer to replace SonoJot and start it again. Never starts
 /// the app itself: that would race the installer.
 fn wait_for_restart(version: &str) -> Outcome {
-    let options = Options { no_launch: true, ..Default::default() };
+    let options = Options {
+        no_launch: true,
+        ..Default::default()
+    };
     let client = Client { options: &options };
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(10 * 60) {
         std::thread::sleep(Duration::from_secs(1));
-        let Ok(state) = client.call("get_state", json!({})) else { continue };
+        let Ok(state) = client.call("get_state", json!({})) else {
+            continue;
+        };
         let update = &state["update"];
         if update["installing"].as_bool() == Some(true) {
             continue;
@@ -489,13 +806,23 @@ fn wait_for_restart(version: &str) -> Outcome {
             let mut summary = update_summary(&state);
             summary["installed"] = json!(version);
             emit(&summary);
-            return if cli.as_deref() == Some(version) { Ok(()) } else {
-                Err(Failure::Failed(format!("SonoJot {version} is running, but sonojot-cli is {}. \
-Run `sonojot-cli update repair --confirm`.", cli.as_deref().unwrap_or("missing"))))
+            return if cli.as_deref() == Some(version) {
+                Ok(())
+            } else {
+                Err(Failure::Failed(format!(
+                    "SonoJot {version} is running, but sonojot-cli is {}. \
+Run `sonojot-cli update repair --confirm`.",
+                    cli.as_deref().unwrap_or("missing")
+                )))
             };
         }
         if update_state(&state) == "error" {
-            return Err(Failure::Failed(update["status"]["message"].as_str().unwrap_or("The update could not be installed.").into()));
+            return Err(Failure::Failed(
+                update["status"]["message"]
+                    .as_str()
+                    .unwrap_or("The update could not be installed.")
+                    .into(),
+            ));
         }
     }
     Err(Failure::Failed(format!("SonoJot did not come back on {version} within 10 minutes. \
@@ -504,18 +831,42 @@ If the installer is showing a message, answer it; otherwise open SonoJot, then r
 
 /// Polls until the meeting has no running operation, then prints it.
 fn wait(client: &Client, id: &str) -> Outcome {
-    let timeout = client.options.value("timeout").map(str::parse::<u64>).transpose()
-        .map_err(|_| Failure::Usage("--timeout is a number of seconds.".into()))?.unwrap_or(4 * 3600);
+    let timeout = client
+        .options
+        .value("timeout")
+        .map(str::parse::<u64>)
+        .transpose()
+        .map_err(|_| Failure::Usage("--timeout is a number of seconds.".into()))?
+        .unwrap_or(4 * 3600);
     let started = Instant::now();
     loop {
         let meeting = client.call("get_meeting", json!({ "id": id }))?;
         let status = meeting["status"].as_str().unwrap_or_default();
-        if !matches!(status, "recording" | "finalizing" | "transcribing" | "processingNotes" | "generatingTitle" | "importing") {
+        if !matches!(
+            status,
+            "recording"
+                | "finalizing"
+                | "transcribing"
+                | "processingNotes"
+                | "generatingTitle"
+                | "importing"
+        ) {
             emit(&brief(&meeting));
-            return if status == "failed" { Err(Failure::Failed(meeting["error"].as_str().unwrap_or("The operation failed.").into())) } else { Ok(()) };
+            return if status == "failed" {
+                Err(Failure::Failed(
+                    meeting["error"]
+                        .as_str()
+                        .unwrap_or("The operation failed.")
+                        .into(),
+                ))
+            } else {
+                Ok(())
+            };
         }
         if started.elapsed().as_secs() >= timeout {
-            return Err(Failure::Failed(format!("Still {status} after {timeout} s.")));
+            return Err(Failure::Failed(format!(
+                "Still {status} after {timeout} s."
+            )));
         }
         std::thread::sleep(Duration::from_secs(2));
     }
@@ -527,29 +878,47 @@ fn text_input(options: &Options) -> Outcome<String> {
         (Some(text), None) => Ok(text.into()),
         (None, Some("-")) => {
             let mut text = String::new();
-            std::io::stdin().read_to_string(&mut text).map_err(|e| e.to_string())?;
+            std::io::stdin()
+                .read_to_string(&mut text)
+                .map_err(|e| e.to_string())?;
             Ok(text)
         }
-        (None, Some(path)) => std::fs::read_to_string(path).map_err(|e| Failure::Failed(format!("Cannot read {path}: {e}"))),
-        _ => Err(Failure::Usage("Pass --text \"...\" or --file <path> (use - for stdin).".into())),
+        (None, Some(path)) => std::fs::read_to_string(path)
+            .map_err(|e| Failure::Failed(format!("Cannot read {path}: {e}"))),
+        _ => Err(Failure::Usage(
+            "Pass --text \"...\" or --file <path> (use - for stdin).".into(),
+        )),
     }
 }
 
 fn absolute(path: &str) -> Outcome<String> {
     let path = std::path::Path::new(path);
-    let path = if path.is_absolute() { path.to_path_buf() } else {
-        std::env::current_dir().map_err(|e| e.to_string())?.join(path)
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(path)
     };
     Ok(path.display().to_string())
 }
 
 fn extension(path: &str) -> String {
-    std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("md").to_ascii_lowercase()
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("md")
+        .to_ascii_lowercase()
 }
 
 /// The fields of a meeting that matter after an operation, without its text.
 fn brief(meeting: &Value) -> Value {
-    let chars = |key: &str| meeting[key].as_str().map(|text| text.chars().count()).unwrap_or(0);
+    let chars = |key: &str| {
+        meeting[key]
+            .as_str()
+            .map(|text| text.chars().count())
+            .unwrap_or(0)
+    };
     json!({
         "id": meeting["id"], "title": meeting["title"], "status": meeting["status"],
         "createdAt": meeting["createdAt"], "durationSeconds": meeting["durationSeconds"],
@@ -563,7 +932,10 @@ fn brief(meeting: &Value) -> Value {
 }
 
 fn emit(value: &Value) {
-    println!("{}", serde_json::to_string_pretty(value).unwrap_or_default());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).unwrap_or_default()
+    );
 }
 
 struct Client<'a> {
@@ -580,7 +952,12 @@ impl Client<'_> {
         self.send(command, args, self.options.detach)
     }
     fn send(&self, command: &str, args: Value, detach: bool) -> Outcome<Value> {
-        let request = Request { version: PROTOCOL_VERSION, command: command.into(), args, detach };
+        let request = Request {
+            version: PROTOCOL_VERSION,
+            command: command.into(),
+            args,
+            detach,
+        };
         match call(&request) {
             Ok(value) => Ok(value),
             Err(CallError::Failed(message)) => Err(Failure::Failed(message)),
@@ -588,10 +965,14 @@ impl Client<'_> {
                 launch_app()?;
                 call(&request).map_err(|error| match error {
                     CallError::Failed(message) => Failure::Failed(message),
-                    CallError::NotRunning(message) => Failure::NotRunning(format!("SonoJot started but is not answering: {message}")),
+                    CallError::NotRunning(message) => Failure::NotRunning(format!(
+                        "SonoJot started but is not answering: {message}"
+                    )),
                 })
             }
-            Err(CallError::NotRunning(message)) => Err(Failure::NotRunning(format!("SonoJot is not running ({message}).")))
+            Err(CallError::NotRunning(message)) => Err(Failure::NotRunning(format!(
+                "SonoJot is not running ({message})."
+            ))),
         }
     }
     fn print(&self, command: &str, args: Value) -> Outcome {
@@ -600,19 +981,29 @@ impl Client<'_> {
     }
     fn print_meeting(&self, command: &str, args: Value) -> Outcome {
         let result = self.act(command, args)?;
-        let mut output = if result.get("transcript").is_some() { brief(&result) } else { result.clone() };
+        let mut output = if result.get("transcript").is_some() {
+            brief(&result)
+        } else {
+            result.clone()
+        };
         if command == "transcribe_meeting" && result.get("transcript").is_some() {
             // Coverage is advisory; the transcription itself already succeeded.
             match self.call("get_timed_transcript", json!({"id":result["id"]})) {
                 Ok(timed) => {
-                    output["publishedTranscriptUsesLatestAttempt"] = timed["publishedTranscriptUsesLatestAttempt"].clone();
+                    output["publishedTranscriptUsesLatestAttempt"] =
+                        timed["publishedTranscriptUsesLatestAttempt"].clone();
                     output["publishedTranscriptCoverage"] = timed["coverage"].clone();
                     if !timed["latestAttempt"].is_null() {
-                        output["latestAttemptCoverage"] = timed["latestAttempt"]["coverage"].clone();
+                        output["latestAttemptCoverage"] =
+                            timed["latestAttempt"]["coverage"].clone();
                         output["attemptNotice"] = timed["attemptNotice"].clone();
                     }
                 }
-                Err(Failure::Failed(message) | Failure::Usage(message) | Failure::NotRunning(message)) => {
+                Err(
+                    Failure::Failed(message)
+                    | Failure::Usage(message)
+                    | Failure::NotRunning(message),
+                ) => {
                     output["coverageError"] = json!(message);
                 }
             }
@@ -622,7 +1013,9 @@ impl Client<'_> {
     }
     fn print_state(&self, command: &str) -> Outcome {
         let snapshot = self.act(command, json!({}))?;
-        emit(&json!({ "state": snapshot["state"], "error": snapshot["error"], "outputText": snapshot["outputText"] }));
+        emit(
+            &json!({ "state": snapshot["state"], "error": snapshot["error"], "outputText": snapshot["outputText"] }),
+        );
         Ok(())
     }
     /// Accepts a full ID, a unique ID prefix, or `latest`.
@@ -633,14 +1026,26 @@ impl Client<'_> {
         let list = self.call("list_meetings", json!({}))?;
         let rows = list.as_array().cloned().unwrap_or_default();
         if id == "latest" {
-            return rows.first().and_then(|row| row["id"].as_str()).map(str::to_owned)
+            return rows
+                .first()
+                .and_then(|row| row["id"].as_str())
+                .map(str::to_owned)
                 .ok_or_else(|| Failure::Failed("There are no meetings yet.".into()));
         }
-        let matches: Vec<&str> = rows.iter().filter_map(|row| row["id"].as_str()).filter(|known| known.starts_with(id)).collect();
+        let matches: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| row["id"].as_str())
+            .filter(|known| known.starts_with(id))
+            .collect();
         match matches.as_slice() {
             [one] => Ok((*one).into()),
-            [] => Err(Failure::Failed(format!("No meeting ID starts with `{id}`. Run `sonojot-cli meetings list`."))),
-            _ => Err(Failure::Failed(format!("`{id}` matches {} meetings; use more characters.", matches.len()))),
+            [] => Err(Failure::Failed(format!(
+                "No meeting ID starts with `{id}`. Run `sonojot-cli meetings list`."
+            ))),
+            _ => Err(Failure::Failed(format!(
+                "`{id}` matches {} meetings; use more characters.",
+                matches.len()
+            ))),
         }
     }
 }
@@ -649,13 +1054,32 @@ impl Client<'_> {
 /// waits for it to answer.
 fn launch_app() -> Outcome {
     let here = std::env::current_exe().map_err(|e| e.to_string())?;
-    let directory = here.parent().ok_or("Cannot find the SonoJot folder.".to_string())?;
-    let names: &[&str] = if cfg!(windows) { &["SonoJot.exe", "sonojot.exe"] } else { &["SonoJot", "sonojot"] };
-    let app = names.iter().map(|name| directory.join(name)).find(|path| path.is_file())
-        .ok_or_else(|| Failure::NotRunning(format!("SonoJot is not running, and the app was not found beside {}.", here.display())))?;
+    let directory = here
+        .parent()
+        .ok_or("Cannot find the SonoJot folder.".to_string())?;
+    let names: &[&str] = if sonojot_core::flavor::SYNC_TEST {
+        if cfg!(windows) { &["SonoJot-SyncTest.exe"] } else { &["SonoJot-SyncTest"] }
+    } else if cfg!(windows) {
+        &["SonoJot.exe", "sonojot.exe"]
+    } else {
+        &["SonoJot", "sonojot"]
+    };
+    let app = names
+        .iter()
+        .map(|name| directory.join(name))
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            Failure::NotRunning(format!(
+                "SonoJot is not running, and the app was not found beside {}.",
+                here.display()
+            ))
+        })?;
     let mut command = std::process::Command::new(&app);
-    command.arg("--startup").stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    command
+        .arg("--startup")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
     #[cfg(windows)]
     let mut child = {
         use std::os::windows::process::CommandExt;
@@ -664,12 +1088,16 @@ fn launch_app() -> Outcome {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x200;
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
         // Leave the caller's console and job so the app outlives this command.
-        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
+        command.creation_flags(
+            DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB,
+        );
         match command.spawn() {
             Ok(child) => child,
             Err(_) => {
                 command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-                command.spawn().map_err(|e| format!("Cannot start {}: {e}", app.display()))?
+                command
+                    .spawn()
+                    .map_err(|e| format!("Cannot start {}: {e}", app.display()))?
             }
         }
     };
@@ -678,23 +1106,35 @@ fn launch_app() -> Outcome {
         use std::os::unix::process::CommandExt;
         // Its own process group, so closing this terminal doesn't stop the app.
         command.process_group(0);
-        command.spawn().map_err(|e| format!("Cannot start {}: {e}", app.display()))?
+        command
+            .spawn()
+            .map_err(|e| format!("Cannot start {}: {e}", app.display()))?
     };
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(90) {
         std::thread::sleep(Duration::from_millis(500));
-        let ping = Request { version: PROTOCOL_VERSION, command: "ping".into(), args: json!({}), detach: false };
+        let ping = Request {
+            version: PROTOCOL_VERSION,
+            command: "ping".into(),
+            args: json!({}),
+            detach: false,
+        };
         if call(&ping).is_ok() {
             return Ok(());
         }
         // A second instance hands off to the first and exits at once. If the
         // first never answers, it predates the CLI.
         if child.try_wait().ok().flatten().is_some() && call(&ping).is_err() {
-            return Err(Failure::NotRunning("SonoJot is running but does not accept CLI commands. \
-Update SonoJot, or quit and reopen it, then try again.".into()));
+            return Err(Failure::NotRunning(
+                "SonoJot is running but does not accept CLI commands. \
+Update SonoJot, or quit and reopen it, then try again."
+                    .into(),
+            ));
         }
     }
-    Err(Failure::NotRunning("SonoJot did not start within 90 seconds.".into()))
+    Err(Failure::NotRunning(
+        "SonoJot did not start within 90 seconds.".into(),
+    ))
 }
 
 /// Windows hands every inheritable handle to a child process. The caller's
@@ -732,8 +1172,12 @@ every GUI action is available, for example `meetings list`, `meetings transcribe
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
-        let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-        let Some(id) = message.get("id").cloned() else { continue }; // notifications need no reply
+        let Ok(message) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let Some(id) = message.get("id").cloned() else {
+            continue;
+        }; // notifications need no reply
         let method = message["method"].as_str().unwrap_or_default();
         let result = match method {
             "initialize" => Some(json!({
@@ -748,26 +1192,38 @@ every GUI action is available, for example `meetings list`, `meetings transcribe
                 "description": pointer,
                 "inputSchema": { "type": "object", "properties": {} },
             }] })),
-            "tools/call" => Some(json!({ "content": [{ "type": "text", "text": text }], "isError": false })),
+            "tools/call" => {
+                Some(json!({ "content": [{ "type": "text", "text": text }], "isError": false }))
+            }
             "resources/list" => Some(json!({ "resources": [] })),
             "prompts/list" => Some(json!({ "prompts": [] })),
             _ => None,
         };
         let reply = match result {
             Some(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-            None => json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": pointer } }),
+            None => {
+                json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": pointer } })
+            }
         };
-        if writeln!(stdout, "{reply}").and_then(|_| stdout.flush()).is_err() { break; }
+        if writeln!(stdout, "{reply}")
+            .and_then(|_| stdout.flush())
+            .is_err()
+        {
+            break;
+        }
     }
     Ok(())
 }
 
 fn cli_path() -> String {
-    std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "sonojot-cli".into())
+    std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "sonojot-cli".into())
 }
 
 fn help() -> String {
-    format!(r#"sonojot-cli {version}: control SonoJot from a terminal, script or agent.
+    format!(
+        r#"sonojot-cli {version}: control SonoJot from a terminal, script or agent.
 
 Usage: sonojot-cli <command> [options]
 
@@ -836,11 +1292,14 @@ Everything else
                                  Claude Desktop and opencode
   mcp                            MCP stub for agents: it points them to this CLI
   version
-"#, version = env!("CARGO_PKG_VERSION"))
+"#,
+        version = env!("CARGO_PKG_VERSION")
+    )
 }
 
 fn guide() -> String {
-    format!(r#"# Using SonoJot from an agent
+    format!(
+        r#"# Using SonoJot from an agent
 
 SonoJot has no MCP tools. Use this CLI instead: it reaches everything the app
 window can do, and it runs in the background without the window.
@@ -942,5 +1401,7 @@ it is explicit, not part of `transcribe` or the `--cleaned` output selector.
   partway; `update repair --confirm` reinstalls it.
 - Don't accept model licenses (`acknowledge_download_terms`) for the user.
 - Recording uses the microphone and system audio; start one only when asked.
-"#, path = cli_path())
+"#,
+        path = cli_path()
+    )
 }

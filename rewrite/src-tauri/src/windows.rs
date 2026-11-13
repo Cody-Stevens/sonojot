@@ -47,7 +47,7 @@ static TAB_GEOMETRY: Mutex<TabGeometry> = Mutex::new(TabGeometry {
 });
 
 pub fn show_settings(app: &AppHandle) -> Result<(), String> {
-    show_settings_page(app, "dictation")
+    show_settings_page(app, if crate::flavor::SYNC_TEST { "sync" } else { "dictation" })
 }
 
 pub fn show_settings_page(app: &AppHandle, page: &str) -> Result<(), String> {
@@ -57,6 +57,7 @@ pub fn show_settings_page(app: &AppHandle, page: &str) -> Result<(), String> {
         return window.set_focus().map_err(|e| e.to_string());
     }
     let url = match page {
+        "sync" => "index.html?page=sync",
         "report" => "index.html?page=report",
         "meetings" => "index.html?page=meetings",
         "setup" => "index.html?page=setup",
@@ -65,8 +66,11 @@ pub fn show_settings_page(app: &AppHandle, page: &str) -> Result<(), String> {
         "shortcuts" => "index.html?page=shortcuts",
         _ => "index.html",
     };
+    let url = if crate::flavor::SYNC_TEST {
+        format!("{url}{}flavor=synctest", if url.contains('?') { "&" } else { "?" })
+    } else { url.to_string() };
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App(url.into()))
-        .title("SonoJot")
+        .title(crate::flavor::NAME)
         .icon(
             tauri::image::Image::from_bytes(include_bytes!("../../src/brand/marks/app/icon.png"))
                 .map_err(|e| e.to_string())?,

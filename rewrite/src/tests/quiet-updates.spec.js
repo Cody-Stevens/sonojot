@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installDesktopFixture } from "./desktop-fixture.js";
+import { mkdirSync } from "node:fs";
 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === testInfo.expectedStatus)
@@ -201,4 +202,34 @@ test("ready notice is absent from the screen tab", async ({ page }) => {
     page.getByRole("button", { name: "Restart to update" }),
   ).toHaveCount(0);
   await expect(notice(page)).toHaveCount(0);
+});
+
+test("channel switch offers and empty results stay legible in the Updates screen and rail", async ({ page }) => {
+  const version = "0.28.10-nightly.202611130300";
+  await installDesktopFixture(page, {
+    settings: { updateChannel: "nightly" },
+    update: { status: { ...available, version, switchChannel: "nightly" } },
+  });
+  await page.setViewportSize({ width: 740, height: 540 });
+  await page.goto("/?page=settings");
+  await page.evaluate(() => window.__testPushSnapshot({ version: "0.28.9" }));
+  await page.getByRole("button", { name: /^Updates / }).click();
+  await expect(about(page).getByText(`Switch to Nightly: ${version} is available.`)).toBeVisible();
+  await expect(about(page).getByRole("button", { name: `Download ${version}` })).toBeVisible();
+  const ticket = page.locator(".update-ticket");
+  await expect(ticket).toHaveAccessibleName("Switch to Nightly");
+  expect(await page.locator(".quiet-rail").evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
+  mkdirSync("artifacts/channel-switch", { recursive: true });
+  await page.screenshot({ path: "artifacts/channel-switch/nightly-offer.png" });
+  await ticket.click();
+  const sheet = page.getByRole("dialog", { name: "Updates" });
+  await expect(sheet.getByText(`Switch to Nightly: ${version} is available.`)).toBeVisible();
+  await pushUpdate(page, { status: { state: "ready", version, notes: null, switchChannel: "nightly" }, restartBlockedReason: "Wait for meeting transcription to finish." });
+  await expect(sheet.getByRole("button", { name: "Restart to switch" })).toBeDisabled();
+  await sheet.getByRole("button", { name: "Later" }).click();
+  await pushUpdate(page, { status: { state: "current", channel: "nightly", version: "0.28.9", platform: "Mac", reason: "noBuild" }, restartBlockedReason: null });
+  await expect(about(page).getByText("Nightly has no Mac build newer than 0.28.9 yet. You'll get Nightly builds here when they're published.")).toBeVisible();
+  await expect(about(page).getByRole("button", { name: "Check now" })).toBeEnabled();
+  await page.screenshot({ path: "artifacts/channel-switch/no-mac-build.png" });
+  expect(await calls(page, "restart_to_update")).toHaveLength(0);
 });

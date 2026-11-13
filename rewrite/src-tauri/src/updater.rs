@@ -29,6 +29,12 @@ pub enum UpdateStatus {
     #[default]
     Idle,
     Checking,
+    Current {
+        channel: UpdateChannel,
+        version: String,
+        platform: String,
+        reason: NoUpdateReason,
+    },
     Available {
         version: String,
         notes: Option<String>,
@@ -40,19 +46,38 @@ pub enum UpdateStatus {
         /// Older than this app: the newest build on a channel it just switched to.
         #[serde(default)]
         older: bool,
+        #[serde(default, rename = "switchChannel")]
+        switch_channel: Option<UpdateChannel>,
     },
     Downloading {
         percent: Option<u8>,
+        #[serde(default, rename = "switchChannel")]
+        switch_channel: Option<UpdateChannel>,
     },
     Ready {
         version: String,
         notes: Option<String>,
         #[serde(default)]
         older: bool,
+        #[serde(default, rename = "switchChannel")]
+        switch_channel: Option<UpdateChannel>,
     },
     Error {
         message: String,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NoUpdateReason {
+    NoBuild,
+    NoNewer,
+    Current,
+}
+
+enum CheckResult<R> {
+    Available(R),
+    Current(NoUpdateReason),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -176,6 +201,7 @@ struct State<R> {
     offered_notes: Option<String>,
     dismissed: Option<String>,
     install_problem: Option<String>,
+    switch_channel: Option<UpdateChannel>,
 }
 
 impl<R> Default for State<R> {
@@ -190,6 +216,7 @@ impl<R> Default for State<R> {
             offered_notes: None,
             dismissed: None,
             install_problem: None,
+            switch_channel: None,
         }
     }
 }
@@ -241,6 +268,7 @@ impl<R> Service<R> {
 
     pub(crate) fn change_channel(
         &self,
+        channel: UpdateChannel,
         commit: impl FnOnce() -> Result<(), String>,
     ) -> Result<(), String> {
         let mut state = self.lock()?;
@@ -261,6 +289,7 @@ impl<R> Service<R> {
         state.offered = None;
         state.offered_notes = None;
         state.dismissed = None;
+        state.switch_channel = Some(channel);
         state.status = UpdateStatus::Idle;
         Ok(())
     }
@@ -332,7 +361,10 @@ impl<R> Service<R> {
             .available
             .take()
             .ok_or("No update is available to download.")?;
-        state.status = UpdateStatus::Downloading { percent: None };
+        state.status = UpdateStatus::Downloading {
+            percent: None,
+            switch_channel: state.switch_channel,
+        };
         Ok(Some(release))
     }
 
@@ -369,7 +401,20 @@ type Progress<'a> = Box<dyn FnMut(usize, Option<u64>) + Send + 'a>;
 /// Tests inject a local backend; they cannot reach the network or installer.
 trait Backend {
     type Release: Send + Sync;
-    fn check(&self) -> Task<'_, Result<Option<Self::Release>, ()>>;
+    fn check(&self) -> Task<'_, Result<CheckResult<Self::Release>, ()>>;
+    fn channel(&self) -> UpdateChannel {
+        UpdateChannel::Stable
+    }
+    fn current_version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
+    }
+    fn platform(&self) -> &str {
+        match std::env::consts::OS {
+            "macos" => "Mac",
+            "windows" => "Windows",
+            _ => "this computer",
+        }
+    }
     fn describe(release: &Self::Release) -> (String, Option<String>, Option<u64>);
     /// The release is this app's own version, so installing it repairs.
     fn is_repair(_release: &Self::Release) -> bool {
@@ -437,42 +482,55 @@ struct PluginBackend(AppHandle, UpdateChannel, bool);
 impl Backend for PluginBackend {
     type Release = Update;
 
-    fn check(&self) -> Task<'_, Result<Option<Update>, ()>> {
+    fn channel(&self) -> UpdateChannel {
+        self.1
+    }
+
+    fn check(&self) -> Task<'_, Result<CheckResult<Update>, ()>> {
         Box::pin(async {
             let Some(target) = platform_key(std::env::consts::OS, std::env::consts::ARCH) else {
-                return Ok(None);
+                return Ok(CheckResult::Current(NoUpdateReason::NoBuild));
             };
             // Endpoints in one plugin builder are fallbacks, not competing feeds.
             // Check each feed independently so the newest eligible release wins.
             let mut best: Option<Update> = None;
-            let mut succeeded = false;
-            for endpoint in endpoints(self.1) {
+            let mut primary = None;
+            for (index, endpoint) in endpoints(self.1).into_iter().enumerate() {
                 let updater = self
                     .0
                     .updater_builder()
                     .endpoints(vec![endpoint.parse().map_err(|_| ())?])
                     .map_err(|_| ())?
                     .target(target)
-                    .version_comparator({
-                        let (channel, reinstall) = (self.1, self.2);
-                        move |current, release| {
-                            eligible(
-                                &release.version.to_string(),
-                                &current.to_string(),
-                                channel,
-                                reinstall,
-                            )
-                        }
-                    })
+                    // Inspect even equal/older releases so a missing platform
+                    // and an already-current installation have distinct results.
+                    // Eligibility below still gates every downloadable offer.
+                    .version_comparator(|_, _| true)
                     .timeout(Duration::from_secs(30))
                     .build()
                     .map_err(|_| ())?;
-                let Ok(release) = updater.check().await else {
-                    continue;
+                let release = match updater.check().await {
+                    Ok(release) => release,
+                    Err(tauri_plugin_updater::Error::TargetNotFound(_)) => {
+                        if index == 0 {
+                            primary = Some(NoUpdateReason::NoBuild);
+                        }
+                        continue;
+                    }
+                    Err(_) => continue,
                 };
-                succeeded = true;
+                if index == 0 {
+                    primary = Some(NoUpdateReason::NoBuild);
+                }
                 if let Some(mut update) = release {
                     validate_manifest(&update.raw_json, target)?;
+                    if index == 0 {
+                        primary = Some(no_update_reason(
+                            &update.version,
+                            self.current_version(),
+                            self.1,
+                        ));
+                    }
                     if eligible(&update.version, env!("CARGO_PKG_VERSION"), self.1, self.2)
                         && best
                             .as_ref()
@@ -483,11 +541,12 @@ impl Backend for PluginBackend {
                     }
                 }
             }
-            if !succeeded {
-                return Err(());
+            if let Some(release) = best {
+                return Ok(CheckResult::Available(release));
             }
-            let release = best;
-            Ok(release)
+            // A failed selected feed must not look like a successful empty check
+            // just because the stable fallback answered.
+            primary.map(CheckResult::Current).ok_or(())
         })
     }
 
@@ -525,6 +584,16 @@ impl Backend for PluginBackend {
         // on_download_finish runs BEFORE verification in the plugin. Only a
         // successful download return may publish Ready or retain these bytes.
         Box::pin(async move { release.download(&mut progress, || {}).await.map_err(|_| ()) })
+    }
+}
+
+fn no_update_reason(candidate: &str, current: &str, channel: UpdateChannel) -> NoUpdateReason {
+    if !on_channel(candidate, channel) {
+        NoUpdateReason::NoBuild
+    } else if channel == UpdateChannel::Nightly && !current.contains("-nightly.") {
+        NoUpdateReason::NoNewer
+    } else {
+        NoUpdateReason::Current
     }
 }
 
@@ -566,9 +635,17 @@ fn percent(downloaded: u64, total: Option<u64>) -> Option<u8> {
 
 async fn check<B: Backend>(service: &Service<B::Release>, backend: &B, emit: impl Fn() + Sync) {
     let result = async {
-        let Some(release) = backend.check().await? else {
-            service.set_status(UpdateStatus::Idle);
-            return Ok::<(), ()>(());
+        let release = match backend.check().await? {
+            CheckResult::Available(release) => release,
+            CheckResult::Current(reason) => {
+                service.set_status(UpdateStatus::Current {
+                    channel: backend.channel(),
+                    version: backend.current_version().into(),
+                    platform: backend.platform().into(),
+                    reason,
+                });
+                return Ok::<(), ()>(());
+            }
         };
         let (version, notes, size) = B::describe(&release);
         let repair = B::is_repair(&release);
@@ -577,12 +654,16 @@ async fn check<B: Backend>(service: &Service<B::Release>, backend: &B, emit: imp
         state.available = Some(release);
         state.offered = Some(version.clone());
         state.offered_notes = notes.clone();
+        if older || !on_channel(backend.current_version(), backend.channel()) {
+            state.switch_channel = Some(backend.channel());
+        }
         state.status = UpdateStatus::Available {
             version,
             notes,
             size,
             repair,
             older,
+            switch_channel: state.switch_channel,
         };
         Ok(())
     }
@@ -613,6 +694,7 @@ async fn download<B: Backend>(
     let result = async {
         let (version, notes, _) = B::describe(&release);
         let older = B::is_older(&release);
+        let switch_channel = service.lock().map_err(|_| ())?.switch_channel;
         let mut downloaded = 0u64;
         let bytes = backend
             .download(
@@ -621,6 +703,7 @@ async fn download<B: Backend>(
                     downloaded = downloaded.saturating_add(chunk as u64);
                     if service.set_status(UpdateStatus::Downloading {
                         percent: percent(downloaded, total),
+                        switch_channel,
                     }) {
                         emit();
                     }
@@ -633,6 +716,7 @@ async fn download<B: Backend>(
             version,
             notes,
             older,
+            switch_channel,
         };
         Ok::<(), ()>(())
     }
@@ -656,7 +740,14 @@ async fn download<B: Backend>(
 
 /// `reinstall` also accepts the installed version, to repair the installation.
 /// A check that finds an incomplete installation does the same on its own.
-pub(crate) fn request_check(runtime: &Arc<Runtime>, app: &AppHandle, reinstall: bool) -> Result<(), String> {
+pub(crate) fn request_check(
+    runtime: &Arc<Runtime>,
+    app: &AppHandle,
+    reinstall: bool,
+) -> Result<(), String> {
+    if crate::flavor::SYNC_TEST {
+        return Err("Updates are disabled for Sync Test.".into());
+    }
     if !runtime.updater.begin_check()? {
         return Ok(());
     }
@@ -714,7 +805,9 @@ fn install_problem() -> Option<String> {
     let installed = cli_version(&cli)?;
     let current = env!("CARGO_PKG_VERSION");
     (installed != current).then(|| {
-        format!("sonojot-cli is {installed} but SonoJot is {current}: the last update did not finish.")
+        format!(
+            "sonojot-cli is {installed} but SonoJot is {current}: the last update did not finish."
+        )
     })
 }
 
@@ -767,6 +860,9 @@ pub(crate) fn download_update(
     app: AppHandle,
     state: tauri::State<'_, Arc<Runtime>>,
 ) -> Result<Snapshot, String> {
+    if crate::flavor::SYNC_TEST {
+        return Err("Updates are disabled for Sync Test.".into());
+    }
     if let Some(release) = state.updater.begin_download()? {
         state.emit(&app);
         let runtime = state.inner().clone();
@@ -787,8 +883,14 @@ pub(crate) fn download_update(
             .await;
             // Keep the channel's notes on disk so "What's new" works offline
             // after the restart. Best effort; the manifest notes are a fallback.
-            if matches!(runtime.updater.snapshot().map(|s| s.status), Ok(UpdateStatus::Ready { .. })) {
-                let channel = runtime.snapshot().map(|s| s.settings.update_channel).unwrap_or_default();
+            if matches!(
+                runtime.updater.snapshot().map(|s| s.status),
+                Ok(UpdateStatus::Ready { .. })
+            ) {
+                let channel = runtime
+                    .snapshot()
+                    .map(|s| s.settings.update_channel)
+                    .unwrap_or_default();
                 let app = app.clone();
                 let _ = tauri::async_runtime::spawn_blocking(move || {
                     use tauri::Manager;
@@ -816,6 +918,9 @@ pub(crate) fn dismiss_update_notice(
 
 /// The main window was opened or brought to the front.
 pub(crate) fn window_focused(app: &AppHandle) {
+    if crate::flavor::SYNC_TEST {
+        return;
+    }
     use tauri::Manager;
     let Some(runtime) = app.try_state::<Arc<Runtime>>().map(|s| s.inner().clone()) else {
         return;
@@ -838,6 +943,9 @@ pub(crate) fn restart_to_update(
     app: AppHandle,
     state: tauri::State<'_, Arc<Runtime>>,
 ) -> Result<Snapshot, String> {
+    if crate::flavor::SYNC_TEST {
+        return Err("Updates are disabled for Sync Test.".into());
+    }
     let (package, lease) = state.updater.claim_install()?;
     let snapshot = match state.snapshot() {
         Ok(snapshot) => snapshot,
@@ -883,9 +991,23 @@ fn prepare_restart(app: &AppHandle, runtime: &Arc<Runtime>, version: &str) {
         reports.mark_update_restart(version);
     }
     if let Some(changelog) = app.try_state::<crate::changelog::Changelog>() {
-        let channel = runtime.snapshot().map(|s| s.settings.update_channel).unwrap_or_default();
-        let notes = runtime.updater.offer().ok().flatten().and_then(|(_, notes)| notes);
-        let offer = changelog.for_offer(None, env!("CARGO_PKG_VERSION"), version, notes.as_deref(), channel);
+        let channel = runtime
+            .snapshot()
+            .map(|s| s.settings.update_channel)
+            .unwrap_or_default();
+        let notes = runtime
+            .updater
+            .offer()
+            .ok()
+            .flatten()
+            .and_then(|(_, notes)| notes);
+        let offer = changelog.for_offer(
+            None,
+            env!("CARGO_PKG_VERSION"),
+            version,
+            notes.as_deref(),
+            channel,
+        );
         let _ = changelog.stage(offer.releases);
     }
 }
@@ -906,6 +1028,9 @@ fn next_check_delay(jitter: u64) -> Duration {
 }
 
 pub(crate) fn start_scheduler(runtime: &Arc<Runtime>, app: &AppHandle) {
+    if crate::flavor::SYNC_TEST {
+        return;
+    }
     let weak = Arc::downgrade(runtime);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -935,6 +1060,10 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct MockBackend {
+        channel: UpdateChannel,
+        current: &'static str,
+        version: &'static str,
+        no_update: NoUpdateReason,
         available: bool,
         check_fails: bool,
         signature_valid: bool,
@@ -945,6 +1074,10 @@ mod tests {
     impl Default for MockBackend {
         fn default() -> Self {
             Self {
+                channel: UpdateChannel::Stable,
+                current: "0.28.9",
+                version: "0.23.0",
+                no_update: NoUpdateReason::Current,
                 available: true,
                 check_fails: false,
                 signature_valid: true,
@@ -956,12 +1089,25 @@ mod tests {
 
     impl Backend for MockBackend {
         type Release = String;
-        fn check(&self) -> Task<'_, Result<Option<String>, ()>> {
+        fn channel(&self) -> UpdateChannel {
+            self.channel
+        }
+        fn current_version(&self) -> &str {
+            self.current
+        }
+        fn platform(&self) -> &str {
+            "Mac"
+        }
+        fn check(&self) -> Task<'_, Result<CheckResult<String>, ()>> {
             self.checks.fetch_add(1, Ordering::SeqCst);
             Box::pin(std::future::ready(if self.check_fails {
                 Err(())
             } else {
-                Ok(self.available.then(|| "0.23.0".into()))
+                Ok(if self.available {
+                    CheckResult::Available(self.version.into())
+                } else {
+                    CheckResult::Current(self.no_update)
+                })
             }))
         }
         fn describe(release: &String) -> (String, Option<String>, Option<u64>) {
@@ -995,6 +1141,92 @@ mod tests {
     }
 
     #[test]
+    fn channel_change_keeps_switch_wording_through_download_for_newer_and_older_builds() {
+        for (channel, current, version) in [
+            (
+                UpdateChannel::Nightly,
+                "0.28.9",
+                "0.28.10-nightly.202611130300",
+            ),
+            (
+                UpdateChannel::Stable,
+                "0.28.10-nightly.202611130300",
+                "0.28.9",
+            ),
+        ] {
+            assert!(eligible(version, current, channel, false));
+            let service = Service::default();
+            service.change_channel(channel, || Ok(())).unwrap();
+            assert!(service.begin_check().unwrap());
+            let backend = MockBackend {
+                channel,
+                current,
+                version,
+                ..MockBackend::default()
+            };
+            run(check(&service, &backend, || {}));
+            assert!(matches!(service.lock().unwrap().status,
+                UpdateStatus::Available { switch_channel: Some(c), .. } if c == channel));
+            let release = service.begin_download().unwrap().unwrap();
+            assert!(matches!(service.lock().unwrap().status,
+                UpdateStatus::Downloading { switch_channel: Some(c), .. } if c == channel));
+            run(download(&service, &backend, release, || {}));
+            assert!(matches!(service.lock().unwrap().status,
+                UpdateStatus::Ready { switch_channel: Some(c), .. } if c == channel));
+        }
+    }
+
+    #[test]
+    fn channel_change_reports_missing_mac_build_and_already_newest() {
+        for (current, reason) in [
+            ("0.28.9", NoUpdateReason::NoBuild),
+            ("0.28.10-nightly.202611130300", NoUpdateReason::Current),
+        ] {
+            let service = Service::default();
+            service
+                .change_channel(UpdateChannel::Nightly, || Ok(()))
+                .unwrap();
+            assert!(service.begin_check().unwrap());
+            let backend = MockBackend {
+                channel: UpdateChannel::Nightly,
+                current,
+                available: false,
+                no_update: reason,
+                ..MockBackend::default()
+            };
+            run(check(&service, &backend, || {}));
+            assert_eq!(
+                service.lock().unwrap().status,
+                UpdateStatus::Current {
+                    channel: UpdateChannel::Nightly,
+                    version: current.into(),
+                    platform: "Mac".into(),
+                    reason,
+                }
+            );
+            assert!(service.begin_download().is_err());
+            // A manual retry remains available and retains the channel intent.
+            assert!(service.begin_check().unwrap());
+        }
+        assert_eq!(
+            no_update_reason(
+                "0.28.9-nightly.202611010300",
+                "0.28.9",
+                UpdateChannel::Nightly
+            ),
+            NoUpdateReason::NoNewer
+        );
+        assert_eq!(
+            no_update_reason(
+                "0.28.10-nightly.202611130300",
+                "0.28.10-nightly.202611130300",
+                UpdateChannel::Nightly
+            ),
+            NoUpdateReason::Current
+        );
+    }
+
+    #[test]
     fn mock_download_only_becomes_ready_after_verification_and_requires_explicit_install() {
         let _gate = resource_manager::tests::test_gate();
         resource_manager::reset_for_tests(
@@ -1020,6 +1252,7 @@ mod tests {
                 size: Some(100),
                 repair: false,
                 older: false,
+                switch_channel: None,
             }
         );
         assert!(service.lock().unwrap().package.is_none());
@@ -1037,15 +1270,21 @@ mod tests {
         assert!(!service.begin_check().unwrap());
         assert!(service.begin_download().unwrap().is_none());
         let seen = seen.into_inner().unwrap();
-        assert!(seen
-            .iter()
-            .any(|s| s.status == UpdateStatus::Downloading { percent: None }));
-        assert!(seen
-            .iter()
-            .any(|s| s.status == UpdateStatus::Downloading { percent: Some(50) }));
-        assert!(seen
-            .iter()
-            .any(|s| s.status == UpdateStatus::Downloading { percent: Some(99) }));
+        assert!(seen.iter().any(|s| s.status
+            == UpdateStatus::Downloading {
+                percent: None,
+                switch_channel: None
+            }));
+        assert!(seen.iter().any(|s| s.status
+            == UpdateStatus::Downloading {
+                percent: Some(50),
+                switch_channel: None
+            }));
+        assert!(seen.iter().any(|s| s.status
+            == UpdateStatus::Downloading {
+                percent: Some(99),
+                switch_channel: None
+            }));
         assert!(seen.iter().all(|s| !s.installing));
         assert!(matches!(
             seen.last().unwrap().status,
@@ -1117,7 +1356,13 @@ mod tests {
             },
             || {},
         ));
-        assert_eq!(service.snapshot().unwrap().status, UpdateStatus::Idle);
+        assert!(matches!(
+            service.snapshot().unwrap().status,
+            UpdateStatus::Current {
+                reason: NoUpdateReason::Current,
+                ..
+            }
+        ));
         assert!(service.begin_download().is_err());
     }
 
@@ -1370,19 +1615,24 @@ mod channel_tests {
             size: None,
             repair: false,
             older: false,
+            switch_channel: None,
         });
         assert!(service
-            .change_channel(|| Err("Save failed".into()))
+            .change_channel(UpdateChannel::Nightly, || Err("Save failed".into()))
             .is_err());
         assert!(matches!(
             service.snapshot().unwrap().status,
             UpdateStatus::Available { .. }
         ));
-        service.change_channel(|| Ok(())).unwrap();
+        service
+            .change_channel(UpdateChannel::Nightly, || Ok(()))
+            .unwrap();
         assert_eq!(service.snapshot().unwrap().status, UpdateStatus::Idle);
         assert!(service.begin_check().unwrap());
         assert!(service
-            .change_channel(|| panic!("must not commit during a check"))
+            .change_channel(UpdateChannel::Nightly, || panic!(
+                "must not commit during a check"
+            ))
             .is_err());
     }
     #[test]
@@ -1418,7 +1668,12 @@ mod channel_tests {
         assert!(!eligible(current, current, nightly, false));
         assert!(eligible(current, current, nightly, true));
         assert!(!eligible("0.28.8", current, nightly, true));
-        assert!(eligible("0.28.9-nightly.202611040800", current, nightly, false));
+        assert!(eligible(
+            "0.28.9-nightly.202611040800",
+            current,
+            nightly,
+            false
+        ));
     }
     #[test]
     fn channels_own_their_builds() {
@@ -1436,7 +1691,12 @@ mod channel_tests {
         let nightly = "0.28.9-nightly.202611061739";
         assert!(eligible("0.28.8", nightly, UpdateChannel::Stable, false));
         // Stable never offers a nightly, however new.
-        assert!(!eligible("0.29.0-nightly.202612010300", nightly, UpdateChannel::Stable, false));
+        assert!(!eligible(
+            "0.29.0-nightly.202612010300",
+            nightly,
+            UpdateChannel::Stable,
+            false
+        ));
         // Once on stable, only newer stable releases qualify again.
         assert!(!eligible("0.28.7", "0.28.8", UpdateChannel::Stable, false));
         assert!(eligible("0.28.9", "0.28.8", UpdateChannel::Stable, false));
@@ -1444,8 +1704,18 @@ mod channel_tests {
     #[test]
     fn switching_to_nightly_takes_the_newest_build_on_either_feed() {
         // A stable install is already on nightly: it only moves forward.
-        assert!(eligible("0.28.9-nightly.202611061739", "0.28.8", UpdateChannel::Nightly, false));
-        assert!(!eligible("0.28.8-nightly.202610010300", "0.28.8", UpdateChannel::Nightly, false));
+        assert!(eligible(
+            "0.28.9-nightly.202611061739",
+            "0.28.8",
+            UpdateChannel::Nightly,
+            false
+        ));
+        assert!(!eligible(
+            "0.28.8-nightly.202610010300",
+            "0.28.8",
+            UpdateChannel::Nightly,
+            false
+        ));
         // A test build belongs to neither channel, so it takes nightly's newest.
         assert!(eligible(
             "0.28.9-nightly.202611061739",
@@ -1453,7 +1723,12 @@ mod channel_tests {
             UpdateChannel::Nightly,
             false
         ));
-        assert!(!eligible("0.28.9-redesign.3", "0.28.9-redesign.2", UpdateChannel::Nightly, false));
+        assert!(!eligible(
+            "0.28.9-redesign.3",
+            "0.28.9-redesign.2",
+            UpdateChannel::Nightly,
+            false
+        ));
     }
     #[test]
     fn cli_version_output_parses() {

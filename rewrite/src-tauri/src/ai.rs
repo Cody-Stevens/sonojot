@@ -392,7 +392,7 @@ fn save_protected_key(store: &Store, key: &str, cancel: &AtomicBool) -> Result<(
 }
 
 #[cfg(windows)]
-fn protect_bytes(input: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
+pub(crate) fn protect_bytes(input: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::{
         Foundation::LocalFree,
         Security::Cryptography::{
@@ -501,7 +501,7 @@ mod secret_service {
     pub(super) fn store(secret: &[u8]) -> Result<Vec<u8>, String> {
         let id = uuid::Uuid::new_v4().to_string();
         run(
-            &["store", "--label=SonoJot OpenRouter connection", "application", "sonojot", "item", &id],
+            &["store", "--label=SonoJot OpenRouter connection", "application", crate::flavor::SLUG, "item", &id],
             Some(secret),
         )?;
         Ok(id.into_bytes())
@@ -510,7 +510,7 @@ mod secret_service {
     pub(super) fn lookup(reference: &[u8]) -> Result<Vec<u8>, String> {
         let id = std::str::from_utf8(reference).ok().filter(|id| valid(id))
             .ok_or("The saved OpenRouter connection is invalid. Disconnect and connect again.")?;
-        let secret = run(&["lookup", "application", "sonojot", "item", id], None)
+        let secret = run(&["lookup", "application", crate::flavor::SLUG, "item", id], None)
             .map_err(|_| "The keyring did not return the OpenRouter connection. Unlock the keyring, or disconnect and connect again.".to_string())?;
         if secret.is_empty() {
             return Err("The OpenRouter connection is missing from the keyring. Disconnect and connect again.".into());
@@ -520,7 +520,7 @@ mod secret_service {
 
     pub(super) fn forget(reference: &[u8]) {
         if let Some(id) = std::str::from_utf8(reference).ok().filter(|id| valid(id)) {
-            let _ = run(&["clear", "application", "sonojot", "item", id], None);
+            let _ = run(&["clear", "application", crate::flavor::SLUG, "item", id], None);
         }
     }
 }
@@ -560,7 +560,7 @@ mod keychain {
     use serde::{Deserialize, Serialize};
     use std::sync::atomic::AtomicBool;
 
-    const SERVICE: &str = "SonoJot OpenRouter connection";
+    const SERVICE: &str = crate::flavor::AI_KEYRING;
     const NOT_FOUND: i32 = -25300; // errSecItemNotFound
 
     #[derive(Deserialize, Serialize)]

@@ -19,7 +19,7 @@ fn socket_path() -> Option<PathBuf> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from)?;
     runtime
         .is_absolute()
-        .then(|| runtime.join("sonojot").join("control.sock"))
+        .then(|| runtime.join(crate::flavor::SLUG).join("control.sock"))
 }
 
 /// Handle `--shortcut press|release` from argv. Returns the exit code when

@@ -54,6 +54,13 @@
     "copyright": "Copyright 2026 Cody Stevens Studio LLC"
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "sonojot"
+        ]
+      }
+    },
     "updater": {
       "endpoints": [
         "https://releases.sonojot.com/latest.json"

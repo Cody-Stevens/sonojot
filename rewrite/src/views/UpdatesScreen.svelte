@@ -2,7 +2,11 @@
   import SettingRow from "../components/SettingRow.svelte";
   import UpdateAction from "../components/UpdateAction.svelte";
   import { app } from "../lib/app.svelte";
-  import { updateOffered, updateStatusLabel } from "../lib/updates";
+  import {
+    updateOffered,
+    updateStatusLabel,
+    updateRestartLabel,
+  } from "../lib/updates";
   import { whatsNew } from "../lib/whats-new.svelte";
   const update = $derived(app.snapshot.update);
   const offered = $derived(updateOffered(update.status));
@@ -22,7 +26,7 @@
       <span class="update-version">{app.snapshot.version}</span>
       <small data-text-surface="flat" role="status"
         >{update.installing
-          ? "Restarting to update…"
+          ? updateRestartLabel(update.status)
           : updateStatusLabel(update.status)}</small
       >{#if update.installProblem}<small data-text-surface="flat" role="status"
           >{update.installProblem}</small
@@ -77,9 +81,9 @@
   >
 </section>
 <p class="field-help">
-  Nightly builds are early builds for testing. Changing the channel offers its
-  newest build, even when that is older than this one. Your words and settings
-  stay; features only in the newer build go away.
+  Nightly builds are early builds for testing. Changing the channel checks for a
+  build for this computer. Returning to Stable can offer an older version. Your
+  words and settings stay; features only in the newer build go away.
 </p>
 
 <style>

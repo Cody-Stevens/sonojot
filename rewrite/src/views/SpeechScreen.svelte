@@ -179,10 +179,22 @@
   function caption(model: ModelEntry) {
     // Before the recommended captions, which describe Qwen and stock Parakeet.
     if (model.id === SONOJOT_PARAKEET)
-      return "English only · tuned by SonoJot for dictation · leaves the GPU free.";
+      return model.id === recommended
+        ? "English only · tuned by SonoJot for dictation and meetings · faster and smaller than Qwen."
+        : "English only · tuned by SonoJot for dictation · leaves the GPU free.";
+    // Qwen is the multilingual main choice when SonoJot Parakeet is recommended.
+    if (
+      model.id !== recommended &&
+      model.id === hardware?.frontier.otherLanguages
+    )
+      return mac
+        ? "Multilingual · about the same measured word errors as Q8, with less memory."
+        : gpuModel(model)
+          ? "Multilingual · fewest measured TED-12 word errors among the main choices · uses the graphics card."
+          : "Multilingual · fewest measured TED-12 word errors among the main choices · waits longer after you stop.";
     if (model.id === recommended)
       return mac
-        ? "The same measured word errors as Q8, with less memory and a shorter wait."
+        ? "About the same measured word errors as Q8, with less memory and a shorter wait."
         : gpuModel(model)
           ? "Fewest measured TED-12 word errors among the recommended choices."
           : "Quick English transcription; leaves the graphics card free.";
@@ -243,7 +255,7 @@
       >{meeting
         ? "Tested on AMI room microphones"
         : mac
-          ? "Tested on TED holdout · through the Mac app"
+          ? "Tested on 12 TED talks · through the Mac app"
           : "Tested on 12 TED talks"}</span
     >{#if !meeting}<button
         class="text-action"
@@ -525,7 +537,7 @@
       {meeting
         ? "AMI single distant microphone recordings"
         : mac
-          ? "TED holdout through the Mac app"
+          ? "TED-12 through the Mac app on an M4, normalized English word errors"
           : "TED-12, normalized English word errors"}. Scores apply to these
       exact packages and test paths. Different corpora are not comparable.
     </p>

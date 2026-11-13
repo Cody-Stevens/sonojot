@@ -255,6 +255,7 @@ export async function installDesktopFixture(page, options = {}) {
         autoPaste: true,
         systemAudio: true,
         globalShortcut: true,
+        sync: options.syncEnabled ?? false,
         platform: "Isolated UI test host",
         ...options.capabilities,
       },
@@ -1016,6 +1017,18 @@ export async function installDesktopFixture(page, options = {}) {
         window.__testCalls.push({ command, args: clone(args) });
         if (heldCommands.has(command)) await heldCommands.get(command).promise;
         switch (command) {
+          case "sync_command": {
+            const status = options.syncStatus ?? { signedIn: false, unlocked: false, server: "https://sync.example.invalid" };
+            if (args.operation === "pair_start") return {id:"fixture-pair"};
+            if (args.operation === "pair_poll") return {code:"654321",approver:false,ready:true};
+            if (args.operation === "pair_confirm") {options.syncStatus={...status,unlocked:true};return {unlocked:true};}
+            if (args.operation === "reset_cancel") {options.syncStatus={...status,pendingReset:null};return {cancelled:true};}
+            if (args.operation === "recovery_show") return {code:"SYNTHETIC-RECOVERY-FIXTURE"};
+            if (args.operation === "devices") return [{ id: "fixture-device", platform: "Windows", revoked_at: null }];
+            if (["pair_list", "conflicts"].includes(args.operation)) return [];
+            if (args.operation === "signin") throw new Error("This sign-in provider is not configured yet.");
+            return clone(status);
+          }
           // Mock-only What's new: options.whatsNew seeds { pending, latest };
           // options.updateChangelog answers the offer preview.
           case "get_whats_new":

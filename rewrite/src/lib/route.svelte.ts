@@ -27,6 +27,7 @@ export type Route = Origin &
           | "dictation"
           | "meetings"
           | "look"
+          | "sync"
           | "memory"
           | "disk"
           | "updates"
@@ -92,6 +93,7 @@ export function routeTitle(route: Route): string {
       dictation: "Dictation",
       meetings: "Meetings",
       look: "Look and startup",
+      sync: "Account and sync",
       memory: "Memory",
       disk: "On disk",
       updates: "Updates",

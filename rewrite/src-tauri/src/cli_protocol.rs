@@ -52,7 +52,7 @@ pub fn endpoint() -> std::path::PathBuf {
     let user: String = std::env::var("USERNAME").unwrap_or_default().chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
         .take(64).collect();
-    format!(r"\\.\pipe\SonoJot-cli-{}", if user.is_empty() { "user" } else { &user }).into()
+    format!(r"\\.\pipe\{}-cli-{}", crate::flavor::NAME, if user.is_empty() { "user" } else { &user }).into()
 }
 
 /// `cli.sock` in the SonoJot data folder elsewhere.
@@ -61,17 +61,15 @@ pub fn endpoint() -> std::path::PathBuf {
     data_dir().join("cli.sock")
 }
 
-/// The per-user SonoJot data folder, found without opening the library.
+/// The per-user SonoJot data folder, found without opening the library. It
+/// follows the app's own rule (`store::data_parent_from`), so a copy started
+/// with its own `LOCALAPPDATA` never takes over the installed app's socket.
 pub fn data_dir() -> std::path::PathBuf {
-    let parent = if let Some(local) = std::env::var_os("LOCALAPPDATA").filter(|_| cfg!(windows)) {
-        std::path::PathBuf::from(local)
-    } else if let Some(data) = std::env::var_os("XDG_DATA_HOME").filter(|_| cfg!(not(target_os = "macos"))) {
-        std::path::PathBuf::from(data)
-    } else {
-        let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-        if cfg!(target_os = "macos") { home.join("Library/Application Support") } else { home.join(".local/share") }
-    };
-    parent.join(crate::store::DATA_DIR_NAME)
+    data_dir_from(|name| std::env::var_os(name))
+}
+
+fn data_dir_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> std::path::PathBuf {
+    crate::store::data_parent_from(var).unwrap_or_default().join(crate::flavor::NAME)
 }
 
 /// Why a call failed: the app isn't listening, or it answered with an error.
@@ -124,4 +122,34 @@ fn connect() -> Result<std::fs::File, CallError> {
 #[cfg(unix)]
 fn connect() -> Result<std::os::unix::net::UnixStream, CallError> {
     std::os::unix::net::UnixStream::connect(endpoint()).map_err(|e| CallError::NotRunning(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<std::ffi::OsString> {
+        move |name| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).into())
+    }
+
+    #[test]
+    fn the_cli_finds_the_data_folder_the_app_uses() {
+        // A test copy started with its own LOCALAPPDATA (macOS included) must not
+        // reach, or replace, the installed app's socket in the real data folder.
+        let isolated = env(&[("LOCALAPPDATA", "/tmp/sonojot-test"), ("HOME", "/Users/someone"), ("XDG_DATA_HOME", "/xdg")]);
+        assert_eq!(data_dir_from(&isolated), PathBuf::from("/tmp/sonojot-test").join(crate::flavor::NAME));
+        for vars in [&[("HOME", "/Users/someone")][..], &[("HOME", "/Users/someone"), ("XDG_DATA_HOME", "/xdg")][..]] {
+            let lookup = |name: &str| vars.iter().find(|(key, _)| *key == name).map(|(_, value)| std::ffi::OsString::from(*value));
+            assert_eq!(
+                data_dir_from(lookup),
+                crate::store::data_parent_from(lookup).unwrap().join(crate::flavor::NAME)
+            );
+        }
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            data_dir_from(env(&[("HOME", "/Users/someone"), ("XDG_DATA_HOME", "/xdg")])),
+            PathBuf::from("/Users/someone/Library/Application Support").join(crate::flavor::NAME)
+        );
+    }
 }

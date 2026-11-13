@@ -1,23 +1,45 @@
 import type { UpdateStatus } from "./protocol";
 import { formatBytes } from "./model-library";
 
+function channelName(channel: "stable" | "nightly"): string {
+  return channel === "nightly" ? "Nightly" : "Stable";
+}
+
+export function updateRestartLabel(status: UpdateStatus): string {
+  return switching(status) ? "Restarting to switch…" : "Restarting to update…";
+}
+
 export function updateStatusLabel(status: UpdateStatus): string {
   switch (status.state) {
     case "idle":
       return "Updates are checked automatically.";
     case "checking":
       return "Checking for updates…";
+    case "current": {
+      const channel = channelName(status.channel);
+      return status.reason === "current"
+        ? `You're already on the newest ${channel} build.`
+        : `${channel} has no ${status.platform} build newer than ${status.version} yet. You'll get ${channel} builds here when they're published.`;
+    }
     case "available":
       if (status.repair)
         return `The last update didn't finish. Reinstall SonoJot ${status.version} to repair it.`;
+      if (status.switchChannel)
+        return `Switch to ${channelName(status.switchChannel)}: ${status.version} is available.`;
       return status.older
         ? `SonoJot ${status.version} is the newest build on this channel.`
         : `SonoJot ${status.version} is available.`;
     case "downloading":
+      if (status.switchChannel)
+        return status.percent === null
+          ? `Downloading ${channelName(status.switchChannel)} to switch…`
+          : `Downloading ${channelName(status.switchChannel)} to switch · ${Math.floor(status.percent)}%`;
       return status.percent === null
         ? "Downloading update…"
         : `Downloading update · ${Math.floor(status.percent)}%`;
     case "ready":
+      if (status.switchChannel)
+        return `${channelName(status.switchChannel)} ${status.version} is ready. Restart to switch.`;
       return `SonoJot ${status.version} is ready.`;
     case "error":
       return status.message;
@@ -33,10 +55,12 @@ export function updateOffered(status: UpdateStatus): boolean {
   );
 }
 
-/** Installing the offer replaces this build with an older one. */
+/** A channel-change offer stays a switch even when its version is newer. */
 function switching(status: UpdateStatus): boolean {
   return (
-    (status.state === "available" || status.state === "ready") && !!status.older
+    ("switchChannel" in status && !!status.switchChannel) ||
+    ((status.state === "available" || status.state === "ready") &&
+      !!status.older)
   );
 }
 
@@ -47,11 +71,14 @@ export function updateButtonLabel(
   if (installing) return "Restarting…";
   switch (status.state) {
     case "idle":
+    case "current":
       return "";
     case "checking":
       return "Checking…";
     case "available":
       if (status.repair) return "Repair update";
+      if (status.switchChannel)
+        return `Switch to ${channelName(status.switchChannel)}`;
       return status.older ? "Switch version" : "Update available";
     case "downloading":
       return status.percent === null
@@ -69,10 +96,15 @@ export function updateTooltip(
   installing: boolean,
   blockedReason: string | null,
 ): string {
-  if (installing) return "Restarting to finish updating SonoJot.";
+  if (installing)
+    return switching(status)
+      ? "Restarting to switch…"
+      : "Restarting to finish updating SonoJot.";
   switch (status.state) {
     case "idle":
       return "";
+    case "current":
+      return updateStatusLabel(status);
     case "checking":
       return "Checking for a new version of SonoJot.";
     case "available": {
@@ -81,7 +113,9 @@ export function updateTooltip(
       const summary =
         notes.length > 240 ? `${notes.slice(0, 237).trimEnd()}…` : notes;
       return [
-        `SonoJot ${status.version}${status.size === null ? "" : ` · ${formatBytes(status.size)}`}.`,
+        status.switchChannel
+          ? updateStatusLabel(status)
+          : `SonoJot ${status.version}${status.size === null ? "" : ` · ${formatBytes(status.size)}`}.`,
         status.repair
           ? "The last update didn't finish, so this reinstalls the same version."
           : status.older
@@ -96,7 +130,9 @@ export function updateTooltip(
       return "Keep working. You'll be asked to restart when it's ready.";
     case "ready":
       return [
-        "Click to restart and finish updating. Save any edits first.",
+        switching(status)
+          ? "Click to restart and switch channels. Save any edits first."
+          : "Click to restart and finish updating. Save any edits first.",
         blockedReason,
       ]
         .filter(Boolean)
@@ -124,7 +160,7 @@ export function updateAction(
         kind: "download",
         label: status.repair
           ? "Download repair"
-          : status.older
+          : switching(status)
             ? `Download ${status.version}`
             : "Download update",
       };
@@ -169,7 +205,7 @@ export function updateNoticeMessage(update: {
   noticeDismissed: boolean;
 }): string | null {
   if (update.noticeDismissed) return null;
-  if (update.installing) return "Restarting to update…";
+  if (update.installing) return updateRestartLabel(update.status);
   switch (update.status.state) {
     case "available":
     case "downloading":

@@ -623,6 +623,7 @@ impl Runtime {
             models: Vec::new(),
             version: env!("CARGO_PKG_VERSION").into(),
             capabilities: Capabilities {
+                sync: crate::flavor::sync_enabled(),
                 auto_paste: platform::auto_paste_available(),
                 system_audio: crate::system_audio::status() == crate::system_audio::SystemAudioStatus::Ready,
                 system_audio_status: crate::system_audio::status(),
@@ -752,7 +753,8 @@ impl Runtime {
                     AppState::Error => "Needs attention",
                 }
             };
-            format!("SonoJot · {} · {status}", snapshot.settings.hotkey)
+            if crate::flavor::SYNC_TEST { format!("{} · {status}", crate::flavor::NAME) }
+            else { format!("SonoJot · {} · {status}", snapshot.settings.hotkey) }
         });
         if let (Some(tray), Some(tooltip)) = (app.tray_by_id("sonojot"), tooltip) {
             let _ = tray.set_tooltip(Some(tooltip));
@@ -1476,6 +1478,7 @@ pub fn compositor_binds() -> bool {
 }
 
 pub fn register_shortcut(app: &AppHandle, value: &str, mode: HotkeyMode) -> Result<(), String> {
+    if crate::flavor::SYNC_TEST { return Ok(()); }
     crate::domain::validate_hotkey(value)?;
     #[cfg(target_os = "linux")]
     if crate::hyprland::active() {

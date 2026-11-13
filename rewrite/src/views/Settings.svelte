@@ -6,6 +6,7 @@
   import DiskScreen from "./DiskScreen.svelte";
   import UpdatesScreen from "./UpdatesScreen.svelte";
   import HelpScreen from "./HelpScreen.svelte";
+  import SyncScreen from "./SyncScreen.svelte";
   import { app } from "../lib/app.svelte";
   import { ai } from "../lib/ai.svelte";
   import { library } from "../lib/model-library.svelte";
@@ -138,6 +139,18 @@
                 detail: `${settings.theme === "slate" ? "Slate" : "Fog"} · ${settings.material ? "paper and print" : "plain"} · ${settings.launchAtLogin ? "start at login" : "manual start"}`,
                 target: { tab: "settings", stage: "look" },
               },
+              ...(app.snapshot.capabilities.sync
+                ? [
+                    {
+                      label: "Account and sync",
+                      detail: "Encrypted vocabulary · devices · recovery",
+                      target: {
+                        tab: "settings" as const,
+                        stage: "sync" as const,
+                      },
+                    },
+                  ]
+                : []),
               {
                 label: "Memory",
                 detail: `${settings.memoryMode === "overlap" ? "Keep all ready" : "Load one at a time"} · ${settings.modelRetention === "exit" ? "unload on quit" : settings.modelRetention === "immediately" ? "unload immediately" : `unload after ${settings.modelRetention.replace("m", " min")}`}`,
@@ -187,6 +200,8 @@
     <h1 data-text-surface="emboss">Settings</h1>
   </header>{/if}
 {#if route.stage === "look"}<LookScreen />
+{:else if route.stage === "sync" && app.snapshot.capabilities.sync}<SyncScreen
+  />
 {:else if route.stage === "memory"}<MemoryScreen />
 {:else if route.stage === "disk"}<DiskScreen {onnavigate} />
 {:else if route.stage === "updates"}<UpdatesScreen />

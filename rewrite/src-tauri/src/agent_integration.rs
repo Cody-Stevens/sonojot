@@ -52,7 +52,9 @@ struct Marker {
 
 /// The CLI installed beside an app executable.
 pub fn cli_beside(executable: &Path) -> PathBuf {
-    executable.with_file_name(if cfg!(windows) { "sonojot-cli.exe" } else { "sonojot-cli" })
+    executable.with_file_name(if crate::flavor::SYNC_TEST && cfg!(target_os = "linux") {
+        "sonojot-synctest-cli"
+    } else if cfg!(windows) { "sonojot-cli.exe" } else { "sonojot-cli" })
 }
 
 /// Development builds run from Cargo's target folder and are never registered.
@@ -64,6 +66,7 @@ pub fn is_development_build(path: &Path) -> bool {
 /// Runs at app startup. Registers once per install location and never again
 /// after the user removes it with `sonojot-cli agents remove`.
 pub fn ensure_once(data_dir: &Path) {
+    if crate::flavor::SYNC_TEST { return; }
     let Ok(executable) = std::env::current_exe() else { return };
     if let Some(items) = ensure(&cli_beside(&executable), data_dir) {
         let summary = items.iter().map(|i| format!("{}={}", i.target, i.state)).collect::<Vec<_>>().join(" ");
@@ -74,6 +77,7 @@ pub fn ensure_once(data_dir: &Path) {
 /// Installs unless this location is already done or the user removed it.
 /// Returns None when nothing ran.
 pub fn ensure(cli: &Path, data_dir: &Path) -> Option<Vec<Item>> {
+    if crate::flavor::SYNC_TEST { return None; }
     if is_development_build(cli) || !cli.is_file() {
         return None;
     }
@@ -88,11 +92,15 @@ pub fn ensure(cli: &Path, data_dir: &Path) -> Option<Vec<Item>> {
 
 /// After an uninstall, a later install registers again.
 pub fn forget(data_dir: &Path) {
+    if crate::flavor::SYNC_TEST { return; }
     let _ = fs::remove_file(data_dir.join(MARKER_FILE));
 }
 
 /// Checks, installs or removes every target and records the outcome.
 pub fn run(mode: Mode, cli: &Path, data_dir: &Path) -> Vec<Item> {
+    if crate::flavor::SYNC_TEST {
+        return vec![item("Sync Test", "skipped", Some("Agent integration is disabled for Sync Test.".into()))];
+    }
     let mut items = vec![path_item(mode, cli)];
     if let Some(home) = home() {
         items.extend(claude_code(mode, cli, &home));

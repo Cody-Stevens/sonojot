@@ -1,0 +1,42 @@
+SonoJot in the browser (@sonojot/transcribe)
+Copyright 2026 Cody Stevens Studio LLC. Licensed under the Apache License, Version 2.0.
+
+The package code contains no model weights. At run time it downloads the
+following files, each verified against a pinned SHA-256 value:
+
+SonoJot Parakeet v1
+  Modified from NVIDIA Parakeet TDT 0.6B v2
+  (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2, revision
+  ae9ad07059c7c739ffaf932226a8fe64ae2620b0), Copyright NVIDIA Corporation,
+  licensed under Creative Commons Attribution 4.0 International (CC BY 4.0):
+  https://creativecommons.org/licenses/by/4.0/
+  Fine-tuned by SonoJot: all weights except the BatchNorm statistics were
+  fine-tuned on public and consented speech, and the released weights are the
+  element-wise average of the fine-tuned and the original weights. The
+  architecture, tokenizer and decoding are unchanged. The modified weights are
+  distributed under CC BY 4.0 by Cody Stevens Studio LLC. NVIDIA does not
+  endorse this modification. Model card, training data and labeller
+  attribution: https://huggingface.co/SonoJot/sonojot-parakeet-v1
+  Changes for the browser build: the checkpoint was exported with NeMo's
+  whole-model ONNX export (encoder and a combined decoder and joint network,
+  the layout of istupakov/parakeet-tdt-0.6b-v2-onnx), the decoder was quantized
+  to int8 with ONNX Runtime dynamic quantization, the encoder's pointwise
+  convolutions were rewritten as matrix multiplications, its matrix weights
+  quantized to 4 bits (ONNX Runtime MatMulNBits, block 64), and its relative
+  positional table trimmed to 2,500 frames.
+
+nemo128.onnx feature extractor
+  From onnx-asr 0.12.0, Copyright (c) 2025 Ilya Stupakov, MIT License:
+  https://github.com/istupakov/onnx-asr
+
+SonoJot Punctuation v3
+  Published by SonoJot (Cody Stevens Studio LLC). Licensed under Creative Commons
+  Attribution-ShareAlike 4.0 International (CC BY-SA 4.0):
+  https://creativecommons.org/licenses/by-sa/4.0/
+  Model card, base models and training-data attribution:
+  https://huggingface.co/SonoJot/sonojot-punct-v3
+  (revision e023ae245a00bac1785bb6a022b16d181e346e48)
+
+Runtime libraries bundled by an application that uses this package:
+  onnxruntime-web, Copyright Microsoft Corporation, MIT License.
+  @huggingface/tokenizers, Copyright Hugging Face, Apache License 2.0.

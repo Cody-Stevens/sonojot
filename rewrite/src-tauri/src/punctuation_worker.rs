@@ -340,6 +340,16 @@ fn released(worker: &Connection, reason: Released, caller: &str) {
         reason as u64,
     );
 }
+/// "resource_manager.rs", 2020 -> "resource-manager.rs-2020". The diagnostics
+/// log keeps only letters, digits, '-' and '.' in its model field and writes
+/// "invalid-model-id" for anything else, which hid the code path until now.
+fn caller_label(file: &str, line: u32) -> String {
+    let file: String = file
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '-' })
+        .collect();
+    format!("{file}-{line}")
+}
 /// Returns whether a helper had to be started (a cold load).
 fn ensure_loaded(
     slot: &mut Option<Connection>,
@@ -480,7 +490,7 @@ fn release_if(reason: Released, eligible: impl FnOnce(&Connection) -> bool) -> b
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or("");
-            released(&worker, reason, &format!("{file}:{}", caller.line()));
+            released(&worker, reason, &caller_label(file, caller.line()));
         } // OwnedChild kills, waits and closes its Windows job.
         true
     } else {
@@ -684,6 +694,14 @@ fn loaded_libraries() -> Result<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_reasons_keep_their_code_path_in_the_diagnostics_log() {
+        let label = caller_label("resource_manager.rs", 2020);
+        assert_eq!(label, "resource-manager.rs-2020");
+        assert!(crate::recognition_diagnostics::label_allowed(&label));
+        assert!(!crate::recognition_diagnostics::label_allowed("resource_manager.rs:2020"));
+    }
 
     #[test]
     fn release_never_waits_for_active_ipc() {

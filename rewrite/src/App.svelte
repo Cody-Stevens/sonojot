@@ -69,6 +69,7 @@
     return () => clearTimeout(timer);
   });
   const query = new URLSearchParams(window.location.search);
+  const syncTest = query.get("flavor") === "synctest";
   const overlay = query.get("view") === "overlay";
   const cursor = query.get("view") === "cursor";
   // macOS permission helper floating beside System Settings.
@@ -83,10 +84,18 @@
     app.native && app.ready && needsTermsAcceptance(app.snapshot.settings),
   );
   const router = createRouter(
-    resolveRoute(query.get("page")) ?? { tab: "dictation" },
+    syncTest
+      ? { tab: "settings", stage: "sync" }
+      : (resolveRoute(query.get("page")) ?? { tab: "dictation" }),
     beforeNavigate,
   );
-  const route = $derived(router.current);
+  const route = $derived(
+    router.current.tab === "settings" &&
+      router.current.stage === "sync" &&
+      !app.snapshot.capabilities.sync
+      ? { tab: "settings" as const }
+      : router.current,
+  );
   const parentTitle = $derived(
     route.from === "settings" || route.tab === "settings"
       ? "Settings"
@@ -395,6 +404,7 @@
         >
           <div class="brand">
             <BrandMark variant="lockup" />
+            {#if syncTest}<span data-text-surface="flat">Sync Test</span>{/if}
           </div>
           <div class="header-end">
             {#if statusText}<div class="folio">
