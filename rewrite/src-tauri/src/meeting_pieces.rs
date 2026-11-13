@@ -49,9 +49,30 @@ pub(crate) const DEFAULT_SECONDS: u64 = 60;
 pub(crate) fn piece_seconds() -> Option<u64> {
     #[cfg(feature = "fidelity-eval")]
     if let Some(seconds) = std::env::var("SONOJOT_EVAL_PIECE_SECONDS").ok().and_then(|v| v.parse::<u64>().ok()) {
-        return (5..=300).contains(&seconds).then_some(seconds);
+        return (5..=900).contains(&seconds).then_some(seconds);
     }
     Some(DEFAULT_SECONDS)
+}
+
+/// Live dictation: `None` decodes each detector section on its own (cut at
+/// every pause of 0.5 s or more). Evaluation builds read
+/// SONOJOT_EVAL_DICTATION_CUT=`pieces:N` (N = 5..900 s pause-cut pieces).
+pub(crate) fn dictation_piece_seconds() -> Option<u64> {
+    #[cfg(feature = "fidelity-eval")]
+    if let Some(n) = std::env::var("SONOJOT_EVAL_DICTATION_CUT").ok().as_deref().and_then(|v| v.strip_prefix("pieces:")) {
+        return n.parse::<u64>().ok().filter(|s| (5..=900).contains(s));
+    }
+    None
+}
+
+/// Shortest pause the speech detector cuts at. Evaluation builds read
+/// SONOJOT_EVAL_DICTATION_CUT=`pause:S` (S = 0.3..5 s).
+pub(crate) fn detector_min_silence() -> f32 {
+    #[cfg(feature = "fidelity-eval")]
+    if let Some(s) = std::env::var("SONOJOT_EVAL_DICTATION_CUT").ok().as_deref().and_then(|v| v.strip_prefix("pause:")) {
+        if let Some(s) = s.parse::<f32>().ok().filter(|s| (0.3..=5.0).contains(s)) { return s; }
+    }
+    0.5
 }
 
 impl Pieces {

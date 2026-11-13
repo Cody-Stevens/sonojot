@@ -288,12 +288,18 @@ mod clean {
                     heard: entry.heard, written: entry.written, enabled: true, context: entry.context,
                 });
             }
+            let pieces = self.recognizer_pieces(id);
             self.clean_with(id, |transcript, cancel| {
                 started();
                 crate::resource_manager::configure(&settings);
                 let stop = AtomicBool::new(false);
                 export::map_passages(transcript, |passage| {
                     crate::ai::check_cancel(cancel)?;
+                    // As in dictation, cleanup reads an unedited passage with the
+                    // capital each mid-sentence recognizer piece starts with lowered.
+                    let joined = passage_pieces(passage, &pieces).and_then(|parts|
+                        crate::punctuation::lower_segment_start_capitals(&tidy_spaces(passage), &parts, &vocabulary));
+                    let passage = joined.as_deref().unwrap_or(passage);
                     // Public entry point owns punctuation's resource admission and
                     // worker. local-rules avoids acquiring an optional LLM lease.
                     let result = crate::cleanup::run_with_delete_policy(
@@ -306,6 +312,20 @@ mod clean {
                     Ok(result.text)
                 })
             })
+        }
+
+        /// The saved recognizer pieces in time order, as published passages join
+        /// them. Empty for meetings without saved recognition.
+        fn recognizer_pieces(&self, id: &str) -> Vec<String> {
+            let Ok(record) = self.read(id) else { return Vec::new() };
+            let segments: Vec<crate::asr::Segment> = record.recognition_file.as_ref().and_then(|file| {
+                let path = self.store.meetings_dir().join(format!("{id}.asr")).join(file);
+                let history: Value = self.store.read(&path).ok()?;
+                serde_json::from_value(history["segments"].clone()).ok()
+            }).unwrap_or_default();
+            let mut segments: Vec<_> = segments.into_iter().filter(|s| !s.text.trim().is_empty()).collect();
+            segments.sort_by(|a, b| a.start_seconds.total_cmp(&b.start_seconds));
+            segments.into_iter().map(|s| tidy_spaces(&s.text)).collect()
         }
 
         fn clean_with(&self, id: &str, clean: impl FnOnce(&str, &AtomicBool) -> Result<String, String>)
@@ -354,6 +374,25 @@ mod clean {
             self.clean_with(id, clean)
         }
     }
+}
+
+/// The consecutive recognizer pieces a published passage is made of, or None
+/// when the passage was edited or has no saved pieces. Passages join whole
+/// pieces with one space (`speaker_passages`, `publish`), so an unedited
+/// passage is always one consecutive run.
+fn passage_pieces<'a>(passage: &str, pieces: &'a [String]) -> Option<Vec<&'a str>> {
+    let target = tidy_spaces(passage);
+    for start in 0..pieces.len() {
+        if pieces[start].is_empty() || !target.starts_with(pieces[start].as_str()) { continue; }
+        let mut joined = String::with_capacity(target.len());
+        for (end, piece) in pieces.iter().enumerate().skip(start) {
+            if end > start { joined.push(' '); }
+            joined.push_str(piece);
+            if joined == target { return Some(pieces[start..=end].iter().map(String::as_str).collect()); }
+            if !target.starts_with(&joined) { break; }
+        }
+    }
+    None
 }
 
 use crate::{
@@ -3394,6 +3433,47 @@ mod meeting_tests {
         assert!(!meetings.operations.lock().unwrap().contains_key(&detail.id));
         let reopened = Meetings::new(Store::open(Some(meetings.store.root().to_path_buf())).unwrap());
         assert_eq!(reopened.get(&detail.id).unwrap().cleaned_transcript, saved.cleaned_transcript);
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn passages_find_their_consecutive_recognizer_pieces_only_when_unedited() {
+        let pieces: Vec<String> = ["we need a feature", "Thanks.", "Request for the export", "ok"]
+            .map(String::from).to_vec();
+        // A "You" passage made of pieces 2-3 after another speaker's piece.
+        assert_eq!(passage_pieces("Request for the export  ok", &pieces), Some(vec!["Request for the export", "ok"]));
+        assert_eq!(passage_pieces("we need a feature", &pieces), Some(vec!["we need a feature"]));
+        assert_eq!(passage_pieces("we need a feature Thanks. Request", &pieces), None, "piece cut short");
+        assert_eq!(passage_pieces("we need a new feature", &pieces), None, "edited");
+        assert_eq!(passage_pieces("anything", &[]), None);
+    }
+
+    #[test]
+    fn meeting_clean_copy_lowers_the_capital_a_mid_sentence_piece_starts_with() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let detail = recorded(&meetings);
+        let job = meetings.begin_transcription(&detail.id, None).unwrap();
+        let mut raw = recognition("we need a feature", 0.0, 1.0);
+        raw.segments.push(recognition("Request for the export.", 1.6, 3.0).segments.remove(0));
+        raw.segments.push(recognition("Summit notes are ready.", 3.5, 5.0).segments.remove(0));
+        raw.segments.push(recognition("The Summit was fine.", 5.5, 7.0).segments.remove(0));
+        raw.text = "we need a feature Request for the export. Summit notes are ready. The Summit was fine.".into();
+        for segment in &mut raw.segments { segment.speaker = Some("You".into()); }
+        let published = publish(&raw, false);
+        meetings.finish_recognition_operation(&job.id, &job.cancel,
+            Ok(MeetingRecognition { published, raw, known_speaker: None }), &job.asr_model).unwrap();
+        let cleaned = meetings.clean_local(&detail.id, || {}).unwrap().cleaned_transcript.unwrap();
+        assert!(cleaned.contains("feature request for the export"), "{cleaned}");
+        assert!(cleaned.contains("Summit notes"), "a piece after a sentence end keeps its capital: {cleaned}");
+        // The published transcript and saved raw recognition keep the recognizer's casing.
+        assert!(meetings.get(&detail.id).unwrap().transcript.contains("feature Request"));
+        // An edited passage is cleaned as written.
+        let mut record = meetings.read(&detail.id).unwrap();
+        record.detail.transcript = record.detail.transcript.replace("need a feature", "need one feature");
+        meetings.write(&record).unwrap();
+        let edited = meetings.clean_local(&detail.id, || {}).unwrap().cleaned_transcript.unwrap();
+        assert!(edited.contains("one feature Request"), "{edited}");
         fs::remove_dir_all(meetings.store.root()).unwrap();
     }
 

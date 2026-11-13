@@ -3576,8 +3576,9 @@ pub fn run_interruptible(
 }
 
 /// Dictation publication: local rules, punctuation/house style, then the
-/// selected optional cleanup model. Meeting callers keep the shared entry
-/// point below, which deliberately does not run punctuation.
+/// selected optional cleanup model. A meeting's Clean copy calls
+/// `run_with_delete_policy` per passage with local rules only and no word
+/// deletion; `run_interruptible_with_policy` alone runs no punctuation.
 #[allow(clippy::too_many_arguments)]
 pub fn run_dictation_interruptible_with_policy(
     root: &Path,

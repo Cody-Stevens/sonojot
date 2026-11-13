@@ -1494,7 +1494,7 @@ impl Engine {
         let mut vad_config: VadModelConfig = unsafe { std::mem::zeroed() };
         vad_config.silero_vad.model = path(&mut keep, gpu_vad_path(models_root))?;
         vad_config.silero_vad.threshold = 0.25;
-        vad_config.silero_vad.min_silence_duration = 0.5;
+        vad_config.silero_vad.min_silence_duration = crate::meeting_pieces::detector_min_silence();
         vad_config.silero_vad.min_speech_duration = 0.25;
         vad_config.silero_vad.window_size = 512;
         vad_config.silero_vad.max_speech_duration = crate::asr::sherpa_section_seconds() as f32;
@@ -1532,7 +1532,7 @@ impl Engine {
             vad_origin: 0,
             level: None,
             originals: None,
-            pieces: None,
+            pieces: crate::meeting_pieces::dictation_piece_seconds().map(|s| crate::meeting_pieces::Pieces::new(gpu_piece_seconds(s))),
             completeness: RecognitionCompleteness::Complete,
             warnings: Vec::new(),
             #[cfg(feature = "fidelity-eval")]
@@ -1643,6 +1643,17 @@ impl Drop for Engine {
     }
 }
 
+/// Longest audio one CUDA Parakeet decode takes. On an RTX 5070 (sherpa-onnx
+/// CUDA, fp16) one decode of 22 s or more of continuous speech stops the
+/// worker, while 20 s works, so pause-cut pieces are capped at the 20 s that
+/// detector sections always had (measured 2026-11-13; report on branch
+/// exp/dictation-long-pieces, docs/research/DictationPieceLength.md).
+const GPU_MAX_PIECE_SECONDS: u64 = 20;
+
+fn gpu_piece_seconds(seconds: u64) -> u64 {
+    seconds.min(GPU_MAX_PIECE_SECONDS)
+}
+
 const QWEN_MAX_NEW_TOKENS: u32 = 1024;
 
 pub struct Stream<'a> {
@@ -1674,7 +1685,7 @@ impl Stream<'_> {
             }
         }
         if let Some(seconds) = crate::meeting_pieces::piece_seconds() {
-            self.pieces = Some(crate::meeting_pieces::Pieces::new(seconds));
+            self.pieces = Some(crate::meeting_pieces::Pieces::new(gpu_piece_seconds(seconds)));
             self.originals = None;
         }
     }
@@ -1984,6 +1995,13 @@ pub fn transcribe_buffer(
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn cuda_pieces_never_exceed_the_longest_decode_that_works() {
+        assert_eq!(gpu_piece_seconds(crate::meeting_pieces::DEFAULT_SECONDS), 20);
+        assert_eq!(gpu_piece_seconds(15), 15);
+        assert!(GPU_MAX_PIECE_SECONDS <= crate::asr::sherpa_section_seconds() as u64);
+    }
 
     #[test]
     fn gpu_catalog_lists_five_installable_nvidia_models() {
