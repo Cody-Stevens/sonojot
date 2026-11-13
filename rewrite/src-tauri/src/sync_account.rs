@@ -191,7 +191,7 @@ pub fn status(store: &Store) -> Result<Value, String> {
             let reset_notice: Value = store
                 .read(&store.root().join("sync-reset-notice.json"))
                 .unwrap_or(Value::Null);
-            json!({"signedIn":!c.session.is_empty(),"unlocked":c.ak.is_some(),"email":c.email,"account":c.account,"device":c.device_id,"server":c.server,"recoveryPending":c.recovery.is_some(),"pendingSignin":c.pending.is_some(),"initialized":remote["ring_rev"].as_u64().filter(|_| remote["account"] == c.account && remote["server"] == c.server).map(|r| r > 0).or(c.initialized),"lastSync":meta.last_sync,"conflicts":meta.conflicts.len(),"pendingReset":pending_reset,"notice":notice,"resetCancelled":reset_notice["account"] == c.account && reset_notice["server"] == c.server})
+            json!({"signedIn":!c.session.is_empty(),"unlocked":c.ak.is_some(),"email":c.email,"account":c.account,"device":c.device_id,"server":c.server,"recoveryPending":c.recovery.is_some(),"pendingSignin":c.pending.is_some(),"initialized":remote["ring_rev"].as_u64().filter(|_| remote["account"] == c.account && remote["server"] == c.server).map(|r| r > 0).or(c.initialized),"lastSync":meta.last_sync,"conflicts":meta.conflicts.len(),"pendingReset":pending_reset,"notice":notice,"meetings":crate::meeting_sync::outcome(&crate::meeting_sync::state(store, &c)?),"resetCancelled":reset_notice["account"] == c.account && reset_notice["server"] == c.server})
         }
     })
 }
@@ -300,7 +300,7 @@ pub async fn keyring(store: &Store, c: &mut Credentials) -> Result<(Keyring, u64
     let ak =
         c.ak.as_ref()
             .ok_or("Approve this device or use your recovery code first.")?;
-    let ring = match Keyring::open(ak, &c.account, w.rev, &bytes) {
+    let mut ring = match Keyring::open(ak, &c.account, w.rev, &bytes) {
         Ok(ring) => { check_keyset(c, &ring)?; ring }
         Err(_) => {
             let (transfer, ring) = rotation_keys(c, &wraps, w).map_err(|_| REPAIR_TRUST)?;
@@ -320,6 +320,7 @@ pub async fn keyring(store: &Store, c: &mut Credentials) -> Result<(Keyring, u64
             if c.trusted != roster.devices { c.trusted = roster.devices; secret_store::save(store, c)?; }
         }
     }
+    crate::sync_cutovers::hydrate(store, c, &mut ring).await?;
     store.write(
         &store.root().join("sync-keyring.json"),
         &json!({"account":c.account,"server":c.server,"wrap":w}),
@@ -333,7 +334,7 @@ fn confirmed_transfer(
     ciphertext: &[u8],
 ) -> Result<KeyTransfer, String> {
     if displayed != Some(transcript.hash()) {
-        return Err("Compare and confirm the code on this device first.".into());
+        return Err("Display the code on this device first.".into());
     }
     let plain = crypto::unwrap_from(
         device,
@@ -385,6 +386,7 @@ async fn rekey(
         let usage = crate::sync_engine::rotation_usage(store, c, &ring).await?;
         ring.rotate_retaining(&usage.keys)?;
         ring.vocabulary_cutover = usage.vocabulary_rev;
+        ring.object_cutovers = usage.objects;
         (usage.vocabulary_rev, Some(usage.cursor))
     };
     // Only OS-pinned peers or an authenticated introduction can receive a new
@@ -400,7 +402,21 @@ async fn rekey(
     ring.devices.insert(c.device_id.clone(), c.device.public);
     if ring.devices.len() > 64 { return Err("Remove unused devices before re-keying.".into()); }
     ring.epoch = epoch + 1;
+    if !reset {
+        let id_key = crypto::derive(
+            &c.ak.as_ref().ok_or("Unlock sync first.")?.0,
+            &c.account,
+            "meeting-ids",
+        );
+        if !ring.meeting_id_keys.iter().any(|key| key.0 == id_key.0) {
+            if ring.meeting_id_keys.len() >= 64 {
+                return Err("Meeting ID history has reached its rotation limit.".into());
+            }
+            ring.meeting_id_keys.push(id_key);
+        }
+    }
     let ak = Secret::random();
+    crate::sync_cutovers::publish(c, &ak, &mut ring).await?;
     let recovery = crypto::recovery_code().to_string();
     let transfer = KeyTransfer {
         ak: ak.clone(),
@@ -425,6 +441,9 @@ async fn rekey(
     if let Some(cursor) = prune_cursor {
         request["pruneCursor"] = json!(cursor);
     }
+    if let Some(checkpoint) = &ring.cutover_checkpoint {
+        request["checkpoint"] = json!(checkpoint);
+    }
     let _: Value = client
         .json(Method::POST, "/v1/rekey", Some(&request))
         .await?;
@@ -433,6 +452,7 @@ async fn rekey(
     c.trusted = ring.devices;
     secret_store::save(store, c)?;
     if reset {
+        crate::meeting_sync::reset(store, c)?;
         store.write(
             &store.root().join("sync-state.json"),
             &crate::sync_engine::Metadata {
@@ -497,6 +517,9 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
     let mut c = secret_store::load::<Credentials>(store)?
         .unwrap_or_else(|| Credentials::new(STAGING.into()));
     c.pairs.retain(|_, pair| pair.expires_at > now());
+    if operation.starts_with("meeting_") {
+        return crate::meeting_sync::action(store, &mut c, operation, &args).await;
+    }
     match operation {
         #[cfg(feature = "synctest")]
         "test_signin" => {
@@ -513,7 +536,9 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                     "subject": text(&args, "subject")?, "device": fresh.device_id,
                     "publicKey": B64.encode(fresh.device.public), "platform": std::env::consts::OS
                 }))).await?;
-            if text(&reply, "device")? != fresh.device_id { return Err("Test device identity changed.".into()); }
+            if text(&reply, "device")? != fresh.device_id {
+                return Err("Test device identity changed.".into());
+            }
             fresh.account = text(&reply["account"], "id")?.into();
             fresh.email = text(&reply["account"], "email")?.into();
             fresh.session = text(&reply, "token")?.into();
@@ -549,7 +574,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
             {
                 let w: Wrap = serde_json::from_value(cached["wrap"].clone())
                     .map_err(|_| "Invalid cached keys.")?;
-                let ring = Keyring::open(
+                let mut ring = Keyring::open(
                     c.ak.as_ref().ok_or("Unlock this device first.")?,
                     &c.account,
                     w.rev,
@@ -557,13 +582,23 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                         .map_err(|_| "Invalid cached keys.")?,
                 )?;
                 check_keyset(&c, &ring)?;
+                crate::sync_cutovers::hydrate(store, &c, &mut ring).await?;
                 (ring, w.rev)
             } else {
                 keyring(store, &mut c).await?
             };
             let meta = crate::sync_engine::synchronize(store, &c, &ring, rev).await?;
+            let meetings = if args["automatic"] == true {
+                crate::meeting_sync::scheduled(store, &c, &ring, rev).await
+            } else {
+                crate::meeting_sync::run(store, &c, &ring, rev, true).await
+            };
+            let meeting_result = match meetings {
+                Ok(m) => crate::meeting_sync::outcome(&m),
+                Err(_) => json!({"errors":1,"retryAt":0,"rateLimited":false,"missing":0}),
+            };
             return Ok(
-                json!({"synced":true,"lastSync":meta.last_sync,"conflicts":meta.conflicts.len()}),
+                json!({"synced":true,"lastSync":meta.last_sync,"conflicts":meta.conflicts.len(),"meetings":meeting_result}),
             );
         }
         "journal_ack" => {
@@ -810,6 +845,13 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
             }
         }
         "pair_start" => {
+            if c.ak.is_some() {
+                return Err("This computer is already approved.".into());
+            }
+            // Reopening Settings resumes the same commitment, never a new nonce.
+            if let Some(pair) = c.pairs.values().find(|p| !p.approver) {
+                return Ok(json!({"id":pair.id,"expiresAt":pair.expires_at}));
+            }
             let id = uuid::Uuid::new_v4().to_string();
             let transcript = crypto::PairTranscript {
                 account: c.account.clone(),
@@ -822,7 +864,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 nonce_b: crypto::random(),
             };
             let commit = transcript.receiver_commit();
-            let _: Value = c
+            let reply: Value = c
                 .client()?
                 .json(
                     Method::POST,
@@ -842,19 +884,28 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                     peer_nonce: None,
                     transcript: Some(transcript),
                     displayed: None,
-                    expires_at: now() + 300,
+                    expires_at: reply["expiresAt"].as_u64().unwrap_or(now() + 300).min(now() + 300),
                 },
             );
             secret_store::save(store, &c)?;
-            return Ok(json!({"id":id}));
+            return Ok(json!({"id":id,"expiresAt":c.pairs[&id].expires_at}));
         }
         "pair_list" => return c.client()?.json(Method::GET, "/v1/pairings", None).await,
         "pair_accept" => {
+            if c.ak.is_none() {
+                return Err("Approve this computer before adding another.".into());
+            }
             let id = safe_id(text(&args, "id")?)?;
+            if let Some(pair) = c.pairs.get(id).filter(|p| p.approver) {
+                return Ok(json!({"waiting":true,"expiresAt":pair.expires_at}));
+            }
             let p: Value = c
                 .client()?
                 .json(Method::GET, &format!("/v1/pairings/{id}"), None)
                 .await?;
+            if p["state"] != "committed" || p["device"] == c.device_id {
+                return Err("This request is already being checked on another computer. Cancel it there and get a new code.".into());
+            }
             let transcript = crypto::PairTranscript {
                 account: c.account.clone(),
                 request: id.into(),
@@ -877,7 +928,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                     peer_nonce: Some(transcript.sender_commit()),
                     transcript: Some(transcript),
                     displayed: None,
-                    expires_at: now() + 300,
+                    expires_at: p["expires_at"].as_u64().ok_or("Missing pairing expiry.")?.min(now() + 300),
                 },
             );
             secret_store::save(store, &c)?;
@@ -895,7 +946,15 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 secret_store::save(store, &c)?;
                 return Ok(json!({"denied":true}));
             }
+            if !c.pairs.contains_key(id) && operation == "pair_poll" {
+                return Ok(json!({"expired":true}));
+            }
             let p: Value = c.client()?.json(Method::GET, &path, None).await?;
+            if p["state"] == "denied" || p["state"] == "consumed" {
+                c.pairs.remove(id);
+                secret_store::save(store, &c)?;
+                return Ok(json!({"denied":true}));
+            }
             let mut local = c
                 .pairs
                 .get(id)
@@ -1017,9 +1076,16 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 publish_roster(&c).await?;
                 return Ok(json!({"approved":true}));
             }
-            if operation == "pair_confirm" {
+            // The trusted computer is the only approval surface. The receiver
+            // imports only an authenticated transfer bound to its displayed SAS.
+            // If approval arrived before its first display, return the code once
+            // and leave import to the next poll.
+            if operation == "pair_confirm"
+                || (operation == "pair_poll" && !local.approver
+                    && p["state"] == "approved" && local.displayed == Some(t.hash()))
+            {
                 if local.approver || p["state"] != "approved" {
-                    return Err("Approve on the other device first, then confirm here.".into());
+                    return Err("Approve on the other computer first.".into());
                 }
                 let transfer = confirmed_transfer(
                     &c.device,
@@ -1240,13 +1306,19 @@ pub async fn sync_command(
     if operation == "test_credentials" {
         let phase = args["phase"].as_str().unwrap_or("roundtrip");
         secret_store::probe(&runtime.store, phase)?;
-        return Ok(json!({"credentialStore":"dedicated-test-keychain","phase":phase,"passed":true,"probeDeleted":phase != "prepare"}));
+        return Ok(
+            json!({"credentialStore":"dedicated-test-keychain","phase":phase,"passed":true,"probeDeleted":phase != "prepare"}),
+        );
     }
     #[cfg(feature = "synctest")]
     if operation == "test_offline" {
-        let offline = args["offline"].as_bool().ok_or("Choose offline on or off.")?;
+        let offline = args["offline"]
+            .as_bool()
+            .ok_or("Choose offline on or off.")?;
         crate::sync_client::TEST_OFFLINE.store(offline, std::sync::atomic::Ordering::Relaxed);
-        if !offline { wake(); }
+        if !offline {
+            wake();
+        }
         return Ok(json!({"offline":offline}));
     }
     #[cfg(any(target_os = "linux", feature = "synctest"))]
@@ -1293,17 +1365,53 @@ pub async fn sync_command(
     }
     if !matches!(
         operation.as_str(),
-        "status" | "devices" | "pair_list" | "conflicts" | "recovery_show"
+        "status"
+            | "devices"
+            | "pair_list"
+            | "conflicts"
+            | "recovery_show"
+            | "meeting_status"
+            | "meeting_storage"
+            | "meeting_preferences"
     ) {
         if let Ok(mut failure) = service.failure.lock() {
             *failure = result.as_ref().err().cloned()
         }
         let _ = app.emit("sync-changed", ());
     }
+    if result.is_ok()
+        && (operation == "now"
+            || matches!(
+                operation.as_str(),
+                "meeting_resolve"
+                    | "meeting_field_resolve"
+                    | "meeting_delete_resolve"
+                    | "meeting_missing_resolve"
+                    | "meeting_download"
+            ))
+    {
+        runtime.meetings.sync_changed();
+        runtime.emit(&app);
+    }
+    if result.is_ok()
+        && matches!(
+            operation.as_str(),
+            "meeting_resolve"
+                | "meeting_field_resolve"
+                | "meeting_audio"
+                | "meeting_preferences"
+                | "meeting_delete_resolve"
+                | "meeting_missing_resolve"
+        )
+    {
+        wake();
+    }
     result
 }
 pub fn callback(app: &tauri::AppHandle, value: String) {
-    if !crate::flavor::sync_enabled() { return; }
+    if !crate::flavor::sync_enabled() {
+        return;
+    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let _ = sync_command(app, "callback".into(), Some(json!({"url":value}))).await;
@@ -1373,11 +1481,15 @@ async fn loopback(app: &tauri::AppHandle) -> Result<String, String> {
 
 static WAKE: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
 pub fn wake() {
-    if !crate::flavor::sync_enabled() { return; }
+    if !crate::flavor::sync_enabled() {
+        return;
+    }
     WAKE.get_or_init(tokio::sync::Notify::new).notify_one();
 }
 pub fn start_scheduler(app: &tauri::AppHandle) {
-    if !crate::flavor::sync_enabled() { return; }
+    if !crate::flavor::sync_enabled() {
+        return;
+    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut delay = 300u64;
@@ -1397,11 +1509,15 @@ pub fn start_scheduler(app: &tauri::AppHandle) {
                 .flatten()
                 .is_some_and(|c| !c.session.is_empty() && c.ak.is_some())
             {
-                let result = sync_command(app.clone(), "now".into(), None).await;
-                delay = if result.is_ok() {
-                    300
-                } else {
-                    (delay * 2).min(3600)
+                let result =
+                    sync_command(app.clone(), "now".into(), Some(json!({"automatic":true}))).await;
+                delay = match result {
+                    Ok(value) => value["meetings"]["retryAt"]
+                        .as_u64()
+                        .filter(|at| *at > now())
+                        .map(|at| at.saturating_sub(now()).clamp(1, 300))
+                        .unwrap_or(300),
+                    Err(_) => (delay * 2).min(3600),
                 };
             }
         }
@@ -1487,6 +1603,31 @@ mod security_tests {
             )
             .unwrap();
         deliver_reset_notice(&store, |_, _| panic!("must not notify another account")).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn sync_pairing_resumes_commitments_and_expires_locally() {
+        let root = std::env::temp_dir().join(format!("sj-pair-resume-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(root.clone())).unwrap();
+        let mut c = Credentials::new("https://example.invalid".into());
+        let pair = PairState {
+            id: "synthetic-pair".into(), nonce: crypto::random(), public: c.device.public,
+            commitment: crypto::random(), approver: false, peer_nonce: None,
+            transcript: None, displayed: None, expires_at: now() + 300,
+        };
+        c.pairs.insert(pair.id.clone(), pair.clone());
+        secret_store::save(&store, &c).unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let resumed = action(&store, "pair_start", json!({})).await.unwrap();
+            assert_eq!(resumed["id"], pair.id);
+            assert_eq!(resumed["expiresAt"], pair.expires_at);
+            let saved = secret_store::load::<Credentials>(&store).unwrap().unwrap();
+            assert_eq!(saved.pairs[&pair.id].nonce, pair.nonce);
+            assert!(action(&store, "pair_accept", json!({"id":pair.id})).await.is_err());
+            c.pairs.get_mut(&pair.id).unwrap().expires_at = now() - 1;
+            secret_store::save(&store, &c).unwrap();
+            assert_eq!(action(&store, "pair_poll", json!({"id":pair.id})).await.unwrap()["expired"], true);
+        });
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]

@@ -10,9 +10,11 @@ import { testIdentity } from "./test_identity";
 import { authorization } from "./authorization";
 import { pairing } from "./pairing";
 import { store } from "./store";
+import { meetings } from "./meetings";
 import { maintenance } from "./maintenance";
 import { rotation } from "./rotation";
 import { signinPage } from "./signin";
+import { rekeyPages } from "./rekey_pages";
 import { accountPage } from "./account";
 import { health, serverFailure, requestCount } from "./monitoring";
 export function worker(deps: AuthDependencies = productionAuth) {
@@ -39,6 +41,8 @@ export function worker(deps: AuthDependencies = productionAuth) {
           (await devicesAndWraps(request, env)) ??
           (await pairing(request, env)) ??
           (await rotation(request, env)) ??
+          (await rekeyPages(request, env)) ??
+          (await meetings(request, env)) ??
           (await store(request, env));
         return headers(response ?? json({ error: "Not found." }, 404));
       } catch (e) {

@@ -148,8 +148,31 @@ pub(super) fn render_clean(
     for (k, &i) in indices.iter().enumerate() {
         let word = &words[i];
         let mut w = word.text.to_owned();
-        if !word.protected {
-            if matches!(lower[i].as_str(), "i" | "i'm" | "i'll" | "i've" | "i'd") || cap {
+        let i_form = matches!(lower[i].as_str(), "i" | "i'm" | "i'll" | "i've" | "i'd");
+        if !word.protected && doc.casing.is_some() && !i_form && cap {
+            w = match super::casing::sentence_start_form(&w) {
+                Some(form) => form.into(),
+                None => {
+                    let first = w.chars().next().unwrap();
+                    first.to_uppercase().collect::<String>() + &w[first.len_utf8()..]
+                }
+            };
+        } else if let (false, false, Some(casing)) = (word.protected, i_form, &doc.casing) {
+            // The casing label decides; the word lists below are the fallback
+            // for packages without one.
+            let positional = !keep_case
+                && (casing.bounds.get(i).copied().unwrap_or(false)
+                    || (i > 0 && doc.text[words[i - 1].end..word.start].contains(['.', '?', '!'])));
+            let texts: Vec<&str> = words.iter().map(|w| w.text).collect();
+            let breaks: Vec<bool> = (0..texts.len())
+                .map(|k| k > 0 && doc.gap(k - 1).contains(['.', '?', '!', ',', ';', ':']))
+                .collect();
+            let run = super::casing::capital_run(&texts, &breaks, i);
+            if let Some(form) = super::casing::model_case(&w, casing.probs[i], positional, run, &casing.thresholds) {
+                w = form;
+            }
+        } else if !word.protected {
+            if i_form || cap {
                 let first = w.chars().next().unwrap();
                 w = first.to_uppercase().collect::<String>() + &w[first.len_utf8()..];
             // Same rule as rebuild_gaps: never lowercase an unfamiliar

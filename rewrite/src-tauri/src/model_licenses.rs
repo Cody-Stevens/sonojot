@@ -13,6 +13,7 @@ pub(crate) fn write_punctuation_notices(root: &std::path::Path, id: &str) -> Res
         crate::punctuation_model::Package::V1 => include_str!("../../licenses/punctuation/NOTICE-v1.txt"),
         crate::punctuation_model::Package::V2 => include_str!("../../licenses/punctuation/NOTICE-v2.txt"),
         crate::punctuation_model::Package::V4 => include_str!("../../licenses/punctuation/NOTICE-v4.txt"),
+        crate::punctuation_model::Package::P4 => include_str!("../../licenses/punctuation/NOTICE-p4.txt"),
         crate::punctuation_model::Package::V3 => include_str!("../../licenses/punctuation/NOTICE-v3.txt"),
     };
     for (name, text) in [("LICENSE-CC-BY-SA-4.0.txt", include_str!("../../licenses/downloads/standard/cc-by-sa-4.0.txt")), ("NOTICE", notice)] {
@@ -52,7 +53,7 @@ fn catalog() -> Result<&'static Catalog, String> {
 }
 
 fn license_url(id: &str) -> Result<&'static str, String> {
-    if matches!(id, "sonojot-punct-v1" | "sonojot-punct-v2" | "sonojot-punct-v3" | "sonojot-cleanup-v4") {
+    if matches!(id, "sonojot-punct-v1" | "sonojot-punct-v2" | "sonojot-punct-v3" | "sonojot-cleanup-v4" | "sonojot-punct-v4") {
         return Ok("https://creativecommons.org/licenses/by-sa/4.0/legalcode.en");
     }
     let component = catalog()?

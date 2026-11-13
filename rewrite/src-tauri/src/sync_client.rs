@@ -16,7 +16,10 @@ pub const AUTH_ORIGIN: &str = match option_env!("SONOJOT_AUTH_ORIGIN") {
 
 pub fn validate_staging_origin(origin: &str) -> Result<(), String> {
     if origin.is_empty() {
-        return Err("Sync is not configured in this build. Install an official nightly or Sync Test build.".into());
+        return Err(
+            "Sync is not configured in this build. Install an official nightly or Sync Test build."
+                .into(),
+        );
     }
     let valid = Url::parse(origin).is_ok_and(|url| {
         let host = url.host_str().unwrap_or_default();
@@ -34,12 +37,34 @@ pub fn validate_staging_origin(origin: &str) -> Result<(), String> {
             && url.fragment().is_none()
             && origin == url.origin().ascii_serialization()
     });
-    if valid { Ok(()) } else {
+    if valid {
+        Ok(())
+    } else {
         Err("This build requires an HTTPS staging sync origin configured at build time.".into())
     }
 }
 #[cfg(feature = "synctest")]
 pub static TEST_OFFLINE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub const RATE_LIMITED: &str = "Too many sync attempts. Try again later.";
+pub(crate) fn rate_limit_delay(error: &str) -> Option<u64> {
+    if error == RATE_LIMITED {
+        return Some(61);
+    }
+    error
+        .strip_prefix(RATE_LIMITED)?
+        .strip_prefix(" Retry in ")?
+        .strip_suffix(" seconds.")?
+        .parse::<u64>()
+        .ok()
+        .map(|n| n.clamp(1, 86400))
+}
+fn retry_after(value: &str) -> Option<u64> {
+    value.parse::<u64>().ok().or_else(|| {
+        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc2822)
+            .ok().map(|date| date.unix_timestamp()
+                .saturating_sub(time::OffsetDateTime::now_utc().unix_timestamp()).max(0) as u64)
+    }).map(|seconds| seconds.clamp(1, 86400))
+}
 #[derive(Debug)]
 pub struct Failure {
     pub status: u16,
@@ -56,6 +81,7 @@ pub struct SyncClient {
     origin: String,
     token: Zeroizing<String>,
     proof: Option<Zeroizing<String>>,
+    rotation: bool,
     #[cfg(feature = "synctest")]
     test_token: Option<Zeroizing<String>>,
 }
@@ -99,6 +125,7 @@ impl SyncClient {
             origin: origin.trim_end_matches('/').into(),
             token: Zeroizing::new(token.into()),
             proof: None,
+            rotation: false,
             #[cfg(feature = "synctest")]
             test_token: None,
         })
@@ -116,6 +143,10 @@ impl SyncClient {
         ));
         self
     }
+    pub fn for_rotation(mut self) -> Self {
+        self.rotation = true;
+        self
+    }
     pub async fn request(
         &self,
         method: Method,
@@ -131,10 +162,18 @@ impl SyncClient {
                 .into(),
         };
         #[cfg(feature = "synctest")]
-        if TEST_OFFLINE.load(std::sync::atomic::Ordering::Relaxed) { return Err(fail()); }
+        if TEST_OFFLINE.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(fail());
+        }
         let mut req = self
             .client
             .request(method, format!("{}{}", self.origin, path));
+        if path.starts_with("/v1/blobs/") {
+            req = req.timeout(Duration::from_secs(180));
+        }
+        if self.rotation {
+            req = req.header("X-Sync-Rotation", "1");
+        }
         if !self.token.is_empty() {
             req = req.bearer_auth(&*self.token)
         }
@@ -160,8 +199,20 @@ impl SyncClient {
         }
         let mut response = req.send().await.map_err(|_| fail())?;
         let status = response.status();
+        if status.as_u16() == 429 {
+            let delay = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .and_then(retry_after)
+                .unwrap_or(61);
+            return Err(Failure {
+                status: 429,
+                message: format!("{RATE_LIMITED} Retry in {delay} seconds."),
+            });
+        }
         if !status.is_success() {
-            return Err(Failure{status:status.as_u16(),message:match status.as_u16(){401=>"Sign in again to continue syncing.",403=>"Unlock this device or sign in again before changing this account.",409=>"Sync keys or account state changed. Unlock this device again.",412=>"Words changed on another device. Retry sync to merge them.",413=>"Free sync holds 512 KiB of vocabulary. Your local words are safe.",429=>"Too many sync attempts. Wait a minute and try again.",503=>"This sync service or sign-in method is unavailable. Your local words are safe.",_=>"Sync could not finish. Your local words are safe; try again."}.into()});
+            return Err(Failure{status:status.as_u16(),message:match status.as_u16(){401=>"Sign in again to continue syncing.",403=>"Unlock this device or sign in again before changing this account.",409=>"Sync keys or account state changed. Unlock this device again.",410=>"This meeting no longer syncs. Sync again to update its status.",412=>"Content changed on another device. Retry sync to merge it.",413=>"Free sync holds 512 KiB of vocabulary. Your local words are safe.",507=>"Meeting storage is full. An older meeting needs a confirmed complete local copy before it can stop syncing.",429=>RATE_LIMITED,503=>"This sync service or sign-in method is unavailable. Your local words are safe.",_=>"Sync could not finish. Your local words are safe; try again."}.into()});
         }
         let rev = response
             .headers()
@@ -171,7 +222,12 @@ impl SyncClient {
             .unwrap_or(0);
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(|_| fail())? {
-            if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+            let limit = if path.starts_with("/v1/blobs/") {
+                crate::sync_crypto::MAX_BLOB_ENVELOPE
+            } else {
+                2 * 1024 * 1024
+            };
+            if bytes.len() + chunk.len() > limit {
                 return Err(Failure {
                     status: 413,
                     message: "Sync response exceeds the supported size.".into(),
@@ -189,6 +245,24 @@ impl SyncClient {
     ) -> Result<T, String> {
         let (_, bytes) = self.request(method, path, data, None, None, 0).await?;
         serde_json::from_slice(&bytes).map_err(|_| "Sync returned an unsupported response.".into())
+    }
+    /// Long read-only inventories can span several server rate-limit windows.
+    /// A retry never repeats a mutation or restarts an already verified inventory.
+    pub(crate) async fn read_with_retry(&self, path: &str) -> Result<(u64, Vec<u8>), Failure> {
+        self.read_with_backoff(path, Duration::from_secs(61)).await
+    }
+    async fn read_with_backoff(
+        &self,
+        path: &str,
+        delay: Duration,
+    ) -> Result<(u64, Vec<u8>), Failure> {
+        for attempt in 0..3 {
+            match self.request(Method::GET, path, None, None, None, 0).await {
+                Err(error) if error.status == 429 && attempt < 2 => tokio::time::sleep(delay).await,
+                result => return result,
+            }
+        }
+        unreachable!()
     }
     pub async fn wraps(&self) -> Result<Vec<Wrap>, String> {
         self.json(Method::GET, "/v1/wraps", None).await
@@ -211,18 +285,38 @@ impl SyncClient {
 mod gate_tests {
     use super::*;
     #[test]
+    fn rate_limit_retry_after_accepts_seconds_and_http_dates() {
+        assert_eq!(retry_after("120"), Some(120));
+        assert_eq!(retry_after("0"), Some(1));
+        assert_eq!(retry_after("999999"), Some(86400));
+        assert_eq!(retry_after("invalid"), None);
+        let date = (time::OffsetDateTime::now_utc() + time::Duration::seconds(120))
+            .format(&time::format_description::well_known::Rfc2822).unwrap().replace("+0000", "GMT");
+        assert!((119..=120).contains(&retry_after(&date).unwrap()));
+        assert_eq!(rate_limit_delay(RATE_LIMITED),Some(61));
+        assert_eq!(rate_limit_delay("unrelated failure"),None);
+    }
+    #[test]
     fn stable_cannot_construct_a_network_sync_client() {
-        assert_eq!(SyncClient::new(STAGING, "").is_ok(), crate::flavor::sync_enabled());
+        assert_eq!(
+            SyncClient::new(STAGING, "").is_ok(),
+            crate::flavor::sync_enabled()
+        );
         assert!(SyncClient::new("https://sync.sonojot.com", "").is_err());
         assert!(SyncClient::new("https://example.com", "").is_err());
     }
 
     #[test]
     fn staging_origin_must_be_explicit_and_cannot_select_production() {
-        assert!(validate_staging_origin("").unwrap_err().contains("not configured"));
-        assert!(validate_staging_origin("https://sonojot-sync-staging.example.workers.dev").is_ok());
+        assert!(validate_staging_origin("")
+            .unwrap_err()
+            .contains("not configured"));
+        assert!(
+            validate_staging_origin("https://sonojot-sync-staging.example.workers.dev").is_ok()
+        );
         for origin in [
-            "https://sync.sonojot.com", "https://sonojot-sync.example.workers.dev",
+            "https://sync.sonojot.com",
+            "https://sonojot-sync.example.workers.dev",
             "http://sonojot-sync-staging.example.workers.dev",
             "https://sonojot-sync-staging.example.workers.dev.evil.com",
             "https://sonojot-sync-staging.example.workers.dev/path",
@@ -241,6 +335,42 @@ mod gate_tests {
         // --nocapture can verify the compiled value without contacting the server.
         println!("Compiled SONOJOT_SYNC_ORIGIN: {STAGING:?}");
         assert_eq!(STAGING, option_env!("SONOJOT_SYNC_ORIGIN").unwrap_or(""));
-        assert_eq!(crate::flavor::sync_enabled(), crate::flavor::require_sync().is_ok());
+        assert_eq!(
+            crate::flavor::sync_enabled(),
+            crate::flavor::require_sync().is_ok()
+        );
+    }
+
+    #[cfg(feature = "synctest")]
+    #[test]
+    fn sync_inventory_retries_rate_limits_without_restarting() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for status in ["429 Too Many Requests", "200 OK"] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut bytes = [0; 2048];
+                let size = stream.read(&mut bytes).unwrap();
+                assert!(std::str::from_utf8(&bytes[..size])
+                    .unwrap()
+                    .starts_with("GET /v1/inventory?after=synthetic-250 "));
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+                )
+                .unwrap();
+            }
+        });
+        let client = SyncClient::new(&origin, "").unwrap();
+        let (_, bytes) = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(client.read_with_backoff("/v1/inventory?after=synthetic-250", Duration::ZERO))
+            .unwrap();
+        assert_eq!(bytes, b"{}");
+        server.join().unwrap();
     }
 }

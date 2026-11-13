@@ -19,11 +19,38 @@ export async function rotation(
   request: Request,
   env: Env,
 ): Promise<Response | null> {
+  const path = new URL(request.url).pathname;
   if (
-    new URL(request.url).pathname !== "/v1/rekey" ||
-    request.method !== "POST"
-  )
-    return null;
+    path === "/v1/rekey/prepare" &&
+    ["POST", "DELETE"].includes(request.method)
+  ) {
+    const s = await session(request, env);
+    native(s);
+    const verifier = await authorizeKeys(request, env, s);
+    if (request.method === "DELETE") {
+      await env.DB.prepare(
+        "DELETE FROM rotation_reads WHERE account=? AND session=?",
+      )
+        .bind(s.account, s.hash)
+        .run();
+      return json({ ended: true });
+    }
+    await limit(env, "rotation-start:" + s.account, 10);
+    const b = await body(request);
+    const epoch = integer(b.epoch, 1);
+    const lease = await env.DB.prepare(
+      "INSERT INTO rotation_reads(account,session,epoch,expires_at) SELECT id,?,epoch,? FROM accounts WHERE id=? AND epoch=? AND auth_verifier=? ON CONFLICT(account) DO UPDATE SET session=excluded.session,epoch=excluded.epoch,expires_at=excluded.expires_at WHERE rotation_reads.expires_at<=? OR rotation_reads.session=excluded.session RETURNING account",
+    )
+      .bind(s.hash, now() + 600, s.account, epoch, verifier, now())
+      .first();
+    if (!lease)
+      throw new Fault(
+        409,
+        "Rotation changed or is already in progress on another session.",
+      );
+    return json({ prepared: true });
+  }
+  if (path !== "/v1/rekey" || request.method !== "POST") return null;
   const s = await session(request, env);
   native(s);
   await limit(env, "rekey:" + s.account, 10);
@@ -78,10 +105,18 @@ export async function rotation(
   )
     throw new Fault(400, "Invalid device roster.");
   const operation = token();
+  const checkpoint = b.checkpoint === undefined ? null : record(b.checkpoint);
+  const checkpointNonce = checkpoint ? id(checkpoint.nonce) : "";
+  const checkpointPages = checkpoint ? integer(checkpoint.pages, 1) : 0;
+  if (
+    checkpoint &&
+    (integer(checkpoint.epoch, 2) !== epoch + 1 || checkpointPages > 128)
+  )
+    throw new Fault(400, "Invalid re-key checkpoint.");
   const guard = "EXISTS(SELECT 1 FROM accounts WHERE id=? AND rotation=?)";
   const statements = [
     env.DB.prepare(
-      `UPDATE accounts SET epoch=epoch+1,rotation=?,auth_verifier=? WHERE id=? AND epoch=? AND EXISTS(SELECT 1 FROM wraps WHERE account=? AND kind='keyring' AND ref='main' AND rev=?) AND ${reset ? "EXISTS(SELECT 1 FROM pending_resets WHERE account=accounts.id AND epoch=accounts.epoch AND ready_at<=? AND ready_at>?)" : "auth_verifier=? AND COALESCE((SELECT rev FROM objects WHERE account=accounts.id AND id='vocabulary'),0)=?"}${pruneCursor === null ? "" : " AND seq=?"}`,
+      `UPDATE accounts SET epoch=epoch+1,rotation=?,auth_verifier=? WHERE id=? AND epoch=? AND EXISTS(SELECT 1 FROM wraps WHERE account=? AND kind='keyring' AND ref='main' AND rev=?) AND ${reset ? "EXISTS(SELECT 1 FROM pending_resets WHERE account=accounts.id AND epoch=accounts.epoch AND ready_at<=? AND ready_at>?)" : "auth_verifier=? AND COALESCE((SELECT rev FROM objects WHERE account=accounts.id AND id='vocabulary'),0)=?"}${pruneCursor === null ? "" : " AND seq=?"}${checkpoint ? " AND (SELECT COUNT(*) FROM rekey_pages WHERE account=accounts.id AND epoch=? AND nonce=? AND page<?)=?" : ""}`,
     ).bind(
       operation,
       nextVerifier,
@@ -93,8 +128,34 @@ export async function rotation(
         ? [now(), now() - RESET_WINDOW]
         : [verifier, vocabularyRevision]),
       ...(pruneCursor === null ? [] : [pruneCursor]),
+      ...(checkpoint
+        ? [epoch + 1, checkpointNonce, checkpointPages, checkpointPages]
+        : []),
     ),
   ];
+  statements.push(
+    env.DB.prepare(
+      `DELETE FROM rotation_reads WHERE account=? AND ${guard}`,
+    ).bind(s.account, s.account, operation),
+  );
+  statements.push(
+    env.DB.prepare(
+      `UPDATE rekey_pages SET expires_at=? WHERE account=? AND expires_at=0 AND ${guard}`,
+    ).bind(now() + 30 * 86400, s.account, s.account, operation),
+  );
+  if (checkpoint)
+    statements.push(
+      env.DB.prepare(
+        `UPDATE rekey_pages SET expires_at=0 WHERE account=? AND epoch=? AND nonce=? AND page<? AND ${guard}`,
+      ).bind(
+        s.account,
+        epoch + 1,
+        checkpointNonce,
+        checkpointPages,
+        s.account,
+        operation,
+      ),
+    );
   if (reset) {
     // Old bodies enter the normal 30-day trash queue through the object trigger.
     statements.push(
@@ -104,6 +165,13 @@ export async function rotation(
     );
     statements.push(
       env.DB.prepare(`DELETE FROM objects WHERE account=? AND ${guard}`).bind(
+        s.account,
+        s.account,
+        operation,
+      ),
+    );
+    statements.push(
+      env.DB.prepare(`DELETE FROM meetings WHERE account=? AND ${guard}`).bind(
         s.account,
         s.account,
         operation,

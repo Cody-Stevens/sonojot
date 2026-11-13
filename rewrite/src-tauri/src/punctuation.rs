@@ -5,7 +5,7 @@ use crate::{cleanup::Vocabulary, domain::ModelRetention};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -14,7 +14,9 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+mod casing;
 mod cleanup_render;
+pub(crate) use casing::{with_pieces, Casing, CaseThresholds};
 use cleanup_render::render_clean;
 
 pub struct Outcome {
@@ -38,11 +40,14 @@ impl WrittenFormMode {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct Prediction {
     pub labels: Vec<Mark>,
     pub spans: Option<Vec<crate::written_form::BioLabel>>,
     pub deletes: Option<Vec<bool>>,
+    /// P(lower), P(Capitalised), P(UPPER) per word, from a casing package.
+    pub cases: Option<Vec<[f32; 3]>>,
+    pub case_thresholds: Option<CaseThresholds>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -172,17 +177,31 @@ pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], ca
     let original = text;
     let respaced = respace_glued_apostrophes(text);
     let text = respaced.as_ref();
-    let document = Document::new(text, vocabulary, cancel);
+    let mut document = Document::new(text, vocabulary, cancel);
     let words = document.as_ref().map_or(0, |document| document.words.len() as u64);
     let predicting = Instant::now();
     let prediction = match &document {
         Ok(_) if !model => Err(Failure::Disabled),
         Ok(document) if !document.words.is_empty() => {
-            crate::punctuation_worker::predict(&selection, text, document.words.len(), cancel)
+            let texts: Vec<&str> = document.words.iter().map(|word| word.text).collect();
+            let bounds = casing::piece_bounds(&texts);
+            crate::punctuation_worker::predict(&selection, text, document.words.len(), &bounds, cancel)
+                .map(|prediction| (prediction, bounds))
         }
         Ok(_) => Err(Failure::Missing),
         Err(error) => Err(*error),
     };
+    // A casing package's choices travel with the document to every renderer.
+    let prediction = prediction.map(|(mut prediction, bounds)| {
+        if let (Ok(document), Some(probs), Some(thresholds)) =
+            (&mut document, prediction.cases.take(), prediction.case_thresholds)
+        {
+            if probs.len() == document.words.len() {
+                document.casing = Some(Casing { probs, bounds, thresholds });
+            }
+        }
+        prediction
+    });
     // Model time includes any wait for a helper still loading; value = words.
     if model && words > 0 {
         event("punctuation-predict", label, predicting.elapsed().as_secs_f64() * 1000.0, words);
@@ -269,7 +288,7 @@ pub fn evaluation_prediction(
 ) -> std::result::Result<(Vec<String>, Option<Vec<crate::written_form::BioLabel>>), String> {
     let selection = evaluation_selection(root, cancel)?;
     let count = word_regex().find_iter(text).count();
-    let result = crate::punctuation_worker::predict(&selection, text, count, cancel)
+    let result = crate::punctuation_worker::predict(&selection, text, count, &[], cancel)
         .map(|prediction| {
             (prediction.labels
                 .into_iter()
@@ -535,12 +554,23 @@ struct ConfigFile {
     span_encoding: Option<String>,
     #[serde(default, deserialize_with = "present_config_field")]
     span_classes: Option<Vec<crate::written_form::Class>>,
+    #[serde(default, deserialize_with = "present_config_field")]
+    case_output: Option<String>,
+    #[serde(default, deserialize_with = "present_config_field")]
+    case_labels: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "present_config_field")]
+    case_hint_input: Option<String>,
+    #[serde(default, deserialize_with = "present_config_field")]
+    case_hint_encoding: Option<String>,
 }
 
 struct Config {
     labels: Vec<Mark>,
     span_labels: Option<Vec<crate::written_form::BioLabel>>,
     delete_threshold: Option<f32>,
+    /// The package declares the casing label and hint input.
+    casing: bool,
+    case_thresholds: Option<CaseThresholds>,
     window_words: usize,
     hop_words: usize,
     cls_id: u32,
@@ -604,10 +634,21 @@ impl Config {
                 return Err(Failure::Config);
             }
         }
+        let casing = match (&raw.case_output, &raw.case_labels, &raw.case_hint_input, &raw.case_hint_encoding) {
+            (None, None, None, None) => false,
+            (Some(output), Some(labels), Some(input), Some(encoding))
+                if output == "case_logits"
+                    && labels.iter().map(String::as_str).eq(casing::CASE_LABELS)
+                    && input == "case_hints"
+                    && encoding.trim() == casing::CASE_HINT_ENCODING => true,
+            _ => return Err(Failure::Config),
+        };
         Ok(Self {
             labels,
             span_labels,
             delete_threshold: None,
+            casing,
+            case_thresholds: None,
             window_words: raw.window_words,
             hop_words: raw.hop_words,
             cls_id: raw.cls_id,
@@ -786,18 +827,21 @@ pub(crate) fn worker_load(selection: &Selection) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn worker_predict(selection: &Selection, text: &str) -> Result<Prediction> {
+pub(crate) fn worker_predict(selection: &Selection, text: &str, bounds: &[bool]) -> Result<Prediction> {
     if !crate::punctuation_worker::is_worker() {
         return Err(Failure::Runtime);
     }
     let cancel = AtomicBool::new(false);
     let document = Document::new(text, &[], &cancel)?;
-    predict_cached(selection, &document, &cancel, ModelRetention::OnExit)
+    // Piece flags that do not line up with the words are ignored, never guessed.
+    let bounds = if bounds.len() == document.words.len() { bounds } else { &[] };
+    predict_cached(selection, &document, bounds, &cancel, ModelRetention::OnExit)
 }
 
 fn predict_cached(
     selection: &Selection,
     document: &Document<'_>,
+    bounds: &[bool],
     cancel: &AtomicBool,
     retention: ModelRetention,
 ) -> Result<Prediction> {
@@ -822,7 +866,7 @@ fn predict_cached(
         });
     }
     let cached = guard.as_mut().ok_or(Failure::Load)?;
-    let result = cached.engine.predict(document, cancel);
+    let result = cached.engine.predict(document, bounds, cancel);
     cached.last_used = Instant::now();
     if retention == ModelRetention::Immediately
         || result
@@ -870,7 +914,7 @@ impl Engine {
     fn load(_: &Selection, _: &AtomicBool) -> Result<Self> {
         Err(Failure::Unsupported)
     }
-    fn predict(&mut self, _: &Document<'_>, _: &AtomicBool) -> Result<Prediction> {
+    fn predict(&mut self, _: &Document<'_>, _: &[bool], _: &AtomicBool) -> Result<Prediction> {
         Err(Failure::Unsupported)
     }
 }
@@ -1123,11 +1167,25 @@ impl Engine {
                 .filter(|t| t.is_finite() && *t > 0.0 && *t <= 1.0).ok_or(Failure::Config)?;
             config.delete_threshold = Some(t as f32);
         }
+        if session.outputs().iter().any(|output| output.name() == "case_logits") {
+            let path = selection.directory.join("manifest.json");
+            if !config.casing || stamp(&path).is_none_or(|s| s.bytes > 16 * 1024) { return Err(Failure::Config); }
+            let metadata: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(path).map_err(|_| Failure::Config)?
+            ).map_err(|_| Failure::Config)?;
+            let thresholds: CaseThresholds = metadata.get("case_thresholds").cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .filter(CaseThresholds::valid).ok_or(Failure::Config)?;
+            config.case_thresholds = Some(thresholds);
+        } else if config.casing {
+            return Err(Failure::Config);
+        }
         validate_graph(
             &session,
             config.labels.len(),
             config.span_labels.as_ref().map(Vec::len),
             config.delete_threshold.is_some(),
+            config.casing,
         )?;
         check(cancel)?;
         Ok(Self {
@@ -1137,7 +1195,10 @@ impl Engine {
         })
     }
 
-    fn predict(&mut self, document: &Document<'_>, cancel: &AtomicBool) -> Result<Prediction> {
+    fn predict(&mut self, document: &Document<'_>, bounds: &[bool], cancel: &AtomicBool) -> Result<Prediction> {
+        let word_hints: Vec<i64> = document.words.iter().enumerate()
+            .map(|(index, word)| casing::hint_id(word.text, bounds.get(index).copied().unwrap_or(false)))
+            .collect();
         let mut pieces = Vec::with_capacity(document.words.len());
         for (index, word) in document.words.iter().enumerate() {
             check(cancel)?;
@@ -1191,10 +1252,24 @@ impl Engine {
                 .map_err(|_| Failure::Inference)?;
             let attention = ort::value::Tensor::from_array(([1, count], mask))
                 .map_err(|_| Failure::Inference)?;
-            let values = self
-                .session
-                .run(ort::inputs!["input_ids" => input, "attention_mask" => attention])
-                .map_err(|_| Failure::Inference)?;
+            let values = if self.config.casing {
+                let mut hints = vec![0_i64];
+                for ((word, marks), &hint) in pieces[start..end].iter().zip(&word_hints[start..end]) {
+                    hints.extend(std::iter::repeat_n(hint, word.len()));
+                    hints.extend(std::iter::repeat_n(0, marks.len()));
+                }
+                hints.push(0);
+                if hints.len() != count { return Err(Failure::Inference); }
+                let hints = ort::value::Tensor::from_array(([1, count], hints))
+                    .map_err(|_| Failure::Inference)?;
+                self.session
+                    .run(ort::inputs!["input_ids" => input, "attention_mask" => attention, "case_hints" => hints])
+                    .map_err(|_| Failure::Inference)?
+            } else {
+                self.session
+                    .run(ort::inputs!["input_ids" => input, "attention_mask" => attention])
+                    .map_err(|_| Failure::Inference)?
+            };
             check(cancel)?;
             let (shape, logits) = values
                 .get("logits")
@@ -1235,12 +1310,25 @@ impl Engine {
                     1.0 - pk >= threshold
                 }).collect::<Vec<_>>())
             } else { None };
-            // Merge both heads as one value so centrality and window ties can
-            // never select punctuation and spans from different windows.
+            let cases = if self.config.casing {
+                let (shape, logits) = values.get("case_logits").ok_or(Failure::Output)?
+                    .try_extract_tensor::<f32>().map_err(|_| Failure::Output)?;
+                if shape.as_ref() != [1, count as i64, 3] || logits.iter().any(|v| !v.is_finite()) { return Err(Failure::Output); }
+                Some(positions.iter().map(|&p| {
+                    let row = &logits[p * 3..p * 3 + 3];
+                    let max = row.iter().copied().fold(f32::MIN, f32::max);
+                    let exp = [(row[0] - max).exp(), (row[1] - max).exp(), (row[2] - max).exp()];
+                    let sum = exp[0] + exp[1] + exp[2];
+                    [exp[0] / sum, exp[1] / sum, exp[2] / sum]
+                }).collect::<Vec<_>>())
+            } else { None };
+            // Merge every head as one value so centrality and window ties can
+            // never select labels for one word from different windows.
             let labels: Vec<_> = labels
                 .into_iter()
                 .enumerate()
-                .map(|(index, label)| (label, spans.as_ref().map(|spans| spans[index]), deletes.as_ref().map(|d| d[index])))
+                .map(|(index, label)| (label, spans.as_ref().map(|spans| spans[index]), deletes.as_ref().map(|d| d[index]),
+                    cases.as_ref().map(|c| c[index])))
                 .collect();
             merge_window(&mut output, &mut best, start, &labels)?;
         }
@@ -1252,15 +1340,19 @@ impl Engine {
             .as_ref()
             .map(|_| Vec::with_capacity(output.len()));
         let mut deletes = self.config.delete_threshold.map(|_| Vec::with_capacity(output.len()));
+        let mut cases = self.config.casing.then(|| Vec::with_capacity(output.len()));
         for prediction in output {
-            let (label, span, delete) = prediction.ok_or(Failure::Output)?;
+            let (label, span, delete, case) = prediction.ok_or(Failure::Output)?;
             if let Some(d) = &mut deletes { d.push(delete.ok_or(Failure::Output)?); }
+            if let Some(c) = &mut cases { c.push(case.ok_or(Failure::Output)?); }
             labels.push(label);
             if let Some(spans) = &mut spans {
                 spans.push(span.ok_or(Failure::Output)?);
             }
         }
-        Ok(Prediction { labels, spans, deletes })
+        let case_thresholds = cases.as_ref().and(self.config.case_thresholds);
+        if cases.is_some() != case_thresholds.is_some() { return Err(Failure::Config); }
+        Ok(Prediction { labels, spans, deletes, cases, case_thresholds })
     }
 }
 
@@ -1292,14 +1384,16 @@ fn validate_graph(
     classes: usize,
     span_classes: Option<usize>,
     deletes: bool,
+    casing: bool,
 ) -> Result<()> {
     use ort::value::{TensorElementType, ValueType};
-    if session.inputs().len() != 2
-        || session.outputs().len() != 1 + usize::from(span_classes.is_some()) + usize::from(deletes)
+    if session.inputs().len() != 2 + usize::from(casing)
+        || session.outputs().len() != 1 + usize::from(span_classes.is_some()) + usize::from(deletes) + usize::from(casing)
     {
         return Err(Failure::Load);
     }
-    for name in ["input_ids", "attention_mask"] {
+    let names: &[&str] = if casing { &["input_ids", "attention_mask", "case_hints"] } else { &["input_ids", "attention_mask"] };
+    for &name in names {
         let input = session
             .inputs()
             .iter()
@@ -1319,11 +1413,14 @@ fn validate_graph(
     if deletes {
         validate_head_type(session.outputs().iter().find(|o| o.name() == "delete_logits").ok_or(Failure::Load)?.dtype(), 2)?;
     }
+    if casing {
+        validate_head_type(session.outputs().iter().find(|o| o.name() == "case_logits").ok_or(Failure::Load)?.dtype(), 3)?;
+    }
     validate_head_outputs(
         session
             .outputs()
             .iter()
-            .filter(|output| output.name() != "delete_logits")
+            .filter(|output| output.name() != "delete_logits" && output.name() != "case_logits")
             .map(|output| (output.name(), output.dtype())),
         classes,
         span_classes,
@@ -1425,6 +1522,8 @@ struct Document<'a> {
     words: Vec<Word<'a>>,
     preserved: Vec<(usize, usize)>,
     proper: HashSet<String>,
+    /// Set only from a casing package's prediction; replaces the casing heuristics.
+    casing: Option<Casing>,
 }
 
 type VocabularyMatchers = std::sync::Arc<Vec<Regex>>;
@@ -1661,6 +1760,7 @@ impl<'a> Document<'a> {
             words,
             preserved: merged,
             proper,
+            casing: None,
         })
     }
 
@@ -1708,6 +1808,17 @@ impl<'a> Document<'a> {
     /// The recognizer started a sentence: a capitalised common word that is
     /// not known to be a name elsewhere in the text.
     fn next_starts_sentence(&self, index: usize) -> bool {
+        if let Some(casing) = &self.casing {
+            // The casing label replaces the word-list guess: a recognizer capital
+            // starts a sentence only when the model reads the word as lower case.
+            return self.words.get(index + 1).is_some_and(|next| {
+                next.text.chars().count() > 1
+                    && next.text.chars().next().is_some_and(char::is_uppercase)
+                    && !next.text.chars().skip(1).any(char::is_uppercase)
+                    && !next.protected
+                    && casing.probs.get(index + 1).is_some_and(|p| p[0] >= 0.5)
+            });
+        }
         self.words.get(index + 1).is_some_and(|next| {
             let lower = next.text.to_lowercase();
             // Unknown title-cased words, known proper names and another
@@ -1851,13 +1962,26 @@ impl<'a> Document<'a> {
                 );
             let removed_end =
                 index > 0 && self.end_in_gap(index - 1, self.gap(index - 1), None) && !capitalize;
+            let casing = self.casing.as_ref().filter(|_| predictions.is_some());
             let replacement = if word.protected {
                 original.into()
             // Preserve explicit model sentence evidence (including a period
             // after a single-letter option). A later document cannot infer
             // that evidence from the period alone without confusing initials.
             } else if (house_style || predictions.is_some()) && (i_form || capitalize) {
-                uppercase_first(original)
+                match casing.and_then(|_| casing::sentence_start_form(original)) {
+                    Some(form) if !i_form => form.into(),
+                    _ => uppercase_first(original),
+                }
+            } else if let Some(casing) = casing {
+                let positional = removed_end || casing.bounds.get(index).copied().unwrap_or(false);
+                let texts: Vec<&str> = self.words.iter().map(|w| w.text).collect();
+                let breaks: Vec<bool> = (0..texts.len())
+                    .map(|k| k > 0 && self.gap(k - 1).contains(['.', '?', '!', ',', ';', ':']))
+                    .collect();
+                let run = casing::capital_run(&texts, &breaks, index);
+                casing::model_case(original, casing.probs[index], positional, run, &casing.thresholds)
+                    .unwrap_or_else(|| original.into())
             } else if removed_end
                 && common_lowercase(&lower)
                 && !self.proper.contains(&lower)
@@ -1999,6 +2123,29 @@ fn render_gap(gap: &str, prediction: Option<Mark>, terminal: bool) -> String {
 /// "I", acronyms, mixed case, single letters, vocabulary terms and words the
 /// recognizer also capitalises inside a segment keep their capital.
 /// Returns None when nothing changes or the segments do not make up `text`.
+/// Clean dictation text the way the capture owner does: a package with a
+/// casing label reads the recognizer's own casing plus its piece starts;
+/// otherwise the rules lower piece-start capitals first. For replay tools.
+pub fn clean_dictation_pieces<R>(
+    root: &Path, text: &str, segments: &[&str], vocabulary: &[Vocabulary], punctuation_model: bool,
+    clean: impl FnOnce(&str) -> R,
+) -> R {
+    if punctuation_model && casing_package_selected(root) {
+        return with_pieces(segments, || clean(text));
+    }
+    let joined = lower_segment_start_capitals(text, segments, vocabulary);
+    clean(joined.as_deref().unwrap_or(text))
+}
+
+/// Whether the package the next cleanup job loads declares a casing label.
+/// Cheap: no hashing; the worker still verifies the package before inference.
+pub(crate) fn casing_package_selected(root: &Path) -> bool {
+    let selection = Selection::new(root, std::env::var_os("SONOJOT_PUNCT_MODEL_DIR").map(PathBuf::from));
+    std::fs::read(selection.directory.join("punct-config.json")).ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .is_some_and(|config| config.get("case_output").is_some_and(|value| value == "case_logits"))
+}
+
 pub(crate) fn lower_segment_start_capitals(
     text: &str,
     segments: &[&str],
@@ -2330,6 +2477,8 @@ mod tests {
             labels,
             spans: Some(spans),
             deletes: clean.then(|| vec![false; count]),
+            cases: None,
+            case_thresholds: None,
         };
         let (output, stage, _) =
             super::finish_prediction(text, Ok(&document), Ok(prediction), &[], &cancel, mode, clean);
@@ -2406,6 +2555,8 @@ mod tests {
                 labels: labels.clone(),
                 spans: None,
                 deletes: clean.then(|| vec![false; labels.len()]),
+                cases: None,
+                case_thresholds: None,
             };
             let (output, _, _) = super::finish_prediction(text, Ok(&document), Ok(prediction), &[],
                 &cancel, super::WrittenFormMode::Off, clean);
@@ -2910,6 +3061,8 @@ mod tests {
                 labels: labels.clone(),
                 spans: None,
                 deletes: clean.then(|| vec![false; count]),
+                cases: None,
+                case_thresholds: None,
             };
             let (output, stage, _) = finish_prediction(&text, Ok(&document), Ok(prediction), &[],
                 &cancel, WrittenFormMode::Off, clean);
@@ -3024,7 +3177,7 @@ mod tests {
         labels[9] = Mark::Period;
         *labels.last_mut().unwrap() = Mark::Period;
         for clean in [false, true] {
-            let prediction = Prediction { labels: labels.clone(), spans: None, deletes: clean.then(|| vec![false; labels.len()]) };
+            let prediction = Prediction { labels: labels.clone(), spans: None, deletes: clean.then(|| vec![false; labels.len()]), cases: None, case_thresholds: None };
             let (output, _, _) = finish_prediction(&text, Ok(&document), Ok(prediction), &[], &cancel, WrittenFormMode::Off, clean);
             assert_eq!(output, "We should file a feature request for the export button. It feels kind of weird today.", "clean={clean}");
         }
@@ -3658,7 +3811,7 @@ mod tests {
         let document = Document::new(&text, &[], &cancel).unwrap();
         assert!(document.words.len() > 300);
         let labels =
-            crate::punctuation_worker::predict(&selection, &text, document.words.len(), &cancel)
+            crate::punctuation_worker::predict(&selection, &text, document.words.len(), &[], &cancel)
                 .expect("all stand-in windows must run").labels;
         assert_eq!(labels.len(), document.words.len());
         let (output, stage, reason) = finish(&text, Some(&document), Ok(labels), &cancel);
@@ -3667,7 +3820,7 @@ mod tests {
         assert!(same_words(&text, &output));
         cancel.store(true, Ordering::Release);
         assert_eq!(
-            crate::punctuation_worker::predict(&selection, &text, document.words.len(), &cancel),
+            crate::punctuation_worker::predict(&selection, &text, document.words.len(), &[], &cancel),
             Err(Failure::Cancelled)
         );
         assert!(!release_idle(ModelRetention::OnExit));
@@ -3682,8 +3835,12 @@ mod tests {
 pub fn evaluation_cleanup_render(root: &Path, text: &str, cancel: &AtomicBool) -> std::result::Result<String, String> {
     let selection = evaluation_selection(root, cancel)?;
     let text = &respace_glued_apostrophes(text);
-    let doc = Document::new(text, &[], cancel).map_err(|e| e.event().to_owned())?;
-    let prediction = crate::punctuation_worker::predict(&selection, text, doc.words.len(), cancel).map_err(|e| e.event().to_owned())?;
+    let mut doc = Document::new(text, &[], cancel).map_err(|e| e.event().to_owned())?;
+    let prediction = crate::punctuation_worker::predict(&selection, text, doc.words.len(), &[], cancel).map_err(|e| e.event().to_owned())?;
+    if let (Some(probs), Some(thresholds)) = (prediction.cases.clone(), prediction.case_thresholds) {
+        let bounds = vec![false; probs.len()];
+        doc.casing = Some(Casing { probs, bounds, thresholds });
+    }
     let deletes = prediction.deletes.ok_or("Model has no delete head")?;
     render_clean(&doc, &prediction.labels, &deletes).map(|r| r.0).map_err(|e| e.event().to_owned())
 }

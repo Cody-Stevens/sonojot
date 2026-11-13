@@ -690,6 +690,21 @@ pub fn list_meetings(state: AppStateHandle<'_>) -> Result<Vec<crate::meetings::M
     state.meetings.list()
 }
 #[tauri::command]
+pub fn list_meeting_trash(state: AppStateHandle<'_>) -> Result<Vec<crate::meeting_trash::Entry>, String> {
+    crate::meeting_trash::list(&state.store)
+}
+#[tauri::command]
+pub fn restore_meeting_trash(app: AppHandle, state: AppStateHandle<'_>, key: String) -> Result<String, String> {
+    let id = crate::meeting_trash::restore(&state.store,&key)?;
+    state.meetings.sync_changed();
+    state.emit(&app);
+    Ok(id)
+}
+#[tauri::command]
+pub fn delete_meeting_trash(state: AppStateHandle<'_>, key: String) -> Result<(), String> {
+    crate::meeting_trash::delete_now(&state.store,&key)
+}
+#[tauri::command]
 pub fn get_meeting(state: AppStateHandle<'_>, id: String) -> Result<MeetingDetail, String> {
     state.meetings.get(&id)
 }
@@ -1028,6 +1043,7 @@ pub async fn transcribe_meeting(
     no_diarize: Option<bool>,
 ) -> Result<MeetingDetail, String> {
     let runtime = state.inner().clone();
+    crate::meeting_sync::ensure_audio(&app, &runtime.meetings, &id).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let job = runtime
             .meetings
@@ -1217,12 +1233,16 @@ pub async fn clean_meeting(
 }
 #[tauri::command]
 pub async fn export_meeting(
+    app: AppHandle,
     state: AppStateHandle<'_>,
     id: String,
     path: String,
     format: String,
     transcript_version: Option<String>,
 ) -> Result<(), String> {
+    if crate::meeting_audio_export::is_audio_format(&format) {
+        crate::meeting_sync::ensure_audio(&app, &state.meetings, &id).await?;
+    }
     let meetings = state.meetings.clone();
     tauri::async_runtime::spawn_blocking(move || meetings.export_version(&id, Path::new(&path), &format, transcript_version.as_deref()))
         .await
@@ -1236,10 +1256,12 @@ pub async fn export_meeting(
 /// the original on failure.
 #[tauri::command]
 pub async fn export_meeting_audio(
+    app: AppHandle,
     state: AppStateHandle<'_>,
     id: String,
     path: String,
 ) -> Result<(), String> {
+    crate::meeting_sync::ensure_audio(&app, &state.meetings, &id).await?;
     let meetings = state.meetings.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _activity = crate::resource_manager::begin_update_activity(crate::resource_manager::UpdateActivity::Media)?;
@@ -1458,7 +1480,7 @@ mod punctuation_model_page_tests {
         ] {
             assert_eq!(punctuation_model_page_url(Some(id), || panic!("explicit link must not verify models")).unwrap(), expected);
         }
-        for id in ["", "sonojot-punct-v4", "../sonojot-punct-v1", "https://huggingface.co/SonoJot/sonojot-punct-v2",
+        for id in ["", "sonojot-punct-v5", "../sonojot-punct-v1", "https://huggingface.co/SonoJot/sonojot-punct-v2",
             "https://example.com", "file:///C:/Windows", "--help"] {
             assert_eq!(punctuation_model_page_url(Some(id), || panic!("invalid id must not verify models")).unwrap_err(),
                 "Unknown punctuation package.");

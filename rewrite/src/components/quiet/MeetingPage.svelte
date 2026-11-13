@@ -9,6 +9,7 @@
   import ErrorBanner from "../ErrorBanner.svelte";
   import ProcessingBand from "./ProcessingBand.svelte";
   import MeetingMenu from "./MeetingMenu.svelte";
+  import MeetingSync from "./MeetingSync.svelte";
   import Sheet from "./Sheet.svelte";
   import { parseTranscript } from "../../lib/meeting-transcript";
   import { scrollEdges } from "../../lib/scroll-edges";
@@ -110,6 +111,7 @@
       >{/if}
   </div>
   {#if session.processing}<ProcessingBand {session} />{/if}
+  {#if app.snapshot.capabilities.sync}<MeetingSync id={detail.id} disabled={session.dirty || locked} onchanged={async()=>{await session.refresh();}} />{/if}
   {#if (detail.error || session.meetingError) && (!session.statusKey || session.statusKey !== session.hiddenStatus)}<ErrorBanner
       error={session.meetingError || detail.error}
       onaction={onerroraction}

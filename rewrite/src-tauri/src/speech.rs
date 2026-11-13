@@ -1473,7 +1473,8 @@ fn run_job(
     // Stopping the optional model still keeps the deterministic first stage.
     // Cancellation remains live and wins before any publication.
     let fallback_stop = AtomicBool::new(false);
-    let (original_text, mut cleaned) = clean_dictation_recognition(&recognition, effective_mode, &request_vocabulary, |text| cleanup::run_dictation_interruptible_with_options(
+    let casing = job.options.punctuation_model && crate::punctuation::casing_package_selected(root);
+    let (original_text, mut cleaned) = clean_dictation_recognition(&recognition, effective_mode, &request_vocabulary, casing, |text| cleanup::run_dictation_interruptible_with_options(
         root,
         text,
         effective_mode,
@@ -1584,19 +1585,26 @@ fn run_job(
 /// Cleanup consumes only guarded speech; the untouched recognition is returned
 /// separately for DictationResult/history and never used as a cleanup fallback.
 /// Cleanup reads the recognized text with segment-start capitals lowered where
-/// the recognizer decoded the audio in pause-separated pieces. Original mode
-/// and the saved raw text keep the recognizer's casing.
+/// the recognizer decoded the audio in pause-separated pieces. A punctuation
+/// package with a casing label (`casing`) decides those capitals itself: it
+/// reads the recognizer's own casing and the piece starts instead. Original
+/// mode and the saved raw text keep the recognizer's casing.
 fn clean_dictation_recognition(
     recognition: &asr::RecognitionResult,
     mode: cleanup::Mode,
     vocabulary: &[cleanup::Vocabulary],
+    casing: bool,
     clean: impl FnOnce(&str) -> cleanup::ResultText,
 ) -> (String, cleanup::ResultText) {
-    let joined = (mode != cleanup::Mode::Original).then(|| {
-        let segments: Vec<&str> = recognition.segments.iter().map(|s| s.text.as_str()).collect();
-        crate::punctuation::lower_segment_start_capitals(&recognition.text, &segments, vocabulary)
-    }).flatten();
-    let cleaned = clean(joined.as_deref().unwrap_or(&recognition.text));
+    let segments: Vec<&str> = recognition.segments.iter().map(|s| s.text.as_str()).collect();
+    let cleaned = if casing && mode != cleanup::Mode::Original {
+        crate::punctuation::with_pieces(&segments, || clean(&recognition.text))
+    } else {
+        let joined = (mode != cleanup::Mode::Original)
+            .then(|| crate::punctuation::lower_segment_start_capitals(&recognition.text, &segments, vocabulary))
+            .flatten();
+        clean(joined.as_deref().unwrap_or(&recognition.text))
+    };
     (recognition.original_text().to_owned(), cleaned)
 }
 
@@ -1640,7 +1648,7 @@ mod tests {
             (cleanup::Mode::Format, "We should file a feature request for the export button."),
             (cleanup::Mode::Clean, "We should file a feature request for the export button."),
         ] {
-            let (original, cleaned) = clean_dictation_recognition(&recognition, mode, &[], |input| {
+            let (original, cleaned) = clean_dictation_recognition(&recognition, mode, &[], false, |input| {
                 cleanup::run_dictation_interruptible_with_policy(
                     std::path::Path::new("unused"), input, mode, &[], &[], "local-rules",
                     StartOptions::default().policy, &AtomicBool::new(false), &AtomicBool::new(false),
@@ -1666,7 +1674,7 @@ mod tests {
             for mode in [cleanup::Mode::Original, cleanup::Mode::Format, cleanup::Mode::Clean] {
                 let options = StartOptions { cleanup_mode: mode, cleanup_model: "local-rules".into(), ..StartOptions::default() };
                 let (mode, model) = recognition_cleanup_route(&options, recognition.completeness);
-                let (original, cleaned) = clean_dictation_recognition(&recognition, mode, &[], |input| {
+                let (original, cleaned) = clean_dictation_recognition(&recognition, mode, &[], false, |input| {
                     assert_eq!(input, recognition.text);
                     assert!(!input.contains("go go"));
                     cleanup::run_dictation_interruptible_with_policy(

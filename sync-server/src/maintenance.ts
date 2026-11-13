@@ -3,6 +3,8 @@ import { eraseAccount } from "./store";
 import { productionAuth } from "./auth";
 import { RESET_WINDOW } from "./authorization";
 import { backupColumns } from "./restore";
+import { meetingMaintenance } from "./meetings";
+import { rekeyPageMaintenance } from "./rekey_pages";
 export async function backup(env: Env): Promise<string> {
   const stamp = new Date().toISOString();
   const prefix = "snapshot/" + stamp + "/";
@@ -13,7 +15,7 @@ export async function backup(env: Env): Promise<string> {
   await env.DB.batch(
     tables.map((table) =>
       env.DB.prepare(
-        `INSERT INTO backup_rows(run,table_name,ordinal,payload,created_at) SELECT ?,?,ROW_NUMBER() OVER (),json_object(${backupColumns[table].map((c) => `'${c}',${c}`).join(",")}),? FROM ${table}`,
+        `INSERT INTO backup_rows(run,table_name,ordinal,payload,created_at) SELECT ?,?,ROW_NUMBER() OVER (),json_object(${backupColumns[table].map((c) => `'${c}',${c}`).join(",")}),? FROM ${table}${table === "objects" ? " WHERE id NOT LIKE 'blob/%'" : table === "trash" ? " WHERE body_key NOT IN (SELECT body_key FROM audio_bodies)" : ""}`,
       ).bind(run, table, now()),
     ),
   );
@@ -34,7 +36,7 @@ export async function backup(env: Env): Promise<string> {
         const values = rows.map(
           (row) => JSON.parse(row.payload) as Record<string, unknown>,
         );
-        if (table === "objects" || table === "trash")
+        if (table === "objects" || table === "trash" || table === "rekey_pages")
           for (const row of values) {
             if (table === "objects" && row.deleted) continue;
             const key = String(row.body_key);
@@ -68,6 +70,40 @@ export async function backup(env: Env): Promise<string> {
 export async function maintenance(env: Env): Promise<void> {
   try {
     const t = now();
+    let backupFailed = false;
+    try {
+      await backup(env);
+    } catch {
+      backupFailed = true;
+      await env.DB.prepare(
+        "INSERT INTO operations(name,last_failure) VALUES('backup',?) ON CONFLICT(name) DO UPDATE SET last_failure=excluded.last_failure",
+      )
+        .bind(t)
+        .run();
+    }
+    try {
+      await meetingMaintenance(env);
+      await env.DB.prepare(
+        "INSERT INTO operations(name,last_ok,count) VALUES('meeting-gc',?,1) ON CONFLICT(name) DO UPDATE SET last_ok=excluded.last_ok,count=count+1",
+      )
+        .bind(t)
+        .run();
+    } catch {
+      await env.DB.prepare(
+        "INSERT INTO operations(name,last_failure) VALUES('meeting-gc',?) ON CONFLICT(name) DO UPDATE SET last_failure=excluded.last_failure",
+      )
+        .bind(t)
+        .run();
+    }
+    try {
+      await rekeyPageMaintenance(env);
+    } catch {
+      await env.DB.prepare(
+        "INSERT INTO operations(name,last_failure) VALUES('checkpoint-gc',?) ON CONFLICT(name) DO UPDATE SET last_failure=excluded.last_failure",
+      )
+        .bind(t)
+        .run();
+    }
     await env.DB.prepare("DELETE FROM backup_rows WHERE created_at<?")
       .bind(t - 86400)
       .run();
@@ -109,18 +145,35 @@ export async function maintenance(env: Env): Promise<void> {
       ).all<{ id: string }>()
     ).results;
     for (const a of expired) await eraseAccount(env, a.id);
-    const trash = (
-      await env.DB.prepare(
-        "SELECT body_key FROM trash WHERE purge_at<=? LIMIT 500",
-      )
-        .bind(t)
-        .all<{ body_key: string }>()
-    ).results;
-    for (const o of trash) {
-      if (o.body_key) await env.CONTENT.delete(o.body_key);
-      await env.DB.prepare("DELETE FROM trash WHERE body_key=?")
-        .bind(o.body_key)
-        .run();
+    // Restored/reused bodies no longer belong in trash. Remove only the stale
+    // queue rows, retaining the live R2 body and audio accounting.
+    await env.DB.prepare(
+      "DELETE FROM trash WHERE EXISTS(SELECT 1 FROM objects WHERE objects.body_key=trash.body_key) OR EXISTS(SELECT 1 FROM rekey_pages WHERE rekey_pages.body_key=trash.body_key)",
+    ).run();
+    await env.DB.prepare("DELETE FROM rotation_reads WHERE expires_at<=?")
+      .bind(t)
+      .run();
+    // Drain up to 10,000 retired bodies per run in bounded batches. Live
+    // references are excluded even if an interrupted restore left a trash row.
+    for (let batch = 0; batch < 10; batch++) {
+      const trash = (
+        await env.DB.prepare(
+          "SELECT body_key FROM trash WHERE purge_at<=? AND body_key!='' AND NOT EXISTS(SELECT 1 FROM objects WHERE objects.body_key=trash.body_key) AND NOT EXISTS(SELECT 1 FROM rekey_pages WHERE rekey_pages.body_key=trash.body_key) LIMIT 1000",
+        )
+          .bind(t)
+          .all<{ body_key: string }>()
+      ).results;
+      if (!trash.length) break;
+      const keys = trash.map((row) => row.body_key);
+      await env.CONTENT.delete(keys);
+      await env.DB.batch([
+        env.DB.prepare(
+          "DELETE FROM trash WHERE body_key IN(SELECT value FROM json_each(?))",
+        ).bind(JSON.stringify(keys)),
+        env.DB.prepare(
+          "DELETE FROM audio_bodies WHERE body_key IN(SELECT value FROM json_each(?))",
+        ).bind(JSON.stringify(keys)),
+      ]);
     }
     await env.DB.batch([
       env.DB.prepare("DELETE FROM workos_events WHERE at<?").bind(
@@ -152,14 +205,21 @@ export async function maintenance(env: Env): Promise<void> {
     let cursor: string | undefined;
     do {
       const page = await env.CONTENT.list({ cursor, limit: 500 });
-      for (const o of page.objects) {
-        if (o.uploaded.getTime() > Date.now() - 86400000) continue;
-        const ref = await env.DB.prepare(
-          "SELECT 1 FROM objects WHERE body_key=? UNION SELECT 1 FROM trash WHERE body_key=? LIMIT 1",
-        )
-          .bind(o.key, o.key)
-          .first();
-        if (!ref) await env.CONTENT.delete(o.key);
+      const candidates = page.objects
+        .filter((o) => o.uploaded.getTime() <= Date.now() - 86400000)
+        .map((o) => o.key);
+      if (candidates.length) {
+        const encoded = JSON.stringify(candidates);
+        const refs = (
+          await env.DB.prepare(
+            "SELECT body_key FROM objects WHERE body_key IN(SELECT value FROM json_each(?)) UNION SELECT body_key FROM trash WHERE body_key IN(SELECT value FROM json_each(?)) UNION SELECT body_key FROM rekey_pages WHERE body_key IN(SELECT value FROM json_each(?))",
+          )
+            .bind(encoded, encoded, encoded)
+            .all<{ body_key: string }>()
+        ).results;
+        const referenced = new Set(refs.map((row) => row.body_key));
+        const orphans = candidates.filter((key) => !referenced.has(key));
+        if (orphans.length) await env.CONTENT.delete(orphans);
       }
       cursor = page.truncated ? page.cursor : undefined;
     } while (cursor);
@@ -198,7 +258,6 @@ export async function maintenance(env: Env): Promise<void> {
           .run();
       }
     }
-    await backup(env);
     do {
       const page = await env.BACKUPS.list({ cursor, limit: 500 });
       const old = page.objects.filter(
@@ -209,6 +268,7 @@ export async function maintenance(env: Env): Promise<void> {
       if (old.length) await env.BACKUPS.delete(old.map((o) => o.key));
       cursor = page.truncated ? page.cursor : undefined;
     } while (cursor);
+    if (backupFailed) throw Error("backup_failed");
     await env.DB.prepare(
       "INSERT INTO operations(name,last_ok,count) VALUES('cron',?,1) ON CONFLICT(name) DO UPDATE SET last_ok=excluded.last_ok,count=count+1",
     )

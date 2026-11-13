@@ -35,6 +35,7 @@ mod meeting_pieces;
 mod meeting_leak;
 pub mod meeting_audio_export;
 mod meeting_speech;
+mod meeting_trash;
 pub mod meetings;
 mod model_manager;
 mod model_licenses;
@@ -81,8 +82,12 @@ pub mod speech;
 pub mod store;
 pub mod sync_crypto;
 mod sync_account;
+mod sync_cutovers;
 mod sync_client;
 mod sync_engine;
+mod meeting_layers;
+mod meeting_sync;
+mod meeting_sync_audio;
 mod secret_store;
 pub mod structured_clean;
 pub mod system_audio;
@@ -285,6 +290,9 @@ pub fn run() {
             commands::show_page,
             commands::copy_text,
             commands::list_meetings,
+            commands::list_meeting_trash,
+            commands::restore_meeting_trash,
+            commands::delete_meeting_trash,
             commands::search_meetings,
             commands::get_meeting,
             commands::start_meeting,

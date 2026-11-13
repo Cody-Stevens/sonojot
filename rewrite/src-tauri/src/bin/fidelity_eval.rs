@@ -402,6 +402,9 @@ struct Case {
     #[serde(default)]
     confirmed_vocabulary: Vec<sonojot_core::structured_clean::VocabularyEntry>,
     active_scope: Option<String>,
+    /// Separately decoded recognizer pieces of input_text, in order (optional).
+    #[serde(default)]
+    segments: Vec<String>,
     stop_after_ms: Option<u64>,
     cancel_after_ms: Option<u64>,
     scope: Option<String>,
@@ -1290,10 +1293,17 @@ fn evaluate(
                 )
             } else {
                 row["written_form"] = json!(args.written_form.as_str());
-                cleanup::run_dictation_interruptible_with_written_form_mode(
-                    &args.root, &raw, selected_mode, &case.vocabulary, &case.confirmed_vocabulary,
+                let segments: Vec<&str> = case.segments.iter().map(String::as_str).collect();
+                let run = |text: &str| cleanup::run_dictation_interruptible_with_written_form_mode(
+                    &args.root, text, selected_mode, &case.vocabulary, &case.confirmed_vocabulary,
                     model, policy, &cancel, &stop, args.written_form,
-                )
+                );
+                if segments.is_empty() || selected_mode == cleanup::Mode::Original {
+                    run(&raw)
+                } else {
+                    sonojot_core::punctuation::clean_dictation_pieces(
+                        &args.root, &raw, &segments, &case.vocabulary, true, run)
+                }
             };
             row["final_text"] = json!(result.text);
             row["status"] = json!(result.status);

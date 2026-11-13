@@ -2,6 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { build } from "esbuild";
 import { restore } from "../src/restore";
+import { store } from "../src/store";
+import { rekeyPages } from "../src/rekey_pages";
+import { meetings } from "../src/meetings";
+import { backup, maintenance } from "../src/maintenance";
 import { readFileSync } from "node:fs";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 let mf: Miniflare;
@@ -102,6 +106,7 @@ beforeAll(async () => {
       d1Databases: ["DB"],
       r2Buckets: ["CONTENT", "BACKUPS"],
       bindings: {
+        ENVIRONMENT: "staging",
         PUBLIC_ORIGIN: "https://sync.test",
         WORKOS_CLIENT_ID: "client_synthetic",
         WORKOS_API_KEY: "synthetic-test-api-key",
@@ -119,6 +124,9 @@ beforeAll(async () => {
   await db.exec(readFileSync("migrations/0006_authkit.sql", "utf8"));
   await db.exec(readFileSync("migrations/0007_test_accounts.sql", "utf8"));
   await db.exec(readFileSync("migrations/0008_email_signin.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0009_meetings.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0010_meeting_lifecycle.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0011_meeting_restore.sql", "utf8"));
 }, 30000);
 afterAll(async () => {
   await mf?.dispose();
@@ -137,7 +145,7 @@ beforeEach(async () => {
     }
   }
   await db.exec(
-    "DELETE FROM trash; DELETE FROM operations; DELETE FROM pairings; DELETE FROM sessions; DELETE FROM wraps; DELETE FROM devices; DELETE FROM identities; DELETE FROM accounts; DELETE FROM auth_requests; DELETE FROM rate_limits; DELETE FROM workos_events; DELETE FROM workos_revocations;",
+    "DELETE FROM restore_accounts; DELETE FROM restore_run; DELETE FROM trash; DELETE FROM operations; DELETE FROM pairings; DELETE FROM sessions; DELETE FROM wraps; DELETE FROM devices; DELETE FROM identities; DELETE FROM accounts; DELETE FROM auth_requests; DELETE FROM rate_limits; DELETE FROM workos_events; DELETE FROM workos_revocations;",
   );
 });
 describe("auth isolation", () => {
@@ -672,6 +680,13 @@ describe("encrypted store", () => {
 it("exports ciphertext, restores it to an empty database and requires fresh sessions", async () => {
   const a = await signin();
   await put(a);
+  const original = await mf.getBindings<Env>();
+  const checkpointKey = a.account.id + "/synthetic-checkpoint";
+  await original.CONTENT.put(checkpointKey, envelope);
+  await db
+    .prepare("INSERT INTO rekey_pages VALUES(?,2,'synthetic',0,?,4096,0)")
+    .bind(a.account.id, checkpointKey)
+    .run();
   expect(
     (await call("/v1/reset", "POST", { confirmed: true }, a.token)).status,
   ).toBe(202);
@@ -697,6 +712,13 @@ it("exports ciphertext, restores it to an empty database and requires fresh sess
   const r = await call("/v1/objects/vocabulary", "GET", undefined, again.token);
   expect(r.status).toBe(200);
   expect(Buffer.from(await r.arrayBuffer())).toEqual(envelope);
+  expect(
+    Buffer.from(await (await env.CONTENT.get(checkpointKey))!.arrayBuffer()),
+  ).toEqual(envelope);
+  expect(
+    (await db.prepare("SELECT expires_at FROM rekey_pages").first())
+      ?.expires_at,
+  ).toBe(0);
   expect(
     (await db.prepare("SELECT bytes_used FROM accounts").first())?.bytes_used,
   ).toBe(4096);
@@ -857,6 +879,19 @@ describe("account lifecycle", () => {
     const a = await signin("a"),
       b = await signin("b");
     await put(a);
+    expect(
+      (
+        await call(
+          "/v1/meetings/reset-meeting",
+          "POST",
+          { createdAt: 1 },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect((await put(a, "m/reset-meeting/raw/base")).status).toBe(200);
+    expect((await put(a, "m/reset-meeting/head")).status).toBe(200);
+
     await call(
       "/v1/wraps",
       "PUT",
@@ -904,6 +939,9 @@ describe("account lifecycle", () => {
     );
     expect(
       (await db.prepare("SELECT bytes_used FROM accounts").first())?.bytes_used,
+    ).toBe(0);
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM meetings").first())?.n,
     ).toBe(0);
   });
 });
@@ -1696,5 +1734,1226 @@ describe("branded email sign-in", () => {
         })
       ).status,
     ).toBe(400);
+  });
+});
+
+describe("meeting layers and storage", () => {
+  async function register(a: { token: string }, name: string, created: number) {
+    expect(
+      (
+        await call(
+          `/v1/meetings/${name}`,
+          "POST",
+          { createdAt: created * 86400 },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect((await put(a, `m/${name}/raw/base`)).status).toBe(200);
+    expect((await put(a, `m/${name}/head`)).status).toBe(200);
+  }
+  async function hold(a: { token: string }, name: string) {
+    const inventory = (await (
+      await call(`/v1/meetings/${name}`, "GET", undefined, a.token)
+    ).json()) as { version: number };
+    return call(
+      "/v1/holds",
+      "POST",
+      {
+        object: `m/${name}/head`,
+        rev: 1,
+        version: inventory.version,
+        complete: true,
+      },
+      a.token,
+    );
+  }
+  it("makes raw, clean, batches, snapshots and blobs immutable", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    for (const suffix of [
+      "raw/base",
+      "clean/one",
+      "ops/base/one",
+      "snap/base/one",
+    ]) {
+      if (suffix !== "raw/base")
+        expect((await put(a, `m/first/${suffix}`)).status).toBe(200);
+      expect((await put(a, `m/first/${suffix}`, 1)).status).toBe(412);
+      expect(
+        (
+          await call(
+            `/v1/objects/m/first/${suffix}`,
+            "DELETE",
+            undefined,
+            a.token,
+            { "if-match": '"1"', "x-sync-epoch": "1" },
+          )
+        ).status,
+      ).toBe(400);
+    }
+    expect((await put(a, "m/first/head", 1)).status).toBe(200);
+    const b = await signin("device-b");
+    expect((await hold(b, "first")).status).toBe(412);
+  });
+  it("drops the oldest eligible meeting and keeps unheld or stale-held ones", async () => {
+    const a = await signin();
+    await register(a, "unheld", 1);
+    await register(a, "old", 2);
+    await register(a, "new", 3);
+    expect((await hold(a, "old")).status).toBe(200);
+    expect((await hold(a, "new")).status).toBe(200);
+    await db.prepare("UPDATE accounts SET meeting_quota=24576").run();
+    expect(
+      (
+        await call(
+          "/v1/meetings/incoming",
+          "POST",
+          { createdAt: 4 * 86400 },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect((await put(a, "m/incoming/raw/base")).status).toBe(200);
+    const rows = (
+      await db
+        .prepare("SELECT id,state FROM meetings ORDER BY created_at")
+        .all()
+    ).results;
+    expect(rows).toEqual([
+      { id: "unheld", state: "active" },
+      { id: "old", state: "dropped" },
+      { id: "new", state: "active" },
+      { id: "incoming", state: "active" },
+    ]);
+    expect((await put(a, "m/old/ops/base/late")).status).toBe(410);
+    expect(
+      (await call("/v1/meetings/old", "POST", { createdAt: 2 }, a.token))
+        .status,
+    ).toBe(410);
+    const changes = (await (
+      await call("/v1/changes?since=0", "GET", undefined, a.token)
+    ).json()) as { changes: { id: string; deleted: number }[] };
+    expect(
+      changes.changes
+        .filter((c) => c.deleted === 2)
+        .map((c) => c.id)
+        .sort(),
+    ).toEqual(["m/old/head", "m/old/raw/base"]);
+  });
+  it("drops an incoming edit's own meeting when it is the oldest held copy", async () => {
+    const a = await signin();
+    await register(a, "old", 1);
+    await register(a, "new", 2);
+    expect((await hold(a, "old")).status).toBe(200);
+    expect((await hold(a, "new")).status).toBe(200);
+    await db.prepare("UPDATE accounts SET meeting_quota=16384").run();
+    expect((await put(a, "m/old/ops/base/growth")).status).toBe(410);
+    expect(
+      (await db.prepare("SELECT state FROM meetings WHERE id='old'").first())
+        ?.state,
+    ).toBe("dropped");
+    expect(
+      (await db.prepare("SELECT state FROM meetings WHERE id='new'").first())
+        ?.state,
+    ).toBe("active");
+  });
+  it("requires a hold for every current layer and a signed-in retained device", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    expect((await hold(a, "first")).status).toBe(200);
+    expect((await put(a, "m/first/ops/base/offline")).status).toBe(200);
+    await db.prepare("UPDATE accounts SET meeting_quota=12288").run();
+    expect(
+      (await call("/v1/meetings/second", "POST", { createdAt: 2 }, a.token))
+        .status,
+    ).toBe(200);
+    expect((await put(a, "m/second/head")).status).toBe(507);
+    expect((await hold(a, "first")).status).toBe(200);
+    await db.prepare("UPDATE devices SET revoked_at=1").run();
+    const b = await signin("device-b");
+    expect((await put(b, "m/second/head")).status).toBe(507);
+  });
+  it("deletes the entire meeting, retains trash and rejects offline resurrection", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    expect(
+      (await call("/v1/meetings/first", "DELETE", { confirmed: true }, a.token))
+        .status,
+    ).toBe(400);
+    expect((await put(a, "m/first/head", 1)).status).toBe(200);
+    expect(
+      (
+        await call(
+          "/v1/meetings/first",
+          "DELETE",
+          { confirmed: true, headRevision: 2 },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await db.prepare("SELECT deleted,size FROM objects").all()).results,
+    ).toEqual([
+      { deleted: 1, size: 0 },
+      { deleted: 0, size: 4096 },
+    ]);
+    expect(
+      (await db.prepare("SELECT * FROM trash").all()).results,
+    ).toHaveLength(2);
+    expect((await put(a, "m/first/ops/base/late")).status).toBe(410);
+    const head = await db
+      .prepare("SELECT body_key FROM objects WHERE id='m/first/head'")
+      .first<{ body_key: string }>();
+    await db
+      .prepare(
+        "UPDATE meetings SET updated_at=unixepoch()-181*86400 WHERE id='first'",
+      )
+      .run();
+    await call("/__test/cron");
+    expect(
+      await db
+        .prepare("SELECT id FROM objects WHERE id='m/first/head'")
+        .first(),
+    ).toBeNull();
+    expect(
+      (await db.prepare("SELECT bytes_used FROM accounts").first())?.bytes_used,
+    ).toBe(0);
+    expect(
+      await db
+        .prepare("SELECT body_key FROM trash WHERE body_key=?")
+        .bind(head!.body_key)
+        .first(),
+    ).not.toBeNull();
+    await db.prepare("UPDATE trash SET purge_at=0").run();
+    await call("/__test/cron");
+    expect(
+      await (await mf.getBindings<Env>()).CONTENT.head(head!.body_key),
+    ).toBeNull();
+  });
+  it("retains folded batches for thirty days and keeps snapshots", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    expect((await put(a, "m/first/ops/base/batch")).status).toBe(200);
+    expect((await put(a, "m/first/snap/base/snapshot")).status).toBe(200);
+    expect(
+      (
+        await call(
+          "/v1/meetings/first/compact",
+          "POST",
+          {
+            snapshot: "m/first/snap/base/snapshot",
+            folded: ["m/first/ops/base/batch"],
+          },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await db.prepare("SELECT purge_at FROM compactions").first())!.purge_at,
+    ).toBeGreaterThan(Date.now() / 1000 + 29 * 86400);
+    await call("/__test/cron");
+    expect(
+      (
+        await call(
+          "/v1/objects/m/first/ops/base/batch",
+          "GET",
+          undefined,
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    await db.prepare("UPDATE compactions SET purge_at=0").run();
+    await call("/__test/cron");
+    expect(
+      (
+        await call(
+          "/v1/objects/m/first/ops/base/batch",
+          "GET",
+          undefined,
+          a.token,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await call(
+          "/v1/objects/m/first/snap/base/snapshot",
+          "GET",
+          undefined,
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+  });
+  async function retain(
+    a: { token: string },
+    name: string,
+    objects: string[],
+    extra: Record<string, unknown> = {},
+  ) {
+    const inv = (await (
+      await call(`/v1/meetings/${name}`, "GET", undefined, a.token)
+    ).json()) as { version: number; objects: { id: string; rev: number }[] };
+    const headRevision = inv.objects.find(
+      (o) => o.id === `m/${name}/head`,
+    )!.rev;
+    return call(
+      `/v1/meetings/${name}/references`,
+      "POST",
+      {
+        token: randomBytes(16).toString("hex"),
+        version: inv.version,
+        headRevision,
+        objects,
+        complete: true,
+        ...extra,
+      },
+      a.token,
+    );
+  }
+  async function blob(a: { token: string }, name: string, chunk: string) {
+    return mf.dispatchFetch(`https://sync.test/v1/blobs/${name}/${chunk}`, {
+      method: "PUT",
+      headers: {
+        authorization: "Bearer " + a.token,
+        "x-sync-auth": proof,
+        "if-match": '\"0\"',
+        "x-sync-epoch": "1",
+      },
+      body: envelope,
+    });
+  }
+  it("M1 limits ordinary staging accounts and grants 100 GB only to test accounts", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    expect(
+      (await db.prepare("SELECT meeting_quota FROM accounts").first())
+        ?.meeting_quota,
+    ).toBe(2_000_000_000);
+    await db.prepare("UPDATE accounts SET is_test=1").run();
+    await call("/v1/meetings/first", "POST", { createdAt: 86400 }, a.token);
+    expect(
+      (await db.prepare("SELECT meeting_quota FROM accounts").first())
+        ?.meeting_quota,
+    ).toBe(100_000_000_000);
+    await db.prepare("UPDATE accounts SET is_test=0").run();
+    await call("/v1/meetings/first", "POST", { createdAt: 86400 }, a.token);
+    expect(
+      (await db.prepare("SELECT meeting_quota FROM accounts").first())
+        ?.meeting_quota,
+    ).toBe(2_000_000_000);
+  });
+  it("M1 enforces a daily byte budget and rolls it over the next UTC day", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    await db.prepare("UPDATE meeting_upload_bytes SET bytes=2000000000").run();
+    expect((await put(a, "m/first/raw/blocked")).status).toBe(429);
+    expect(
+      await db
+        .prepare("SELECT id FROM objects WHERE id='m/first/raw/blocked'")
+        .first(),
+    ).toBeNull();
+    await db.prepare("UPDATE meeting_upload_bytes SET day=day-1").run();
+    expect((await put(a, "m/first/raw/allowed")).status).toBe(200);
+  });
+  it("M1 reconciles a revoked allowance before direct object writes", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    await db.prepare("UPDATE accounts SET meeting_quota=100000000000").run();
+    expect((await put(a, "m/first/raw/direct")).status).toBe(200);
+    expect(
+      (await db.prepare("SELECT meeting_quota FROM accounts").first())
+        ?.meeting_quota,
+    ).toBe(2_000_000_000);
+  });
+  it("L4 rounds the meeting ordering timestamp to the UTC day", async () => {
+    const a = await signin();
+    expect(
+      (
+        await call(
+          "/v1/meetings/day",
+          "POST",
+          { createdAt: 86400 + 12345 },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await db
+          .prepare("SELECT created_at FROM meetings WHERE id='day'")
+          .first()
+      )?.created_at,
+    ).toBe(86400);
+  });
+  it("M2 requires both a recent hold and a recently seen holding device", async () => {
+    const a = await signin();
+    await register(a, "old", 1);
+    await hold(a, "old");
+    const b = await signin("device-b");
+    await call("/v1/meetings/new", "POST", { createdAt: 2 * 86400 }, b.token);
+    await db.prepare("UPDATE accounts SET meeting_quota=8192").run();
+    await db.prepare("UPDATE holds SET created_at=unixepoch()-2592001").run();
+    expect((await put(b, "m/new/head")).status).toBe(507);
+    await hold(a, "old");
+    await db
+      .prepare(
+        "UPDATE devices SET last_seen_at=unixepoch()-2592001 WHERE id='device-a'",
+      )
+      .run();
+    expect((await put(b, "m/new/head")).status).toBe(507);
+    await hold(a, "old");
+    expect((await put(b, "m/new/head")).status).toBe(200);
+  });
+  it("L1 never records missing or cross-meeting folded objects", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    await put(a, "m/first/snap/base/snap");
+    expect(
+      (
+        await call(
+          "/v1/meetings/first/compact",
+          "POST",
+          {
+            snapshot: "m/first/snap/base/snap",
+            folded: ["m/first/ops/base/missing"],
+          },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM compactions").first())?.n,
+    ).toBe(0);
+    expect(
+      (
+        await call(
+          "/v1/meetings/first/compact",
+          "POST",
+          {
+            snapshot: "m/first/snap/base/snap",
+            folded: ["m/other/ops/base/batch"],
+          },
+          a.token,
+        )
+      ).status,
+    ).toBe(400);
+  });
+  it("retains unreferenced bases for 30 days, cancels retirement on reuse, and rejects stale snapshots", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    await put(a, "m/first/raw/old");
+    const refs = ["m/first/head", "m/first/raw/base"];
+    expect((await retain(a, "first", refs)).status).toBe(200);
+    expect(
+      (await db
+        .prepare(
+          "SELECT purge_at FROM meeting_gc WHERE object='m/first/raw/old'",
+        )
+        .first())!.purge_at,
+    ).toBeGreaterThan(Date.now() / 1000 + 29 * 86400);
+    expect(
+      (await retain(a, "first", [...refs, "m/first/raw/old"])).status,
+    ).toBe(200);
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM meeting_gc").first())?.n,
+    ).toBe(0);
+    expect((await retain(a, "first", refs)).status).toBe(200);
+    await db.prepare("UPDATE meeting_gc SET purge_at=0").run();
+    await put(a, "m/first/ops/base/late");
+    await call("/__test/cron");
+    expect(
+      (await call("/v1/objects/m/first/raw/old", "GET", undefined, a.token))
+        .status,
+    ).toBe(200);
+    expect((await retain(a, "first", refs, { version: 1 })).status).toBe(412);
+    expect(
+      (await retain(a, "first", [...refs, "m/first/ops/base/late"])).status,
+    ).toBe(200);
+    await call("/__test/cron");
+    expect(
+      (await call("/v1/objects/m/first/raw/old", "GET", undefined, a.token))
+        .status,
+    ).toBe(404);
+    expect(
+      (await call("/v1/objects/m/first/raw/base", "GET", undefined, a.token))
+        .status,
+    ).toBe(200);
+  });
+  it("partial reference pages cannot collect anything, including after a prior successful snapshot", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    const refs = ["m/first/head", "m/first/raw/base"];
+    expect((await retain(a, "first", refs)).status).toBe(200);
+    expect(
+      (await retain(a, "first", ["m/first/head", "m/first/raw/missing"]))
+        .status,
+    ).toBe(412);
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM meeting_gc").first())?.n,
+    ).toBe(0);
+    expect(
+      (await retain(a, "first", ["m/first/head"], { complete: false })).status,
+    ).toBe(200);
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM meeting_gc").first())?.n,
+    ).toBe(0);
+  });
+  it("retains segmented document parts for the parent's full thirty days", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    await put(a, "m/first/raw/large");
+    await put(a, "m/first/part/large");
+    const refs = ["m/first/head", "m/first/raw/base"];
+    expect((await retain(a, "first", refs)).status).toBe(200);
+    await db
+      .prepare(
+        "UPDATE objects SET updated_at=unixepoch()-86401 WHERE id='m/first/part/large'",
+      )
+      .run();
+    await call("/__test/cron");
+    expect(
+      (await call("/v1/objects/m/first/part/large", "GET", undefined, a.token))
+        .status,
+    ).toBe(200);
+    const deadlines = (
+      await db
+        .prepare(
+          "SELECT purge_at FROM meeting_gc WHERE object IN('m/first/raw/large','m/first/part/large')",
+        )
+        .all<{ purge_at: number }>()
+    ).results;
+    expect(deadlines).toHaveLength(2);
+    expect(deadlines[0].purge_at).toBe(deadlines[1].purge_at);
+    expect((await retain(a, "first", refs)).status).toBe(200);
+    await db.prepare("UPDATE meeting_gc SET purge_at=0").run();
+    await call("/__test/cron");
+    expect(
+      (await call("/v1/objects/m/first/raw/large", "GET", undefined, a.token))
+        .status,
+    ).toBe(404);
+    expect(
+      (await call("/v1/objects/m/first/part/large", "GET", undefined, a.token))
+        .status,
+    ).toBe(404);
+  });
+  it("expires incomplete audio after a day, keeps committed chunks, and releases bytes", async () => {
+    const a = await signin();
+    await register(a, "first", 1);
+    await blob(a, "first", "kept");
+    expect(
+      (
+        await retain(a, "first", [
+          "m/first/head",
+          "m/first/raw/base",
+          "blob/first/kept",
+        ])
+      ).status,
+    ).toBe(200);
+    await blob(a, "first", "abandoned");
+    await db
+      .prepare(
+        "UPDATE objects SET updated_at=unixepoch()-86401 WHERE id LIKE 'blob/%'",
+      )
+      .run();
+    const old = await db
+      .prepare("SELECT body_key FROM objects WHERE id='blob/first/abandoned'")
+      .first<{ body_key: string }>();
+    await call("/__test/cron");
+    expect(
+      (await call("/v1/blobs/first/kept", "GET", undefined, a.token)).status,
+    ).toBe(200);
+    expect(
+      (await call("/v1/blobs/first/abandoned", "GET", undefined, a.token))
+        .status,
+    ).toBe(404);
+    expect(
+      await db
+        .prepare(
+          "SELECT size,deleted FROM objects WHERE id='blob/first/abandoned'",
+        )
+        .first(),
+    ).toEqual({ size: 0, deleted: 4 });
+    expect(
+      await (await mf.getBindings<Env>()).CONTENT.head(old!.body_key),
+    ).toBeNull();
+    expect((await blob(a, "first", "resumed-new-id")).status).toBe(200);
+  });
+  it("H2 pages encrypted cutovers immutably and inventories objects without a monolithic export", async () => {
+    const a = await signin();
+    const path = "/v1/rekey-pages/2/synthetic-checkpoint/0";
+    const request = () =>
+      mf.dispatchFetch("https://sync.test" + path, {
+        method: "PUT",
+        headers: { authorization: "Bearer " + a.token, "x-sync-auth": proof },
+        body: envelope,
+      });
+    expect((await request()).status).toBe(200);
+    expect((await request()).status).toBe(412);
+    expect(
+      Buffer.from(
+        await (await call(path, "GET", undefined, a.token)).arrayBuffer(),
+      ),
+    ).toEqual(envelope);
+    await db.batch(
+      Array.from({ length: 501 }, (_, i) =>
+        db
+          .prepare("INSERT INTO objects VALUES(?,?,1,0,'',1,?,NULL)")
+          .bind(
+            a.account.id,
+            `synthetic-${String(i).padStart(4, "0")}`,
+            Math.floor(Date.now() / 1000),
+          ),
+      ),
+    );
+    const first = (await (
+      await call("/v1/inventory", "GET", undefined, a.token)
+    ).json()) as { objects: { id: string }[]; hasMore: boolean };
+    expect(first.objects).toHaveLength(250);
+    expect(first.hasMore).toBe(true);
+    const second = (await (
+      await call(
+        "/v1/inventory?after=" + first.objects.at(-1)!.id,
+        "GET",
+        undefined,
+        a.token,
+      )
+    ).json()) as { objects: { id: string }[] };
+    expect(second.objects).toHaveLength(250);
+    expect(second.objects[0].id > first.objects.at(-1)!.id).toBe(true);
+  });
+  it.each(["budget", "capacity", "rate", "epoch"])(
+    "rejects checkpoint %s exhaustion before R2 upload",
+    async (reason) => {
+      const a = await signin();
+      const env = await mf.getBindings<Env>();
+      if (reason === "budget")
+        await db
+          .prepare(
+            "INSERT INTO meeting_upload_bytes VALUES(?,floor(unixepoch()/86400),2000000000)",
+          )
+          .bind(a.account.id)
+          .run();
+      if (reason === "capacity")
+        await db
+          .prepare(
+            "INSERT INTO rekey_pages VALUES(?,2,'full',0,'synthetic',134217728,0)",
+          )
+          .bind(a.account.id)
+          .run();
+      if (reason === "rate")
+        await db
+          .prepare("INSERT INTO rate_limits VALUES(?,300,unixepoch()+60)")
+          .bind(`checkpoint:${a.account.id}`)
+          .run();
+      let writes = 0;
+      const content = new Proxy(env.CONTENT, {
+        get(target, property) {
+          if (property === "put")
+            return async () => {
+              writes++;
+              throw new Error("unexpected upload");
+            };
+          const member = Reflect.get(target, property);
+          return typeof member === "function" ? member.bind(target) : member;
+        },
+      });
+      await expect(
+        rekeyPages(
+          new Request(
+            `https://sync.test/v1/rekey-pages/${reason === "epoch" ? 3 : 2}/synthetic/0`,
+            {
+              method: "PUT",
+              headers: {
+                authorization: "Bearer " + a.token,
+                "x-sync-auth": proof,
+              },
+              body: envelope,
+            },
+          ),
+          { ...env, CONTENT: content },
+        ),
+      ).rejects.toThrow();
+      expect(writes).toBe(0);
+    },
+  );
+  it("allows a deletion head after eviction without resurrecting other objects", async () => {
+    const a = await signin();
+    await register(a, "old", 1);
+    await hold(a, "old");
+    await call("/v1/meetings/new", "POST", { createdAt: 2 * 86400 }, a.token);
+    await db.prepare("UPDATE accounts SET meeting_quota=8192").run();
+    expect((await put(a, "m/new/head")).status).toBe(200);
+    expect((await put(a, "m/old/raw/resurrection")).status).toBe(410);
+    expect((await put(a, "m/old/head", 2)).status).toBe(200);
+    expect(
+      (
+        await call(
+          "/v1/meetings/old",
+          "DELETE",
+          { confirmed: true, headRevision: 3 },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await call("/v1/objects/m/old/head", "GET", undefined, a.token)).status,
+    ).toBe(200);
+    expect(
+      (await db.prepare("SELECT state FROM meetings WHERE id='old'").first())
+        ?.state,
+    ).toBe("deleted");
+  });
+  it("L6 an R2 failure cannot evict a held meeting", async () => {
+    const a = await signin();
+    await register(a, "old", 1);
+    await hold(a, "old");
+    await call("/v1/meetings/new", "POST", { createdAt: 2 * 86400 }, a.token);
+    await db.prepare("UPDATE accounts SET meeting_quota=8192").run();
+    const env = await mf.getBindings<Env>();
+    const content = new Proxy(env.CONTENT, {
+      get(target, property) {
+        if (property === "put")
+          return async () => {
+            throw new Error("synthetic R2 failure");
+          };
+        const member = Reflect.get(target, property);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+    await expect(
+      store(
+        new Request("https://sync.test/v1/objects/m/new/head", {
+          method: "PUT",
+          headers: {
+            authorization: "Bearer " + a.token,
+            "x-sync-auth": proof,
+            "if-match": '\"0\"',
+            "x-sync-epoch": "1",
+          },
+          body: envelope,
+        }),
+        { ...env, CONTENT: content },
+      ),
+    ).rejects.toThrow();
+    expect(
+      (await db.prepare("SELECT state FROM meetings WHERE id='old'").first())
+        ?.state,
+    ).toBe("active");
+    expect(
+      (await call("/v1/objects/m/old/head", "GET", undefined, a.token)).status,
+    ).toBe(200);
+  });
+  it("L5 a meeting cleanup failure does not stop account retention or backup", async () => {
+    await signin();
+    await db.exec("ALTER TABLE meeting_gc RENAME TO meeting_gc_hidden;");
+    try {
+      expect((await call("/__test/cron")).status).toBe(200);
+      expect(
+        (
+          await db
+            .prepare(
+              "SELECT last_failure FROM operations WHERE name='meeting-gc'",
+            )
+            .first()
+        )?.last_failure,
+      ).toBeGreaterThan(0);
+      expect(
+        (
+          await db
+            .prepare("SELECT last_ok FROM operations WHERE name='backup'")
+            .first()
+        )?.last_ok,
+      ).toBeGreaterThan(0);
+    } finally {
+      await db.exec("ALTER TABLE meeting_gc_hidden RENAME TO meeting_gc;");
+    }
+  });
+  it("L5 a checkpoint cleanup failure does not stop unrelated maintenance", async () => {
+    await signin();
+    const env = await mf.getBindings<Env>();
+    const database = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare")
+          return (sql: string) => {
+            if (
+              sql.startsWith(
+                "SELECT account,epoch,nonce,page,body_key FROM rekey_pages",
+              )
+            )
+              throw new Error("synthetic checkpoint cleanup failure");
+            return target.prepare(sql);
+          };
+        const member = Reflect.get(target, property);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+    await maintenance({ ...env, DB: database });
+    expect(
+      (
+        await db
+          .prepare(
+            "SELECT last_failure FROM operations WHERE name='checkpoint-gc'",
+          )
+          .first()
+      )?.last_failure,
+    ).toBeGreaterThan(0);
+    expect(
+      (
+        await db
+          .prepare("SELECT last_ok FROM operations WHERE name='backup'")
+          .first()
+      )?.last_ok,
+    ).toBeGreaterThan(0);
+  });
+  it.each(["stale-hold", "failed-insert"])(
+    "L6 rolls back eviction after R2 success: %s",
+    async (failure) => {
+      const a = await signin();
+      await register(a, "old", 1);
+      await hold(a, "old");
+      await call("/v1/meetings/new", "POST", { createdAt: 2 * 86400 }, a.token);
+      await db.prepare("UPDATE accounts SET meeting_quota=8192").run();
+      if (failure === "failed-insert")
+        await db.exec(
+          "CREATE TRIGGER synthetic_failed_write BEFORE INSERT ON objects WHEN NEW.id='m/new/head' BEGIN SELECT RAISE(ABORT,'synthetic_write_failure'); END;",
+        );
+      const env = await mf.getBindings<Env>();
+      let uploaded: string | undefined;
+      const content = new Proxy(env.CONTENT, {
+        get(target, property) {
+          if (property === "put")
+            return async (...args: Parameters<R2Bucket["put"]>) => {
+              const result = await target.put(...args);
+              uploaded = args[0];
+              if (failure === "stale-hold")
+                await db.prepare("DELETE FROM holds").run();
+              return result;
+            };
+          const member = Reflect.get(target, property);
+          return typeof member === "function" ? member.bind(target) : member;
+        },
+      });
+      try {
+        await expect(
+          store(
+            new Request("https://sync.test/v1/objects/m/new/head", {
+              method: "PUT",
+              headers: {
+                authorization: "Bearer " + a.token,
+                "x-sync-auth": proof,
+                "if-match": '"0"',
+                "x-sync-epoch": "1",
+              },
+              body: envelope,
+            }),
+            { ...env, CONTENT: content },
+          ),
+        ).rejects.toThrow();
+        expect(uploaded).toBeDefined();
+        expect(await env.CONTENT.head(uploaded!)).toBeNull();
+        expect(
+          (
+            await db
+              .prepare("SELECT state FROM meetings WHERE id='old'")
+              .first()
+          )?.state,
+        ).toBe("active");
+        expect(
+          (await call("/v1/objects/m/old/head", "GET", undefined, a.token))
+            .status,
+        ).toBe(200);
+        expect(
+          await db
+            .prepare("SELECT id FROM objects WHERE id='m/new/head'")
+            .first(),
+        ).toBeNull();
+      } finally {
+        if (failure === "failed-insert")
+          await db.exec("DROP TRIGGER synthetic_failed_write;");
+      }
+    },
+  );
+});
+
+describe("meeting migration follow-up", () => {
+  it("S2 restores deleted and dropped meetings and retries an interrupted restore", async () => {
+    const a = await signin();
+    for (const state of ["deleted", "dropped"] as const) {
+      expect(
+        (
+          await call(
+            `/v1/meetings/${state}`,
+            "POST",
+            { createdAt: 86400 },
+            a.token,
+          )
+        ).status,
+      ).toBe(200);
+      expect((await put(a, `m/${state}/raw/base`)).status).toBe(200);
+      expect((await put(a, `m/${state}/head`)).status).toBe(200);
+      await db
+        .prepare("UPDATE meetings SET state=? WHERE id=?")
+        .bind(state, state)
+        .run();
+      await db
+        .prepare(
+          "UPDATE objects SET deleted=?,size=0,body_key='',rev=rev+1 WHERE meeting=? AND id NOT LIKE '%/head'",
+        )
+        .bind(state === "deleted" ? 1 : 2, state)
+        .run();
+    }
+    const env = await mf.getBindings<Env>();
+    const prefix = await backup(env);
+    const key = (await db
+      .prepare("SELECT body_key FROM objects WHERE id='m/dropped/head'")
+      .first<{ body_key: string }>())!.body_key;
+    const body = await (await env.BACKUPS.get(
+      prefix + "content/" + key,
+    ))!.arrayBuffer();
+    await env.BACKUPS.delete(prefix + "content/" + key);
+    await db.exec("DELETE FROM accounts; DELETE FROM trash;");
+    const target = { ...env, ENVIRONMENT: "staging" };
+    await expect(
+      restore(target, env.BACKUPS, prefix, new Set()),
+    ).rejects.toThrow("restore_missing_body");
+    expect(await db.prepare("SELECT 1 FROM accounts").first()).not.toBeNull();
+    await env.BACKUPS.put(prefix + "content/" + key, body);
+    await restore(target, env.BACKUPS, prefix, new Set());
+    expect(
+      (await db.prepare("SELECT id,state FROM meetings ORDER BY id").all())
+        .results,
+    ).toEqual([
+      { id: "deleted", state: "deleted" },
+      { id: "dropped", state: "dropped" },
+    ]);
+    expect(
+      (
+        await db
+          .prepare(
+            "SELECT deleted FROM objects WHERE id LIKE '%/raw/base' ORDER BY id",
+          )
+          .all()
+      ).results,
+    ).toEqual([{ deleted: 1 }, { deleted: 2 }]);
+    expect(await db.prepare("SELECT 1 FROM restore_run").first()).toBeNull();
+    expect(await db.prepare("SELECT 1 FROM sessions").first()).toBeNull();
+    await expect(
+      restore(target, env.BACKUPS, prefix, new Set()),
+    ).rejects.toThrow("restore_requires_empty_database");
+    await expect(
+      db
+        .prepare(
+          "INSERT INTO objects(account,id,rev,size,body_key,deleted,updated_at,meeting) VALUES(?,'m/deleted/raw/forbidden',1,4096,'synthetic',0,0,'deleted')",
+        )
+        .bind(a.account.id)
+        .run(),
+    ).rejects.toThrow("meeting_inactive");
+  });
+  it("L-d quota reads compute entitlement without reconciling D1", async () => {
+    const a = await signin();
+    await db
+      .prepare("UPDATE accounts SET is_test=0,meeting_quota=100000000000")
+      .run();
+    const env = await mf.getBindings<Env>();
+    const database = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare")
+          return (sql: string) => {
+            if (sql.includes("UPDATE accounts SET meeting_quota"))
+              throw Error("quota read wrote D1");
+            return target.prepare(sql);
+          };
+        const member = Reflect.get(target, property);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+    const response = await meetings(
+      new Request("https://sync.test/v1/meetings", {
+        headers: { authorization: "Bearer " + a.token },
+      }),
+      { ...env, DB: database },
+    );
+    expect(
+      ((await response!.json()) as { storage: { quota: number } }).storage
+        .quota,
+    ).toBe(2000000000);
+    expect(
+      (await db.prepare("SELECT meeting_quota FROM accounts").first())
+        ?.meeting_quota,
+    ).toBe(100000000000);
+  });
+  it("S3 key-authorized rotation reads have an independent finite budget", async () => {
+    const a = await signin();
+    await put(a);
+    await db
+      .prepare(
+        "INSERT INTO rate_limits(key,count,expires_at) VALUES(?,300,unixepoch()+60)",
+      )
+      .bind("read:" + a.account.id)
+      .run();
+    expect(
+      (await call("/v1/inventory", "GET", undefined, a.token)).status,
+    ).toBe(429);
+    expect(
+      (
+        await call("/v1/inventory", "GET", undefined, a.token, {
+          "X-Sync-Rotation": "1",
+          "X-Sync-Auth": pk,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call("/v1/inventory", "GET", undefined, a.token, {
+          "X-Sync-Rotation": "1",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call("/v1/rekey/prepare", "POST", { epoch: 1 }, a.token, {
+          "X-Sync-Auth": pk,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await call("/v1/rekey/prepare", "POST", { epoch: 2 }, a.token)).status,
+    ).toBe(409);
+    expect(
+      (await call("/v1/rekey/prepare", "POST", { epoch: 1 }, a.token)).status,
+    ).toBe(200);
+    const b = await signin("device-b");
+    expect(
+      (
+        await call("/v1/inventory", "GET", undefined, b.token, {
+          "X-Sync-Rotation": "1",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await call("/v1/rekey/prepare", "POST", { epoch: 1 }, b.token)).status,
+    ).toBe(409);
+    for (let i = 0; i < 305; i++)
+      expect(
+        (
+          await call(
+            i % 2 ? "/v1/objects/vocabulary" : "/v1/inventory",
+            "GET",
+            undefined,
+            a.token,
+            { "X-Sync-Rotation": "1" },
+          )
+        ).status,
+      ).toBe(200);
+    expect(
+      (
+        await db
+          .prepare("SELECT count FROM rate_limits WHERE key=?")
+          .bind("read:" + a.account.id)
+          .first()
+      )?.count,
+    ).toBe(301);
+    for (const path of [
+      "/v1/blobs/synthetic/chunk",
+      "/v1/objects/blob/synthetic/chunk",
+      "/v1/objects/%62lob/synthetic/chunk",
+    ]) {
+      expect(
+        (
+          await call(path, "GET", undefined, a.token, {
+            "X-Sync-Rotation": "1",
+          })
+        ).status,
+      ).toBe(429);
+    }
+    await db
+      .prepare("UPDATE rate_limits SET count=2000 WHERE key=?")
+      .bind("rotation-read:" + a.account.id)
+      .run();
+    expect(
+      (
+        await call("/v1/inventory", "GET", undefined, a.token, {
+          "X-Sync-Rotation": "1",
+        })
+      ).status,
+    ).toBe(429);
+    await db
+      .prepare("UPDATE rate_limits SET count=0 WHERE key=?")
+      .bind("rotation-read:" + a.account.id)
+      .run();
+    await db
+      .prepare("UPDATE rate_limits SET count=20000 WHERE key=?")
+      .bind("rotation-read-day:" + a.account.id)
+      .run();
+    expect(
+      (
+        await call("/v1/inventory", "GET", undefined, a.token, {
+          "X-Sync-Rotation": "1",
+        })
+      ).status,
+    ).toBe(429);
+    await db
+      .prepare("DELETE FROM rate_limits WHERE key=?")
+      .bind("rotation-read-day:" + a.account.id)
+      .run();
+    await db.prepare("UPDATE rotation_reads SET expires_at=0").run();
+    expect(
+      (
+        await call("/v1/inventory", "GET", undefined, a.token, {
+          "X-Sync-Rotation": "1",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await call("/v1/rekey/prepare", "POST", { epoch: 1 }, a.token)).status,
+    ).toBe(200);
+    await db
+      .prepare("UPDATE accounts SET epoch=2 WHERE id=?")
+      .bind(a.account.id)
+      .run();
+    expect(
+      (
+        await call("/v1/inventory", "GET", undefined, a.token, {
+          "X-Sync-Rotation": "1",
+        })
+      ).status,
+    ).toBe(403);
+    await db
+      .prepare("UPDATE accounts SET epoch=1 WHERE id=?")
+      .bind(a.account.id)
+      .run();
+    expect(
+      (await call("/v1/rekey/prepare", "DELETE", undefined, a.token)).status,
+    ).toBe(200);
+    expect(
+      (
+        await call("/v1/inventory", "GET", undefined, a.token, {
+          "X-Sync-Rotation": "1",
+        })
+      ).status,
+    ).toBe(403);
+  }, 30000);
+  it("S4 backup completes before a failed orphan sweep", async () => {
+    await signin();
+    const env = await mf.getBindings<Env>();
+    const content = new Proxy(env.CONTENT, {
+      get(target, property) {
+        if (property === "list")
+          return async () => {
+            throw Error("synthetic orphan sweep failure");
+          };
+        const member = Reflect.get(target, property);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+    await expect(maintenance({ ...env, CONTENT: content })).rejects.toThrow(
+      "sync_maintenance_failed",
+    );
+    expect(
+      (
+        await db
+          .prepare("SELECT last_ok FROM operations WHERE name='backup'")
+          .first()
+      )?.last_ok,
+    ).toBeGreaterThan(0);
+  });
+  it("F5 reused object and checkpoint bodies leave trash without losing their content", async () => {
+    const a = await signin();
+    await put(a);
+    const env = await mf.getBindings<Env>();
+    const row = await db
+      .prepare(
+        "SELECT body_key FROM objects WHERE account=? AND id='vocabulary'",
+      )
+      .bind(a.account.id)
+      .first<{ body_key: string }>();
+    const checkpoint = a.account.id + "/synthetic-live-checkpoint";
+    await env.CONTENT.put(checkpoint, "synthetic encrypted checkpoint");
+    await db
+      .prepare("INSERT INTO rekey_pages VALUES(?,2,'synthetic',0,?,32,0)")
+      .bind(a.account.id, checkpoint)
+      .run();
+    await db
+      .prepare("INSERT INTO trash VALUES(?,?,0)")
+      .bind(row!.body_key, a.account.id)
+      .run();
+    await db
+      .prepare("INSERT INTO trash VALUES(?,?,0)")
+      .bind(checkpoint, a.account.id)
+      .run();
+    await maintenance(env);
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM trash").first())?.n,
+    ).toBe(0);
+    expect(await env.CONTENT.head(row!.body_key)).not.toBeNull();
+    expect(await env.CONTENT.head(checkpoint)).not.toBeNull();
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM rekey_pages").first())?.n,
+    ).toBe(1);
+  });
+  it("S4 orphan checks are batched and the trash drain exceeds 500", async () => {
+    const a = await signin();
+    const env = await mf.getBindings<Env>();
+    const keys = Array.from(
+      { length: 750 },
+      (_, i) => a.account.id + "/synthetic-retired-" + i,
+    );
+    await db.batch(
+      keys.map((key) =>
+        db.prepare("INSERT INTO trash VALUES(?,?,0)").bind(key, a.account.id),
+      ),
+    );
+    let orphanQueries = 0,
+      deleted = 0;
+    const database = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare")
+          return (sql: string) => {
+            if (
+              sql.startsWith("SELECT body_key FROM objects WHERE body_key IN")
+            )
+              orphanQueries++;
+            return target.prepare(sql);
+          };
+        const member = Reflect.get(target, property);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+    const content = new Proxy(env.CONTENT, {
+      get(target, property) {
+        if (property === "list")
+          return async () => ({
+            objects: Array.from({ length: 500 }, (_, i) => ({
+              key: "synthetic-orphan-" + i,
+              uploaded: new Date(0),
+            })),
+            truncated: false,
+          });
+        if (property === "delete")
+          return async (keys: string | string[]) => {
+            deleted += Array.isArray(keys) ? keys.length : 1;
+          };
+        const member = Reflect.get(target, property);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+    // Missing retired bodies deliberately fail backup, but cannot stop cleanup.
+    await expect(
+      maintenance({ ...env, DB: database, CONTENT: content }),
+    ).rejects.toThrow("sync_maintenance_failed");
+    expect(orphanQueries).toBe(1);
+    expect(deleted).toBe(1250);
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM trash").first())?.n,
+    ).toBe(0);
+    expect(
+      (
+        await db
+          .prepare("SELECT last_failure FROM operations WHERE name='backup'")
+          .first()
+      )?.last_failure,
+    ).toBeGreaterThan(0);
   });
 });

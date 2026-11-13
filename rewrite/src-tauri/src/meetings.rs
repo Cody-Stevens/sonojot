@@ -2,6 +2,8 @@
 mod export;
 mod join;
 mod timed;
+#[path = "meeting_layer_store.rs"]
+pub(crate) mod layers;
 pub use timed::validate_speaker as validate_transcription_speaker;
 pub use join::SpeakerLabel;
 pub use export::{render_export, render_pdf};
@@ -289,6 +291,9 @@ mod clean {
                 });
             }
             let pieces = self.recognizer_pieces(id);
+            // A punctuation package with a casing label reads the pieces itself.
+            let casing = settings.sonojot_punctuation
+                && crate::punctuation::casing_package_selected(&self.store.models_dir());
             self.clean_with(id, |transcript, cancel| {
                 started();
                 crate::resource_manager::configure(&settings);
@@ -297,17 +302,24 @@ mod clean {
                     crate::ai::check_cancel(cancel)?;
                     // As in dictation, cleanup reads an unedited passage with the
                     // capital each mid-sentence recognizer piece starts with lowered.
-                    let joined = passage_pieces(passage, &pieces).and_then(|parts|
-                        crate::punctuation::lower_segment_start_capitals(&tidy_spaces(passage), &parts, &vocabulary));
+                    let parts = passage_pieces(passage, &pieces);
+                    let joined = if casing { None } else {
+                        parts.as_ref().and_then(|parts|
+                            crate::punctuation::lower_segment_start_capitals(&tidy_spaces(passage), parts, &vocabulary))
+                    };
                     let passage = joined.as_deref().unwrap_or(passage);
                     // Public entry point owns punctuation's resource admission and
                     // worker. local-rules avoids acquiring an optional LLM lease.
-                    let result = crate::cleanup::run_with_delete_policy(
+                    let run = || crate::cleanup::run_with_delete_policy(
                         &self.store.models_dir(), passage, crate::cleanup::Mode::Clean,
                         &vocabulary, &confirmed, "local-rules", crate::cleanup::CleanupPolicy::conservative(),
                         cancel, &stop, if settings.written_form { crate::punctuation::WrittenFormMode::Model } else { crate::punctuation::WrittenFormMode::Off }, false,
                         settings.sonojot_punctuation,
                     );
+                    let result = match parts.filter(|_| casing) {
+                        Some(parts) => crate::punctuation::with_pieces(&parts, run),
+                        None => run(),
+                    };
                     crate::ai::check_cancel(cancel)?;
                     Ok(result.text)
                 })
@@ -1101,13 +1113,23 @@ impl Meetings {
         Ok(self.store.meetings_dir().join(format!("{id}.json")))
     }
     fn read(&self, id: &str) -> Result<MeetingRecord, String> {
-        let mut record: MeetingRecord = self.store.read(&self.path(id)?)?;
+        self.read_record(id, crate::flavor::sync_enabled())
+    }
+    fn read_record(&self, id: &str, reconcile: bool) -> Result<MeetingRecord, String> {
+        if reconcile { self.reconcile_absence(id)?; }
+        let value: serde_json::Value = self.store.read(&self.path(id)?)?;
+        let mut record: MeetingRecord = serde_json::from_value(value.clone()).map_err(|_| "Invalid meeting JSON.")?;
         if record.schema_version != 1 || record.detail.id != id {
             return Err(
                 "The meeting record has an unsupported schema or mismatched identifier.".into(),
             );
         }
         validate_record(&record)?;
+        if reconcile && !busy(&record.detail.status) && layers::capture(&self.store, &value).is_err() {
+            // A newer/invalid layer schema must not hide the compatible JSON or
+            // overwrite the unreadable history. Sync reports that meeting separately.
+            layers::diagnostic("layers-unavailable-json-retained");
+        }
         let audio = self.audio_for(&record, "mixed")?;
         record.detail.audio_path = audio.as_ref().map(|p| p.to_string_lossy().into_owned());
         record.detail.summary.has_audio = audio.as_ref().is_some_and(|p| p.is_file());
@@ -1165,10 +1187,20 @@ impl Meetings {
         Ok(record)
     }
     fn write(&self, record: &MeetingRecord) -> Result<(), String> {
+        self.write_record(record, crate::flavor::sync_enabled())
+    }
+    fn write_record(&self, record: &MeetingRecord, sync: bool) -> Result<(), String> {
         validate_record(record)?;
+        if sync {
+            layers::preserve_legacy(&self.store, &record.detail.id)?;
+        }
         self.store.write(&self.path(&record.detail.id)?, record)?;
+        if sync
+            && layers::capture(&self.store, &serde_json::to_value(record).map_err(|e| e.to_string())?).is_err()
+        { layers::diagnostic("layers-write-failed-json-retained"); }
         self.revision.fetch_add(1, Ordering::Release);
         self.automatic_titles.wake();
+        crate::sync_account::wake();
         Ok(())
     }
     pub fn get(&self, id: &str) -> Result<MeetingDetail, String> {
@@ -1176,7 +1208,7 @@ impl Meetings {
         Ok(self.read(id)?.detail)
     }
     pub fn list(&self) -> Result<Vec<MeetingListItem>, String> {
-        let _guard = self.store.lock()?;
+        if crate::meeting_trash::purge(&self.store).is_err() { layers::diagnostic("trash-purge-failed"); }
         let mut rows = Vec::new();
         for entry in fs::read_dir(self.store.meetings_dir())
             .map_err(|e| format!("Cannot list meetings: {e}"))?
@@ -1191,7 +1223,12 @@ impl Meetings {
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .ok_or("A meeting filename is invalid.")?;
-            let record = self.read(id)?;
+            let _guard = self.store.lock()?;
+            // JSON is the persisted projection. Listing never opens full layer histories.
+            let record = match self.read_record(id, false) {
+                Ok(record) => record,
+                Err(_) => { layers::diagnostic("list-record-unavailable"); continue; }
+            };
             rows.push(MeetingListItem {
                 auto_named: record.auto_named(),
                 missing_seconds: record.detail.missing_seconds,
@@ -1522,8 +1559,17 @@ impl Meetings {
     /// Only fixed files derived from this record's validated ID are deleted. Legacy/source files are never deleted.
     pub fn delete(&self, id: &str) -> Result<(), String> {
         self.cancel(id)?;
+        self.delete_inner(id, false)
+    }
+    fn delete_inner(&self, id: &str, remote: bool) -> Result<(), String> {
         let _guard = self.store.lock()?;
-        let _record = self.read(id)?;
+        let record = self.read(id)?;
+        if remote && layers::load(&self.store,id)?.is_some_and(|local| local.local_only) {
+            return Err("This meeting is kept on this computer.".into());
+        }
+        if remote && busy(&record.detail.status) {
+            return Err("This meeting is busy. Its deletion will sync after the operation finishes.".into());
+        }
         if self
             .operations
             .lock()
@@ -1536,6 +1582,12 @@ impl Meetings {
             );
         }
         let paths = self.recording_paths(id)?;
+        if remote {
+            self.trash_owned(id)?;
+            self.revision.fetch_add(1, Ordering::Release);
+            return Ok(());
+        }
+        if crate::flavor::sync_enabled() { crate::meeting_sync::queue_delete(&self.store, id)?; }
         for path in [
             &paths.mixed,
             &paths.microphone,
@@ -1566,9 +1618,29 @@ impl Meetings {
             fs::remove_dir(history)
                 .map_err(|e| format!("Cannot remove transcript history directory: {e}"))?;
         }
+        crate::meeting_sync_audio::remove_local(&self.store, id)?;
         fs::remove_file(self.path(id)?)
             .map_err(|e| format!("Cannot remove the meeting record: {e}"))?;
+        for path in [layers::path(&self.store, id)?, self.store.root().join("meeting-layers").join(format!("{id}.legacy")), self.store.root().join("meeting-layers").join(format!("{id}.stamp"))] {
+            self.store.check_owned(&path)?;
+            if path.is_file() { fs::remove_file(path).map_err(|_| "Cannot remove the meeting layers.")?; }
+        }
         self.revision.fetch_add(1, Ordering::Release);
+        crate::sync_account::wake();
+        Ok(())
+    }
+    fn trash_owned(&self, id: &str) -> Result<(), String> {
+        let paths = self.recording_paths(id)?;
+        crate::meeting_trash::retain(&self.store, &[
+            paths.mixed, paths.microphone, paths.system,
+            self.store.meetings_dir().join(format!("{id}.import.wav")),
+            self.store.meetings_dir().join(format!("{id}.asr")),
+            self.store.root().join("meeting-sync-audio").join(id),
+            layers::path(&self.store, id)?,
+            self.store.root().join("meeting-layers").join(format!("{id}.legacy")),
+            self.store.root().join("meeting-layers").join(format!("{id}.stamp")),
+            self.path(id)?,
+        ])?;
         Ok(())
     }
     pub fn select_audio(&self, id: &str, source: &str) -> Result<PathBuf, String> {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import MeetingSyncNotice from "./quiet/MeetingSyncNotice.svelte";
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { z } from "zod";
@@ -47,7 +48,7 @@
 {#if sync.status?.signedIn}<div class="sync-words" aria-live="polite">
     <span data-text-surface="flat"
       >{!sync.status.unlocked
-        ? "Unlock sync in Settings"
+        ? "Approve this computer in Settings → Account and sync"
         : sync.status.lastSync
           ? `Synced ${new Date(sync.status.lastSync * 1000).toLocaleTimeString()}`
           : "Vocabulary ready to sync"}</span
@@ -57,6 +58,7 @@
       onclick={now}>Sync now</button
     >
   </div>{/if}
+<MeetingSyncNotice />
 {#if sync.error && sync.status?.signedIn}<p role="alert">{sync.error}</p>{/if}
 {#each conflicts as conflict}<div class="stock paper-card sync-conflict">
     <p>

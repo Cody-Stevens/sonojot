@@ -76,7 +76,12 @@ struct Request {
 #[serde(tag = "op", deny_unknown_fields)]
 enum Operation {
     Load { selection: Selection },
-    Predict { text: String },
+    Predict {
+        text: String,
+        /// Piece-start flag per regex word; absent when unknown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bounds: Option<Vec<bool>>,
+    },
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -98,15 +103,21 @@ enum Reply {
         spans: Option<Vec<crate::written_form::BioLabel>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         deletes: Option<Vec<bool>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cases: Option<Vec<[f32; 3]>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        case_thresholds: Option<crate::punctuation::CaseThresholds>,
     },
 }
 
 fn prediction_reply(reply: Reply, count: usize) -> Result<crate::punctuation::Prediction> {
     match reply {
-        Reply::Labels { labels, spans, deletes }
-            if labels.len() == count && spans.as_ref().is_none_or(|spans| spans.len() == count) && deletes.as_ref().is_none_or(|d| d.len() == count) =>
+        Reply::Labels { labels, spans, deletes, cases, case_thresholds }
+            if labels.len() == count && spans.as_ref().is_none_or(|spans| spans.len() == count) && deletes.as_ref().is_none_or(|d| d.len() == count)
+                && cases.as_ref().is_none_or(|c| c.len() == count && c.iter().flatten().all(|p| p.is_finite()))
+                && cases.is_some() == case_thresholds.is_some_and(|t| t.valid()) =>
         {
-            Ok(crate::punctuation::Prediction { labels, spans, deletes })
+            Ok(crate::punctuation::Prediction { labels, spans, deletes, cases, case_thresholds })
         }
         _ => Err(Failure::Output),
     }
@@ -389,6 +400,7 @@ pub(crate) fn predict(
     selection: &Selection,
     text: &str,
     count: usize,
+    bounds: &[bool],
     cancel: &AtomicBool,
 ) -> Result<crate::punctuation::Prediction> {
     if text.len() > MAX_TEXT {
@@ -400,7 +412,10 @@ pub(crate) fn predict(
     let result = slot
         .as_mut()
         .ok_or(Failure::Load)?
-        .exchange(Operation::Predict { text: text.into() }, &cancelled)
+        .exchange(Operation::Predict {
+            text: text.into(),
+            bounds: (bounds.len() == count && bounds.iter().any(|b| *b)).then(|| bounds.to_vec()),
+        }, &cancelled)
         .and_then(|reply| prediction_reply(reply, count));
     // A failed/cancelled exchange cannot leave a late response for the next job.
     if result.is_err() {
@@ -547,18 +562,20 @@ fn worker_loop(address: &str) -> Result<()> {
                     Ok(Reply::Ready { evidence })
                 })
             }
-            Operation::Predict { text } if text.len() <= MAX_TEXT => selection
+            Operation::Predict { text, bounds } if text.len() <= MAX_TEXT => selection
                 .as_ref()
                 .ok_or(Failure::Load)
                 .and_then(|selection| {
                     if !selection.unchanged() {
                         return Err(Failure::Load);
                     }
-                    crate::punctuation::worker_predict(selection, &text).map(|prediction| {
+                    crate::punctuation::worker_predict(selection, &text, bounds.as_deref().unwrap_or(&[])).map(|prediction| {
                         Reply::Labels {
                             labels: prediction.labels,
                             spans: prediction.spans,
                             deletes: prediction.deletes,
+                            cases: prediction.cases,
+                            case_thresholds: prediction.case_thresholds,
                         }
                     })
                 }),
@@ -764,6 +781,8 @@ mod tests {
                 labels: vec![Mark::None, Mark::Period],
                 deletes: None,
                 spans: expected.clone(),
+                cases: None,
+                case_thresholds: None,
             };
             let mut frame = Vec::new();
             write_frame(&mut frame, &reply).unwrap();
@@ -783,6 +802,8 @@ mod tests {
                 labels: vec![Mark::None; marks],
                 spans,
                 deletes: None,
+                cases: None,
+                case_thresholds: None,
             };
             assert_eq!(prediction_reply(reply, count), Err(Failure::Output));
         }
@@ -792,6 +813,8 @@ mod tests {
                 labels: vec![],
                 deletes: None,
                 spans: spans.clone(),
+                cases: None,
+                case_thresholds: None,
             };
             assert_eq!(prediction_reply(reply, 0).unwrap().spans, spans);
         }
@@ -799,9 +822,12 @@ mod tests {
             labels: vec![Mark::Period],
             deletes: None,
             spans: None,
+            cases: None,
+            case_thresholds: None,
         })
         .unwrap();
         assert!(legacy.get("spans").is_none());
+        assert!(legacy.get("cases").is_none());
     }
 
     #[test]
@@ -892,7 +918,7 @@ mod tests {
         });
         let started = Instant::now();
         assert_eq!(
-            predict(&selection, &text.repeat(10), 3000, &cancel),
+            predict(&selection, &text.repeat(10), 3000, &[], &cancel),
             Err(Failure::Cancelled)
         );
         timer.join().unwrap();

@@ -1,7 +1,14 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { app } from "./app.svelte";
+const meetingOutcomeSchema = z.object({
+  errors: z.number(),
+  retryAt: z.number(),
+  rateLimited: z.boolean(),
+  missing: z.number(),
+});
 const statusSchema = z.object({
+  meetings: meetingOutcomeSchema.optional(),
   signedIn: z.boolean(),
   unlocked: z.boolean(),
   initialized: z.boolean().nullable().optional(),
@@ -21,7 +28,9 @@ export const sync = $state<{
   status: SyncStatus | null;
   busy: boolean;
   error: string;
-}>({ status: null, busy: false, error: "" });
+  meetingResult: z.infer<typeof meetingOutcomeSchema> | null;
+}>({ status: null, busy: false, error: "", meetingResult: null });
+let pendingOperations = 0;
 export async function syncAction(
   operation: string,
   args: Record<string, unknown> = {},
@@ -35,7 +44,7 @@ export async function refreshSync(): Promise<void> {
   if (!isTauri() || !app.snapshot.capabilities.sync) return;
   try {
     sync.status = statusSchema.parse(await syncAction("status"));
-    if (sync.status.error) sync.error = sync.status.error;
+    sync.error = sync.status.error ?? "";
   } catch (error) {
     sync.error = String(error);
   }
@@ -44,16 +53,24 @@ export async function runSync(
   operation: string,
   args: Record<string, unknown> = {},
 ): Promise<unknown> {
+  pendingOperations += 1;
   sync.busy = true;
   sync.error = "";
   try {
     const result = await syncAction(operation, args);
     await refreshSync();
+    if (operation === "now") {
+      const parsed = z
+        .object({ meetings: meetingOutcomeSchema })
+        .safeParse(result);
+      sync.meetingResult = parsed.success ? parsed.data.meetings : null;
+    }
     return result;
   } catch (error) {
     sync.error = String(error);
     return undefined;
   } finally {
-    sync.busy = false;
+    pendingOperations -= 1;
+    sync.busy = pendingOperations > 0;
   }
 }

@@ -1214,6 +1214,8 @@ fn safe_format_with_policy(
         } else if !after_quotation
             && origin != "confirmed_vocabulary_occurrence"
             && function_word(current)
+            // A capital letter A inside a sentence is a label ("option A").
+            && current != "A"
             // Keep recognizer case after a standalone initial/letter. The
             // punctuation stage needs this evidence for "R and D. But ..."
             // when its model keeps the period without predicting a terminal.
@@ -5815,6 +5817,17 @@ pub(crate) fn prewarm_model_bg(root: PathBuf, model: String) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn prose_function_word_case_keeps_a_standalone_capital_a() {
+        let cancel = AtomicBool::new(false);
+        let result = run_interruptible_with_policy(
+            Path::new("missing-model-root"), "we should pick A for the layout and The rest later",
+            Mode::Format, &[], &[], "local-rules", CleanupPolicy::conservative(), &cancel, &cancel,
+        );
+        assert!(result.text.contains("pick A for"), "{}", result.text);
+        assert!(result.text.contains("and the rest"), "{}", result.text);
+    }
+
     use super::*;
 
     #[test]

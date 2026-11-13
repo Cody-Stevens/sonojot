@@ -1,0 +1,17 @@
+ALTER TABLE accounts ADD COLUMN meeting_quota INTEGER NOT NULL DEFAULT 2000000000;
+CREATE TABLE meetings(account TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,id TEXT NOT NULL,created_at INTEGER NOT NULL,state TEXT NOT NULL DEFAULT 'active',version INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL,PRIMARY KEY(account,id));
+ALTER TABLE objects ADD COLUMN meeting TEXT;
+ALTER TABLE holds ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX objects_meeting ON objects(account,meeting,deleted);
+CREATE INDEX meetings_oldest ON meetings(account,state,created_at,id);
+CREATE TABLE audio_bodies(body_key TEXT PRIMARY KEY,account TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE);
+CREATE TRIGGER audio_body_insert AFTER INSERT ON objects WHEN NEW.id LIKE 'blob/%' BEGIN INSERT OR IGNORE INTO audio_bodies VALUES(NEW.body_key,NEW.account); END;
+CREATE TABLE compactions(account TEXT NOT NULL,meeting TEXT NOT NULL,object TEXT NOT NULL,snapshot TEXT NOT NULL,purge_at INTEGER NOT NULL,PRIMARY KEY(account,object),FOREIGN KEY(account,meeting) REFERENCES meetings(account,id) ON DELETE CASCADE);
+DROP TRIGGER object_insert_quota;
+DROP TRIGGER object_update_quota;
+CREATE TRIGGER object_insert_quota BEFORE INSERT ON objects WHEN NOT EXISTS(SELECT 1 FROM objects WHERE account=NEW.account AND id=NEW.id) AND (CASE WHEN NEW.meeting IS NULL THEN COALESCE((SELECT SUM(size) FROM objects WHERE account=NEW.account AND meeting IS NULL),0)+NEW.size>(SELECT quota FROM accounts WHERE id=NEW.account) ELSE COALESCE((SELECT SUM(size) FROM objects WHERE account=NEW.account AND meeting IS NOT NULL),0)+NEW.size>(SELECT meeting_quota FROM accounts WHERE id=NEW.account) END) BEGIN SELECT RAISE(ABORT,'quota'); END;
+CREATE TRIGGER object_update_quota BEFORE UPDATE ON objects WHEN NEW.size>OLD.size AND (CASE WHEN NEW.meeting IS NULL THEN COALESCE((SELECT SUM(size) FROM objects WHERE account=NEW.account AND meeting IS NULL),0)+NEW.size-OLD.size>(SELECT quota FROM accounts WHERE id=NEW.account) ELSE COALESCE((SELECT SUM(size) FROM objects WHERE account=NEW.account AND meeting IS NOT NULL),0)+NEW.size-OLD.size>(SELECT meeting_quota FROM accounts WHERE id=NEW.account) END) BEGIN SELECT RAISE(ABORT,'quota'); END;
+CREATE TRIGGER meeting_insert_guard BEFORE INSERT ON objects WHEN NEW.meeting IS NOT NULL AND NOT EXISTS(SELECT 1 FROM meetings WHERE account=NEW.account AND id=NEW.meeting AND state='active') BEGIN SELECT RAISE(ABORT,'meeting_inactive'); END;
+CREATE TRIGGER meeting_update_guard BEFORE UPDATE ON objects WHEN NEW.meeting IS NOT NULL AND NEW.deleted=0 AND NOT EXISTS(SELECT 1 FROM meetings WHERE account=NEW.account AND id=NEW.meeting AND state='active') BEGIN SELECT RAISE(ABORT,'meeting_inactive'); END;
+CREATE TRIGGER meeting_insert_version AFTER INSERT ON objects WHEN NEW.meeting IS NOT NULL BEGIN UPDATE meetings SET version=version+1,updated_at=NEW.updated_at WHERE account=NEW.account AND id=NEW.meeting; END;
+CREATE TRIGGER meeting_update_version AFTER UPDATE ON objects WHEN NEW.meeting IS NOT NULL BEGIN UPDATE meetings SET version=version+1,updated_at=NEW.updated_at WHERE account=NEW.account AND id=NEW.meeting; END;

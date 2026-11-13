@@ -810,6 +810,7 @@ fn punctuation_entry_with_status(models_root: &Path, model: crate::punctuation_m
             "Fixes sentence breaks and commas in dictation; runs on CPU. Download is unavailable until the model upload is complete."
         }.into(),
         evidence: match model {
+            Package::P4 => "CC BY-SA 4.0. Local test package only. Adds casing that works with every speech model: it can capitalise names and acronyms and only lowers a capital when it is very sure. Removes fillers, repeats and restarts in Clean dictation.",
             Package::V4 => "CC BY-SA 4.0. Local test package only. Earnings-21/22, AMI and ICSI attribution is included beside the weights. Removes fillers, repeats and restarts in Clean dictation.",
             Package::V1 => "CC BY-SA 4.0. Downloads verify pinned sizes and SHA-256 checksums; existing local manifests remain supported. Model, source and license: https://huggingface.co/SonoJot/sonojot-punct-v1",
             Package::V2 => "CC BY-SA 4.0. Downloads verify pinned sizes and SHA-256 checksums; existing local manifests remain supported. Adds written numbers, money and dates in Clean dictation. Preferred over v1 when ready. Model, source and license: https://huggingface.co/SonoJot/sonojot-punct-v2",
@@ -1138,6 +1139,7 @@ fn mac_supported(id: &str) -> bool {
                 | crate::punctuation_model::V2_ID
                 | crate::punctuation_model::V3_ID
                 | crate::punctuation_model::V4_ID
+                | crate::punctuation_model::P4_ID
         )
 }
 
@@ -2986,7 +2988,7 @@ mod tests {
         let root = isolated_root("punctuation-catalog");
         let entries = punctuation_entries(&root);
         assert_eq!(entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(),
-            ["sonojot-punct-v1", "sonojot-punct-v2", "sonojot-punct-v3", "sonojot-cleanup-v4"]);
+            ["sonojot-punct-v1", "sonojot-punct-v2", "sonojot-punct-v3", "sonojot-cleanup-v4", "sonojot-punct-v4"]);
         let entry = &entries[0];
         assert_eq!(entry.id, "sonojot-punct-v1");
         assert_eq!(entry.kind, "punctuation");

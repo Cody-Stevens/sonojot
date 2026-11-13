@@ -1,4 +1,5 @@
 <script lang="ts">
+  import MeetingSyncNotice from "../components/quiet/MeetingSyncNotice.svelte";
   import { onMount, tick } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { createMeetingSession } from "../lib/meeting-session.svelte";
@@ -16,6 +17,7 @@
   import RecordingBand from "../components/quiet/RecordingBand.svelte";
   import MeetingSources from "../components/quiet/MeetingSources.svelte";
   import MeetingImport from "../components/quiet/MeetingImport.svelte";
+  import MeetingTrash from "../components/quiet/MeetingTrash.svelte";
   let {
     onnavigate,
     onmanage,
@@ -192,6 +194,8 @@
         >{/if}</Well
     >
   </div>
+  {#if app.snapshot.capabilities.sync}<MeetingSyncNotice />{/if}
+  {#if app.snapshot.capabilities.sync}<MeetingTrash onrestored={() => session.refresh(true)} />{/if}
   {#if session.searching}<p role="status">
       Searching meetings…
     </p>{:else if session.searchError}<p role="alert">

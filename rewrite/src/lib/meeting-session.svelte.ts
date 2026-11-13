@@ -782,7 +782,7 @@ export function createMeetingSession() {
       !detail ||
       !(await app.confirm(
         "Delete this meeting?",
-        `“${detail.title}” and its files in SonoJot will be deleted.`,
+        `“${detail.title}” and its files in SonoJot will be deleted.${app.snapshot.capabilities.sync ? " If this meeting is synced, it will be deleted on all synced devices." : ""}`,
         "Delete meeting",
         true,
       ))

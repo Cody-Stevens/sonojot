@@ -19,6 +19,7 @@ const BAD: &str = "Sync data could not be authenticated. Your local words are un
 /// or replaced code, so say that instead of suggesting the server sent bad data.
 const WRONG_RECOVERY: &str = "This recovery code does not unlock this account. Check it, or use your newest code if you replaced it. Your local words are unchanged.";
 pub const MAX_ENVELOPE: usize = 512 * 1024;
+pub const MAX_BLOB_ENVELOPE: usize = 8 * 1024 * 1024 + 16384;
 const HEADER: usize = 21;
 type Kem = X25519HkdfSha256;
 type HpkeAead = hpke::aead::ChaCha20Poly1305;
@@ -77,7 +78,12 @@ fn seal_nonce(
     data: &[u8],
     nonce: [u8; 12],
 ) -> Result<Vec<u8>, String> {
-    if data.len() > MAX_ENVELOPE - 16384 || rev == 0 {
+    let limit = if object.starts_with("blob/") {
+        MAX_BLOB_ENVELOPE
+    } else {
+        MAX_ENVELOPE
+    };
+    if data.len() > limit - 16384 || rev == 0 {
         return Err(BAD.into());
     }
     let needed = HEADER + 16 + 12 + data.len();
@@ -106,7 +112,7 @@ fn seal_nonce(
 }
 pub fn envelope_kid(data: &[u8]) -> Result<u32, String> {
     if data.len() < 4096
-        || data.len() > MAX_ENVELOPE
+        || data.len() > MAX_BLOB_ENVELOPE
         || &data[..5] != b"SJV1\x01"
         || data.len() % (if data.len() <= 65536 { 4096 } else { 16384 }) != 0
     {
@@ -122,6 +128,15 @@ pub fn open(
     data: &[u8],
 ) -> Result<Zeroizing<Vec<u8>>, String> {
     envelope_kid(data)?;
+    if data.len()
+        > (if object.starts_with("blob/") {
+            MAX_BLOB_ENVELOPE
+        } else {
+            MAX_ENVELOPE
+        })
+    {
+        return Err(BAD.into());
+    }
     let mut aad = data[..HEADER].to_vec();
     aad.extend_from_slice(&context(account, object));
     let plain = Zeroizing::new(
@@ -159,6 +174,13 @@ pub struct Keyring {
     pub active: u32,
     #[serde(default)]
     pub vocabulary_cutover: u64,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub object_cutovers: std::collections::BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cutover_checkpoint: Option<crate::sync_cutovers::Checkpoint>,
+    /// Retain only the ID derivation keys, never prior account authorization keys.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub meeting_id_keys: Vec<Secret>,
     pub keys: std::collections::BTreeMap<u32, Secret>,
     #[serde(default)]
     pub devices: std::collections::BTreeMap<String, [u8; 32]>,
@@ -173,9 +195,27 @@ impl Keyring {
             epoch: 1,
             active: 1,
             vocabulary_cutover: 0,
+            object_cutovers: Default::default(),
+            cutover_checkpoint: None,
+            meeting_id_keys: Vec::new(),
             keys: [(1, Secret::random())].into(),
             devices: Default::default(),
         }
+    }
+    pub fn object_key(&self, object: &str, kid: u32, rev: u64) -> Result<&Secret, String> {
+        // Blob plaintext is bound to the authenticated head by SHA-256 and length.
+        // Callers must verify both before using audio. No per-blob cutovers are needed.
+        if !object.starts_with("blob/")
+            && kid != self.active
+            && rev > self.object_cutovers.get(object).copied().unwrap_or(0)
+        {
+            return Err(
+                "An old encryption key cannot authenticate this object after re-keying.".into(),
+            );
+        }
+        self.keys
+            .get(&kid)
+            .ok_or_else(|| "Unlock the latest sync keys.".into())
     }
     pub fn rotate(&mut self) -> Result<(), String> {
         if self.keys.len() >= 64 {
@@ -221,7 +261,11 @@ impl Keyring {
         if self.devices.len() > 64 || self.keys.len() > 256 {
             return Err(BAD.into());
         }
-        let plain = Zeroizing::new(serde_json::to_vec(self).map_err(|_| BAD)?);
+        let mut wire = self.clone();
+        if wire.cutover_checkpoint.is_some() {
+            wire.object_cutovers.clear();
+        }
+        let plain = Zeroizing::new(serde_json::to_vec(&wire).map_err(|_| BAD)?);
         seal(
             &derive(&ak.0, account, "keyring"),
             0,
@@ -246,6 +290,7 @@ impl Keyring {
             || ring.keys.len() > 256
             || !ring.keys.contains_key(&ring.active)
             || ring.keys.contains_key(&0)
+            || ring.meeting_id_keys.len() > 64
         {
             return Err(BAD.into());
         }
@@ -262,6 +307,27 @@ pub fn keyset_pin(ring: &Keyring) -> [u8; 32] {
     h.update(ring.epoch.to_be_bytes());
     h.update(ring.active.to_be_bytes());
     h.update(ring.vocabulary_cutover.to_be_bytes());
+    if let Some(checkpoint) = &ring.cutover_checkpoint {
+        h.update(b"meeting-cutover-checkpoint/v1");
+        h.update(checkpoint.epoch.to_be_bytes());
+        h.update((checkpoint.nonce.len() as u64).to_be_bytes());
+        h.update(checkpoint.nonce.as_bytes());
+        h.update((checkpoint.pages as u64).to_be_bytes());
+        h.update(checkpoint.sha256);
+    } else if !ring.object_cutovers.is_empty() {
+        h.update(b"meeting-cutovers/v1");
+        for (object, rev) in &ring.object_cutovers {
+            h.update((object.len() as u64).to_be_bytes());
+            h.update(object.as_bytes());
+            h.update(rev.to_be_bytes());
+        }
+    }
+    if !ring.meeting_id_keys.is_empty() {
+        h.update(b"meeting-id-keys/v1");
+        for key in &ring.meeting_id_keys {
+            h.update(key.0);
+        }
+    }
     for (id, key) in &ring.keys {
         h.update(id.to_be_bytes());
         h.update(key.0);
@@ -609,6 +675,21 @@ mod tests {
         }
     }
     #[test]
+    fn meeting_rotation_rejects_old_key_new_objects_and_revisions() {
+        let mut ring = Keyring::new();
+        ring.object_cutovers.insert("m/test/head".into(), 2);
+        ring.rotate().unwrap();
+        assert!(ring.object_key("m/test/head", 1, 2).is_ok());
+        assert!(ring.object_key("m/test/head", 1, 3).is_err());
+        // Audio is authenticated by the head's hash and length after decryption.
+        assert!(ring.object_key("blob/test/chunk", 1, 1).is_ok());
+        assert!(ring.object_key("m/test/raw/forged", 1, 1).is_err());
+        assert!(ring.object_key("m/test/head", 2, 3).is_ok());
+        let pin = keyset_pin(&ring);
+        ring.object_cutovers.insert("m/test/head".into(), 3);
+        assert_ne!(pin, keyset_pin(&ring));
+    }
+    #[test]
     fn keyring_rotation_limit_preserves_all_existing_keys() {
         let mut ring = super::Keyring::new();
         for _ in 1..64 {
@@ -835,8 +916,14 @@ mod tests {
         let e = wrap_recovery(&code, "a", &ak).unwrap();
         assert_eq!(unwrap_recovery(&code, "a", &e).unwrap().0, ak.0);
         assert!(unwrap_recovery(&code, "b", &e).is_err());
-        assert_eq!(unwrap_recovery(&recovery_code(), "a", &e).err().as_deref(), Some(WRONG_RECOVERY));
-        assert_eq!(unwrap_recovery("SJ1-no", "a", &e).err().as_deref(), Some("Recovery code is invalid."));
+        assert_eq!(
+            unwrap_recovery(&recovery_code(), "a", &e).err().as_deref(),
+            Some(WRONG_RECOVERY)
+        );
+        assert_eq!(
+            unwrap_recovery("SJ1-no", "a", &e).err().as_deref(),
+            Some("Recovery code is invalid.")
+        );
         assert!(recovery_bytes("SJ1-no").is_err());
         assert!(recovery_bytes(&code.replace("SJ1", "SJ2")).is_err());
         assert!(recovery_bytes(&"é".repeat(30)).is_err());

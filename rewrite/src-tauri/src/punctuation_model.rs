@@ -34,6 +34,9 @@ pub(crate) const V2_ID: &str = "sonojot-punct-v2";
 /// None keeps v2 local-only, including direct install requests.
 pub(crate) const V2_RELEASE_COMMIT: Option<&str> = Some("94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625");
 pub(crate) const V4_ID: &str = "sonojot-cleanup-v4";
+/// Punctuation, written form, optional filler and repeat removal, and casing.
+/// Local test package until the upload is approved; downloads stay disabled.
+pub(crate) const P4_ID: &str = "sonojot-punct-v4";
 // TODO: pin the approved HF upload commit and SHA-256 files before enabling downloads.
 pub(crate) const V3_ID: &str = "sonojot-punct-v3";
 /// Set only to the real Hugging Face upload commit after publication is approved.
@@ -105,13 +108,14 @@ pub(crate) enum Package {
     V2,
     V3,
     V4,
+    P4,
 }
 
 impl Package {
     /// Selection order: the newest verified package wins.
-    pub(crate) const NEWEST_FIRST: [Self; 4] = [Self::V4, Self::V3, Self::V2, Self::V1];
+    pub(crate) const NEWEST_FIRST: [Self; 5] = [Self::P4, Self::V4, Self::V3, Self::V2, Self::V1];
     /// Library order, oldest first.
-    pub(crate) const ALL: [Self; 4] = [Self::V1, Self::V2, Self::V3, Self::V4];
+    pub(crate) const ALL: [Self; 5] = [Self::V1, Self::V2, Self::V3, Self::V4, Self::P4];
     /// The package first-run Setup installs and existing users are offered.
     pub(crate) const LATEST: Self = Self::V3;
 
@@ -127,12 +131,13 @@ impl Package {
             V2_ID => Some(Self::V2),
             V3_ID => Some(Self::V3),
             V4_ID => Some(Self::V4),
+            P4_ID => Some(Self::P4),
             _ => None,
         }
     }
 
     pub(crate) fn id(self) -> &'static str {
-        match self { Self::V1 => ID, Self::V2 => V2_ID, Self::V3 => V3_ID, Self::V4 => V4_ID }
+        match self { Self::V1 => ID, Self::V2 => V2_ID, Self::V3 => V3_ID, Self::V4 => V4_ID, Self::P4 => P4_ID }
     }
 
     pub(crate) fn name(self) -> &'static str {
@@ -141,6 +146,7 @@ impl Package {
             Self::V2 => "SonoJot Punctuation v2",
             Self::V3 => "SonoJot Punctuation v3",
             Self::V4 => "SonoJot Cleanup v4 (local test)",
+            Self::P4 => "SonoJot Punctuation v4 (local test)",
         }
     }
 
@@ -150,6 +156,7 @@ impl Package {
             Self::V2 => "https://huggingface.co/SonoJot/sonojot-punct-v2",
             Self::V3 => "https://huggingface.co/SonoJot/sonojot-punct-v3",
             Self::V4 => "https://huggingface.co/SonoJot/sonojot-cleanup-v4",
+            Self::P4 => "https://huggingface.co/SonoJot/sonojot-punct-v4",
         }
     }
 
@@ -162,7 +169,7 @@ impl Package {
             Self::V1 => Some(REVISION),
             Self::V2 => V2_RELEASE_COMMIT,
             Self::V3 => V3_RELEASE_COMMIT,
-            Self::V4 => None,
+            Self::V4 | Self::P4 => None,
         };
         revision.filter(|value| value.len() == 40 && value.bytes().all(|ch| ch.is_ascii_hexdigit()))
     }
@@ -170,7 +177,7 @@ impl Package {
     pub(crate) fn released(self) -> bool { self.revision().is_some() }
 
     pub(crate) fn pins(self) -> &'static [PinnedFile] {
-        match self { Self::V1 => PINS, Self::V2 => V2_PINS, Self::V3 => V3_PINS, Self::V4 => &[] }
+        match self { Self::V1 => PINS, Self::V2 => V2_PINS, Self::V3 => V3_PINS, Self::V4 | Self::P4 => &[] }
     }
 
     pub(crate) fn pinned_bytes(self) -> u64 {
@@ -188,6 +195,7 @@ impl Package {
             Self::V2 => "SonoJot/sonojot-punct-v2",
             Self::V3 => "SonoJot/sonojot-punct-v3",
             Self::V4 => "SonoJot/sonojot-cleanup-v4",
+            Self::P4 => "SonoJot/sonojot-punct-v4",
         };
         Ok(format!("https://huggingface.co/{repo}/resolve/{revision}/{}", file.relative))
     }
@@ -251,6 +259,8 @@ struct Manifest {
     files: Vec<FileRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     delete_threshold: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    case_thresholds: Option<crate::punctuation::CaseThresholds>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -409,6 +419,7 @@ fn stage_and_activate(
             schema: 1,
             id: package.id().into(),
             delete_threshold: None,
+            case_thresholds: None,
             files: pins.iter().map(|file| FileRecord {
                 name: file.relative.into(), bytes: file.bytes, sha256: file.sha256.into(),
             }).collect(),
@@ -455,7 +466,8 @@ fn parse_manifest(bytes: &[u8]) -> Option<Manifest> {
             return None;
         }
     }
-    if manifest.id == V4_ID && !manifest.delete_threshold.is_some_and(|t| t.is_finite() && t > 0.0 && t <= 1.0) { return None; }
+    if matches!(manifest.id.as_str(), V4_ID | P4_ID) && !manifest.delete_threshold.is_some_and(|t| t.is_finite() && t > 0.0 && t <= 1.0) { return None; }
+    if (manifest.id == P4_ID) != manifest.case_thresholds.is_some_and(|t| t.valid()) { return None; }
     manifest
         .files
         .iter()
@@ -517,12 +529,38 @@ mod tests {
         let manifest = Manifest {
             schema: 1,
             id: package.id().into(),
-            delete_threshold: (package == Package::V4).then_some(0.975),
+            delete_threshold: matches!(package, Package::V4 | Package::P4).then_some(0.975),
+            case_thresholds: (package == Package::P4).then_some(crate::punctuation::CaseThresholds {
+                raise: 0.7, upper: 0.8, lower_positional: 0.6, lower: 0.97,
+            }),
             files: pins.iter().map(|pin| FileRecord {
                 name: pin.relative.into(), bytes: pin.bytes, sha256: pin.sha256.into(),
             }).collect(),
         };
         fs::write(directory.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn local_punct_v4_needs_both_thresholds_and_is_the_newest_choice() {
+        let root = std::env::temp_dir().join(format!("punct-v4-{}", uuid::Uuid::new_v4()));
+        write_fixture(&root, Package::V4);
+        write_fixture(&root, Package::P4);
+        assert!(!Package::P4.released());
+        assert_eq!(Package::offered(), Package::V3);
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::P4));
+        let path = Package::P4.path(&root).join("manifest.json");
+        let good = fs::read(&path).unwrap();
+        for key in ["case_thresholds", "delete_threshold"] {
+            let mut manifest: serde_json::Value = serde_json::from_slice(&good).unwrap();
+            manifest.as_object_mut().unwrap().remove(key);
+            fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+            assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V4), "{key}");
+        }
+        let mut manifest: serde_json::Value = serde_json::from_slice(&good).unwrap();
+        manifest["case_thresholds"]["lower"] = serde_json::json!(0.4);
+        fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V4));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -674,10 +712,10 @@ mod tests {
     #[test]
     fn package_ids_are_exact_and_ordered_newest_first() {
         for package in Package::ALL { assert_eq!(Package::from_id(package.id()), Some(package)); }
-        for id in ["sonojot-punct-v4", "sonojot-punct-v3-s2", "../sonojot-punct-v3", ""] {
+        for id in ["sonojot-punct-v5", "sonojot-punct-v3-s2", "../sonojot-punct-v3", ""] {
             assert_eq!(Package::from_id(id), None, "{id}");
         }
-        assert_eq!(Package::NEWEST_FIRST, [Package::V4, Package::V3, Package::V2, Package::V1]);
+        assert_eq!(Package::NEWEST_FIRST, [Package::P4, Package::V4, Package::V3, Package::V2, Package::V1]);
     }
 
     fn fixture_pins() -> Vec<PinnedFile> {

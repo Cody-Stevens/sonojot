@@ -406,7 +406,7 @@ fn acknowledge_recommendation(settings: &mut Settings, package: crate::punctuati
         Package::V1 => settings.punctuation_recommendation_acknowledged = true,
         Package::V2 => settings.punctuation_v2_recommendation_acknowledged = true,
         Package::V3 => settings.punctuation_v3_recommendation_acknowledged = true,
-        Package::V4 => {}, // Local-only: no download recommendation.
+        Package::V4 | Package::P4 => {}, // Local-only: no download recommendation.
     }
 }
 

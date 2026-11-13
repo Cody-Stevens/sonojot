@@ -17,6 +17,13 @@ import {
   fresh,
   limit,
 } from "./common";
+import {
+  makeRoom,
+  meetingEntitlement,
+  meetingObject,
+  reconcileMeetingQuota,
+} from "./meetings";
+import { chargeUpload } from "./meeting_retention";
 type ObjectRow = {
   account: string;
   id: string;
@@ -52,7 +59,7 @@ export async function store(
   const u = new URL(request.url);
   const path = u.pathname;
   if (
-    !/^\/v1\/(account|changes|objects|blobs|holds|poll|heartbeat)(\/|$)/.test(
+    !/^\/v1\/(account|inventory|changes|objects|blobs|holds|poll|heartbeat)(\/|$)/.test(
       path,
     )
   )
@@ -77,10 +84,33 @@ export async function store(
       : path === "/v1/account" && request.method === "DELETE"
         ? await authorizeAccountChange(request, env, s)
         : await authorizeKeys(request, env, s);
+  const rotationRead =
+    request.method === "GET" &&
+    request.headers.get("X-Sync-Rotation") === "1" &&
+    (path === "/v1/inventory" ||
+      (path.startsWith("/v1/objects/") &&
+        !objectId(path.slice("/v1/objects/".length)).startsWith("blob/")));
+  if (rotationRead) {
+    native(s);
+    await authorizeKeys(request, env, s);
+    const active = await env.DB.prepare(
+      "SELECT 1 FROM rotation_reads r JOIN accounts a ON a.id=r.account WHERE r.account=? AND r.session=? AND r.epoch=a.epoch AND r.expires_at>?",
+    )
+      .bind(s.account, s.hash, now())
+      .first();
+    if (!active)
+      throw new Fault(403, "Begin a key rotation before using rotation reads.");
+    await limit(env, "rotation-read-day:" + s.account, 20000, 86400);
+  }
+  // Key-authorized rotation reads have a separate, finite account budget.
   await limit(
     env,
-    (request.method === "GET" ? "read:" : "write:") + s.account,
-    request.method === "GET" ? 300 : 60,
+    (rotationRead
+      ? "rotation-read:"
+      : request.method === "GET"
+        ? "read:"
+        : "write:") + s.account,
+    rotationRead ? 2000 : request.method === "GET" ? 300 : 60,
     60,
   );
   const account = await env.DB.prepare(
@@ -151,6 +181,22 @@ export async function store(
     return json({ deleted: true });
   }
   native(s);
+  if (path === "/v1/inventory" && request.method === "GET") {
+    const after = u.searchParams.get("after") ?? "";
+    const results = await env.DB.batch([
+      env.DB.prepare("SELECT seq,epoch FROM accounts WHERE id=?").bind(
+        s.account,
+      ),
+      env.DB.prepare(
+        "SELECT id,rev,deleted FROM objects WHERE account=? AND id>? ORDER BY id LIMIT 250",
+      ).bind(s.account, after),
+    ]);
+    return json({
+      account: results[0].results[0],
+      objects: results[1].results,
+      hasMore: results[1].results.length === 250,
+    });
+  }
   if (path === "/v1/changes" && request.method === "GET") {
     const since = Number(u.searchParams.get("since") ?? 0);
     integer(since);
@@ -186,6 +232,37 @@ export async function store(
     const rev = integer(b.rev, 1);
     if (b.complete !== true)
       throw new Fault(400, "A hold requires a complete local copy.");
+    const layer = meetingObject(object);
+    if (layer) {
+      if (!object.endsWith("/head"))
+        throw new Fault(400, "Hold the complete meeting head.");
+      await env.DB.prepare(
+        "UPDATE devices SET last_seen_at=? WHERE account=? AND id=? AND revoked_at IS NULL AND EXISTS(SELECT 1 FROM accounts WHERE id=? AND auth_verifier=?)",
+      )
+        .bind(now(), s.account, s.device, s.account, verifier)
+        .run();
+      const version = integer(b.version, 1);
+      const held = await env.DB.prepare(
+        "INSERT INTO holds(account,object,device,rev,created_at,version) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM objects o JOIN meetings m ON m.account=o.account AND m.id=o.meeting WHERE o.account=? AND o.id=? AND o.rev=? AND o.deleted=0 AND m.version=? AND m.state='active') AND EXISTS(SELECT 1 FROM accounts WHERE id=? AND auth_verifier=?) ON CONFLICT(account,object,device) DO UPDATE SET rev=excluded.rev,version=excluded.version,created_at=excluded.created_at RETURNING rev",
+      )
+        .bind(
+          s.account,
+          object,
+          s.device,
+          rev,
+          now(),
+          version,
+          s.account,
+          object,
+          rev,
+          version,
+          s.account,
+          verifier,
+        )
+        .first();
+      if (!held) throw new Fault(412, "Meeting changed before the hold.");
+      return json({ held: true });
+    }
     const r = await env.DB.prepare(
       "INSERT INTO holds(account,object,device,rev,created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM objects WHERE account=? AND id=? AND rev=? AND deleted=0) ON CONFLICT(account,object,device) DO UPDATE SET rev=excluded.rev,created_at=excluded.created_at RETURNING rev",
     )
@@ -198,6 +275,7 @@ export async function store(
   if (!blob && !path.startsWith("/v1/objects/"))
     throw new Fault(404, "Not found.");
   const object = (blob ? "blob/" : "") + objectId(path.slice(blob ? 10 : 12));
+  const layer = meetingObject(object);
   const row = await env.DB.prepare(
     "SELECT * FROM objects WHERE account=? AND id=?",
   )
@@ -219,13 +297,28 @@ export async function store(
   }
   if (request.method !== "PUT" && request.method !== "DELETE")
     throw new Fault(404, "Not found.");
+  if (layer && !meetingEntitlement(env))
+    throw new Fault(402, "Meeting sync is available in staging only.");
+  if (layer && request.method === "DELETE")
+    throw new Fault(400, "Delete the whole meeting through its meeting route.");
+  if (layer) {
+    await reconcileMeetingQuota(env, s.account);
+    const meeting = await env.DB.prepare(
+      "SELECT state FROM meetings WHERE account=? AND id=?",
+    )
+      .bind(s.account, layer.meeting)
+      .first<{ state: string }>();
+    if (!meeting) throw new Fault(404, "Register the meeting first.");
+    if (meeting.state !== "active" && object !== `m/${layer.meeting}/head`)
+      throw new Fault(410, "This meeting no longer syncs.");
+  }
   if (Number(request.headers.get("x-sync-epoch")) !== account.epoch)
     throw new Fault(409, "Encryption keys changed. Unlock this device again.");
   const match = request.headers.get("if-match");
   if (!match || !/^"\d+"$/.test(match))
     throw new Fault(428, "A revision is required.");
   const previous = integer(Number(match.slice(1, -1)));
-  if ((row?.rev ?? 0) !== previous || (blob && row))
+  if ((row?.rev ?? 0) !== previous || ((blob || layer?.immutable) && row))
     throw new Fault(412, "Object changed. Merge and retry.");
   if (request.method === "DELETE" && !row)
     throw new Fault(404, "Object not found.");
@@ -234,6 +327,17 @@ export async function store(
       ? new Uint8Array()
       : await bytes(request, blob ? 8 * 1024 * 1024 + 16384 : 524288);
   if (request.method === "PUT") envelope(data);
+  if (layer) await chargeUpload(env, s.account, data.length);
+  const room = layer
+    ? await makeRoom(
+        env,
+        s.account,
+        layer.meeting,
+        data.length - (row?.size ?? 0),
+        verifier!,
+        account.epoch,
+      )
+    : { statements: [], droppedIncoming: false };
   const key = s.account + "/" + crypto.randomUUID();
   if (data.length)
     await env.CONTENT.put(key, data, {
@@ -249,37 +353,73 @@ export async function store(
       object,
       previous,
     ];
-    const written =
+    const mutation =
       previous === 0
-        ? await env.DB.prepare(
-            "INSERT INTO objects(account,id,rev,size,body_key,deleted,updated_at) SELECT ?,?,1,?,?,0,? WHERE EXISTS(SELECT 1 FROM accounts WHERE id=? AND epoch=? AND auth_verifier=?) ON CONFLICT(account,id) DO NOTHING RETURNING rev",
+        ? env.DB.prepare(
+            "INSERT INTO objects(account,id,rev,size,body_key,deleted,updated_at,meeting) SELECT ?,?,1,?,?,0,?,? WHERE EXISTS(SELECT 1 FROM accounts WHERE id=? AND epoch=? AND auth_verifier=?) ON CONFLICT(account,id) DO NOTHING RETURNING rev",
+          ).bind(
+            s.account,
+            object,
+            data.length,
+            key,
+            now(),
+            layer?.meeting ?? null,
+            s.account,
+            account.epoch,
+            verifier,
           )
-            .bind(
-              s.account,
-              object,
-              data.length,
-              key,
-              now(),
-              s.account,
-              account.epoch,
-              verifier,
-            )
-            .first<{ rev: number }>()
-        : await env.DB.prepare(
+        : env.DB.prepare(
             "UPDATE objects SET rev=rev+1,size=?,body_key=?,deleted=?,updated_at=? WHERE account=? AND id=? AND rev=? AND EXISTS(SELECT 1 FROM accounts WHERE id=? AND epoch=? AND auth_verifier=?) RETURNING rev",
-          )
-            .bind(...params, s.account, account.epoch, verifier)
-            .first<{ rev: number }>();
+          ).bind(...params, s.account, account.epoch, verifier);
+    let written: { rev: number } | null;
+    if (layer) {
+      const results = await env.DB.batch([
+        env.DB.prepare("INSERT INTO meeting_writes VALUES(?,?,?,?,?)").bind(
+          s.account,
+          object,
+          previous,
+          account.epoch,
+          verifier,
+        ),
+        ...room.statements,
+        ...(room.droppedIncoming ? [] : [mutation]),
+        env.DB.prepare("DELETE FROM meeting_writes WHERE account=?").bind(
+          s.account,
+        ),
+      ]);
+      if (room.droppedIncoming)
+        throw new Fault(
+          410,
+          "This oldest meeting no longer syncs. Its local copy is retained.",
+        );
+      const result = results[results.length - 2].results[0];
+      written =
+        result &&
+        typeof result === "object" &&
+        "rev" in result &&
+        typeof result.rev === "number"
+          ? { rev: result.rev }
+          : null;
+    } else written = await mutation.first<{ rev: number }>();
     if (!written) throw new Fault(412, "Object changed. Merge and retry.");
     return json(written);
   } catch (e) {
     await env.CONTENT.delete(key);
     if (e instanceof Fault) throw e;
+    if (
+      String(e).includes("write_changed") ||
+      String(e).includes("CHECK constraint")
+    )
+      throw new Fault(412, "The write or hold changed. Retry sync.");
     if (String(e).includes("quota"))
       throw new Fault(
-        413,
-        "The free vocabulary allowance is 512 KiB. Your local words are unchanged.",
+        layer ? 507 : 413,
+        layer
+          ? "Meeting storage changed during upload. Retry sync."
+          : "The free vocabulary allowance is 512 KiB. Your local words are unchanged.",
       );
+    if (String(e).includes("meeting_inactive"))
+      throw new Fault(410, "This meeting no longer syncs.");
     throw e;
   }
 }

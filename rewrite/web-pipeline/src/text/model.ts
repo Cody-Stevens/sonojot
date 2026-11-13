@@ -4,6 +4,8 @@ import { check } from "./shared.ts";
 import { Document, recognizerCue } from "./punctuation.ts";
 import type { Mark } from "./punctuation.ts";
 import type { BioLabel } from "./written-form.ts";
+import { CASE_HINT_ENCODING, CASE_LABELS, hintId, softmax3, validThresholds } from "./casing.ts";
+import type { CaseThresholds } from "./casing.ts";
 export interface Config {
   labels: Mark[];
   spanLabels?: BioLabel[];
@@ -14,6 +16,8 @@ export interface Config {
   padId: number;
   wordPrefix: string;
   exceptions: Set<string>;
+  /** Casing label and hint input (punct-v4); thresholds come from punct-config.json. */
+  caseThresholds?: CaseThresholds;
 }
 interface Loaded {
   config: Config;
@@ -105,6 +109,21 @@ export function parseConfig(value: unknown): Config {
     spanLabels = values as BioLabel[];
   } else if (["span_label_scheme", "span_output", "span_encoding", "span_classes"].some((k) => k in c))
     throw new Error("Missing span labels");
+  // Rust punctuation.rs::Config::parse casing fields (all four or none).
+  const caseKeys = ["case_output", "case_labels", "case_hint_input", "case_hint_encoding"];
+  let caseThresholds: CaseThresholds | undefined;
+  if (caseKeys.some((k) => k in c)) {
+    if (
+      c.case_output !== "case_logits" ||
+      JSON.stringify(c.case_labels) !== JSON.stringify(CASE_LABELS) ||
+      c.case_hint_input !== "case_hints" ||
+      typeof c.case_hint_encoding !== "string" ||
+      c.case_hint_encoding.trim() !== CASE_HINT_ENCODING ||
+      !validThresholds(c.case_thresholds)
+    )
+      throw new Error("Invalid casing head");
+    caseThresholds = c.case_thresholds;
+  }
   return {
     labels,
     spanLabels,
@@ -115,8 +134,11 @@ export function parseConfig(value: unknown): Config {
     padId,
     wordPrefix: " ",
     exceptions: new Set(exceptions),
+    caseThresholds,
   };
 }
+/** Rust punctuation.rs::casing_package_selected: the package reads casing and piece starts itself. */
+export const hasCasing = (pkg: PunctuationPackage | undefined): boolean => !!pkg && !!initialize(pkg).config.caseThresholds;
 // Rust punctuation.rs::Engine::load. Runtime ownership remains with the caller.
 export function loadPunctuationPackage(
   configJson: unknown,
@@ -160,9 +182,11 @@ export interface EncodedWindow {
   end: number;
   inputIds: number[];
   positions: number[];
+  /** Per-token casing hint ids (casing packages only). */
+  caseHints?: number[];
 }
 // Rust punctuation.rs::Engine::predict / windows / encode_pieces.
-export function encodeWindows(document: Document, pkg: PunctuationPackage): EncodedWindow[] {
+export function encodeWindows(document: Document, pkg: PunctuationPackage, bounds: readonly boolean[] = []): EncodedWindow[] {
   const { config: c, tokenizer } = initialize(pkg);
   const pieces = document.words.map((word, i) => {
     const lower = word.text.toLowerCase(),
@@ -171,21 +195,25 @@ export function encodeWindows(document: Document, pkg: PunctuationPackage): Enco
     const ids = tokenizer.encode(value, { add_special_tokens: false }).ids,
       marks = cue ? tokenizer.encode(cue, { add_special_tokens: false }).ids : [];
     if (!ids.length || (cue && !marks.length)) throw new Error("Empty punctuation tokens");
-    return { ids, marks };
+    return { ids, marks, hint: hintId(word.text, bounds[i] ?? false) };
   });
   const out: EncodedWindow[] = [];
   for (let start = 0; start < pieces.length; start += c.hopWords) {
     const end = Math.min(start + c.windowWords, pieces.length),
       ids = [c.clsId],
+      hints = [0],
       positions: number[] = [];
     for (const p of pieces.slice(start, end)) {
       ids.push(...p.ids);
+      hints.push(...p.ids.map(() => p.hint));
       positions.push(ids.length - 1);
       ids.push(...p.marks);
+      hints.push(...p.marks.map(() => 0));
       if (ids.length >= 4096) throw new Error("Punctuation window exceeds token bound");
     }
     ids.push(c.sepId);
-    out.push({ start, end, inputIds: ids, positions });
+    hints.push(0);
+    out.push({ start, end, inputIds: ids, positions, caseHints: c.caseThresholds ? hints : undefined });
     if (end === pieces.length) break;
   }
   return out;
@@ -211,20 +239,25 @@ export async function predict(
   document: Document,
   pkg: PunctuationPackage,
   signal?: AbortSignal,
-): Promise<{ labels: Mark[]; spans?: BioLabel[] }> {
+  bounds: readonly boolean[] = [],
+): Promise<{ labels: Mark[]; spans?: BioLabel[]; cases?: [number, number, number][]; caseThresholds?: CaseThresholds }> {
   const { config } = initialize(pkg),
-    windows = encodeWindows(document, pkg),
+    windows = encodeWindows(document, pkg, bounds),
     labels: Mark[] = [],
     spans: BioLabel[] | undefined = config.spanLabels ? [] : undefined,
+    cases: [number, number, number][] | undefined = config.caseThresholds ? [] : undefined,
     best: number[] = [];
   for (const w of windows) {
     check(signal);
-    const out = await pkg.runner.run({ inputIds: w.inputIds });
+    const out = await pkg.runner.run({ inputIds: w.inputIds, caseHints: w.caseHints });
     check(signal);
     const marks = decodeLogits(out.logits, w.inputIds.length, w.positions, config.labels);
     const span = config.spanLabels
       ? decodeLogits(out.spanLogits ?? new Float32Array(), w.inputIds.length, w.positions, config.spanLabels)
       : undefined;
+    const caseLogits = out.caseLogits;
+    if (cases && (!caseLogits || caseLogits.length !== w.inputIds.length * 3 || caseLogits.some((x) => !Number.isFinite(x))))
+      throw new Error("Invalid casing output");
     for (let i = 0; i < marks.length; i++) {
       const distance = Math.min(i, marks.length - 1 - i),
         at = w.start + i;
@@ -232,8 +265,9 @@ export async function predict(
         best[at] = distance;
         labels[at] = marks[i]!;
         if (spans && span) spans[at] = span[i]!;
+        if (cases && caseLogits) cases[at] = softmax3(caseLogits.subarray(w.positions[i]! * 3, w.positions[i]! * 3 + 3));
       }
     }
   }
-  return { labels, spans };
+  return { labels, spans, cases, caseThresholds: config.caseThresholds };
 }

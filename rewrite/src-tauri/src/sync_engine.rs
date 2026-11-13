@@ -143,31 +143,93 @@ pub(crate) struct RotationUsage {
     pub vocabulary_rev: u64,
     pub cursor: u64,
     pub keys: BTreeSet<u32>,
+    pub objects: std::collections::BTreeMap<String, u64>,
 }
 pub(crate) async fn rotation_usage(
     store: &Store,
     c: &Credentials,
     ring: &Keyring,
 ) -> Result<RotationUsage, String> {
-    let meta = metadata(store, c)?;
     let client = c.client()?;
-    let inventory: Value = client.json(Method::GET, "/v1/account/export", None).await?;
+    let _: Value = client
+        .json(
+            Method::POST,
+            "/v1/rekey/prepare",
+            Some(&serde_json::json!({"epoch":ring.epoch})),
+        )
+        .await?;
+    let result = rotation_usage_inner(store, c, ring).await;
+    // The server also expires the lease after ten minutes or an epoch change.
+    let _ = client
+        .json::<Value>(Method::DELETE, "/v1/rekey/prepare", None)
+        .await;
+    result
+}
+async fn rotation_usage_inner(
+    store: &Store,
+    c: &Credentials,
+    ring: &Keyring,
+) -> Result<RotationUsage, String> {
+    let meta = metadata(store, c)?;
+    let client = c.client()?.for_rotation();
+    let (_, bytes) = client.read_with_retry("/v1/inventory").await?;
+    let inventory: Value =
+        serde_json::from_slice(&bytes).map_err(|_| "Invalid object inventory.")?;
     let cursor = inventory["account"]["seq"]
         .as_u64()
         .ok_or("Invalid object inventory.")?;
     if cursor < meta.cursor || inventory["account"]["epoch"].as_u64() != Some(ring.epoch) {
         return Err("The object inventory changed. Unlock and retry re-keying.".into());
     }
-    let objects = inventory["objects"]
+    let mut objects = inventory["objects"]
         .as_array()
-        .ok_or("Invalid object inventory.")?;
+        .ok_or("Invalid object inventory.")?
+        .clone();
+    let mut page = inventory.clone();
+    while page["hasMore"] == true {
+        let after = objects
+            .last()
+            .and_then(|v| v["id"].as_str())
+            .ok_or("Invalid inventory page.")?
+            .to_owned();
+        if after.len() > 256
+            || !after
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_/".contains(&b))
+        {
+            return Err("Invalid inventory cursor.".into());
+        }
+        let (_, bytes) = client
+            .read_with_retry(&format!("/v1/inventory?after={after}"))
+            .await?;
+        page = serde_json::from_slice(&bytes).map_err(|_| "Invalid object inventory.")?;
+        if page["account"]["seq"].as_u64() != Some(cursor)
+            || page["account"]["epoch"].as_u64() != Some(ring.epoch)
+        {
+            return Err("Inventory changed during re-keying. Retry.".into());
+        }
+        let more = page["objects"]
+            .as_array()
+            .ok_or("Invalid inventory page.")?;
+        if (more.is_empty() && page["hasMore"] == true)
+            || more
+                .first()
+                .and_then(|v| v["id"].as_str())
+                .is_some_and(|id| id <= after.as_str())
+            || objects.len() + more.len() > 250000
+        {
+            return Err("Invalid or oversized inventory.".into());
+        }
+        objects.extend(more.iter().cloned());
+    }
     let mut usage = RotationUsage {
         vocabulary_rev: 0,
         cursor,
         keys: BTreeSet::new(),
+        objects: Default::default(),
     };
     let mut ids = BTreeSet::new();
-    for object in objects {
+    for object in &objects {
         let id = object["id"].as_str().ok_or("Invalid object id.")?;
         let rev = object["rev"]
             .as_u64()
@@ -185,19 +247,23 @@ pub(crate) async fn rotation_usage(
         if id == "vocabulary" {
             usage.vocabulary_rev = rev;
         }
-        if object["deleted"] == 1 {
+        if matches!(object["deleted"].as_u64(), Some(1 | 2 | 3 | 4)) {
             continue;
         }
         if object["deleted"] != 0 {
             return Err("Invalid object state.".into());
         }
+        if id.starts_with("blob/") {
+            // The authenticated head binds audio bytes. Keep its possible decryption
+            // keys without fetching gigabytes of audio during device removal.
+            usage.keys.extend(ring.keys.keys().copied());
+            continue;
+        }
         let path = match id.strip_prefix("blob/") {
             Some(blob) => format!("/v1/blobs/{blob}"),
             None => format!("/v1/objects/{id}"),
         };
-        let (actual_rev, bytes) = client
-            .request(Method::GET, &path, None, None, None, 0)
-            .await?;
+        let (actual_rev, bytes) = client.read_with_retry(&path).await?;
         if actual_rev != rev {
             return Err("An object changed. Retry re-keying.".into());
         }
@@ -205,15 +271,16 @@ pub(crate) async fn rotation_usage(
         let key = if id == "vocabulary" {
             vocabulary_key(ring, kid, rev)?
         } else {
-            ring.keys
-                .get(&kid)
-                .ok_or("An object uses an unknown key.")?
+            ring.object_key(id, kid, rev)?
         };
         let plain = crypto::open(key, &c.account, id, rev, &bytes)?;
         if id == "vocabulary" {
             parse(&plain)?;
         }
         usage.keys.insert(kid);
+        if id != "vocabulary" {
+            usage.objects.insert(id.into(), rev);
+        }
     }
     if usage.vocabulary_rev < meta.rev {
         return Err("The service returned older vocabulary.".into());
@@ -529,11 +596,18 @@ mod tests {
                 .to_owned();
             let arg = serde_json::json!({"id":id});
             action(a, "pair_accept", arg.clone()).await.unwrap();
+            // Opening either screen again must keep its committed nonce.
+            assert_eq!(action(b, "pair_start", serde_json::json!({})).await.unwrap()["id"], id);
+            action(a, "pair_accept", arg.clone()).await.unwrap();
             action(b, "pair_poll", arg.clone()).await.unwrap();
             action(a, "pair_poll", arg.clone()).await.unwrap();
+            assert!(action(a, "pair_approve", serde_json::json!({"id":id,"confirmed":true})).await.is_err());
             let on_b = action(b, "pair_poll", arg.clone()).await.unwrap();
             let on_a = action(a, "pair_poll", arg.clone()).await.unwrap();
             assert_eq!(on_a["code"], on_b["code"]);
+            assert!(action(b, "pair_approve", serde_json::json!({"id":id,"confirmed":true})).await.is_err());
+            assert!(action(a, "pair_approve", arg.clone()).await.is_err());
+            assert_ne!(action(b, "pair_poll", arg.clone()).await.unwrap()["unlocked"], true);
             action(
                 a,
                 "pair_approve",
@@ -542,14 +616,7 @@ mod tests {
             .await
             .unwrap();
             let poll = action(b, "pair_poll", arg.clone()).await.unwrap();
-            assert_ne!(poll["unlocked"], true);
-            action(
-                b,
-                "pair_confirm",
-                serde_json::json!({"id":id,"confirmed":true}),
-            )
-            .await
-            .unwrap();
+            assert_eq!(poll["unlocked"], true);
         }
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async {

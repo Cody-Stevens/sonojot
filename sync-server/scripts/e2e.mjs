@@ -6,11 +6,45 @@ import { spawn, spawnSync } from "node:child_process";
 const out = await build({
   stdin: {
     contents: `import original from './test/entry';
-    let objectDownloads=0;
+    import {retainMaintenance} from './src/meeting_retention';
+    let rejectObject=null;
+    let objectDownloads=0,blobDownloads=0,checkpointDownloads=0,referencePosts=0,holdPosts=0;
     export default {...original,async fetch(request,env){
       const path=new URL(request.url).pathname;
-      if(path==='/__test/requests') return Response.json({objectDownloads});
+      if(path==='/__test/reject-write') { rejectObject=(await request.json()).object; return Response.json({ready:true}); }
+      if(rejectObject && path==='/v1/objects/'+rejectObject && request.method==='PUT') {rejectObject=null;return new Response('synthetic CAS race',{status:412});}
+      if(path==='/__test/requests') return Response.json({objectDownloads,blobDownloads,checkpointDownloads,referencePosts,holdPosts});
+      if(path==='/__test/meeting-state') {
+        const value=await request.json();
+        await env.DB.prepare('UPDATE meetings SET state=? WHERE id=?').bind(value.state,value.id).run();
+        return Response.json({changed:true});
+      }
+      if(path==='/__test/clear-limits') {await env.DB.prepare('DELETE FROM rate_limits').run(); return Response.json({cleared:true});}
+      if(path==='/__test/expire-upload') {
+        const value=await request.json();
+        await env.DB.prepare('UPDATE objects SET updated_at=unixepoch()-86401 WHERE id=?').bind(value.id).run();
+        await retainMaintenance(env);
+        return Response.json({expired:true});
+      }
+      if(path==='/__test/drop-meeting') {
+        const value=await request.json();
+        await env.DB.prepare("UPDATE meetings SET state='dropped' WHERE id=?").bind(value.id).run();
+        await env.DB.prepare("UPDATE objects SET deleted=2,size=0,body_key='',rev=rev+1 WHERE meeting=?").bind(value.id).run();
+        return Response.json({dropped:true});
+      }
+      if(path==='/__test/pad-inventory') {
+        const value=await request.json();
+        const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM objects WHERE account=?').bind(value.account).first();
+        const missing=500-count.n;
+        if(missing<0) throw Error('synthetic inventory already exceeds target');
+        if(missing) await env.DB.batch(Array.from({length:missing},(_,i)=>env.DB.prepare("INSERT INTO objects(account,id,rev,size,body_key,deleted,updated_at) VALUES(?,?,1,0,'',1,unixepoch())").bind(value.account,'synthetic-pad-'+i)));
+        return Response.json({count:500});
+      }
+      if(path.startsWith('/v1/rekey-pages/')&&request.method==='GET') checkpointDownloads++;
+      if(path.endsWith('/references')&&request.method==='POST') referencePosts++;
+      if(path==='/v1/holds'&&request.method==='POST') holdPosts++;
       if(path.startsWith('/v1/objects/')&&request.method==='GET') objectDownloads++;
+      if(path.startsWith('/v1/blobs/')&&request.method==='GET') blobDownloads++;
       return original.fetch(request,env);
     }};`,
     resolveDir: process.cwd(),
@@ -52,6 +86,9 @@ try {
   await db.exec(readFileSync("migrations/0006_authkit.sql", "utf8"));
   await db.exec(readFileSync("migrations/0007_test_accounts.sql", "utf8"));
   await db.exec(readFileSync("migrations/0008_email_signin.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0009_meetings.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0010_meeting_lifecycle.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0011_meeting_restore.sql", "utf8"));
   let account;
   const sessions = {};
   const identities = {};
@@ -115,16 +152,26 @@ try {
       "--manifest-path",
       "../rewrite/src-tauri/Cargo.toml",
       "--lib",
-      "sync_engine::tests::two_device_miniflare",
+      "--features",
+      "synctest",
+      "-j",
+      "3",
+      process.argv.includes("--meeting-library")
+        ? "meeting_sync::tests::large_meeting_library_miniflare"
+        : process.argv.includes("--meetings")
+          ? "meeting_sync::tests::two_device_meeting_miniflare"
+          : "sync_engine::tests::two_device_miniflare",
       "--",
       "--ignored",
       "--exact",
+      "--nocapture",
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
       env: {
         ...process.env,
+        SONOJOT_SYNC_ORIGIN: "https://sonojot-sync-staging.example.workers.dev",
         SONOJOT_SYNC_E2E_URL: url,
         SONOJOT_SYNC_E2E_ACCOUNT: account,
         SONOJOT_SYNC_E2E_A: a,
@@ -147,7 +194,7 @@ try {
         stdio: "ignore",
       });
     else child.kill("SIGKILL");
-  }, 300000);
+  }, process.argv.includes("--meeting-library") ? 600000 : 300000);
   const exit = await new Promise((resolve, reject) => {
     child.on("error", reject);
     child.on("exit", resolve);
@@ -173,7 +220,11 @@ try {
   if (JSON.stringify(metadata).includes("Asterlume"))
     throw Error("database plaintext boundary failed");
   console.log(
-    "Three Rust devices signed in, paired and synced through Miniflare. Removing one re-keyed the other two automatically; old keys and a forged roster were rejected. R2 held only encrypted SJV1 envelopes.",
+    process.argv.includes("--meeting-library")
+      ? "Two devices converged 200 synthetic meetings across bounded rate-limit windows; idle passes wrote no references or holds."
+      : process.argv.includes("--meetings")
+      ? "Two Rust devices converged meeting layers, resolved an edit conflict, resumed authenticated audio, and retained local edits after deletion through Miniflare; R2 held only encrypted SJV1 envelopes."
+      : "Three Rust devices signed in, paired and synced through Miniflare. Removing one re-keyed the other two automatically; old keys and a forged roster were rejected. R2 held only encrypted SJV1 envelopes.",
   );
 } finally {
   await mf.dispose();

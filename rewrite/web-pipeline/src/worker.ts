@@ -8,7 +8,7 @@ import { splitForRecognition, SAMPLE_RATE } from "./audio.ts";
 import { ALL_FILES, PARAKEET, PUNCTUATION, type ModelFile, type ModelUrl } from "./models.ts";
 import type { Device, LoadReport, ProgressEvent, Request, Response, TranscribeJob, TranscribeResult, WorkerConfig } from "./protocol.ts";
 import { clearModelCache, ModelStore, type DownloadProgress } from "./store.ts";
-import { loadPunctuationPackage, lowerSegmentStartCapitals, postprocess } from "./text/index.ts";
+import { hasCasing, loadPunctuationPackage, lowerSegmentStartCapitals, postprocess } from "./text/index.ts";
 import type { PunctuationPackage } from "./text/contract.ts";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -255,16 +255,19 @@ async function loadEngine(loading: Loading): Promise<Engine> {
 function loadPunctuation(tokenizer: Uint8Array, punctConfig: Uint8Array, session: () => ort.InferenceSession): PunctuationPackage {
   const text = new TextDecoder();
   const pkg = loadPunctuationPackage(JSON.parse(text.decode(punctConfig)), JSON.parse(text.decode(tokenizer)), {
-    async run({ inputIds }: { inputIds: number[] }) {
+    async run({ inputIds, caseHints }: { inputIds: number[]; caseHints?: number[] }) {
       const ids = BigInt64Array.from(inputIds, (id) => BigInt(id));
       const mask = new BigInt64Array(ids.length).fill(1n);
-      const out = await session().run({
+      const feeds: Record<string, ort.Tensor> = {
         input_ids: new ort.Tensor("int64", ids, [1, ids.length]),
         attention_mask: new ort.Tensor("int64", mask, [1, ids.length]),
-      });
+      };
+      if (caseHints) feeds.case_hints = new ort.Tensor("int64", BigInt64Array.from(caseHints, (h) => BigInt(h)), [1, ids.length]);
+      const out = await session().run(feeds);
       return {
         logits: out.logits!.data as Float32Array,
         spanLogits: out.span_logits?.data as Float32Array | undefined,
+        caseLogits: out.case_logits?.data as Float32Array | undefined,
       };
     },
   });
@@ -307,8 +310,10 @@ async function transcribe(job: TranscribeJob, signal: AbortSignal): Promise<Tran
   const recognized = performance.now();
   // Each piece is decoded on its own; cleanup reads the join without the
   // capital the recognizer gives a piece's first word mid-sentence.
-  const input = job.cleanup === "original" ? raw : (lowerSegmentStartCapitals(raw, pieces) ?? raw);
-  const cleaned = await postprocess(input, { mode: job.cleanup, punctuation, signal });
+  // A package with a casing label reads the recognizer's casing and the piece starts itself.
+  const casing = hasCasing(punctuation);
+  const input = job.cleanup === "original" || casing ? raw : (lowerSegmentStartCapitals(raw, pieces) ?? raw);
+  const cleaned = await postprocess(input, { mode: job.cleanup, punctuation, signal, pieces: casing ? pieces : undefined });
   const finished = performance.now();
   return {
     raw,

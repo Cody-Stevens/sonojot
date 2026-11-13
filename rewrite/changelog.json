@@ -1,6 +1,19 @@
 {
   "schema": 1,
   "next": [
+    "With the SonoJot Punctuation v4 test package, cleanup capitalises names, places and acronyms the speech model wrote in lower case, works the same with every speech model, and lowers a capital only when it is very sure; vocabulary words are never changed.",
+    "A capital letter A used as a label, as in 'option A', keeps its capital.",
+    "Adding a computer starts approval automatically and shows the six digits on both screens, with Approve and Deny on the trusted computer.",
+    "Expired approval codes offer a new code, and reopening Account and sync resumes the current request.",
+    "Recovery alternatives stay tucked away until needed, and approved computers keep account management behind Account options.",
+    "Removing this computer signs it out without trying to show a new recovery code.",
+    "Missing meeting files require confirmation before mass deletion, and reappearing files cancel queued deletions.",
+    "Recently deleted restores missing audio and sidecars without overwriting an existing meeting.",
+    "Sync now reports meeting results and retries failed meetings without slowing the rest of the library.",
+    "Meeting edits and deletions made in older builds are preserved when returning to Nightly.",
+    "Large meeting libraries resume sync across rate limits, and a busy or damaged meeting no longer stalls the others or vocabulary sync.",
+    "Recently deleted lets you restore a meeting on this computer or remove its saved copy; unsynced audio requires confirmation before remote deletion.",
+    "Unreadable meeting layers and trash cleanup failures no longer hide the meeting library.",
     "Dictations made with SonoJot Parakeet no longer capitalise a word in the middle of a sentence after a pause.",
     "Highlighted choices, such as the selected fix in the doubtful-words card, now look like raised paper instead of plain white, and focus rings go round the whole control.",
     "Meetings on speakers: Remove speaker echo (Sources and speakers) removes the other people's words that your microphone picked up, so they no longer appear twice as yours. It is on automatically with SonoJot Parakeet and off with Qwen until you turn it on; turn it off and transcribe again to get the unfiltered text.",
@@ -14,6 +27,15 @@
     "Switching update channels offers a clear download and restart action, or explains when no build is available for your computer.",
     "Nightly releases now include signed and notarized builds for Apple Silicon Macs when the Mac build succeeds.",
     "Builds without a configured staging server keep vocabulary sync disabled and explain why.",
+    "Meeting deletions received through sync require encrypted confirmation and keep the local files in trash for 30 days.",
+    "Large meeting transcripts sync in parts, and re-keying supports large meeting libraries without downloading their audio.",
+    "Interrupted meeting audio uploads can resume after expiry; unused uploads and old text layers are reclaimed safely.",
+    "Staging meeting storage defaults to 2 GB, with 100 GB reserved for designated test accounts and a daily upload limit.",
+    "Stable builds keep the existing local meeting format without creating sync layers.",
+    "Nightly and Sync Test builds can sync meeting transcripts, notes and edits through staging, with choices for edits made on two devices.",
+    "Meeting audio sync is optional and off by default, with a separate choice for each meeting and downloads when needed.",
+    "Meeting audio sync uses 64 kbps Opus and shows an estimate of storage per minute.",
+    "Account and sync shows meeting storage; the oldest meetings stop syncing only after a device confirms a complete local copy.",
     "Mac sync sign-in explains keychain errors; the separate Sync Test app can save its test credentials without unlocking the login keychain.",
     "Encrypted vocabulary sync is available in nightly and other prerelease builds; stable builds keep sync disabled.",
     "Sync Test can sign into isolated staging test accounts and pause its connection from the command line.",
@@ -27,6 +49,14 @@
     "The Speech page is calmer: each model is one simple card with a short line, and the details sit behind a small i button. Compare models opens one chart of every model this computer can run, for everyday speech, accented English or talks, with a table of the same numbers. In Cleanup, Punctuation and the optional Proofreader now have their own rows, and the details for other settings moved behind i buttons."
   ],
   "releases": [
+    {
+      "version": "0.28.10-nightly.202611132139",
+      "date": "2026-11-13",
+      "notes": [
+        "Meetings and imported recordings transcribed with Parakeet on an NVIDIA graphics card no longer stop partway through long stretches of speech.",
+        "A meeting's Clean copy no longer capitalises a word in the middle of a sentence after a pause, as dictation already did not."
+      ]
+    },
     {
       "version": "0.28.10-nightly.202611132048",
       "date": "2026-11-13",

@@ -1,6 +1,8 @@
 import lowercase from "./data/lowercase.json";
 import { capitalize, isAlpha, isNumeric, isUpper, SPACE, trimSpace, wordBounds } from "./shared.ts";
 import type { Range } from "./shared.ts";
+import { capitalRun, modelCase, sentenceStartForm } from "./casing.ts";
+import type { Casing } from "./casing.ts";
 import { preservedCandidates } from "./structured.ts";
 export type Mark = "" | "." | "," | "?" | ";";
 export interface Word {
@@ -164,6 +166,8 @@ export class Document {
   readonly words: Word[];
   readonly preserved: Range[];
   readonly proper: Set<string>;
+  /** Set only from a casing package's prediction; replaces the casing heuristics. */
+  casing?: Casing;
   // Rust punctuation.rs::Document::new.
   constructor(text: string) {
     this.text = text;
@@ -253,6 +257,15 @@ export class Document {
   // Rust punctuation.rs::Document::next_starts_sentence.
   nextStartsSentence(i: number): boolean {
     const next = this.words[i + 1];
+    if (this.casing)
+      return (
+        !!next &&
+        [...next.text].length > 1 &&
+        isUpper([...next.text][0] ?? "") &&
+        ![...next.text].slice(1).some(isUpper) &&
+        !next.protected &&
+        (this.casing.probs[i + 1]?.[0] ?? 0) >= 0.5
+      );
     return (
       !!next &&
       new TextEncoder().encode(next.text).length > 1 &&
@@ -333,13 +346,26 @@ export class Document {
       const iForm = ["i", "i'm", "i'll", "i've", "i'd"].includes(lower.replaceAll("’", "'"));
       const capital = i === 0 || this.endInGap(i - 1, gaps[i - 1]!, predictions?.[i - 1]);
       const removed = i > 0 && this.endInGap(i - 1, this.gap(i - 1)) && !capital;
+      const casing = predictions !== undefined ? this.casing : undefined;
       const replacement = w.protected
         ? original
         : (houseStyle || predictions !== undefined) && (iForm || capital)
-          ? capitalize(original)
-          : removed && commonLowercase(lower) && !this.proper.has(lower) && ![...original].slice(1).some(isUpper)
-            ? lower
-            : original;
+          ? (casing && !iForm && sentenceStartForm(original)) || capitalize(original)
+          : casing
+            ? (modelCase(
+                original,
+                casing.probs[i]!,
+                removed || (casing.bounds[i] ?? false),
+                capitalRun(
+                  this.words.map((x) => x.text),
+                  this.words.map((_, k) => k > 0 && /[.?!,;:]/.test(this.gap(k - 1))),
+                  i,
+                ),
+                casing.thresholds,
+              ) ?? original)
+            : removed && commonLowercase(lower) && !this.proper.has(lower) && ![...original].slice(1).some(isUpper)
+              ? lower
+              : original;
       out += (sameWords(original, replacement) ? replacement : original) + gaps[i]!;
     }
     return out;

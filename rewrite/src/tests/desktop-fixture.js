@@ -310,6 +310,7 @@ export async function installDesktopFixture(page, options = {}) {
       recognitionWarnings: [],
       error: null,
     };
+    let meetingTrash = structuredClone(options.meetingTrash ?? []);
     let meetings = options.meetings ? structuredClone(options.meetings) : [structuredClone(seed), outageMeeting];
     const meetingRaw = new Map(
       meetings.map((meeting) => [
@@ -918,6 +919,12 @@ export async function installDesktopFixture(page, options = {}) {
     window.__testCompleteTranscription = (patch = {}) => completeTranscription?.(patch);
     let nextSession = 2;
     window.__testCalls = [];
+    window.__testSyncChange = (patch) => {
+      if (patch.status) options.syncStatus={...options.syncStatus,...patch.status};
+      if (patch.pairs) options.syncPairs=clone(patch.pairs);
+      if (patch.polls) options.syncPairPolls=clone(patch.polls);
+      callbacks.get(handlers.get("sync-changed"))?.({event:"sync-changed",id:1,payload:null});
+    };
     // Mock-only system audio permission: status follows capabilities unless
     // set; a request moves notDetermined to the scripted answer.
     state.capabilities.systemAudioStatus ??= state.capabilities.systemAudio ? "ready" : "unsupported";
@@ -1019,16 +1026,40 @@ export async function installDesktopFixture(page, options = {}) {
         switch (command) {
           case "sync_command": {
             const status = options.syncStatus ?? { signedIn: false, unlocked: false, server: "https://sync.example.invalid" };
-            if (args.operation === "pair_start") return {id:"fixture-pair"};
-            if (args.operation === "pair_poll") return {code:"654321",approver:false,ready:true};
-            if (args.operation === "pair_confirm") {options.syncStatus={...status,unlocked:true};return {unlocked:true};}
+            const meetingSync = options.meetingSync ??= {status:"synced",audioOverride:null,audioEnabled:false,audioAvailable:false,deleteConflict:false,conflicts:[],fieldConflicts:{}};
+            const audioPreferences = options.meetingAudio ??= {audioDefault:false,alwaysDownload:false};
+            if (args.operation === "meeting_status") return clone(meetingSync);
+            if (args.operation === "meeting_storage") return {used:1024*1024,quota:options.meetingQuota ?? 100_000_000_000,audio:clone(audioPreferences)};
+            if (args.operation === "meeting_missing_resolve") {options.syncStatus={...status,meetings:{...status.meetings,missing:0}};return {resolved:true};}
+            if (args.operation === "now") return {synced:true,meetings:options.meetingResult ?? {errors:0,retryAt:0,rateLimited:false,missing:0}};
+            if (args.operation === "meeting_preferences") {Object.assign(audioPreferences,args.args);return clone(audioPreferences);}
+            if (args.operation === "meeting_audio") {meetingSync.audioOverride=args.args.enabled;meetingSync.audioEnabled=args.args.enabled??audioPreferences.audioDefault;return {saved:true};}
+            if (args.operation === "meeting_resolve") {meetingSync.conflicts=[];return {resolved:true};}
+            if (args.operation === "meeting_field_resolve") {delete meetingSync.fieldConflicts[args.args.field];return {resolved:true};}
+            if (args.operation === "meeting_delete_resolve") {meetingSync.deleteConflict=false;meetingSync.status=args.args.keep?"localOnly":"deleted";return {resolved:true};}
+            if (args.operation === "pair_start") return {id:"fixture-pair",expiresAt:Math.floor(Date.now()/1000)+(options.syncPairLifetime ?? 300)};
+            if (args.operation === "pair_accept") return {waiting:true};
+            if (args.operation === "pair_poll") {
+              if (options.syncPairError) {const error=options.syncPairError;options.syncPairError=null;throw new Error(error);}
+              const result=options.syncPairPolls?.length ? (options.syncPairPolls.length>1 ? options.syncPairPolls.shift() : options.syncPairPolls[0]) : {code:"654321",approver:status.unlocked,ready:false};
+              if (result.unlocked) options.syncStatus={...status,unlocked:true};
+              return clone(result);
+            }
+            if (["pair_approve","pair_deny"].includes(args.operation)) {options.syncPairs=[];return {approved:args.operation==="pair_approve",denied:args.operation==="pair_deny"};}
+            if (args.operation === "recovery_use") {options.syncStatus={...status,unlocked:true};return {unlocked:true};}
+            if (args.operation === "remove" && args.args.device === status.device) {options.syncStatus={signedIn:false,unlocked:false,server:status.server};return {signedOut:true};}
+            if (args.operation === "signout" || args.operation === "account_delete") {options.syncStatus={signedIn:false,unlocked:false,server:status.server};return {signedOut:true};}
             if (args.operation === "reset_cancel") {options.syncStatus={...status,pendingReset:null};return {cancelled:true};}
             if (args.operation === "recovery_show") return {code:"SYNTHETIC-RECOVERY-FIXTURE"};
             if (args.operation === "setup") { options.syncStatus={...status,unlocked:true,recoveryPending:true}; return {unlocked:true}; }
             if (args.operation === "recovery_ack") { options.syncStatus={...status,recoveryPending:false}; return {saved:true}; }
             if (args.operation === "devices") return [{ id: "fixture-device", platform: "Windows", revoked_at: null }];
-            if (["pair_list", "conflicts"].includes(args.operation)) return [];
-            if (args.operation === "signin") throw new Error("This sign-in provider is not configured yet.");
+            if (args.operation === "pair_list") return clone(options.syncPairs ?? []);
+            if (args.operation === "conflicts") return [];
+            if (args.operation === "signin") {
+              if (options.syncSigninStatus) {options.syncStatus=clone(options.syncSigninStatus);return {opened:true};}
+              throw new Error("This sign-in provider is not configured yet.");
+            }
             return clone(status);
           }
           // Mock-only What's new: options.whatsNew seeds { pending, latest };
@@ -1592,6 +1623,20 @@ export async function installDesktopFixture(page, options = {}) {
               scope: null,
             });
             return clone(vocabulary);
+          case "list_meeting_trash":
+            return clone(meetingTrash);
+          case "restore_meeting_trash": {
+            const row = meetingTrash.find(row => row.key === args.key);
+            if (!row) throw new Error("Saved copy is unavailable.");
+            meetings.push({ ...clone(meetings[0]), id: row.id, title: row.title, status: "transcribed", hasAudio: false });
+            meetingTrash = meetingTrash.filter(row => row.key !== args.key);
+            state.meetingsRevision += 1;
+            emit();
+            return row.id;
+          }
+          case "delete_meeting_trash":
+            meetingTrash = meetingTrash.filter(row => row.key !== args.key);
+            return null;
           case "list_meetings":
             return clone(meetings);
           case "search_meetings": {

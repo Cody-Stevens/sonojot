@@ -500,6 +500,9 @@ export const commandSchemas = {
   show_page: nothing,
   copy_text: nothing,
   list_meetings: z.array(meetingSummarySchema),
+  list_meeting_trash: z.array(z.object({ key: z.string(), id: z.string(), title: z.string(), deletedAt: z.number() })),
+  restore_meeting_trash: z.string(),
+  delete_meeting_trash: nothing,
   search_meetings: z.array(z.object({ id: z.string(), line: z.string() })),
   get_meeting: meetingDetailSchema,
   get_timed_transcript: z.object({
@@ -646,6 +649,9 @@ export interface CommandArguments {
   };
   copy_text: { original: boolean; resultSessionId: number | null };
   list_meetings: undefined;
+  list_meeting_trash: undefined;
+  restore_meeting_trash: { key: string };
+  delete_meeting_trash: { key: string };
   search_meetings: { query: string };
   get_meeting: { id: string };
   start_meeting: { title: string; source: "microphone" | "system" | "both" };

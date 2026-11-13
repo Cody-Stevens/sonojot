@@ -10,6 +10,8 @@ export type CleanupMode = "clean" | "format" | "original";
 export interface PunctuationInput {
   /** Token ids, CLS first and SEP last, as the desktop encodes them. */
   inputIds: number[];
+  /** Per-token casing hint ids, present when the package has a casing label (punct-v4). */
+  caseHints?: number[];
 }
 
 /** Raw head outputs for one window, row-major [tokens x classes]. */
@@ -17,6 +19,8 @@ export interface PunctuationOutput {
   logits: Float32Array;
   /** Present when the package has a written-form span head (v2 and later). */
   spanLogits?: Float32Array;
+  /** Present when the package has a casing label: [tokens x 3] lower, Capitalised, UPPER. */
+  caseLogits?: Float32Array;
 }
 
 /** Runs the ONNX graph. Implementations feed `input_ids` and `attention_mask` (int64). */
@@ -39,6 +43,8 @@ export interface PostprocessOptions {
   punctuation?: PunctuationPackage;
   /** Written numbers, money and dates in Clean mode. Default true, like the desktop. */
   writtenForm?: boolean;
+  /** Separately decoded recognizer pieces of `raw`, in order; a casing package reads their starts. */
+  pieces?: readonly string[];
   signal?: AbortSignal;
 }
 
