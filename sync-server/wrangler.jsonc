@@ -19,7 +19,8 @@
         "PUBLIC_ORIGIN": "https://sonojot-sync-staging.example.workers.dev",
         "MAIL_ENABLED": "false",
         "WORKOS_CLIENT_ID": "",
-        "SYNC_TEST_IDENTITY": "true"
+        "SYNC_TEST_IDENTITY": "true",
+        "AUTH_ORIGIN": ""
       },
       "d1_databases": [
         {
@@ -49,7 +50,12 @@
           "17 3 * * *"
         ]
       },
-      "workers_dev": true
+      "workers_dev": true,
+      "assets": {
+        "directory": "./public",
+        "binding": "ASSETS",
+        "run_worker_first": true
+      }
     }
   }
 }

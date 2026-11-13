@@ -2,7 +2,7 @@ use crate::{
     app::Runtime,
     secret_store,
     store::Store,
-    sync_client::{SyncClient, Wrap, STAGING},
+    sync_client::{SyncClient, Wrap, STAGING, AUTH_ORIGIN},
     sync_crypto::{self as crypto, DeviceKey, Keyring, Secret},
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine};
@@ -56,6 +56,8 @@ pub struct Credentials {
     pub trusted: BTreeMap<String, [u8; 32]>,
     #[serde(default)]
     pub keyset: Option<[u8; 32]>,
+    #[serde(default)]
+    pub initialized: Option<bool>,
 }
 impl Drop for Credentials {
     fn drop(&mut self) {
@@ -81,6 +83,7 @@ impl Credentials {
             pairs: BTreeMap::new(),
             trusted: BTreeMap::new(),
             keyset: None,
+            initialized: None,
         }
     }
     pub fn client(&self) -> Result<SyncClient, String> {
@@ -188,7 +191,7 @@ pub fn status(store: &Store) -> Result<Value, String> {
             let reset_notice: Value = store
                 .read(&store.root().join("sync-reset-notice.json"))
                 .unwrap_or(Value::Null);
-            json!({"signedIn":!c.session.is_empty(),"unlocked":c.ak.is_some(),"email":c.email,"account":c.account,"device":c.device_id,"server":c.server,"recoveryPending":c.recovery.is_some(),"pendingSignin":c.pending.is_some(),"lastSync":meta.last_sync,"conflicts":meta.conflicts.len(),"pendingReset":pending_reset,"notice":notice,"resetCancelled":reset_notice["account"] == c.account && reset_notice["server"] == c.server})
+            json!({"signedIn":!c.session.is_empty(),"unlocked":c.ak.is_some(),"email":c.email,"account":c.account,"device":c.device_id,"server":c.server,"recoveryPending":c.recovery.is_some(),"pendingSignin":c.pending.is_some(),"initialized":remote["ring_rev"].as_u64().filter(|_| remote["account"] == c.account && remote["server"] == c.server).map(|r| r > 0).or(c.initialized),"lastSync":meta.last_sync,"conflicts":meta.conflicts.len(),"pendingReset":pending_reset,"notice":notice,"resetCancelled":reset_notice["account"] == c.account && reset_notice["server"] == c.server})
         }
     })
 }
@@ -199,6 +202,26 @@ struct KeyTransfer {
     ring_rev: u64,
     vocabulary_rev: u64,
     epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    trust: Option<TrustedRoster>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrustedRoster {
+    keyset: [u8; 32],
+    devices: BTreeMap<String, [u8; 32]>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RosterProof {
+    sender: String,
+    ciphertext: String,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RotationMessage {
+    previous: [u8; 32],
+    transfer: KeyTransfer,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -206,6 +229,62 @@ struct RotationWrap {
     sender: String,
     epoch: u64,
     ciphertext: String,
+    #[serde(default)]
+    introduction: Option<String>,
+}
+const REPAIR_TRUST: &str = "This computer cannot verify the key change; compare six digits with a computer that is up to date, or use the newest recovery code.";
+
+fn accept_roster(c: &Credentials, encoded: &str) -> Result<TrustedRoster, String> {
+    let proof: RosterProof = serde_json::from_slice(&B64.decode(encoded).map_err(|_| REPAIR_TRUST)?).map_err(|_| REPAIR_TRUST)?;
+    let public = c.trusted.get(&proof.sender).ok_or(REPAIR_TRUST)?;
+    let plain = crypto::unwrap_from(&c.device, public, &c.account, &format!("roster/{}", c.device_id), &B64.decode(&proof.ciphertext).map_err(|_| REPAIR_TRUST)?)?;
+    let roster: TrustedRoster = serde_json::from_slice(&plain).map_err(|_| REPAIR_TRUST)?;
+    if Some(roster.keyset) != c.keyset || roster.devices.len() > 64
+        || roster.devices.get(&c.device_id) != Some(&c.device.public)
+        || roster.devices.get(&proof.sender) != Some(public) {
+        return Err(REPAIR_TRUST.into());
+    }
+    Ok(roster)
+}
+async fn publish_roster(c: &Credentials) -> Result<(), String> {
+    let roster = TrustedRoster { keyset: c.keyset.ok_or(REPAIR_TRUST)?, devices: c.trusted.clone() };
+    let plain = zeroize::Zeroizing::new(serde_json::to_vec(&roster).map_err(|_| REPAIR_TRUST)?);
+    let client = c.client()?;
+    let wraps = client.wraps().await?;
+    for (id, public) in &c.trusted {
+        if id == &c.device_id { continue; }
+        let proof = RosterProof { sender: c.device_id.clone(), ciphertext: B64.encode(crypto::wrap_from(&c.device, public, &c.account, &format!("roster/{id}"), &plain)?) };
+        let previous = wraps.iter().find(|w| w.kind == "roster" && &w.reference == id).map_or(0, |w| w.rev);
+        client.put_wrap("roster", id, B64.encode(serde_json::to_vec(&proof).map_err(|_| REPAIR_TRUST)?), previous).await?;
+    }
+    Ok(())
+}
+fn rotation_keys(c: &Credentials, wraps: &[Wrap], keyring: &Wrap) -> Result<(KeyTransfer, Keyring), String> {
+    let w = wraps.iter().find(|w| w.kind == "device" && w.reference == c.device_id).ok_or(REPAIR_TRUST)?;
+    let envelope: RotationWrap = serde_json::from_slice(&B64.decode(&w.ciphertext).map_err(|_| REPAIR_TRUST)?).map_err(|_| REPAIR_TRUST)?;
+    let mut trusted = c.trusted.clone();
+    // An offline receiver may not have seen the pairing that introduced this
+    // sender. Carry its existing, authenticated roster update across the rotation.
+    if let Some(proof) = &envelope.introduction {
+        if let Ok(roster) = accept_roster(c, proof) { trusted = roster.devices; }
+    }
+    let sender = trusted.get(&envelope.sender).ok_or(REPAIR_TRUST)?;
+    let plain = crypto::unwrap_from(&c.device, sender, &c.account,
+        &format!("rekey/{}/{}", c.device_id, envelope.epoch),
+        &B64.decode(&envelope.ciphertext).map_err(|_| REPAIR_TRUST)?)?;
+    let message: RotationMessage = serde_json::from_slice(&plain).map_err(|_| REPAIR_TRUST)?;
+    let t = message.transfer;
+    let roster = t.trust.as_ref().ok_or(REPAIR_TRUST)?;
+    if c.keyset != Some(message.previous) || t.epoch != envelope.epoch || keyring.rev < t.ring_rev
+        || roster.devices.len() > 64 || roster.devices.get(&c.device_id) != Some(&c.device.public)
+        || roster.devices.get(&envelope.sender) != Some(sender) {
+        return Err(REPAIR_TRUST.into());
+    }
+    let ring = Keyring::open(&t.ak, &c.account, keyring.rev, &B64.decode(&keyring.ciphertext).map_err(|_| REPAIR_TRUST)?)?;
+    if ring.epoch != t.epoch || crypto::keyset_pin(&ring) != roster.keyset {
+        return Err(REPAIR_TRUST.into());
+    }
+    Ok((t, ring))
 }
 pub async fn keyring(store: &Store, c: &mut Credentials) -> Result<(Keyring, u64), String> {
     let wraps = c.client()?.wraps().await?;
@@ -221,9 +300,26 @@ pub async fn keyring(store: &Store, c: &mut Credentials) -> Result<(Keyring, u64
     let ak =
         c.ak.as_ref()
             .ok_or("Approve this device or use your recovery code first.")?;
-    let ring = Keyring::open(ak, &c.account, w.rev, &bytes)
-        .map_err(|_| "Encryption keys changed. Compare a pairing code on both devices or use the new recovery code.")?;
-    check_keyset(c, &ring)?;
+    let ring = match Keyring::open(ak, &c.account, w.rev, &bytes) {
+        Ok(ring) => { check_keyset(c, &ring)?; ring }
+        Err(_) => {
+            let (transfer, ring) = rotation_keys(c, &wraps, w).map_err(|_| REPAIR_TRUST)?;
+            if transfer.epoch <= meta.epoch { return Err(REPAIR_TRUST.into()); }
+            let roster = transfer.trust.as_ref().ok_or(REPAIR_TRUST)?;
+            c.ak = Some(transfer.ak.clone());
+            c.keyset = Some(roster.keyset);
+            c.trusted = roster.devices.clone();
+            // Persist the new pin and AK together before advancing rollback floors.
+            secret_store::save(store, c)?;
+            apply_checkpoint(store, c, &transfer)?;
+            ring
+        }
+    };
+    if let Some(w) = wraps.iter().find(|w| w.kind == "roster" && w.reference == c.device_id) {
+        if let Ok(roster) = accept_roster(c, &w.ciphertext) {
+            if c.trusted != roster.devices { c.trusted = roster.devices; secret_store::save(store, c)?; }
+        }
+    }
     store.write(
         &store.root().join("sync-keyring.json"),
         &json!({"account":c.account,"server":c.server,"wrap":w}),
@@ -281,6 +377,7 @@ async fn rekey(
     } else {
         keyring(store, c).await?
     };
+    let client = c.client()?;
     // Inspect the remote revision without uploading pending local edits under old keys.
     let (vocabulary_revision, prune_cursor) = if reset {
         (0, None)
@@ -290,13 +387,18 @@ async fn rekey(
         ring.vocabulary_cutover = usage.vocabulary_rev;
         (usage.vocabulary_rev, Some(usage.cursor))
     };
-    // The old AK may be held by the removed device. Never distribute a fresh AK
-    // to a roster that it could forge with a colluding server.
-    ring.devices.clear();
+    // Only OS-pinned peers or an authenticated introduction can receive a new
+    // AK. The old shared-key roster and the server's device list cannot add trust.
+    let old_wraps = client.wraps().await?;
+    let previous_pin = c.keyset.unwrap_or([0; 32]);
+    let active: Vec<Value> = client.json(Method::GET, "/v1/devices", None).await?;
+    if reset { c.trusted.clear(); }
+    c.trusted.insert(c.device_id.clone(), c.device.public);
+    ring.devices = c.trusted.iter().filter(|(id, public)| *id != target && active.iter().any(|d|
+        d["id"] == **id && d["revoked_at"].is_null() && d["public_key"].as_str().and_then(|p| decode32(p).ok()).as_ref() == Some(*public)))
+        .map(|(id, key)| (id.clone(), *key)).collect();
     ring.devices.insert(c.device_id.clone(), c.device.public);
-    if ring.devices.len() > 64 {
-        return Err("Remove unused devices before re-keying.".into());
-    }
+    if ring.devices.len() > 64 { return Err("Remove unused devices before re-keying.".into()); }
     ring.epoch = epoch + 1;
     let ak = Secret::random();
     let recovery = crypto::recovery_code().to_string();
@@ -305,13 +407,14 @@ async fn rekey(
         ring_rev: rev + 1,
         vocabulary_rev: vocabulary_revision,
         epoch: epoch + 1,
+        trust: Some(TrustedRoster { keyset: crypto::keyset_pin(&ring), devices: ring.devices.clone() }),
     };
     let plain = zeroize::Zeroizing::new(
-        serde_json::to_vec(&transfer).map_err(|_| "Cannot wrap new keys.")?,
+        serde_json::to_vec(&RotationMessage { previous: previous_pin, transfer: KeyTransfer { ak: transfer.ak.clone(), ring_rev: transfer.ring_rev, vocabulary_rev: transfer.vocabulary_rev, epoch: transfer.epoch, trust: transfer.trust.clone() } }).map_err(|_| "Cannot wrap new keys.")?,
     );
     let devices=ring.devices.iter().map(|(id,public)|{
   let sealed=crypto::wrap_from(&c.device,public,&c.account,&format!("rekey/{id}/{}",epoch+1),&plain)?;
-  let wrapped=RotationWrap{sender:c.device_id.clone(),epoch:epoch+1,ciphertext:B64.encode(sealed)};
+  let wrapped=RotationWrap{sender:c.device_id.clone(),epoch:epoch+1,ciphertext:B64.encode(sealed),introduction:old_wraps.iter().find(|w| w.kind == "roster" && &w.reference == id).map(|w| w.ciphertext.clone())};
   Ok(json!({"id":id,"ciphertext":B64.encode(serde_json::to_vec(&wrapped).map_err(|_|"Cannot encode re-key message.")?)}))
  }).collect::<Result<Vec<Value>,String>>()?;
     // Save the replacement recovery code first; retry/recovery survives an uncertain network result.
@@ -383,6 +486,7 @@ fn accept_signin(c: &mut Credentials, reply: &Value) -> Result<String, String> {
     c.account = account.into();
     c.email = text(&reply["account"], "email")?.into();
     c.session = text(reply, "token")?.into();
+    c.initialized = reply["account"]["encrypted"].as_u64().map(|v| v != 0);
     c.pending = None;
     Ok(old_device)
 }
@@ -484,15 +588,15 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 c.server = server.into()
             }
             let provider = authkit_provider(&args)?;
-            let signin_device = DeviceKey::new();
-            let signin_id = uuid::Uuid::new_v4().to_string();
+            let signin_device = if c.ak.is_some() { c.device.clone() } else { DeviceKey::new() };
+            let signin_id = if c.ak.is_some() { c.device_id.clone() } else { uuid::Uuid::new_v4().to_string() };
             let verifier = B64.encode(crypto::random::<32>());
             let challenge = B64.encode(Sha256::digest(verifier.as_bytes()));
-            let reply:Value=c.client()?.json(Method::POST,"/v1/auth/start",Some(&json!({"provider":provider,"challenge":challenge,"device":signin_id,"publicKey":B64.encode(signin_device.public),"platform":std::env::consts::OS,"redirect":args["redirect"],"link":args["link"]}))).await?;
+            let reply:Value=c.client()?.json(Method::POST,"/v1/auth/start",Some(&json!({"provider":provider,"browserOrigin":AUTH_ORIGIN,"challenge":challenge,"device":signin_id,"publicKey":B64.encode(signin_device.public),"platform":std::env::consts::OS,"redirect":args["redirect"],"link":args["link"],"intent":if args["intent"] == "sign-up" {"sign-up"} else {"sign-in"}}))).await?;
             c.pending = Some(Pending {
                 request: text(&reply, "id")?.into(),
                 verifier,
-                expires: now() + 600,
+                expires: now() + 300,
                 device: signin_device,
                 device_id: signin_id,
             });
@@ -531,7 +635,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
             let old_device = accept_signin(&mut c, &reply)?;
 
             secret_store::save(store, &c)?;
-            if c.ak.is_some() {
+            if c.ak.is_some() && old_device != c.device_id {
                 let (mut ring, rev) = keyring(store, &mut c).await?;
                 ring.devices.remove(&old_device);
                 ring.devices.insert(c.device_id.clone(), c.device.public);
@@ -883,7 +987,9 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                     return Err("Pairing is not ready for approval.".into());
                 }
                 let (mut ring, rev) = keyring(store, &mut c).await?;
-                ring.devices.insert(t.receiver_id.clone(), t.receiver);
+                c.trusted.insert(c.device_id.clone(), c.device.public);
+                c.trusted.insert(t.receiver_id.clone(), t.receiver);
+                ring.devices = c.trusted.clone();
                 let ak = c.ak.as_ref().ok_or("Unlock this device first.")?;
                 c.client()?
                     .put_wrap(
@@ -899,6 +1005,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                     ring_rev: rev + 1,
                     vocabulary_rev: meta.rev,
                     epoch: ring.epoch,
+                    trust: Some(TrustedRoster { keyset: crypto::keyset_pin(&ring), devices: c.trusted.clone() }),
                 };
                 let plain = zeroize::Zeroizing::new(
                     serde_json::to_vec(&transfer).map_err(|_| "Cannot encode pairing keys.")?,
@@ -907,6 +1014,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 let _:Value = c.client()?.json(Method::POST,&path,Some(&json!({"action":"approve","confirmed":true,"ciphertext":B64.encode(wrap)}))).await?;
                 c.pairs.remove(id);
                 secret_store::save(store, &c)?;
+                publish_roster(&c).await?;
                 return Ok(json!({"approved":true}));
             }
             if operation == "pair_confirm" {
@@ -940,6 +1048,11 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 {
                     return Err("Paired keyring identity changed.".into());
                 }
+                if let Some(roster) = &transfer.trust {
+                    if roster.keyset != crypto::keyset_pin(&ring) || roster.devices.len() > 64
+                        || roster.devices.get(&t.sender_id) != Some(&t.sender)
+                        || roster.devices.get(&t.receiver_id) != Some(&t.receiver) { return Err(REPAIR_TRUST.into()); }
+                }
                 c.ak = Some(transfer.ak.clone());
                 c.keyset = Some(crypto::keyset_pin(&ring));
                 c.trusted = [
@@ -947,6 +1060,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                     (t.receiver_id.clone(), t.receiver),
                 ]
                 .into();
+                if let Some(roster) = &transfer.trust { c.trusted = roster.devices.clone(); }
                 apply_checkpoint(store, &c, &transfer)?;
                 secret_store::save(store, &c)?;
                 cancel_reset(store, &c).await?;
@@ -1059,24 +1173,20 @@ fn safe_id(id: &str) -> Result<&str, String> {
 }
 fn authkit_provider(args: &Value) -> Result<&str, String> {
     let provider = args["provider"].as_str().unwrap_or("authkit");
-    if provider != "authkit" {
-        return Err("Use WorkOS AuthKit to sign in.".into());
+    if provider != "authkit" && provider != "email" {
+        return Err("Use email sign-in.".into());
     }
-    Ok(provider)
+    Ok("authkit")
 }
 fn browser_url(value: &str, server: &str) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(value).map_err(|_| "Invalid sign-in URL.")?;
     let origin = reqwest::Url::parse(server).map_err(|_| "Invalid sync server.")?;
-    let workos_logout = url.host_str() == Some("api.workos.com")
-        && url.path() == "/user_management/sessions/logout"
-        && url.port_or_known_default() == Some(443)
-        && url.query_pairs().any(|(key, value)| {
-            key == "return_to" && value == format!("{}/account", server.trim_end_matches('/'))
-        });
+    let auth_origin = !AUTH_ORIGIN.is_empty() && server == STAGING
+        && reqwest::Url::parse(AUTH_ORIGIN).is_ok_and(|auth| auth.scheme() == "https" && auth.origin() == url.origin());
     if url.scheme() != "https"
         || !url.username().is_empty()
         || url.password().is_some()
-        || !(url.origin() == origin.origin() || workos_logout)
+        || !(url.origin() == origin.origin() || auth_origin)
     {
         return Err("Unexpected sign-in address.".into());
     }
@@ -1302,6 +1412,44 @@ pub fn start_scheduler(app: &tauri::AppHandle) {
 mod security_tests {
     use super::*;
     #[test]
+    fn automatic_rotation_requires_the_pinned_predecessor_and_authenticated_roster() {
+        let a = DeviceKey::new();
+        let b = DeviceKey::new();
+        let c = DeviceKey::new();
+        let attacker = DeviceKey::new();
+        let mut recipient = Credentials::new(STAGING.into());
+        recipient.account = "fixture-account".into();
+        recipient.device_id = "b".into();
+        recipient.device = b.clone();
+        let old = Keyring::new();
+        recipient.keyset = Some(crypto::keyset_pin(&old));
+        recipient.trusted = [("a".into(), a.public), ("b".into(), b.public)].into();
+        let roster = TrustedRoster { keyset: recipient.keyset.unwrap(), devices: [("a".into(), a.public), ("b".into(), b.public), ("c".into(), c.public)].into() };
+        let introduction = |sender: &DeviceKey| B64.encode(serde_json::to_vec(&RosterProof {
+            sender: "a".into(), ciphertext: B64.encode(crypto::wrap_from(sender, &b.public, &recipient.account, "roster/b", &serde_json::to_vec(&roster).unwrap()).unwrap())
+        }).unwrap());
+        let mut next = old.clone();
+        next.rotate().unwrap(); next.epoch = 2; next.devices = roster.devices.clone();
+        let ak = Secret::random();
+        let transfer = KeyTransfer { ak: ak.clone(), ring_rev: 2, vocabulary_rev: 4, epoch: 2, trust: Some(TrustedRoster { keyset: crypto::keyset_pin(&next), devices: next.devices.clone() }) };
+        let message = RotationMessage { previous: recipient.keyset.unwrap(), transfer };
+        let ciphertext = B64.encode(crypto::wrap_from(&c, &b.public, &recipient.account, "rekey/b/2", &serde_json::to_vec(&message).unwrap()).unwrap());
+        let wrap = |intro: Option<String>, cipher: String, epoch| Wrap { kind: "device".into(), reference: "b".into(), rev: 2, ciphertext: B64.encode(serde_json::to_vec(&RotationWrap { sender: "c".into(), epoch, ciphertext: cipher, introduction: intro }).unwrap()) };
+        let ring = Wrap { kind: "keyring".into(), reference: "main".into(), rev: 2, ciphertext: B64.encode(next.seal(&ak, &recipient.account, 2).unwrap()) };
+        assert!(rotation_keys(&recipient, &[wrap(None, ciphertext.clone(), 2)], &ring).is_err());
+        assert!(rotation_keys(&recipient, &[wrap(Some(introduction(&attacker)), ciphertext.clone(), 2)], &ring).is_err());
+        let good = wrap(Some(introduction(&a)), ciphertext.clone(), 2);
+        assert!(rotation_keys(&recipient, &[good.clone()], &ring).is_ok());
+        assert!(rotation_keys(&recipient, &[wrap(Some(introduction(&a)), ciphertext.clone(), 3)], &ring).is_err());
+        let mut forged = next.clone(); forged.rotate().unwrap();
+        let forged_ring = Wrap { ciphertext: B64.encode(forged.seal(&ak, &recipient.account, 2).unwrap()), ..ring.clone() };
+        assert!(rotation_keys(&recipient, &[good.clone()], &forged_ring).is_err());
+        // After accepting an intervening rotation, an old device cannot replay
+        // its signed/authenticated fork even if it still holds the old AK.
+        recipient.keyset = Some(crypto::keyset_pin(&next));
+        assert!(rotation_keys(&recipient, &[good], &ring).is_err());
+    }
+    #[test]
     fn removing_another_device_rekeys_unless_explicitly_opted_out() {
         assert!(removal_rekeys(&json!({}), "other", "self").unwrap());
         assert!(removal_rekeys(&json!({"rekey":null}), "other", "self").unwrap());
@@ -1361,6 +1509,7 @@ mod security_tests {
             ring_rev: 1,
             vocabulary_rev: 1,
             epoch: 1,
+            trust: None,
         };
         let plain = serde_json::to_vec(&transfer).unwrap();
         let base = crypto::wrap_device(&receiver.public, &t.account, &t.binding(), &plain).unwrap();
@@ -1436,7 +1585,7 @@ mod authkit_tests {
             authkit_provider(&json!({"provider":"authkit"})).unwrap(),
             "authkit"
         );
-        for legacy in ["google", "apple", "email"] {
+        for legacy in ["google", "apple"] {
             assert!(authkit_provider(&json!({"provider":legacy})).is_err());
         }
     }
@@ -1448,7 +1597,7 @@ mod authkit_tests {
             server
         )
         .is_ok());
-        assert!(browser_url("https://api.workos.com/user_management/sessions/logout?session_id=session_test&return_to=https%3A%2F%2Fsync.example.invalid%2Faccount",server).is_ok());
+        assert!(browser_url("https://api.workos.com/user_management/sessions/logout?session_id=session_test&return_to=https%3A%2F%2Fsync.example.invalid%2Faccount",server).is_err());
         for url in [
             "https://accounts.google.com/",
             "https://evil.invalid/",

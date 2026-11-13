@@ -29,6 +29,13 @@ export type AuthRequest = {
   workos_user?: string | null;
   workos_session?: string | null;
   auth_time?: number | null;
+  intent?: "sign-up" | "sign-in";
+  browser_origin?: string | null;
+  email?: string | null;
+  code_hash?: string | null;
+  code_tries?: number;
+  code_started?: number;
+  radar_attempt?: string | null;
 };
 
 export function configured(env: Env): void {
@@ -37,7 +44,7 @@ export function configured(env: Env): void {
     !env.WORKOS_API_KEY ||
     !env.WORKOS_WEBHOOK_SECRET
   )
-    throw new Fault(503, "WorkOS AuthKit is not configured yet.");
+    throw new Fault(503, "Sign-in is not configured yet.");
 }
 
 export function client(env: Env, fetcher: typeof fetch = fetch): WorkOS {
@@ -93,46 +100,7 @@ export async function exchange(
       code,
       codeVerifier: verifier,
     });
-    const user = await sdk.userManagement.getUser(result.user.id);
-    if (
-      !user.emailVerified ||
-      user.id !== result.user.id ||
-      !/^user_[A-Za-z0-9]+$/.test(user.id) ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email) ||
-      user.email.length > 254 ||
-      result.impersonator
-    )
-      throw new Fault(403, "A verified WorkOS identity is required.");
-    // Only the HTTPS server-to-server exchange supplies this token. It is never accepted
-    // from callers or stored. Decode solely to bind lifecycle events and fresh-auth time.
-    let claims;
-    try {
-      claims = decodeJwt(result.accessToken);
-    } catch {
-      throw new Fault(
-        401,
-        "WorkOS sign-in could not be verified. Start again.",
-      );
-    }
-    if (
-      claims.sub !== user.id ||
-      typeof claims.sid !== "string" ||
-      !/^session_[A-Za-z0-9]+$/.test(claims.sid) ||
-      typeof claims.exp !== "number" ||
-      claims.exp <= now() ||
-      typeof claims.auth_time !== "number" ||
-      !Number.isSafeInteger(claims.auth_time) ||
-      claims.auth_time > now() + 30 ||
-      claims.auth_time < now() - 600
-    )
-      throw new Fault(401, "Sign in again to confirm your identity.");
-    return {
-      provider: "workos",
-      subject: user.id,
-      email: user.email.toLowerCase(),
-      session: claims.sid,
-      authTime: Math.min(now(), claims.auth_time),
-    };
+    return verifiedIdentity(env, result, fetcher);
   } catch (error) {
     if (error instanceof Fault) throw error;
     const status =
@@ -145,13 +113,108 @@ export async function exchange(
       status < 500 &&
       status !== 429
     )
-      throw new Fault(
-        401,
-        "WorkOS sign-in could not be verified. Start again.",
-      );
-    throw new Fault(
-      503,
-      "WorkOS sign-in is temporarily unavailable. Try again.",
-    );
+      throw new Fault(401, "Sign-in could not be verified. Start again.");
+    throw new Fault(503, "Sign-in is temporarily unavailable. Try again.");
+  }
+}
+
+async function verifiedIdentity(
+  env: Env,
+  result: Awaited<
+    ReturnType<
+      ReturnType<typeof client>["userManagement"]["authenticateWithCode"]
+    >
+  >,
+  fetcher: typeof fetch,
+): Promise<Identity> {
+  const sdk = client(env, fetcher);
+  const user = await sdk.userManagement.getUser(result.user.id);
+  if (
+    !user.emailVerified ||
+    user.id !== result.user.id ||
+    !/^user_[A-Za-z0-9]+$/.test(user.id) ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email) ||
+    user.email.length > 254 ||
+    result.impersonator
+  )
+    throw new Fault(403, "A verified email address is required.");
+  // Only the HTTPS server-to-server exchange supplies this token. It is never accepted
+  // from callers or stored. Decode solely to bind lifecycle events and fresh-auth time.
+  let claims;
+  try {
+    claims = decodeJwt(result.accessToken);
+  } catch {
+    throw new Fault(401, "Sign-in could not be verified. Start again.");
+  }
+  if (
+    claims.sub !== user.id ||
+    typeof claims.sid !== "string" ||
+    !/^session_[A-Za-z0-9]+$/.test(claims.sid) ||
+    typeof claims.exp !== "number" ||
+    claims.exp <= now() ||
+    typeof claims.auth_time !== "number" ||
+    !Number.isSafeInteger(claims.auth_time) ||
+    claims.auth_time > now() + 30 ||
+    claims.auth_time < now() - 600
+  )
+    throw new Fault(401, "Sign in again to confirm your identity.");
+  return {
+    provider: "workos",
+    subject: user.id,
+    email: user.email.toLowerCase(),
+    session: claims.sid,
+    authTime: Math.min(now(), claims.auth_time),
+  };
+}
+
+export type BrowserSignals = { ipAddress?: string; userAgent?: string };
+export async function sendCode(
+  env: Env,
+  email: string,
+  signals: BrowserSignals,
+  fetcher: typeof fetch = fetch,
+) {
+  configured(env);
+  const result = await client(env, fetcher).userManagement.createMagicAuth({
+    email,
+    ...signals,
+  });
+  if (
+    result.email.toLowerCase() !== email ||
+    !/^\d{6}$/.test(result.code) ||
+    result.expiresAt.getTime() <= Date.now()
+  )
+    throw new Fault(503, "Sign-in is temporarily unavailable. Try again.");
+  // The code is returned server-to-server, but default provider delivery stays on
+  // until SonoJot's sending domain is approved. Never persist or log the plaintext.
+  return { code: result.code, radarAttempt: result.radarAuthAttemptId ?? null };
+}
+export async function verifyCode(
+  env: Env,
+  email: string,
+  code: string,
+  radarAttempt: string | null,
+  signals: BrowserSignals,
+  fetcher: typeof fetch = fetch,
+): Promise<Identity> {
+  configured(env);
+  try {
+    const result = await client(
+      env,
+      fetcher,
+    ).userManagement.authenticateWithMagicAuth({
+      email,
+      code,
+      ...signals,
+      ...(radarAttempt ? { radarAuthAttemptId: radarAttempt } : {}),
+    });
+    const identity = await verifiedIdentity(env, result, fetcher);
+    if (identity.email !== email)
+      throw new Fault(401, "This code could not be verified. Start again.");
+    return identity;
+  } catch {
+    // Includes Radar blocks/challenges, MFA and SSO requirements: never bypass
+    // them or redirect to a branded third-party page. No pending tokens escape.
+    throw new Fault(401, "This code could not be verified. Start again.");
   }
 }

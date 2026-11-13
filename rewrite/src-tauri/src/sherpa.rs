@@ -488,11 +488,16 @@ impl Engine {
             ledger: BTreeMap::new(),
             word_confidence: Vec::new(),
             confidence_missing: false,
+            raw_words: Vec::new(),
+            raw_words_missing: false,
             original_text: None,
             next_id: 1,
             vad_samples_since_segment: 0,
             vad_samples: 0,
             vad_origin: 0,
+            level: None,
+            originals: None,
+            pieces: None,
             completeness: RecognitionCompleteness::Complete,
             warnings: Vec::new(),
             #[cfg(feature = "fidelity-eval")]
@@ -539,6 +544,13 @@ impl Engine {
             };
             let token_count = unsafe { (*result).count };
             let pieces = unsafe { (*result).tokens_arr };
+            // Token times and log-probabilities, when the runtime reports them.
+            let json = unsafe { (*result).json };
+            let raw_words = if is_qwen(&self.model_id) || json.is_null() {
+                Vec::new()
+            } else {
+                transducer_words(&unsafe { CStr::from_ptr(json) }.to_string_lossy(), &text)
+            };
             let token_copy = if !is_qwen(&self.model_id) {
                 Ok(None)
             } else {
@@ -578,9 +590,15 @@ impl Engine {
                 }
             };
             NativeSegment {
+                word_confidence: raw_words
+                    .iter()
+                    .map(|w| w.confidence.map(|p| crate::confidence::WordConfidence { word: w.word.clone(), probability: f64::from(p) }))
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap_or_default(),
                 text,
                 tokens,
                 token_count,
+                raw_words,
                 ..Default::default()
             }
         };
@@ -595,7 +613,7 @@ impl Engine {
     ) -> Result<crate::asr::RecognitionResult, String> {
         #[cfg(windows)]
         if is_qwen(&self.model_id) && !confirm_speech(samples, evidence.as_deref_mut())? {
-            return Ok(crate::asr::RecognitionResult { word_confidence: Vec::new(), original_text: None, segments: Vec::new(), text: String::new(),
+            return Ok(crate::asr::RecognitionResult { raw_words: Vec::new(), word_confidence: Vec::new(), original_text: None, segments: Vec::new(), text: String::new(),
                 completeness: RecognitionCompleteness::Complete, warnings: Vec::new() });
         }
         self.transcribe_qualified(samples, evidence)
@@ -697,7 +715,7 @@ fn transcribe_decoded(
     evidence: Option<&mut serde_json::Value>,
 ) -> Result<crate::asr::RecognitionResult, String> {
     if samples.is_empty() {
-        return Ok(crate::asr::RecognitionResult {
+        return Ok(crate::asr::RecognitionResult { raw_words: Vec::new(),
             word_confidence: Vec::new(),
             original_text: None,
             segments: Vec::new(),
@@ -770,6 +788,11 @@ fn transcribe_decoded(
             "recognition_completeness":completeness,
             "warnings":&warnings,
         });
+        #[cfg(feature = "fidelity-eval")]
+        if !segment.raw_words.is_empty() {
+            evidence["word_start_seconds"] = serde_json::json!(segment.raw_words.iter()
+                .map(|w| w.time.map(|t| t.0)).collect::<Vec<_>>());
+        }
         if let Some(server) = server {
             evidence["server_pid"] = serde_json::json!(server.pid());
             evidence["backend"] = serde_json::json!(server.backend());
@@ -778,11 +801,16 @@ fn transcribe_decoded(
             evidence["attempts"] = serde_json::json!(attempts);
         }
     }
+    let raw_words = if !qwen && crate::confidence::words(&parsed).len() == segment.raw_words.len() {
+        segment.raw_words.clone()
+    } else {
+        Vec::new()
+    };
     let speech_words = crate::confidence::words(qwen_transcript(&segment.text)).len();
     let confidence = if segment.word_confidence.len() >= speech_words {
         crate::confidence::project(&segment.word_confidence[segment.word_confidence.len()-speech_words..], &parsed)
     } else { vec![] };
-    Ok(crate::asr::RecognitionResult {
+    Ok(crate::asr::RecognitionResult { raw_words,
         word_confidence: confidence,
         original_text,
         segments: Vec::new(),
@@ -795,6 +823,8 @@ fn transcribe_decoded(
 /// Output owned by the adapter after one native decode or server request.
 #[derive(Default)]
 struct NativeSegment {
+    /// Words of `text` with times relative to this section (transducers).
+    raw_words: Vec<crate::trust::evidence::RawWord>,
     text: String,
     tokens: Option<Vec<String>>,
     token_count: i32,
@@ -827,6 +857,67 @@ impl NativeSegment {
 
     fn truncated(&self) -> bool {
         self.finish_reason.as_deref() == Some("length")
+    }
+}
+
+/// Words of a transducer result with their times and, when the runtime
+/// reports per-token log-probabilities, a confidence (the least confident
+/// token of the word). Empty when the tokens do not spell `text` exactly.
+pub(crate) fn transducer_words(json: &str, text: &str) -> Vec<crate::trust::evidence::RawWord> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else { return Vec::new() };
+    let floats = |key: &str| -> Option<Vec<f32>> {
+        v.get(key)?.as_array()?.iter().map(|x| x.as_f64().map(|f| f as f32)).collect()
+    };
+    let Some(tokens) = v.get("tokens").and_then(|t| t.as_array()).and_then(|t| t.iter().map(|x| x.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>()) else {
+        return Vec::new();
+    };
+    let Some(times) = floats("timestamps").filter(|t| t.len() == tokens.len()) else { return Vec::new() };
+    let durations = floats("durations").filter(|d| d.len() == tokens.len());
+    let log_probs = floats("ys_log_probs").filter(|p| p.len() == tokens.len() && p.iter().all(|x| x.is_finite() && *x <= 0.0));
+    let mut spelled = String::new();
+    let mut spans = Vec::with_capacity(tokens.len());
+    for t in &tokens {
+        let start = spelled.len();
+        spelled.push_str(&t.replace('\u{2581}', " "));
+        spans.push((start, spelled.len()));
+    }
+    let lead = spelled.len() - spelled.trim_start().len();
+    let text = text.trim();
+    if spelled.trim() != text {
+        return Vec::new();
+    }
+    crate::confidence::words(text)
+        .into_iter()
+        .filter_map(|(a, b)| {
+            let (a, b) = (a + lead, b + lead);
+            let hit: Vec<usize> = (0..spans.len()).filter(|i| spans[*i].0 < b && spans[*i].1 > a).collect();
+            let (&first, &last) = (hit.first()?, hit.last()?);
+            let end = match &durations {
+                Some(d) if d[last] > 0.0 => times[last] + d[last],
+                _ => times.get(last + 1).copied().unwrap_or(times[last] + 0.25).max(times[last] + 0.04),
+            };
+            let confidence = log_probs.as_ref().map(|lp| hit.iter().map(|i| lp[*i]).fold(0f32, f32::min).exp());
+            Some(crate::trust::evidence::RawWord { word: text[a - lead..b - lead].to_owned(), confidence, time: Some((times[first], end)) })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod transducer_word_tests {
+    #[test]
+    fn token_times_and_log_probs_become_words() {
+        let json = r#"{"text":" Fix the cash.","timestamps":[0.0,0.32,0.6,0.7],"durations":[0.24,0.2,0.08,0.04],"tokens":["▁Fix","▁the","▁ca","sh."],"ys_log_probs":[-0.01,-0.02,-1.2,-0.3]}"#;
+        let words = super::transducer_words(json, "Fix the cash.");
+        assert_eq!(words.len(), 3);
+        assert_eq!(words[2].word, "cash");
+        assert_eq!(words[2].time, Some((0.6, 0.74)));
+        assert!((words[2].confidence.unwrap() - (-1.2f32).exp()).abs() < 1e-5);
+        let no_probs = r#"{"timestamps":[0.0,0.3],"tokens":["▁a","▁b"]}"#;
+        let w = super::transducer_words(no_probs, "a b");
+        assert_eq!(w[0].confidence, None, "unknown stays unknown");
+        assert_eq!(w[0].time, Some((0.0, 0.3)));
+        assert!(super::transducer_words(no_probs, "a c").is_empty(), "tokens must spell the text");
+        assert!(super::transducer_words("not json", "a").is_empty());
     }
 }
 
@@ -1438,8 +1529,15 @@ impl QwenInput {
     }
 
     pub(crate) fn process(&mut self, samples: &[f32], finish: bool) -> (Vec<f32>, Vec<f32>) {
+        self.process_pair(samples, samples, finish)
+    }
+
+    /// `detector` is the same span as `samples`, possibly levelled; only the
+    /// filter (and so the gate) sees it. Decoded audio stays `samples`.
+    pub(crate) fn process_pair(&mut self, samples: &[f32], detector: &[f32], finish: bool) -> (Vec<f32>, Vec<f32>) {
+        debug_assert_eq!(samples.len(), detector.len());
         self.originals.extend(samples);
-        let mut filtered = self.filter.process(samples);
+        let mut filtered = self.filter.process(detector);
         if finish { filtered.extend(self.filter.flush()); }
         self.align(filtered, self.filter.gate_only())
     }
@@ -1488,11 +1586,21 @@ pub struct Stream<'a> {
     ledger: BTreeMap<u64, crate::asr::Segment>,
     confidence_missing: bool,
     word_confidence: Vec<crate::confidence::WordConfidence>,
+    /// Timed words on the stream's timeline; dropped if any section lacks them.
+    raw_words: Vec<crate::trust::evidence::RawWord>,
+    raw_words_missing: bool,
     original_text: Option<String>,
     next_id: u64,
     vad_samples_since_segment: usize,
     vad_samples: u64,
     vad_origin: u64,
+    /// File and meeting recognition only: the detector's copy is levelled
+    /// (see detector_level) while the recogniser decodes original samples.
+    level: Option<crate::detector_level::DetectorLevel>,
+    /// Original samples by detector index, for non-Qwen segments.
+    originals: Option<crate::detector_level::OriginalRing>,
+    /// Evaluation arm: decode pause-cut pieces instead of detector sections.
+    pieces: Option<crate::meeting_pieces::Pieces>,
     completeness: RecognitionCompleteness,
     /// Visible recognition warnings recorded at the adapter boundary, for
     /// example ambiguous output retained for review after one retry.
@@ -1517,17 +1625,38 @@ struct VadEvidence {
 }
 
 impl Stream<'_> {
+    /// Level the detector's copy so quiet speech is not discarded. Call before
+    /// adding audio. Meetings and file transcription use it; live dictation
+    /// streams do not.
+    pub(crate) fn assist_quiet_speech(&mut self) {
+        if self.vad_samples != 0 { return; }
+        if crate::detector_level::assist_enabled() {
+            self.level = Some(crate::detector_level::DetectorLevel::default());
+            if self.windows.is_none() && !crate::detector_level::decode_levelled() {
+                self.originals = Some(crate::detector_level::OriginalRing::default());
+            }
+        }
+        if let Some(seconds) = crate::meeting_pieces::piece_seconds() {
+            self.pieces = Some(crate::meeting_pieces::Pieces::new(seconds));
+            self.windows = None;
+            self.originals = None;
+        }
+    }
+
     pub fn add(&mut self, samples: &[f32], sample_rate: u32) -> Result<(), String> {
         if sample_rate == 0 || sample_rate > 384_000 {
             return Err("Invalid input sample rate.".into());
         }
         let samples = resample(samples, sample_rate, 16_000);
+        let levelled = self.level.as_mut().map(|level| level.process(&samples));
         if let Some(input) = &mut self.qwen_input {
-            let (audio, gate) = input.process(&samples, false);
+            // Level before RNNoise: its suppression would erase quiet speech.
+            let (audio, gate) = input.process_pair(&samples, levelled.as_deref().unwrap_or(&samples), false);
             self.pending.extend(audio);
             self.gate_pending.extend(gate);
         } else {
             self.pending.extend(samples);
+            if let Some(levelled) = levelled { self.gate_pending.extend(levelled); }
         }
         self.drain_vad(false)
     }
@@ -1556,7 +1685,13 @@ impl Stream<'_> {
 
     pub fn finish_recognition(mut self) -> Result<crate::asr::RecognitionResult, String> {
         self.drain_vad(true)?;
-        Ok(crate::asr::RecognitionResult {
+        let text = crate::asr::assemble_segments(&self.ledger, false);
+        let raw_words = if self.raw_words_missing || crate::confidence::words(&text).len() != self.raw_words.len() {
+            Vec::new()
+        } else {
+            std::mem::take(&mut self.raw_words)
+        };
+        Ok(crate::asr::RecognitionResult { raw_words,
             word_confidence: if self.confidence_missing { vec![] } else { self.word_confidence },
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
@@ -1571,7 +1706,7 @@ impl Stream<'_> {
         mut self,
     ) -> Result<(crate::asr::RecognitionResult, serde_json::Value), String> {
         self.drain_vad(true)?;
-        let recognition = crate::asr::RecognitionResult {
+        let recognition = crate::asr::RecognitionResult { raw_words: Vec::new(),
             word_confidence: if self.confidence_missing { vec![] } else { self.word_confidence },
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
@@ -1588,6 +1723,9 @@ impl Stream<'_> {
             "qwen_output_guards_enabled":if is_qwen(&self.engine.model_id) {Some(qwen_guards_enabled())} else {None},
             "qwen_window_seconds":if self.windows.is_some() {Some(crate::qwen_window::target_seconds_for_model(&self.engine.model_id))} else {None},
             "vad_threshold":if self.windows.is_some() {crate::qwen_window::vad_threshold()} else {0.25},
+            "detector_level_assist":self.level.as_ref().map(|level| serde_json::json!({
+                "final_gain_db":level.gain_db(), "final_level_dbfs":level.level_db(),
+                "recogniser_audio":if self.originals.is_some() || self.windows.is_some() {"original"} else {"levelled"}})),
             "asr_filter":self.qwen_input.as_ref().map(QwenInput::mode_name),
             "untriggered_tail_requires_original_confirmation":self.qwen_input.as_ref().is_some_and(QwenInput::gate_only),
             "vad":self.vad_evidence,
@@ -1612,9 +1750,11 @@ impl Stream<'_> {
         }
         while self.pending.len() >= window {
             let chunk: Vec<f32> = self.pending.drain(..window).collect();
-            let gate: Option<Vec<f32>> = self.qwen_input.is_some()
+            let gate: Option<Vec<f32>> = (self.qwen_input.is_some() || self.level.is_some())
                 .then(|| self.gate_pending.drain(..window).collect());
             let gate = gate.as_deref().unwrap_or(&chunk);
+            if let Some(originals) = &mut self.originals { originals.push(&chunk); }
+            if let Some(pieces) = &mut self.pieces { pieces.push(&chunk, gate); }
             if let Some(windows) = &mut self.windows { windows.append(&chunk, gate)?; }
             unsafe {
                 (self.engine.api.vad_accept)(self.engine.vad, gate.as_ptr(), gate.len() as i32);
@@ -1637,6 +1777,7 @@ impl Stream<'_> {
                 self.vad_samples_since_segment = 0;
             }
             self.decode_windows(false)?;
+            self.decode_pieces(false)?;
         }
         if flush {
             // sherpa's Flush ignores an incomplete VAD window. Pad only that
@@ -1648,12 +1789,19 @@ impl Stream<'_> {
                     self.vad_evidence.input_samples += self.pending.len() as u64;
                     self.vad_evidence.padding_samples += window - self.pending.len();
                 }
-                if let Some(windows) = &mut self.windows {
-                    windows.append(&self.pending, &self.gate_pending)?;
-                }
-                let mut final_frame = if self.qwen_input.is_some() {
+                let gate_tail = if self.qwen_input.is_some() || self.level.is_some() {
                     std::mem::take(&mut self.gate_pending)
-                } else { std::mem::take(&mut self.pending) };
+                } else { self.pending.clone() };
+                if let Some(windows) = &mut self.windows {
+                    windows.append(&self.pending, &gate_tail)?;
+                }
+                if let Some(pieces) = &mut self.pieces { pieces.push(&self.pending, &gate_tail); }
+                if let Some(originals) = &mut self.originals {
+                    let mut original = std::mem::take(&mut self.pending);
+                    original.resize(window, 0.0);
+                    originals.push(&original);
+                }
+                let mut final_frame = gate_tail;
                 final_frame.resize(window, 0.0);
                 unsafe {
                     (self.engine.api.vad_accept)(
@@ -1679,6 +1827,22 @@ impl Stream<'_> {
                 }
             }
             self.decode_windows(true)?;
+            self.decode_pieces(true)?;
+        }
+        Ok(())
+    }
+
+    fn decode_pieces(&mut self, finish: bool) -> Result<(), String> {
+        let speaking = unsafe { (self.engine.api.vad_detected)(self.engine.vad) } != 0;
+        let Some(pieces) = &mut self.pieces else { return Ok(()); };
+        for piece in pieces.poll(speaking, finish) {
+            if is_qwen(&self.engine.model_id) {
+                self.decode_qwen_window(crate::qwen_window::Window { ranges: vec![piece.start..piece.end],
+                    audio: piece.audio, gate_audio: piece.gate, start: piece.start, end: piece.end,
+                    reason: "pause_cut_piece", recovered_tail: false })?;
+            } else {
+                self.decode_section(&piece.audio, piece.start as f32 / 16_000.0, piece.end as f32 / 16_000.0)?;
+            }
         }
         Ok(())
     }
@@ -1695,7 +1859,11 @@ impl Stream<'_> {
             let audio = if samples.is_null() || count <= 0 {
                 Vec::new()
             } else {
-                unsafe { std::slice::from_raw_parts(samples, count as usize) }.to_vec()
+                let from = self.vad_origin + start.max(0) as u64;
+                // Detector segments are cut from the levelled copy; decode
+                // the same span of original audio.
+                self.originals.as_ref().and_then(|o| o.get(from, count as usize)).unwrap_or_else(||
+                    unsafe { std::slice::from_raw_parts(samples, count as usize) }.to_vec())
             };
             unsafe {
                 (self.engine.api.destroy_segment)(segment);
@@ -1721,6 +1889,12 @@ impl Stream<'_> {
                 }
                 continue;
             }
+            if let Some(pieces) = &mut self.pieces {
+                let from = self.vad_origin + start.max(0) as u64;
+                pieces.speech(from..from + count.max(0) as u64);
+                self.vad_samples_since_segment = 0;
+                continue;
+            }
             if let Some(windows) = &mut self.windows {
                 let from = self.vad_origin + start.max(0) as u64;
                 let to = from + count.max(0) as u64;
@@ -1733,52 +1907,60 @@ impl Stream<'_> {
                 self.vad_samples_since_segment = 0;
                 continue;
             }
-            #[cfg(feature = "fidelity-eval")]
-            {
-                let mut evidence = serde_json::Value::Null;
-                let recognition = self
-                    .engine
-                    .transcribe_observed(&audio, Some(&mut evidence))?;
-                evidence["text"] = serde_json::json!(&recognition.text);
-                if evidence["skipped"] == true {
-                    self.vad_evidence.sections_skipped += 1;
-                } else {
-                    self.vad_evidence.sections_decoded += 1;
-                    self.vad_evidence.decoded_audio_samples += audio.len() as u64;
-                    evidence["decoded"] = serde_json::json!(true);
-                    evidence["skipped"] = serde_json::json!(false);
-                }
-                evidence["speech_gate"] = serde_json::json!("silero_vad");
-                evidence["start_seconds"] = serde_json::json!(start_seconds);
-                evidence["end_seconds"] = serde_json::json!(end_seconds);
-                evidence["complete"] = serde_json::json!(
-                    recognition.completeness == RecognitionCompleteness::Complete
-                );
-                self.segment_evidence.push(evidence);
-                if recognition.completeness == RecognitionCompleteness::Incomplete {
-                    self.completeness = RecognitionCompleteness::Incomplete;
-                }
-                crate::asr::retain_original_section(&mut self.original_text,
-                    || crate::asr::assemble_segments(&self.ledger, false), &recognition);
-                crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
-                crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
-                self.push_text(&recognition.text, start_seconds, end_seconds,
-                    recognition.completeness == RecognitionCompleteness::Complete)?;
-            }
-            #[cfg(not(feature = "fidelity-eval"))]
-            {
-                let recognition = self.engine.transcribe(&audio)?;
-                if recognition.completeness == RecognitionCompleteness::Incomplete {
-                    self.completeness = RecognitionCompleteness::Incomplete;
-                }
-                crate::asr::retain_original_section(&mut self.original_text,
-                    || crate::asr::assemble_segments(&self.ledger, false), &recognition);
-                crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
-                crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
-                self.push_text(&recognition.text, start_seconds, end_seconds,
-                    recognition.completeness == RecognitionCompleteness::Complete)?;
-            }
+            self.decode_section(&audio, start_seconds, end_seconds)?;
             self.vad_samples_since_segment = 0;
+        }
+        Ok(())
+    }
+
+    /// Decode one detector section (or one pause-cut piece) and publish it.
+    fn decode_section(&mut self, audio: &[f32], start_seconds: f32, end_seconds: f32) -> Result<(), String> {
+        #[cfg(feature = "fidelity-eval")]
+        {
+            let mut evidence = serde_json::Value::Null;
+            let recognition = self
+                .engine
+                .transcribe_observed(audio, Some(&mut evidence))?;
+            evidence["text"] = serde_json::json!(&recognition.text);
+            if evidence["skipped"] == true {
+                self.vad_evidence.sections_skipped += 1;
+            } else {
+                self.vad_evidence.sections_decoded += 1;
+                self.vad_evidence.decoded_audio_samples += audio.len() as u64;
+                evidence["decoded"] = serde_json::json!(true);
+                evidence["skipped"] = serde_json::json!(false);
+            }
+            evidence["speech_gate"] = serde_json::json!("silero_vad");
+            evidence["start_seconds"] = serde_json::json!(start_seconds);
+            evidence["end_seconds"] = serde_json::json!(end_seconds);
+            evidence["complete"] = serde_json::json!(
+                recognition.completeness == RecognitionCompleteness::Complete
+            );
+            self.segment_evidence.push(evidence);
+            if recognition.completeness == RecognitionCompleteness::Incomplete {
+                self.completeness = RecognitionCompleteness::Incomplete;
+            }
+            crate::asr::retain_original_section(&mut self.original_text,
+                || crate::asr::assemble_segments(&self.ledger, false), &recognition);
+            self.append_raw_words(&recognition.text, &recognition.raw_words, start_seconds);
+            crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
+            crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
+            self.push_text(&recognition.text, start_seconds, end_seconds,
+                recognition.completeness == RecognitionCompleteness::Complete)?;
+        }
+        #[cfg(not(feature = "fidelity-eval"))]
+        {
+            let recognition = self.engine.transcribe(audio)?;
+            if recognition.completeness == RecognitionCompleteness::Incomplete {
+                self.completeness = RecognitionCompleteness::Incomplete;
+            }
+            crate::asr::retain_original_section(&mut self.original_text,
+                || crate::asr::assemble_segments(&self.ledger, false), &recognition);
+            self.append_raw_words(&recognition.text, &recognition.raw_words, start_seconds);
+            crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
+            crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
+            self.push_text(&recognition.text, start_seconds, end_seconds,
+                recognition.completeness == RecognitionCompleteness::Complete)?;
         }
         Ok(())
     }
@@ -1806,6 +1988,7 @@ impl Stream<'_> {
             self.next_id += 1;
             let complete = recognition.completeness == RecognitionCompleteness::Complete;
             if !complete { self.completeness = RecognitionCompleteness::Incomplete; }
+            self.append_raw_words(&recognition.text, &recognition.raw_words, window.start as f32 / 16_000.0);
             crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
                 crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
             self.ledger.insert(id, crate::asr::Segment { id,
@@ -1845,6 +2028,19 @@ impl Stream<'_> {
             self.segment_evidence.push(evidence);
         }
         Ok(())
+    }
+
+    /// Section-relative word times onto the stream's timeline.
+    fn append_raw_words(&mut self, text: &str, words: &[crate::trust::evidence::RawWord], offset: f32) {
+        if crate::confidence::words(text).len() != words.len() {
+            self.raw_words_missing = true;
+            return;
+        }
+        self.raw_words.extend(words.iter().map(|w| crate::trust::evidence::RawWord {
+            word: w.word.clone(),
+            confidence: w.confidence,
+            time: w.time.map(|(a, b)| (a + offset, b + offset)),
+        }));
     }
 
     fn push_text(&mut self, text: &str, start_seconds: f32, end_seconds: f32, complete: bool) -> Result<(), String> {
@@ -2892,6 +3088,81 @@ mod tests {
         );
     }
 
+    /// Seconds of input inside detector sections, with Parakeet's meeting
+    /// settings (threshold 0.25, 0.25 s speech, 0.5 s silence).
+    fn detector_seconds(root: &Path, audio: &[f32], level: bool) -> f32 {
+        let api = Api::open(root).unwrap();
+        let mut keep = Vec::new();
+        keep.push(crate::asr::native_model_path(&optional_asr::sherpa_vad_path(root)).unwrap());
+        keep.push(CString::new("cpu").unwrap());
+        let mut config: VadModelConfig = unsafe { std::mem::zeroed() };
+        config.silero_vad.model = keep[0].as_ptr();
+        config.silero_vad.threshold = 0.25;
+        config.silero_vad.min_silence_duration = 0.5;
+        config.silero_vad.min_speech_duration = 0.25;
+        config.silero_vad.window_size = 512;
+        config.silero_vad.max_speech_duration = 20.0;
+        config.sample_rate = 16_000;
+        config.num_threads = 1;
+        config.provider = keep[1].as_ptr();
+        let vad = unsafe { (api.create_vad)(&config, 30.0) };
+        assert!(!vad.is_null());
+        let mut leveller = crate::detector_level::DetectorLevel::default();
+        let mut covered = 0usize;
+        let mut collect = |vad| {
+            while unsafe { (api.vad_empty)(vad) } == 0 {
+                let segment = unsafe { (api.vad_front)(vad) };
+                covered += unsafe { (*segment).n.max(0) } as usize;
+                unsafe { (api.destroy_segment)(segment); (api.vad_pop)(vad); }
+            }
+        };
+        for frame in audio.chunks(512) {
+            let mut frame = if level { leveller.process(frame) } else { frame.to_vec() };
+            frame.resize(512, 0.0);
+            unsafe { (api.vad_accept)(vad, frame.as_ptr(), 512) };
+            collect(vad);
+        }
+        unsafe { (api.vad_flush)(vad) };
+        collect(vad);
+        unsafe { (api.destroy_vad)(vad) };
+        covered as f32 / 16_000.0
+    }
+
+    /// Uses the pinned Silero model from a models root (SONOJOT_VAD_ROOT, or
+    /// rewrite/.live-asr). Synthetic speech-shaped bursts stand in for speech.
+    #[test]
+    fn quiet_speech_keeps_detector_sections_and_silence_stays_empty_when_staged() {
+        use crate::detector_level::tests::{speech_like, steady_noise};
+        let root = std::env::var_os("SONOJOT_VAD_ROOT").map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.live-asr"));
+        if !optional_asr::sherpa_vad_path(&root).is_file() || !optional_asr::runtime_library(&root).is_file() {
+            eprintln!("Skipping detector test: set SONOJOT_VAD_ROOT to a models root with the sherpa runtime");
+            return;
+        }
+        // 40 s: 20 bursts of 1.2 s (24 s of speech) at a meeting microphone's
+        // usual level (about -34 dBFS), over a -62 dBFS room-noise floor.
+        let with_floor = |attenuation: f32| -> Vec<f32> {
+            speech_like(40.0, attenuation + 8.0, 7).iter().zip(steady_noise(40.0, -62.0, 8))
+                .map(|(s, n)| s + n).collect()
+        };
+        let normal = detector_seconds(&root, &with_floor(0.0), false);
+        assert!(normal >= 18.0, "normal synthetic speech should be detected: {normal} s");
+        let levelled = detector_seconds(&root, &with_floor(0.0), true);
+        assert!(levelled >= 0.95 * normal, "levelling lost normal speech: {levelled} s of {normal} s");
+        for attenuation in [7.0, 12.0, 18.0] {
+            let audio = with_floor(attenuation);
+            let before = detector_seconds(&root, &audio, false);
+            let after = detector_seconds(&root, &audio, true);
+            eprintln!("-{attenuation} dB: {before:.1} s detected without levelling, {after:.1} s with");
+            assert!(after >= 0.8 * normal, "-{attenuation} dB speech lost: {after} s of {normal} s");
+        }
+        for (name, audio) in [("silence", vec![0.0; 16_000 * 60]),
+            ("room noise", steady_noise(60.0, -60.0, 9)), ("loud noise", steady_noise(60.0, -35.0, 10))] {
+            let kept = detector_seconds(&root, &audio, true);
+            assert!(kept < 0.5, "{name} produced {kept} s of detector sections");
+        }
+    }
+
     #[test]
     fn resample_keeps_same_rate_samples() {
         let samples = [0.0, 0.5, -1.0];
@@ -3011,5 +3282,28 @@ mod tests {
                 "Qwen3-ASR returned empty text for the sample wav"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod trust_evidence_probe {
+    /// Manual: SONOJOT_PROBE_WAV=<16 kHz mono wav> cargo test --lib parakeet_word_evidence -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn parakeet_word_evidence() {
+        let wav = std::env::var("SONOJOT_PROBE_WAV").expect("SONOJOT_PROBE_WAV");
+        let root = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap()).join("SonoJot/models/rewrite");
+        let mut engine = super::Engine::load(&root, "parakeet-tdt-0.6b-v2-sonojot-ft2").unwrap();
+        let mut reader = hound::WavReader::open(wav).unwrap();
+        let spec = reader.spec();
+        let samples: Vec<f32> = reader.samples::<i16>().map(|s| s.unwrap() as f32 / 32768.0).collect();
+        let mut stream = engine.stream().unwrap();
+        stream.add(&samples, spec.sample_rate).unwrap();
+        let result = stream.finish_recognition().unwrap();
+        println!("text: {}", result.text);
+        for w in &result.raw_words {
+            println!("{:>14} conf={:?} time={:?}", w.word, w.confidence, w.time);
+        }
+        println!("word_confidence: {}", result.word_confidence.len());
     }
 }

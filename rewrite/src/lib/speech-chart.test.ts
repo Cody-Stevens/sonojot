@@ -119,3 +119,164 @@ test("a Mac shows SonoJot Parakeet's word errors measured on a Mac, not Windows 
   // A Windows run stored in the mac slot never appears on a Mac.
   assert.equal(speechScore("qwen3-asr-1.7b-q8-cuda", true, false), null);
 });
+
+import {
+  paretoFrontier,
+  paretoPoints,
+  speechLine,
+  waitRange,
+  waitTicks,
+  memoryText,
+  speechSources,
+  otherRunScore,
+  speechViews,
+  viewScore,
+} from "./speech-chart";
+import type { ModelEntry } from "./model-library";
+
+const entry = (id: string, backend = "CPU", diskBytes = 1e9) =>
+  ({
+    id,
+    name: id,
+    backend,
+    diskBytes,
+    languages: ["English"],
+    ramMinBytes: 1e9,
+    ramMaxBytes: 2e9,
+    vramMinBytes: 0,
+    vramMaxBytes: 0,
+  }) as unknown as ModelEntry;
+
+test("the Compare chart plots only models measured in the chosen run", () => {
+  const points = paretoPoints(
+    [
+      entry("qwen3-asr-1.7b-q8-cuda", "CUDA"),
+      entry(SONOJOT_PARAKEET),
+      entry("whisper-large-v3-turbo"),
+      entry("granite-speech-4.1-2b-nar-q8", "CUDA"),
+      entry("moonshine-small"),
+    ],
+    false,
+  );
+  // Everyday speech by default; Moonshine has no everyday-speech run.
+  assert.deepEqual(
+    points.map((point) => [point.id, point.errors]),
+    [
+      ["qwen3-asr-1.7b-q8-cuda", 7.16],
+      [SONOJOT_PARAKEET, 7.54],
+    ],
+  );
+  assert.equal(points[0].gpu, true);
+  // Talks come from one run too: the desktop study, not the October bench.
+  assert.deepEqual(
+    paretoPoints([entry("qwen3-asr-1.7b-q8-cuda", "CUDA")], false, "talks").map(
+      (point) => point.errors,
+    ),
+    [2.6],
+  );
+  // Moonshine's talks score is real but from another run: listed, not plotted.
+  assert.deepEqual(paretoPoints([entry("moonshine-small")], false, "talks"), []);
+  assert.equal(otherRunScore("moonshine-small", false, "talks")?.value, 8.4);
+  // On a Mac only the Mac app run counts, with SonoJot Parakeet's Mac wait.
+  const mac = paretoPoints([entry(SONOJOT_PARAKEET)], true, "talks");
+  assert.deepEqual(
+    mac.map((point) => [point.errors, point.wait]),
+    [[3.73, 0.23]],
+  );
+  assert.deepEqual(speechViews(true), ["talks"]);
+  assert.equal(viewScore(SONOJOT_PARAKEET, true, "everyday"), null);
+  assert.equal(viewScore("whisper-small-metal", true, "talks"), null);
+});
+
+test("the frontier keeps models nothing beats on both axes", () => {
+  const ids = [
+    "qwen3-asr-1.7b-q8-cuda",
+    "qwen3-asr-1.7b-q4-cpu",
+    "qwen3-asr-0.6b-q8-cpu",
+    "parakeet-tdt-0.6b-v2",
+    SONOJOT_PARAKEET,
+  ];
+  const models = ids.map((id) => entry(id, id.includes("cuda") ? "CUDA" : "CPU"));
+  const everyday = paretoPoints(models, false, "everyday");
+  assert.deepEqual(paretoFrontier(everyday), [
+    SONOJOT_PARAKEET,
+    "qwen3-asr-1.7b-q8-cuda",
+    "qwen3-asr-1.7b-q4-cpu",
+  ]);
+  // Without a graphics card.
+  assert.deepEqual(
+    paretoFrontier(everyday.filter((point) => !point.gpu)),
+    [SONOJOT_PARAKEET, "qwen3-asr-1.7b-q4-cpu"],
+  );
+  // Accented English: the small Qwen and SonoJot Parakeet lead.
+  assert.deepEqual(paretoFrontier(paretoPoints(models, false, "accented")), [
+    SONOJOT_PARAKEET,
+    "qwen3-asr-0.6b-q8-cpu",
+  ]);
+  // Mac talks: Q8 makes more errors than Q4 and waits longer.
+  const mac = paretoPoints(
+    [
+      entry("qwen3-asr-1.7b-q8-metal", "Metal"),
+      entry("qwen3-asr-1.7b-q4-metal", "Metal"),
+      entry(SONOJOT_PARAKEET),
+    ],
+    true,
+    "talks",
+  );
+  assert.deepEqual(paretoFrontier(mac), [
+    SONOJOT_PARAKEET,
+    "qwen3-asr-1.7b-q4-metal",
+  ]);
+});
+
+test("close waits still separate on the log axis, with readable ticks", () => {
+  const [min, max] = waitRange([0.635, 0.685, 0.777]);
+  assert.ok(max / min >= 1.6);
+  assert.ok(waitTicks(min, max).length >= 2);
+  const [wide, wider] = waitRange([0.11, 2]);
+  assert.deepEqual(waitTicks(wide, wider), [0.1, 0.2, 0.5, 1, 2]);
+});
+
+test("speech card lines stay short and make only measured claims", () => {
+  const cards = [
+    entry(SONOJOT_PARAKEET),
+    entry("qwen3-asr-1.7b-q8-cuda", "CUDA"),
+    entry("qwen3-asr-1.7b-q4-cpu"),
+    entry("qwen3-asr-0.6b-q8-cpu"),
+    entry("parakeet-tdt-0.6b-v2"),
+    entry("moonshine-medium"),
+  ];
+  for (const mac of [false, true])
+    for (const card of cards) {
+      const line = speechLine(card, { mac });
+      assert.ok(line.split(/\s+/).length <= 8, line);
+      assert.ok(!line.includes("—"), line);
+    }
+  assert.equal(
+    speechLine(entry(SONOJOT_PARAKEET), { mac: false }),
+    "English only. Fast and small.",
+  );
+  assert.match(
+    speechLine(entry("qwen3-asr-1.7b-q8-cuda", "CUDA"), { mac: false }),
+    /Many languages; fewer errors on prepared talks/,
+  );
+  // On a Mac there is no measured comparison with SonoJot Parakeet.
+  assert.doesNotMatch(
+    speechLine(entry("qwen3-asr-1.7b-q4-metal", "Metal"), { mac: true }),
+    /fewest/,
+  );
+});
+
+test("model details name measured memory and report sources, not code", () => {
+  assert.equal(
+    memoryText(entry(SONOJOT_PARAKEET)),
+    "1.09 GB system memory",
+  );
+  assert.match(
+    memoryText(entry("qwen3-asr-1.7b-q8-cuda", "CUDA")),
+    /^3\.43 GB graphics memory and 1 GB system memory$/,
+  );
+  assert.match(memoryText(entry("moonshine-small")), /estimate/);
+  for (const source of speechSources("qwen3-asr-1.7b-q4-cpu", false))
+    assert.ok(source.endsWith(".md"), source);
+});

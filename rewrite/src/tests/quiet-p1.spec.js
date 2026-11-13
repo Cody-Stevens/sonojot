@@ -65,6 +65,7 @@ test("four-item shell, keyboard navigation, legacy ids and Settings doors", asyn
   await expect(heading(page, "Speech")).toBeVisible();
   await page.getByRole("button", { name: "Back to Settings" }).click();
   await expect(heading(page, "Settings")).toBeVisible();
+  await page.getByText("Advanced", { exact: true }).click();
   await page.getByRole("button", { name: /^Memory / }).click();
   await expect(heading(page, "Memory")).toBeVisible();
   await expect(

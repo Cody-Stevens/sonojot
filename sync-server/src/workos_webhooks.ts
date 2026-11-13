@@ -8,7 +8,7 @@ export async function webhook(
   if (new URL(request.url).pathname !== "/v1/auth/webhook") return null;
   if (request.method !== "POST") throw new Fault(405, "Use POST.");
   if (!env.WORKOS_WEBHOOK_SECRET)
-    throw new Fault(503, "WorkOS webhooks are not configured yet.");
+    throw new Fault(503, "Sign-in notifications are not configured yet.");
   const payload = new TextDecoder().decode(await bytes(request, 65536));
   const sigHeader = request.headers.get("workos-signature") ?? "";
   // Check both past and future timestamps; SDK versions have differed on future tolerance.

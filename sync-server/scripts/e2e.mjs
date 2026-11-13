@@ -51,10 +51,11 @@ try {
   await db.exec(readFileSync("migrations/0005_account_safety.sql", "utf8"));
   await db.exec(readFileSync("migrations/0006_authkit.sql", "utf8"));
   await db.exec(readFileSync("migrations/0007_test_accounts.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0008_email_signin.sql", "utf8"));
   let account;
   const sessions = {};
   const identities = {};
-  for (const id of ["a", "b"]) {
+  for (const id of ["a", "b", "lost-device"]) {
     const keys = generateKeyPairSync("x25519");
     const secret = keys.privateKey
       .export({ format: "der", type: "pkcs8" })
@@ -128,6 +129,7 @@ try {
         SONOJOT_SYNC_E2E_ACCOUNT: account,
         SONOJOT_SYNC_E2E_A: a,
         SONOJOT_SYNC_E2E_B: b,
+        SONOJOT_SYNC_E2E_LOST: sessions["lost-device"],
         SONOJOT_SYNC_E2E_KEYS: JSON.stringify(identities),
       },
     },
@@ -171,7 +173,7 @@ try {
   if (JSON.stringify(metadata).includes("Asterlume"))
     throw Error("database plaintext boundary failed");
   console.log(
-    "Two Rust devices signed in through mocked WorkOS AuthKit, converged, paired with two confirmations, preserved a conflict and explicitly re-paired after re-key through Miniflare; R2 held only encrypted SJV1 envelopes.",
+    "Three Rust devices signed in, paired and synced through Miniflare. Removing one re-keyed the other two automatically; old keys and a forged roster were rejected. R2 held only encrypted SJV1 envelopes.",
   );
 } finally {
   await mf.dispose();

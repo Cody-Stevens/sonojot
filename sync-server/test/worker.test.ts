@@ -118,6 +118,7 @@ beforeAll(async () => {
   await db.exec(readFileSync("migrations/0005_account_safety.sql", "utf8"));
   await db.exec(readFileSync("migrations/0006_authkit.sql", "utf8"));
   await db.exec(readFileSync("migrations/0007_test_accounts.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0008_email_signin.sql", "utf8"));
 }, 30000);
 afterAll(async () => {
   await mf?.dispose();
@@ -340,7 +341,7 @@ describe("auth isolation", () => {
   it("health and security headers", async () => {
     const r = await call("/v1/health");
     expect(r.status).toBe(200);
-    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(r.headers.get("cache-control")).toBe("no-store, no-transform");
     expect(r.headers.get("referrer-policy")).toBe("no-referrer");
   });
   it("AuthKit sign-in stores only session hashes", async () => {
@@ -377,7 +378,7 @@ describe("auth isolation", () => {
     const a = await begin();
     await db.prepare("UPDATE auth_requests SET expires_at=0").run();
     expect((await call("/v1/auth/browser?request=" + a.id)).status).toBe(401);
-    expect((await call("/v1/auth/email", "POST", {})).status).toBe(404);
+    expect((await call("/v1/auth/email", "POST", {})).status).toBe(403);
     expect(
       (await call("/v1/auth/start", "POST", { provider: "google" })).status,
     ).toBe(400);
@@ -401,9 +402,12 @@ describe("auth isolation", () => {
       ),
     );
     expect(replies.map((r) => r.status).sort()).toEqual([303, 401]);
-    expect(b.location).toContain("provider=authkit");
-    expect(b.location).toContain("code_challenge_method=S256");
-    expect(b.location).toContain("max_age=0");
+    expect(b.location).toBe("https://sync.test/sign-in?request=" + a.id);
+    const row = await db
+      .prepare("SELECT browser_hash FROM auth_requests WHERE id=?")
+      .bind(a.id)
+      .first<{ browser_hash: string }>();
+    expect(row?.browser_hash).toBe(hash(b.cookie.split(".")[1]));
     expect(
       (
         await db
@@ -521,7 +525,12 @@ describe("auth isolation", () => {
 });
 
 const envelope = Buffer.from(
-  JSON.parse(readFileSync("../rewrite/src-tauri/tests/fixtures/sync-vectors.json", "utf8")).envelopeHex,
+  JSON.parse(
+    readFileSync(
+      "../rewrite/src-tauri/tests/fixtures/sync-vectors.json",
+      "utf8",
+    ),
+  ).envelopeHex,
   "hex",
 );
 async function put(
@@ -834,7 +843,14 @@ describe("account lifecycle", () => {
     const a = await signin();
     await db.prepare("UPDATE sessions SET fresh_at=0").run();
     expect(
-      (await call("/v1/rekey", "POST", { confirmed: true }, a.token)).status,
+      (
+        await call(
+          "/v1/rekey",
+          "POST",
+          { confirmed: true, reset: true },
+          a.token,
+        )
+      ).status,
     ).toBe(403);
   });
   it("resets unreadable data while preserving the account and revoking other devices", async () => {
@@ -1394,7 +1410,7 @@ describe("WorkOS lifecycle boundaries", () => {
         ?.auth_verifier,
     ).toBe(verifierHash);
   });
-  it("web sign-out clears its own cookie and returns the SDK logout URL", async () => {
+  it("web sign-out clears its own cookie without a third-party page", async () => {
     const verifier = "web-synthetic-verifier";
     const r = await call("/v1/auth/start", "POST", {
       provider: "authkit",
@@ -1423,13 +1439,7 @@ describe("WorkOS lifecycle boundaries", () => {
     });
     expect(out.status).toBe(200);
     expect(out.headers.get("set-cookie")).toContain("Max-Age=0");
-    const logout = new URL(((await out.json()) as { url: string }).url);
-    expect(logout.origin + logout.pathname).toBe(
-      "https://api.workos.com/user_management/sessions/logout",
-    );
-    expect(logout.searchParams.get("return_to")).toBe(
-      "https://sync.test/account",
-    );
+    expect(((await out.json()) as { url: null }).url).toBeNull();
     expect(
       (await call("/v1/account", "GET", undefined, undefined, { cookie }))
         .status,
@@ -1479,5 +1489,212 @@ describe("WorkOS lifecycle boundaries", () => {
       (await db.prepare("SELECT COUNT(*) AS n FROM workos_revocations").first())
         ?.n,
     ).toBe(0);
+  });
+});
+
+describe("branded email sign-in", () => {
+  async function attempt(intent = "sign-up", device = "email-device") {
+    const verifier = randomBytes(32).toString("base64url");
+    const started = await call("/v1/auth/start", "POST", {
+      intent,
+      challenge: hash(verifier),
+      device,
+      publicKey: pk,
+      platform: "Test",
+    });
+    const a = (await started.json()) as { id: string; url: string };
+    const b = await browser(a.id);
+    return { ...a, ...b, verifier };
+  }
+  async function email(
+    a: { id: string; cookie: string },
+    address = "person@example.invalid",
+    extra: Record<string, string> = {},
+  ) {
+    return call(
+      "/v1/auth/email",
+      "POST",
+      { request: a.id, email: address },
+      undefined,
+      { origin: "https://sync.test", cookie: a.cookie, ...extra },
+    );
+  }
+  async function verify(
+    a: { id: string; cookie: string },
+    code = "123456",
+    extra: Record<string, string> = {},
+  ) {
+    return call("/v1/auth/verify", "POST", { request: a.id, code }, undefined, {
+      origin: "https://sync.test",
+      cookie: a.cookie,
+      ...extra,
+    });
+  }
+  async function redeem(a: { id: string; cookie: string; verifier: string }) {
+    const r = await verify(a);
+    expect(r.status).toBe(200);
+    const u = new URL(((await r.json()) as { url: string }).url);
+    return call("/v1/auth/token", "POST", {
+      request: a.id,
+      code: u.searchParams.get("code"),
+      verifier: a.verifier,
+    });
+  }
+  it("creates a verified account and preserves the immutable id of an existing hosted account", async () => {
+    const old = await signin();
+    const a = await attempt("sign-in");
+    expect((await email(a)).status).toBe(200);
+    const t = await redeem(a);
+    expect(t.status).toBe(200);
+    expect(((await t.json()) as { account: { id: string } }).account.id).toBe(
+      old.account.id,
+    );
+    const b = await attempt("sign-up", "new-device");
+    expect((await email(b, "new@example.com")).status).toBe(200);
+    expect((await redeem(b)).status).toBe(200);
+    expect((await verify(b)).status).toBe(401);
+  });
+  it("requires email ownership before distinguishing a missing account", async () => {
+    const a = await attempt("sign-in");
+    expect((await email(a)).status).toBe(200);
+    expect((await verify(a, "000000")).status).toBe(401);
+    expect((await verify(a)).status).toBe(409);
+  });
+  it("gives identical responses for new, existing, rejected and email-limited addresses", async () => {
+    await signin();
+    const responses: unknown[] = [];
+    for (const address of [
+      "person@example.invalid",
+      "new@example.com",
+      "reject@example.com",
+    ]) {
+      responses.push(await (await email(await attempt(), address)).json());
+    }
+    await db
+      .prepare("INSERT INTO rate_limits(key,count,expires_at) VALUES(?,5,?)")
+      .bind(
+        "email-address:" + hash("limited@example.com"),
+        Math.floor(Date.now() / 1000) + 3600,
+      )
+      .run();
+    responses.push(
+      await (await email(await attempt(), "limited@example.com")).json(),
+    );
+    expect(
+      responses.every(
+        (r) => JSON.stringify(r) === JSON.stringify(responses[0]),
+      ),
+    ).toBe(true);
+  });
+  it("limits guesses, binds the browser and requires the exact origin and JSON", async () => {
+    const a = await attempt();
+    expect(
+      (await email(a, "person@example.invalid", { origin: "" })).status,
+    ).toBe(403);
+    expect(
+      (
+        await email(a, "person@example.invalid", {
+          origin: "https://evil.example.com",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await email(a, "person@example.invalid", {
+          "content-type": "text/plain",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await email(a, "person@example.invalid", { cookie: "" })).status,
+    ).toBe(401);
+    expect((await email(a)).status).toBe(200);
+    expect((await verify(a, "123456", { cookie: "" })).status).toBe(401);
+    for (let n = 0; n < 5; n++)
+      expect((await verify(a, "000000")).status).toBe(401);
+    expect((await verify(a)).status).toBe(401);
+    const row = await db
+      .prepare(
+        "SELECT code_tries,email,code_hash FROM auth_requests WHERE id=?",
+      )
+      .bind(a.id)
+      .first<{ code_tries: number; code_hash: string }>();
+    expect(row?.code_tries).toBe(5);
+    expect(row?.code_hash).not.toBe("123456");
+  });
+  it("allows one concurrent send and one grant, and keeps the app PKCE check", async () => {
+    const a = await attempt();
+    expect(
+      (await Promise.all([email(a), email(a)])).map((r) => r.status).sort(),
+    ).toEqual([200, 409]);
+    const results = await Promise.all([verify(a), verify(a)]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 401]);
+    const ok = results.find((r) => r.status === 200)!;
+    const u = new URL(((await ok.json()) as { url: string }).url);
+    expect(
+      (
+        await call("/v1/auth/token", "POST", {
+          request: a.id,
+          code: u.searchParams.get("code"),
+          verifier: "wrong",
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await call("/v1/auth/token", "POST", {
+          request: a.id,
+          code: u.searchParams.get("code"),
+          verifier: a.verifier,
+        })
+      ).status,
+    ).toBe(200);
+  });
+  it("expires attempts after five minutes and enforces the IP send limit", async () => {
+    const a = await attempt();
+    await db
+      .prepare("UPDATE auth_requests SET expires_at=0 WHERE id=?")
+      .bind(a.id)
+      .run();
+    expect((await email(a)).status).toBe(401);
+    const b = await attempt();
+    await db
+      .prepare("INSERT INTO rate_limits(key,count,expires_at) VALUES(?,10,?)")
+      .bind(
+        "email-ip:" + hash("203.0.113.10"),
+        Math.floor(Date.now() / 1000) + 3600,
+      )
+      .run();
+    expect(
+      (
+        await email(b, "person@example.invalid", {
+          "cf-connecting-ip": "203.0.113.10",
+        })
+      ).status,
+    ).toBe(429);
+  });
+  it("serves both paper entry points without identity-provider names or third-party scripts", async () => {
+    for (const path of ["/sign-up", "/sign-in", "/signin.js", "/signin.css"]) {
+      const r = await call(path);
+      expect(r.status).toBe(200);
+      expect(r.headers.get("content-security-policy")).toContain(
+        "script-src 'self'",
+      );
+      expect(await r.text()).not.toMatch(/workos|authkit/i);
+    }
+    expect(
+      (await mf.dispatchFetch("https://wrong.example.com/sign-in")).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("/v1/auth/start", "POST", {
+          redirect: "http://localhost:8000/sync",
+          challenge: pk,
+          device: "x",
+          publicKey: pk,
+          platform: "Test",
+        })
+      ).status,
+    ).toBe(400);
   });
 });

@@ -151,6 +151,7 @@ pub async fn save_settings(
         visual_only.material = settings.material;
         visual_only.start_tab_hidden = settings.start_tab_hidden;
         visual_only.cursor_indicator = settings.cursor_indicator;
+        visual_only.trust = settings.trust.clone();
         if settings != visual_only {
             return Err("Finish recording before changing dictation settings.".into());
         }
@@ -287,6 +288,9 @@ pub async fn save_settings(
     }
     if !state.snapshot()?.settings.cursor_indicator {
         windows::close_cursor(&app);
+    }
+    if old.trust != settings.trust {
+        crate::trust::settings_changed(&app, &old.trust, &settings.trust);
     }
     if channel_changed {
         // Offer the new channel's newest build now, not at the next timed check.
@@ -1526,4 +1530,62 @@ mod help_command_tests {
         assert_eq!(std::path::Path::new(&path), crate::agent_integration::cli_beside(&executable));
         assert_eq!(std::path::Path::new(&path).parent(), executable.parent());
     }
+}
+
+/// The doubtful-word overlay reports what the user did.
+#[tauri::command]
+pub fn trust_ui(event: crate::trust::UiEvent) {
+    crate::trust::ui(event);
+}
+
+/// The held audio around a mark, for the overlay to play.
+#[tauri::command]
+pub fn trust_snippet(mark: u32) -> Option<crate::trust::SnippetData> {
+    crate::trust::snippet(mark)
+}
+
+/// Apps doubtful words ran in recently, for the per-app switches.
+#[tauri::command]
+pub fn trust_recent_apps() -> Vec<String> {
+    crate::trust::recent_apps()
+}
+
+/// Debug: paste `text` into the field in front after `delayMs` and mark the
+/// chosen words, so the doubtful-word flow can be tried without speaking.
+#[tauri::command]
+pub async fn trust_debug_inject(
+    state: AppStateHandle<'_>,
+    text: String,
+    marks: Vec<crate::trust::DebugMark>,
+    delay_ms: Option<u64>,
+    require_pid: Option<u32>,
+) -> Result<String, String> {
+    if text.trim().is_empty() || text.len() > 4000 {
+        return Err("Give a short sample text.".into());
+    }
+    let (marks, audio) = crate::trust::debug_marks(&text, &marks)?;
+    tokio::time::sleep(std::time::Duration::from_millis(delay_ms.unwrap_or(0).min(30_000))).await;
+    let target = platform::capture_paste_target().ok_or("Put the cursor in a text field of another app first.")?;
+    // Scripts name the scratch window's process so nothing else is ever typed into.
+    if let Some(pid) = require_pid {
+        if platform::trust_target(&target).process != pid {
+            return Err("The window in front is not the requested one; nothing was pasted.".into());
+        }
+    }
+    let app_identity = platform::paste_target_app_identity(&target);
+    let settings = state.snapshot()?.settings;
+    let outcome = platform::deliver_text(&text, Some(target.clone()), true).await?;
+    if !outcome.paste_sent {
+        return Err(outcome.reason.unwrap_or_else(|| "The text was copied but not pasted.".into()));
+    }
+    crate::trust::inject(
+        text,
+        marks,
+        audio,
+        platform::trust_target(&target),
+        app_identity,
+        settings.hotkey.clone(),
+        settings.hotkey_mode == crate::domain::HotkeyMode::Hold,
+    );
+    Ok("pasted".into())
 }

@@ -253,7 +253,8 @@ impl Keyring {
     }
 }
 
-/// Changes to encryption material require a local, explicit trust ceremony.
+/// Changes require explicit pairing/recovery or an authenticated transition
+/// from the locally pinned predecessor and a trusted device.
 /// Roster edits alone do not change this checkpoint.
 pub fn keyset_pin(ring: &Keyring) -> [u8; 32] {
     let mut h = Sha256::new();

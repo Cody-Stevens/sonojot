@@ -38,7 +38,9 @@ async function shot(page, name) {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: fileURLToPath(new URL(name, folder)) });
 }
-const card = (page, id) => page.locator(`[data-model-id="${id}"]`);
+// The choose button of a speech card; its information button sits beside it.
+const card = (page, id) =>
+  page.locator(`[data-model-id="${id}"] .card-choose`);
 
 /** The native frontier when SonoJot Parakeet is offered on a non-English system (Qwen stays recommended). The English default is in parakeet-default.spec.js. */
 function offered(fixture, dictation) {
@@ -57,7 +59,7 @@ test("NVIDIA: SonoJot Parakeet against Qwen, Qwen still recommended", async ({
 }) => {
   await open(page, offered(pc(), [ft2, qwen]));
   await expect(card(page, ft2)).toContainText("SonoJot Parakeet");
-  await expect(card(page, ft2)).toContainText("tuned by SonoJot for dictation");
+  await expect(card(page, ft2)).toContainText("English only. Fast and small.");
   await expect(card(page, qwen)).toContainText("Recommended");
   await expect(card(page, parakeet)).toHaveCount(0);
   await shot(page, "01-nvidia-main-choice.png");

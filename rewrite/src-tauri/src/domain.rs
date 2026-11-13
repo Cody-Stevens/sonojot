@@ -100,11 +100,51 @@ pub struct Settings {
     #[serde(default)]
     pub meeting_notes_instructions: String,
     pub meeting_speaker_labels: bool,
+    /// Two-source meetings: remove the other participants' words that the
+    /// microphone picked up from loudspeakers. `None` (no choice yet) is
+    /// automatic: on when both stems carry word times (SonoJot Parakeet),
+    /// off otherwise (Qwen and others: the looser rule can remove words the
+    /// user repeats). A saved choice always wins. See `meeting_leak`.
+    pub meeting_remove_echo: Option<bool>,
     pub do_not_save_dictations: bool,
     pub keep_dictation_audio: bool,
     pub learn_from_corrections: bool,
     pub memory_mode: MemoryMode,
     pub model_retention: ModelRetention,
+    /// Marks for doubtful words after a paste. See `trust`.
+    pub trust: TrustSettings,
+}
+
+string_enum!(MarkStyle, Band, {Band => "band", Dots => "dots"});
+string_enum!(PopoverStyle, Card, {Card => "card", Strip => "strip"});
+string_enum!(PlayOn, Hover, {Hover => "hover", Click => "click"});
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TrustSettings {
+    pub enabled: bool,
+    pub sensitivity: crate::trust::decision::Sensitivity,
+    pub mark_style: MarkStyle,
+    pub popover_style: PopoverStyle,
+    pub play_on: PlayOn,
+    /// App identities (as `paste_target_app_identity` reports them) where marks stay off.
+    pub off_apps: Vec<String>,
+    /// Optional global shortcut for "next doubtful word". Empty is unbound.
+    pub next_shortcut: String,
+}
+
+impl Default for TrustSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sensitivity: Default::default(),
+            mark_style: MarkStyle::Band,
+            popover_style: PopoverStyle::Card,
+            play_on: PlayOn::Hover,
+            off_apps: Vec::new(),
+            next_shortcut: String::new(),
+        }
+    }
 }
 
 impl Default for Settings {
@@ -155,11 +195,13 @@ impl Default for Settings {
             meeting_notes_preset: NEW_INSTALL_MEETING_NOTES_PRESET,
             meeting_notes_instructions: String::new(),
             meeting_speaker_labels: true,
+            meeting_remove_echo: None,
             do_not_save_dictations: false,
             keep_dictation_audio: false,
             learn_from_corrections: false,
             memory_mode: MemoryMode::Overlap,
             model_retention: ModelRetention::Minutes10,
+            trust: TrustSettings::default(),
         }
     }
 }
@@ -227,6 +269,15 @@ impl Settings {
             return Err("Choose a meeting audio source.".into());
         }
         validate_hotkey(&self.hotkey)?;
+        if !self.trust.next_shortcut.is_empty() {
+            validate_hotkey(&self.trust.next_shortcut)?;
+            if self.trust.next_shortcut.replace(' ', "").eq_ignore_ascii_case(&self.hotkey.replace(' ', "")) {
+                return Err("Pick a different shortcut from the dictation shortcut.".into());
+            }
+        }
+        if self.trust.off_apps.len() > 200 || self.trust.off_apps.iter().any(|app| app.len() > 260) {
+            return Err("Too many apps in the doubtful words list.".into());
+        }
         if self.auto_stop_seconds > 300 {
             return Err("Auto-stop must be between 0 and 300 seconds.".into());
         }
@@ -1055,6 +1106,18 @@ mod speaker_label_settings_tests {
         settings.asr_model = Settings::default().asr_model;
         settings.meeting_asr_model = "unknown-meeting-model".into();
         assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn speaker_echo_removal_is_automatic_until_chosen() {
+        let legacy: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.meeting_remove_echo, None);
+        assert_eq!(serde_json::to_value(&legacy).unwrap()["meetingRemoveEcho"], serde_json::Value::Null);
+        for choice in [true, false] {
+            let saved: Settings = serde_json::from_str(&format!(r#"{{"meetingRemoveEcho":{choice}}}"#)).unwrap();
+            assert_eq!(saved.meeting_remove_echo, Some(choice));
+            assert_eq!(serde_json::to_value(saved).unwrap()["meetingRemoveEcho"], choice);
+        }
     }
 
     #[test]

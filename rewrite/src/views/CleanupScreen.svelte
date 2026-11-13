@@ -5,6 +5,7 @@
   import MemoryBar from "../components/quiet/MemoryBar.svelte";
   import Toggle from "../components/Toggle.svelte";
   import PunctuationDetails from "../components/PunctuationDetails.svelte";
+  import InfoTip from "../components/quiet/InfoTip.svelte";
   import { app } from "../lib/app.svelte";
   import { library } from "../lib/model-library.svelte";
   import { ai } from "../lib/ai.svelte";
@@ -118,8 +119,53 @@
       </div>
     </div>
   </div>
+  {#if app.snapshot.capabilities.platform !== "linux"}<div
+      class="stage-setting"
+    >
+      <span class="label-with-info"
+        >Punctuation<InfoTip label="About Punctuation"
+          ><p>
+            Adds punctuation, capitals and sentence breaks on this computer,
+            right after you stop. In Clean, SonoJot Cleanup v4 also removes
+            fillers, repeated words and restarts.
+          </p>
+          <p>
+            It does not fix misheard words or grammar; that is what a
+            proofreader does.
+          </p></InfoTip
+        ></span
+      >
+      <div class="stage-control punctuation-control">
+        <small
+          >{!settings.sonojotPunctuation
+            ? "Off · basic rules only"
+            : (punctuation?.name ?? "Basic rules until installed")}</small
+        >{#if !punctuation && settings.sonojotPunctuation}<button
+            class="button small"
+            aria-label="Install punctuation model"
+            onclick={() => onmanage("punctuation")}>Install</button
+          >{/if}<Toggle
+          label="Punctuation model"
+          checked={settings.sonojotPunctuation}
+          disabled={locked || settings.cleanupMode === "original"}
+          onchange={(sonojotPunctuation) =>
+            void app.saveSettings({ sonojotPunctuation })}
+        />
+      </div>
+    </div>{/if}
   <div class="stage-setting cleaner-setting">
-    <span>Done by</span>
+    <span class="label-with-info"
+      >Proofreader<InfoTip label="About Proofreader"
+        ><p>
+          An optional writing model that reads your words after punctuation. It
+          can fix misheard words and grammar, and it adds a wait after you stop.
+        </p>
+        <p>
+          Protected numbers, links and wording are checked; if a change looks
+          unsafe, the text from before proofreading is kept.
+        </p></InfoTip
+      ></span
+    >
     <div class="cleaners">
       <button
         class="quiet-option"
@@ -129,8 +175,8 @@
         onclick={() => void app.saveSettings(cleanupPatch({ kind: "off" }))}
         ><span class="choice-dot" aria-hidden="true"></span><span
           class="option-copy"
-          >Rules <small class="quiet-tag">RECOMMENDED</small><small
-            >Instant · nothing extra to load</small
+          >None <small class="quiet-tag">RECOMMENDED</small><small
+            >Fastest · nothing extra to load</small
           ></span
         ><MemoryBar
           bytes={0}
@@ -142,13 +188,13 @@
         class:chosen={choice.kind === "local" || choice.kind === "sonojot"}
         aria-pressed={choice.kind === "local" || choice.kind === "sonojot"}
         disabled={locked}
-        aria-label="Choose local cleanup model"
+        aria-label="Choose a proofreader on this computer"
         onclick={() => (sheet = "local")}
         ><span class="choice-dot" aria-hidden="true"></span><span
           class="option-copy"
           >{choice.kind === "sonojot"
             ? "SonoJot proofreader"
-            : (local?.name ?? "Local cleanup model")}
+            : (local?.name ?? "On this computer")}
           <small class="quiet-tag amber"
             >{choice.kind === "sonojot" || local?.id === SMART_CLEANUP_MODEL
               ? "EXPERIMENT"
@@ -170,7 +216,7 @@
         class:chosen={choice.kind === "online"}
         aria-pressed={choice.kind === "online"}
         disabled={locked}
-        aria-label="Choose online cleanup model"
+        aria-label="Choose an online proofreader"
         onclick={() => openRouter.open("cleanup", onlineId)}
         ><span class="choice-dot" aria-hidden="true"></span><span
           class="option-copy"
@@ -184,36 +230,14 @@
     </div>
   </div>
   <button class="more-door" onclick={() => (sheet = "more")}
-    ><span>More</span><small>Punctuation · written form · shape by type</small
+    ><span>Advanced</span><small>Written form · shape by type</small
     ><span aria-hidden="true">›</span></button
   >
 </section>
 
 {#if sheet === "local"}<LocalCleanupSheet onclose={() => (sheet = null)} />{/if}
-{#if sheet === "more"}<Sheet title="More" onclose={() => (sheet = null)}>
+{#if sheet === "more"}<Sheet title="Advanced" onclose={() => (sheet = null)}>
     <p class="sheet-context" data-text-surface="flat">Cleanup</p>
-    {#if app.snapshot.capabilities.platform !== "linux"}
-      <div class="stage-setting wide-label">
-        <span
-          >Punctuation model<small
-            >{punctuation?.name ?? "Basic punctuation until installed"}</small
-          ></span
-        ><Toggle
-          label="Punctuation model"
-          checked={settings.sonojotPunctuation}
-          disabled={locked || settings.cleanupMode === "original"}
-          onchange={(sonojotPunctuation) =>
-            void app.saveSettings({ sonojotPunctuation })}
-        />
-      </div>
-      {#if !punctuation && settings.sonojotPunctuation}<button
-          class="button small"
-          onclick={() => {
-            sheet = null;
-            onmanage("punctuation");
-          }}>Install punctuation model</button
-        >{/if}
-    {/if}
     <div class="stage-setting wide-label">
       <span>Written form<small>three → 3 · gpt six → GPT-6</small></span><Toggle
         label="Written form"
@@ -282,6 +306,12 @@
   }
   .cleaners {
     min-width: 0;
+  }
+  .punctuation-control {
+    justify-content: flex-end;
+  }
+  .punctuation-control small {
+    flex: 1;
   }
   .online-memory {
     width: 155px;

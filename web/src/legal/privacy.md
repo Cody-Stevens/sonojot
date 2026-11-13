@@ -38,6 +38,8 @@ SonoJot itself does not encrypt these files, except your OpenRouter key. Anyone 
 
 When SonoJot pastes dictated text, it uses your system clipboard. If you use clipboard history or clipboard sync, your operating system may store or sync that text.
 
+After it pastes, SonoJot reads back the text it just pasted, and where it is on screen, to mark doubtful words. It reads nothing else from that app, holds the last dictation's audio in memory only until its marks are gone, and nothing leaves your computer.
+
 ## 3. What leaves your computer, and when
 
 ### Update checks and updates

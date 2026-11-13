@@ -36,15 +36,13 @@ test("Sync Test opens Account and sync with a visible flavor label", async ({
     page.getByRole("heading", { name: "Account and sync" }),
   ).toBeVisible();
   await expect(page.locator(".brand")).toContainText("Sync Test");
-  await expect(
-    page.getByRole("button", { name: "Continue with WorkOS AuthKit" }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Set up sync" })).toBeVisible();
   await page.screenshot({
     path: "artifacts/sync-test-flavor.png",
     fullPage: true,
   });
 });
-test("account screen offers WorkOS AuthKit and an actionable failure", async ({
+test("account screen separates setup and adding a computer", async ({
   page,
 }) => {
   await installDesktopFixture(page, { syncEnabled: true });
@@ -55,18 +53,26 @@ test("account screen offers WorkOS AuthKit and an actionable failure", async ({
   await expect(
     page.getByRole("heading", { name: "Account and sync" }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Continue with WorkOS AuthKit" })
-    .click();
+  await page.getByRole("button", { name: "Set up sync" }).click();
   expect(
     await page.evaluate(() =>
       window.__testCalls
         .filter(
           (c) => c.command === "sync_command" && c.args.operation === "signin",
         )
-        .map((c) => c.args.args.provider),
+        .map((c) => c.args.args.intent),
     ),
-  ).toEqual(["authkit"]);
+  ).toEqual(["sign-up"]);
+  await page.getByRole("button", { name: "Add this computer" }).click();
+  expect(
+    await page.evaluate(() =>
+      window.__testCalls
+        .filter(
+          (c) => c.command === "sync_command" && c.args.operation === "signin",
+        )
+        .map((c) => c.args.args.intent),
+    ),
+  ).toEqual(["sign-up", "sign-in"]);
   await expect(page.getByRole("alert")).toContainText("not configured");
   await expect(page.getByRole("button", { name: "Try again" })).toBeEnabled();
   await page.screenshot({
@@ -124,7 +130,7 @@ test("receiving device waits for its own code confirmation", async ({
     .getByRole("button", { name: "Account and sync", exact: false })
     .click();
   await page
-    .getByRole("button", { name: "Approve on another device", exact: true })
+    .getByRole("button", { name: "Compare six digits", exact: true })
     .click();
   await page.getByRole("button", { name: "Check pairing" }).click();
   await expect(page.locator(".pair-code")).toHaveText("654321");
@@ -205,7 +211,9 @@ for (const signoutOnly of [false, true]) {
         "can regain access by signing in again",
       );
     }
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Remove device", exact: true })
+      .click();
     expect(
       await page.evaluate(() =>
         window.__testCalls
@@ -237,7 +245,9 @@ test("M1 removing this device only signs it out", async ({ page }) => {
     .click();
   await page.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(page.getByLabel("Sign out only, no re-key")).toHaveCount(0);
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Remove device", exact: true })
+    .click();
   expect(
     await page.evaluate(() =>
       window.__testCalls
@@ -294,4 +304,38 @@ test("L4 reset completion waits for ready_at and shows its availability", async 
       ),
     ),
   ).toHaveLength(1);
+});
+
+test("first account creates keys and saves recovery on one screen", async ({
+  page,
+}) => {
+  await installDesktopFixture(page, {
+    syncEnabled: true,
+    syncStatus: {
+      signedIn: true,
+      unlocked: false,
+      initialized: false,
+      email: "fixture@example.invalid",
+      device: "fixture-device",
+      server: "https://sync.example.invalid",
+    },
+  });
+  await page.goto("/?page=sync&flavor=synctest");
+  await expect(
+    page.getByRole("button", { name: "Compare six digits" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Create encryption key" }).click();
+  await expect(page.getByText("SYNTHETIC-RECOVERY-FIXTURE")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Sync now", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Done", exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel("I saved my recovery code").check();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Sync now", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("SYNTHETIC-RECOVERY-FIXTURE")).toHaveCount(0);
 });

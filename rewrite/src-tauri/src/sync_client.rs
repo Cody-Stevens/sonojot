@@ -9,6 +9,11 @@ pub const STAGING: &str = match option_env!("SONOJOT_SYNC_ORIGIN") {
     None => "",
 };
 
+pub const AUTH_ORIGIN: &str = match option_env!("SONOJOT_AUTH_ORIGIN") {
+    Some(origin) => origin,
+    None => "",
+};
+
 pub fn validate_staging_origin(origin: &str) -> Result<(), String> {
     if origin.is_empty() {
         return Err("Sync is not configured in this build. Install an official nightly or Sync Test build.".into());

@@ -489,7 +489,10 @@
     border-radius: 8px;
   }
   .segments button[aria-selected="true"] {
-    background: var(--dye);
+    background-color: var(--dye);
+    background-image: var(--paper-image);
+    background-size: var(--paper-tile-size);
+    background-blend-mode: multiply;
     color: var(--dye-ink);
     box-shadow: var(--raise-sm);
   }

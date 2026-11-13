@@ -1024,6 +1024,8 @@ export async function installDesktopFixture(page, options = {}) {
             if (args.operation === "pair_confirm") {options.syncStatus={...status,unlocked:true};return {unlocked:true};}
             if (args.operation === "reset_cancel") {options.syncStatus={...status,pendingReset:null};return {cancelled:true};}
             if (args.operation === "recovery_show") return {code:"SYNTHETIC-RECOVERY-FIXTURE"};
+            if (args.operation === "setup") { options.syncStatus={...status,unlocked:true,recoveryPending:true}; return {unlocked:true}; }
+            if (args.operation === "recovery_ack") { options.syncStatus={...status,recoveryPending:false}; return {saved:true}; }
             if (args.operation === "devices") return [{ id: "fixture-device", platform: "Windows", revoked_at: null }];
             if (["pair_list", "conflicts"].includes(args.operation)) return [];
             if (args.operation === "signin") throw new Error("This sign-in provider is not configured yet.");

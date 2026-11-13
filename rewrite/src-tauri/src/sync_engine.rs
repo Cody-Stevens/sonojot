@@ -489,14 +489,19 @@ mod tests {
         ca.account = account.clone();
         ca.device_id = "a".into();
         ca.session = std::env::var("SONOJOT_SYNC_E2E_A").unwrap();
-        let mut cb = Credentials::new(url);
-        cb.account = account;
+        let mut cb = Credentials::new(url.clone());
+        cb.account = account.clone();
         cb.device_id = "b".into();
         cb.session = std::env::var("SONOJOT_SYNC_E2E_B").unwrap();
+        let lost = Store::open(Some(root.join("lost"))).unwrap();
+        let mut clost = Credentials::new(url);
+        clost.account = account;
+        clost.device_id = "lost-device".into();
+        clost.session = std::env::var("SONOJOT_SYNC_E2E_LOST").unwrap();
         use base64::Engine;
         let identities: Value =
             serde_json::from_str(&std::env::var("SONOJOT_SYNC_E2E_KEYS").unwrap()).unwrap();
-        for c in [&mut ca, &mut cb] {
+        for c in [&mut ca, &mut cb, &mut clost] {
             let d = &identities[&c.device_id];
             c.device = crypto::DeviceKey {
                 secret: base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -513,6 +518,7 @@ mod tests {
         }
         crate::secret_store::save(&a, &ca).unwrap();
         crate::secret_store::save(&b, &cb).unwrap();
+        crate::secret_store::save(&lost, &clost).unwrap();
         async fn pair(a: &Store, b: &Store) {
             use crate::sync_account::action;
             let id = action(b, "pair_start", serde_json::json!({}))
@@ -555,6 +561,8 @@ mod tests {
                 .await
                 .unwrap();
             pair(&a, &b).await;
+            pair(&a, &lost).await;
+            crate::sync_account::action(&lost, "now", serde_json::json!({})).await.unwrap();
             let poll: Value = cb
                 .client()
                 .unwrap()
@@ -655,6 +663,8 @@ mod tests {
             // Authenticate the fixture's local checkpoint before presenting this keyring.
             ca.keyset = Some(crypto::keyset_pin(&poisoned));
             crate::secret_store::save(&a, &ca).unwrap();
+            cb.keyset = ca.keyset;
+            crate::secret_store::save(&b, &cb).unwrap();
             poisoned
                 .devices
                 .insert("colluding-device".into(), crypto::DeviceKey::new().public);
@@ -710,11 +720,13 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(
                 recipients,
-                vec!["a"],
-                "old or poisoned rosters must never receive a new account key"
+                vec!["a", "b"],
+                "only pinned remaining peers receive a new account key"
             );
-            assert!(crate::sync_account::keyring(&b, &mut cb).await.is_err());
-            pair(&a, &b).await;
+            assert!(crate::sync_account::action(&lost, "now", serde_json::json!({})).await.is_err());
+            // No pairing, recovery or confirmation: the next ordinary sync
+            // authenticates the transition from the already pinned computer.
+            crate::sync_account::action(&b, "now", serde_json::json!({})).await.unwrap();
             cb = crate::secret_store::load::<Credentials>(&b)
                 .unwrap()
                 .unwrap();

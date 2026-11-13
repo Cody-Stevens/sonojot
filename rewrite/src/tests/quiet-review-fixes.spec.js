@@ -202,7 +202,7 @@ test("Manage saved models asks before discarding a pasted key", async ({
 }) => {
   await cleanup(page, { aiSettings: { connected: false } });
   await page
-    .getByRole("button", { name: "Choose online cleanup model" })
+    .getByRole("button", { name: "Choose an online proofreader" })
     .click();
   const key = page.getByRole("textbox", { name: "OpenRouter key" });
   await key.fill("sk-test-placeholder");
@@ -268,7 +268,7 @@ for (const state of ["installed", "failed", "rejected"]) {
       },
     });
     await page
-      .getByRole("button", { name: "Choose local cleanup model" })
+      .getByRole("button", { name: "Choose a proofreader on this computer" })
       .click();
     const sheet = page.getByRole("dialog", { name: "Local cleanup model" });
     if (state === "rejected")
@@ -297,7 +297,7 @@ for (const state of ["installed", "failed", "rejected"]) {
     ).toHaveCount(0);
     await sheet.getByRole("button", { name: "Close sheet" }).click();
     await page
-      .getByRole("button", { name: "Choose local cleanup model" })
+      .getByRole("button", { name: "Choose a proofreader on this computer" })
       .click();
     await expect(
       sheet.getByRole("region", { name: "Model download" }),
@@ -342,6 +342,7 @@ test("Keep all ready replaces Immediately with a compatible retention in one sav
     { settings: { memoryMode: "sequential", modelRetention: "immediately" } },
     "/?page=settings",
   );
+  await page.locator("details.advanced > summary").click();
   await page.getByRole("button", { name: /^Memory / }).click();
   await page
     .getByRole("button", { name: "Keep all ready", exact: true })

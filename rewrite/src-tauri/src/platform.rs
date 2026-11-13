@@ -121,6 +121,23 @@ pub fn paste_target_app_identity(target: &PasteTarget) -> Option<String> {
     native::target_app_identity(target)
 }
 
+/// The window handles and process the trust layer looks at after a paste.
+/// Handles only; never window titles or text.
+pub(crate) fn trust_target(target: &PasteTarget) -> crate::trust::locator::Target {
+    #[cfg(windows)]
+    {
+        crate::trust::locator::Target { focused: target.focused, window: target.foreground, process: target.focused_process_id }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::trust::locator::Target { focused: 0, window: 0, process: target.pid as u32 }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        crate::trust::locator::Target { focused: 0, window: 0, process: target.pid as u32 }
+    }
+}
+
 /// For a click on the macOS menu bar sheet. The click can activate SonoJot
 /// before the command runs, so fall back to the app that was active just
 /// before SonoJot. Elsewhere this is `capture_paste_target`.

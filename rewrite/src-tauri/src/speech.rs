@@ -60,6 +60,9 @@ pub struct StartOptions {
     /// `..Default::default()` call sites keep compiling.
     pub no_history: bool,
     pub keep_dictation_audio: bool,
+    /// Hold this dictation's audio and word evidence in memory for the trust
+    /// layer's doubtful-word marks. Never written to disk.
+    pub trust: bool,
     /// Store handle for post-ASR learned-vocabulary lookup (full raw
     /// utterance, mapped mode, ≤1536 budget). `None` in legacy/test paths
     /// (no learned injection). Never a global list at capture start: raw and
@@ -88,6 +91,7 @@ impl Default for StartOptions {
             live_preview: false,
             no_history: false,
             keep_dictation_audio: false,
+            trust: false,
             store: None,
         }
     }
@@ -146,6 +150,7 @@ impl StartOptions {
             live_preview: settings.live_preview,
             no_history: settings.do_not_save_dictations,
             keep_dictation_audio: settings.keep_dictation_audio,
+            trust: settings.trust.enabled,
             store,
         }
     }
@@ -230,9 +235,32 @@ fn learned_cleanup_for_job(
         .learned_cleanup_vocabulary_for(raw, domain_mode, 1536)
         .unwrap_or_default()
 }
+/// Per-word evidence from recognition: timed words where the runtime gives
+/// them, otherwise confidence alone, otherwise nothing (unknown).
+fn trust_raw_words(recognition: &crate::asr::RecognitionResult) -> Vec<crate::trust::evidence::RawWord> {
+    if !recognition.raw_words.is_empty() {
+        return recognition.raw_words.clone();
+    }
+    let projected = crate::confidence::project(&recognition.word_confidence, &recognition.text);
+    projected
+        .into_iter()
+        .map(|w| crate::trust::evidence::RawWord { word: w.word, confidence: Some(w.probability as f32), time: None })
+        .collect()
+}
+
+fn trust_segments(recognition: &crate::asr::RecognitionResult) -> Vec<(f32, f32, usize)> {
+    recognition
+        .segments
+        .iter()
+        .filter_map(|s| Some((s.start_seconds, s.end_seconds?, crate::confidence::words(&s.text).len())))
+        .collect()
+}
+
 #[derive(Clone, Debug)]
 pub struct DictationResult {
     pub kept_audio: Option<Arc<Vec<f32>>>,
+    /// Word evidence and in-memory audio for the trust layer.
+    pub trust: Option<Arc<crate::trust::Capture>>,
     pub word_confidence: Vec<crate::confidence::WordConfidence>,
     pub original_text: String,
     pub output_text: String,
@@ -1178,6 +1206,8 @@ fn run_job(
     let mut last_interim = String::new();
     let mut first_result = false;
     let mut kept_audio = (job.options.keep_dictation_audio && !job.options.no_history).then(Vec::new);
+    // The trust layer plays snippets from memory; bounded, never saved.
+    let mut trust_audio = job.options.trust.then(Vec::new);
     let mut audio_ms = 0.0f64;
     let mut audible_ms = 0.0f64;
     let mut peak_rms = 0.0f32;
@@ -1203,11 +1233,21 @@ fn run_job(
                 // The backlog and any saved source retain captured audio.
                 // Only the owned ASR input is changed, on the capture timeline.
                 job.capture.filter_asr(&mut samples);
-                if let Some(kept) = kept_audio.as_mut() {
-                    // Keep the same post-filter, pre-VAD 16 kHz mono input fed to ASR.
+                if kept_audio.is_some() || trust_audio.is_some() {
+                    // Keep the same post-filter, pre-VAD 16 kHz mono input fed to ASR,
+                    // so word times line up with the held audio.
                     let input = crate::store::prepare_dictation_audio_input(&samples, sample_rate);
                     stream.add(&input, 16_000)?;
-                    kept.extend_from_slice(&input);
+                    if let Some(kept) = kept_audio.as_mut() {
+                        kept.extend_from_slice(&input);
+                    }
+                    if let Some(held) = trust_audio.as_mut() {
+                        if held.len() + input.len() <= crate::trust::MAX_AUDIO_SECONDS * 16_000 {
+                            held.extend_from_slice(&input);
+                        } else {
+                            trust_audio = None;
+                        }
+                    }
                 } else {
                     stream.add(&samples, sample_rate)?;
                 }
@@ -1433,7 +1473,7 @@ fn run_job(
     // Stopping the optional model still keeps the deterministic first stage.
     // Cancellation remains live and wins before any publication.
     let fallback_stop = AtomicBool::new(false);
-    let (original_text, mut cleaned) = clean_dictation_recognition(&recognition, |text| cleanup::run_dictation_interruptible_with_options(
+    let (original_text, mut cleaned) = clean_dictation_recognition(&recognition, effective_mode, &request_vocabulary, |text| cleanup::run_dictation_interruptible_with_options(
         root,
         text,
         effective_mode,
@@ -1511,8 +1551,17 @@ fn run_job(
     } else {
         cleaned.status
     };
+    let trust = job.options.trust.then(|| {
+        Arc::new(crate::trust::Capture {
+            raw_text: recognition.text.clone(),
+            raw_words: trust_raw_words(&recognition),
+            segments: trust_segments(&recognition),
+            audio: trust_audio.map(Arc::new),
+        })
+    });
     Ok(DictationResult {
         kept_audio: kept_audio.map(Arc::new),
+        trust,
         word_confidence: recognition.word_confidence,
         original_text,
         output_text: cleaned.text,
@@ -1534,11 +1583,20 @@ fn run_job(
 
 /// Cleanup consumes only guarded speech; the untouched recognition is returned
 /// separately for DictationResult/history and never used as a cleanup fallback.
+/// Cleanup reads the recognized text with segment-start capitals lowered where
+/// the recognizer decoded the audio in pause-separated pieces. Original mode
+/// and the saved raw text keep the recognizer's casing.
 fn clean_dictation_recognition(
     recognition: &asr::RecognitionResult,
+    mode: cleanup::Mode,
+    vocabulary: &[cleanup::Vocabulary],
     clean: impl FnOnce(&str) -> cleanup::ResultText,
 ) -> (String, cleanup::ResultText) {
-    let cleaned = clean(&recognition.text);
+    let joined = (mode != cleanup::Mode::Original).then(|| {
+        let segments: Vec<&str> = recognition.segments.iter().map(|s| s.text.as_str()).collect();
+        crate::punctuation::lower_segment_start_capitals(&recognition.text, &segments, vocabulary)
+    }).flatten();
+    let cleaned = clean(joined.as_deref().unwrap_or(&recognition.text));
     (recognition.original_text().to_owned(), cleaned)
 }
 
@@ -1566,6 +1624,34 @@ mod tests {
     }
 
     #[test]
+    fn dictation_cleanup_lowers_segment_start_capitals_but_keeps_the_raw_text() {
+        let segments = ["we should file a feature", "Request for the export button"];
+        let recognition = asr::RecognitionResult {
+            word_confidence: Vec::new(), raw_words: Vec::new(), original_text: None,
+            text: segments.join(" "),
+            segments: segments.iter().enumerate().map(|(i, text)| asr::Segment {
+                id: i as u64, start_seconds: i as f32 * 2.0, end_seconds: Some(i as f32 * 2.0 + 1.5),
+                speaker: None, text: (*text).into(), complete: true,
+            }).collect(),
+            completeness: RecognitionCompleteness::Complete, warnings: Vec::new(),
+        };
+        for (mode, expected) in [
+            (cleanup::Mode::Original, "we should file a feature Request for the export button"),
+            (cleanup::Mode::Format, "We should file a feature request for the export button."),
+            (cleanup::Mode::Clean, "We should file a feature request for the export button."),
+        ] {
+            let (original, cleaned) = clean_dictation_recognition(&recognition, mode, &[], |input| {
+                cleanup::run_dictation_interruptible_with_policy(
+                    std::path::Path::new("unused"), input, mode, &[], &[], "local-rules",
+                    StartOptions::default().policy, &AtomicBool::new(false), &AtomicBool::new(false),
+                )
+            });
+            assert_eq!(original, recognition.text);
+            assert_eq!(cleaned.text, expected, "{mode:?}");
+        }
+    }
+
+    #[test]
     fn dictation_cleanup_consumes_guarded_text_and_retains_original_separately() {
         let directory = std::env::temp_dir().join(format!("sonojot-guarded-dictation-{}", uuid::Uuid::new_v4()));
         let store = crate::store::Store::open(Some(directory.clone())).unwrap();
@@ -1580,7 +1666,7 @@ mod tests {
             for mode in [cleanup::Mode::Original, cleanup::Mode::Format, cleanup::Mode::Clean] {
                 let options = StartOptions { cleanup_mode: mode, cleanup_model: "local-rules".into(), ..StartOptions::default() };
                 let (mode, model) = recognition_cleanup_route(&options, recognition.completeness);
-                let (original, cleaned) = clean_dictation_recognition(&recognition, |input| {
+                let (original, cleaned) = clean_dictation_recognition(&recognition, mode, &[], |input| {
                     assert_eq!(input, recognition.text);
                     assert!(!input.contains("go go"));
                     cleanup::run_dictation_interruptible_with_policy(

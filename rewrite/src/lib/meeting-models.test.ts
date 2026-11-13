@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  speakerEchoRemoval,
   defaultMeetingModel,
   meetingModelSettings,
   meetingSpeechModels,
@@ -269,4 +270,15 @@ test("rollback failure tells the user to inspect the meeting choice", async () =
     ),
     /previous online route restored/,
   );
+});
+
+test("speaker echo removal follows a saved choice, else word-timed models", () => {
+  const auto = (id: string) => speakerEchoRemoval(null, id);
+  assert.deepEqual(auto("parakeet-tdt-0.6b-v2-sonojot-ft2"), { on: true, automatic: true });
+  assert.deepEqual(auto("parakeet-tdt-0.6b-v2"), { on: true, automatic: true });
+  assert.equal(auto("parakeet-tdt-0.6b-v2-fp16-cuda").on, false);
+  assert.equal(auto("qwen3-asr-1.7b-q8-cuda").on, false);
+  assert.equal(auto("openrouter").on, false);
+  assert.deepEqual(speakerEchoRemoval(false, "parakeet-tdt-0.6b-v2-sonojot-ft2"), { on: false, automatic: false });
+  assert.deepEqual(speakerEchoRemoval(true, "qwen3-asr-1.7b-q8-cuda"), { on: true, automatic: false });
 });

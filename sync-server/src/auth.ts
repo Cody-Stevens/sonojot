@@ -17,7 +17,8 @@ import {
   configuredOrigin,
 } from "./common";
 import {
-  authorize,
+  sendCode,
+  verifyCode,
   exchange,
   configured,
   type Identity,
@@ -25,10 +26,14 @@ import {
 } from "./authkit";
 export type AuthDependencies = {
   exchange: typeof exchange;
+  sendCode: typeof sendCode;
+  verifyCode: typeof verifyCode;
   mail: (env: Env, to: string, subject: string, text: string) => Promise<void>;
 };
 export const productionAuth: AuthDependencies = {
   exchange,
+  sendCode,
+  verifyCode,
   mail: async (env, to, subject, text) => {
     if (env.MAIL_ENABLED !== "true")
       throw new Fault(503, "Security notices are not configured yet.");
@@ -49,6 +54,43 @@ async function requestRow(env: Env, requestId: string): Promise<AuthRequest> {
     .first<AuthRequest>();
   if (!a) throw new Fault(401, "Sign-in expired. Start again.");
   return a;
+}
+async function browserProof(request: Request, a: AuthRequest): Promise<string> {
+  if (a.browser_origin && a.browser_origin !== new URL(request.url).origin)
+    throw new Fault(403, "Open sign-in in the same browser.");
+  const cookies =
+    request.headers
+      .get("cookie")
+      ?.split(";")
+      .map((v) => v.trim())
+      .filter((v) => v.startsWith("__Host-sj_login=")) ?? [];
+  const cookie =
+    cookies.length === 1
+      ? /^__Host-sj_login=([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43})$/.exec(
+          cookies[0],
+        )
+      : null;
+  if (
+    !cookie ||
+    cookie[1] !== a.id ||
+    a.browser_hash !== (await sha(cookie[2]))
+  )
+    throw new Fault(401, "Start sign-in again in this browser.");
+  return cookie[2];
+}
+function sameOriginJson(request: Request): void {
+  if (
+    request.headers.get("origin") !== new URL(request.url).origin ||
+    request.headers.get("content-type")?.split(";")[0].trim() !==
+      "application/json" ||
+    request.headers.get("sec-fetch-site") === "cross-site"
+  )
+    throw new Fault(403, "Open sign-in in the same browser.");
+}
+function returnUrl(a: AuthRequest, origin: string, code: string): string {
+  return a.redirect === "web"
+    ? origin + "/account#request=" + a.id + "&code=" + code
+    : a.redirect + "?request=" + a.id + "&code=" + code;
 }
 async function identify(env: Env, identity: Identity): Promise<string> {
   // Never automatically link identities by email: provider subjects are the identity boundary.
@@ -85,7 +127,7 @@ async function grant(
       .bind(identity.subject, identity.session)
       .first()
   )
-    throw new Fault(401, "WorkOS sign-in was revoked. Start again.");
+    throw new Fault(401, "Sign-in was revoked. Start again.");
   let account: string;
   if (a.link_account) {
     const valid = await env.DB.prepare(
@@ -213,9 +255,16 @@ export async function auth(
     }
     a.link_account = linked?.account ?? null;
     a.link_session = linked?.hash ?? null;
-    const url = origin + "/v1/auth/browser?request=" + a.id;
+    a.intent = b.intent === "sign-up" && !linked ? "sign-up" : "sign-in";
+    a.browser_origin = redirect === "web" ? origin : env.AUTH_ORIGIN || origin;
+    // Old nightlies validate the starting URL against their API origin. They can
+    // follow the browser redirect; new builds accept the configured auth origin.
+    const url =
+      (b.browserOrigin === a.browser_origin ? a.browser_origin : origin) +
+      "/v1/auth/browser?request=" +
+      a.id;
     await env.DB.prepare(
-      "INSERT INTO auth_requests(id,provider,challenge,nonce,device,public_key,platform,redirect,expires_at,link_account,link_session,link_verifier) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO auth_requests(id,provider,challenge,nonce,device,public_key,platform,redirect,expires_at,link_account,link_session,link_verifier,intent,browser_origin) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     )
       .bind(
         a.id,
@@ -230,15 +279,26 @@ export async function auth(
         a.link_account,
         a.link_session,
         a.link_verifier ?? null,
+        a.intent,
+        a.browser_origin,
       )
       .run();
     return json({ id: a.id, url });
   }
   if (path === "/v1/auth/browser" && request.method === "GET") {
     const a = await requestRow(env, id(u.searchParams.get("request")));
+    if (a.browser_origin && origin !== a.browser_origin)
+      return new Response(null, {
+        status: 303,
+        headers: { Location: a.browser_origin + u.pathname + u.search },
+      });
     const verifier = token();
     const challenge = await sha(verifier);
-    const url = authorize(env, a, origin, challenge);
+    const url =
+      origin +
+      (a.intent === "sign-up" ? "/sign-up" : "/sign-in") +
+      "?request=" +
+      a.id;
     const claimed = await env.DB.prepare(
       "UPDATE auth_requests SET browser_hash=? WHERE id=? AND browser_hash IS NULL AND used=0 AND expires_at>?",
     )
@@ -254,30 +314,124 @@ export async function auth(
       },
     });
   }
+  if (
+    ["/v1/auth/email", "/v1/auth/verify"].includes(path) &&
+    request.method === "POST"
+  ) {
+    sameOriginJson(request);
+    const b = await body(request, 4096);
+    const a = await requestRow(env, id(b.request));
+    await browserProof(request, a);
+    const signals = {
+      ipAddress: request.headers.get("cf-connecting-ip") ?? undefined,
+      userAgent: request.headers.get("user-agent")?.slice(0, 512),
+    };
+    if (path === "/v1/auth/email") {
+      await limit(env, "email-ip:" + (await sha(ip)), 10);
+      const email = str(b.email, 254).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        throw new Fault(400, "Enter your email address.");
+      // One send per browser attempt; concurrent calls cannot send twice.
+      const claimed = await env.DB.prepare(
+        "UPDATE auth_requests SET code_started=1,email=?,intent=? WHERE id=? AND code_started=0 AND callback_started=0 AND used=0 AND expires_at>?",
+      )
+        .bind(
+          email,
+          !a.link_account && b.intent === "sign-up"
+            ? "sign-up"
+            : b.intent === "sign-in"
+              ? "sign-in"
+              : (a.intent ?? "sign-in"),
+          a.id,
+          now(),
+        )
+        .run();
+      if (claimed.meta.changes !== 1)
+        throw new Fault(409, "Start again to request another code.");
+      try {
+        await limit(env, "email-address:" + (await sha(email)), 5);
+        const sent = await deps.sendCode(env, email, signals);
+        await env.DB.prepare(
+          "UPDATE auth_requests SET code_hash=?,radar_attempt=? WHERE id=? AND used=0 AND expires_at>?",
+        )
+          .bind(
+            await sha(a.id + ":" + sent.code),
+            sent.radarAttempt,
+            a.id,
+            now(),
+          )
+          .run();
+      } catch {
+        // Unknown addresses, provider rejections, and per-email limits have the
+        // same response. The provider can create a user only after verification.
+      }
+      return json({
+        sent: true,
+        message:
+          "If this address can receive a code, it will arrive shortly. Check your inbox and junk folder.",
+      });
+    }
+    await limit(env, "verify-ip:" + (await sha(ip)), 30);
+    const invalid = () =>
+      new Fault(
+        401,
+        "This code could not be verified. Check it or start again.",
+      );
+    if (!a.email) throw invalid();
+    await limit(env, "verify-email:" + (await sha(a.email)), 15);
+    const tried = await env.DB.prepare(
+      "UPDATE auth_requests SET code_tries=code_tries+1 WHERE id=? AND code_tries<5 AND callback_started=0 AND used=0 AND expires_at>? RETURNING code_tries",
+    )
+      .bind(a.id, now())
+      .first();
+    if (
+      !tried ||
+      typeof b.code !== "string" ||
+      !/^\d{6}$/.test(b.code) ||
+      a.code_hash !== (await sha(a.id + ":" + b.code))
+    )
+      throw invalid();
+    const claimed = await env.DB.prepare(
+      "UPDATE auth_requests SET callback_started=1,code_hash=NULL WHERE id=? AND callback_started=0 AND used=0 AND expires_at>?",
+    )
+      .bind(a.id, now())
+      .run();
+    if (claimed.meta.changes !== 1) throw invalid();
+    const identity = await deps.verifyCode(
+      env,
+      a.email,
+      b.code,
+      a.radar_attempt ?? null,
+      signals,
+    );
+    if (
+      a.intent === "sign-in" &&
+      !a.link_account &&
+      !(await env.DB.prepare(
+        "SELECT 1 FROM identities WHERE provider=? AND subject=?",
+      )
+        .bind(identity.provider, identity.subject)
+        .first())
+    )
+      throw new Fault(
+        409,
+        "Your email is verified. Start again from Set up sync in SonoJot to create your account.",
+      );
+    const code = await grant(env, a, identity);
+    const response = json({ url: returnUrl(a, origin, code) });
+    response.headers.set(
+      "Set-Cookie",
+      "__Host-sj_login=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+    );
+    return response;
+  }
   if (path === "/v1/auth/callback" && request.method === "GET") {
     const state = u.searchParams.getAll("state"),
       codes = u.searchParams.getAll("code");
     if (state.length !== 1 || codes.length !== 1 || u.searchParams.has("error"))
       throw new Fault(400, "Sign-in could not be completed. Start again.");
     const a = await requestRow(env, id(state[0]));
-    const cookies =
-      request.headers
-        .get("cookie")
-        ?.split(";")
-        .map((v) => v.trim())
-        .filter((v) => v.startsWith("__Host-sj_login=")) ?? [];
-    const cookie =
-      cookies.length === 1
-        ? /^__Host-sj_login=([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43})$/.exec(
-            cookies[0],
-          )
-        : null;
-    if (
-      !cookie ||
-      cookie[1] !== a.id ||
-      a.browser_hash !== (await sha(cookie[2]))
-    )
-      throw new Fault(401, "Start sign-in again in this browser.");
+    const verifier = await browserProof(request, a);
     await limit(env, "callback:" + (await sha(ip)), 30);
     const claimed = await env.DB.prepare(
       "UPDATE auth_requests SET callback_started=1 WHERE id=? AND callback_started=0 AND used=0 AND expires_at>?",
@@ -286,7 +440,7 @@ export async function auth(
       .run();
     if (claimed.meta.changes !== 1)
       throw new Fault(401, "Sign-in already used.");
-    const identity = await deps.exchange(env, str(codes[0], 2048), cookie[2]);
+    const identity = await deps.exchange(env, str(codes[0], 2048), verifier);
     const code = await grant(env, a, identity);
     return new Response(null, {
       status: 303,
@@ -363,7 +517,7 @@ export async function auth(
         .bind(crypto.randomUUID(), a.account, t)
         .run();
     const account = await env.DB.prepare(
-      "SELECT id,email,epoch FROM accounts WHERE id=?",
+      "SELECT id,email,epoch,EXISTS(SELECT 1 FROM wraps WHERE account=accounts.id AND kind='keyring') AS encrypted FROM accounts WHERE id=?",
     )
       .bind(a.account)
       .first();
@@ -384,15 +538,7 @@ export async function auth(
     await env.DB.prepare("DELETE FROM sessions WHERE hash=?")
       .bind(s.hash)
       .run();
-    const logout = s.workos_session
-      ? (await import("./authkit"))
-          .client(env)
-          .userManagement.getLogoutUrl({
-            sessionId: s.workos_session,
-            returnTo: origin + "/account",
-          })
-      : null;
-    const r = json({ signedOut: true, url: logout });
+    const r = json({ signedOut: true, url: null });
     r.headers.set(
       "Set-Cookie",
       "sj_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
@@ -466,12 +612,21 @@ export async function devicesAndWraps(
     const ciphertext = str(b.ciphertext, 44000);
     const previous = integer(b.previous);
     if (
-      !["keyring", "recovery", "device"].includes(kind) ||
+      !["keyring", "recovery", "device", "roster"].includes(kind) ||
       (kind === "device" && ref !== s.device)
     )
       throw new Fault(400, "Invalid wrap.");
-    if (kind !== "device" && ref !== "main")
+    if (kind !== "device" && kind !== "roster" && ref !== "main")
       throw new Fault(400, "Invalid wrap reference.");
+    if (
+      kind === "roster" &&
+      !(await env.DB.prepare(
+        "SELECT 1 FROM devices WHERE account=? AND id=? AND revoked_at IS NULL AND public_key<>''",
+      )
+        .bind(s.account, ref)
+        .first())
+    )
+      throw new Fault(400, "Unknown device.");
     if (!/^[A-Za-z0-9_-]+$/.test(ciphertext))
       throw new Fault(400, "Invalid wrap encoding.");
     const r = await env.DB.prepare(

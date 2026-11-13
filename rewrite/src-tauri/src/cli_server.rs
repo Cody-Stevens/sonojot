@@ -30,6 +30,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("show_page", "page"),
     ("open_path", "kind"),
     ("start_dictation", ""),
+    ("trust_debug_inject", "text, marks [{word, gap?, occurrence?, alternatives?}], delayMs?, requirePid?; pastes into the field in front"),
+    ("trust_next", ""),
     ("stop_dictation", ""),
     ("cancel_dictation", ""),
     ("stop_cleanup", ""),
@@ -228,6 +230,11 @@ async fn dispatch(app: AppHandle, command: &str, args: Value) -> Result<Value, S
         "show_page" => out(commands::show_page(h(), arg(a, "page")?).await),
         "open_path" => out(commands::open_path(s(), arg(a, "kind")?)),
         "start_dictation" => out(commands::start_dictation(h(), s()).await),
+        "trust_debug_inject" => out(commands::trust_debug_inject(s(), arg(a, "text")?, arg(a, "marks")?, a.get("delayMs").and_then(Value::as_u64), a.get("requirePid").and_then(Value::as_u64).map(|p| p as u32)).await),
+        "trust_next" => {
+            crate::trust::next();
+            Ok(json!("ok"))
+        }
         "stop_dictation" => out(commands::stop_dictation(h(), s()).await),
         "cancel_dictation" => out(commands::cancel_dictation(h(), s()).await),
         "stop_cleanup" => out(commands::stop_cleanup(s()).await),

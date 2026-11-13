@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import Sheet from "../components/quiet/Sheet.svelte";
   import MemoryBar from "../components/quiet/MemoryBar.svelte";
+  import InfoTip from "../components/quiet/InfoTip.svelte";
   import Toggle from "../components/Toggle.svelte";
   import ModelDownload from "../components/ModelDownload.svelte";
   import { app } from "../lib/app.svelte";
@@ -134,7 +135,14 @@
 
 <section class="stock paper-card quiet-panel">
   <div class="stage-setting">
-    <label for="notes-style">Style</label>
+    <span class="label-with-info"
+      ><label for="notes-style">Style</label><InfoTip label="About notes style"
+        ><p>
+          Notes are written after you press Stop and the transcript is ready.
+          Notes you already have are kept.
+        </p></InfoTip
+      ></span
+    >
     <div class="stage-control">
       <select
         id="notes-style"
@@ -149,8 +157,6 @@
         ><option value="">No notes</option>{#each notesStyles as style}<option
             value={style.id}>{style.label}</option
           >{/each}</select
-      ><small class="field-help"
-        >After Stop and successful transcription. Existing notes are kept.</small
       >
     </div>
   </div>
@@ -173,7 +179,15 @@
         >{/if}
     </div>{/if}
   <div class="stage-setting writers">
-    <span>Written by</span>
+    <span class="label-with-info"
+      >Written by<InfoTip label="About Written by"
+        ><p>
+          {app.snapshot.settings.meetingNotesPreset === null
+            ? "With No notes, nothing is written automatically. You can still choose Write notes in a meeting."
+            : "Notes use this model after transcription. You can cancel while they are being written."}
+        </p></InfoTip
+      ></span
+    >
     <div>
       <button
         class="quiet-option"
@@ -205,17 +219,12 @@
         >{#if ai.data?.connected}<span class="quiet-tag">CONNECTED</span
           >{/if}<span aria-hidden="true">›</span></button
       >
-      <p class="field-help">
-        {app.snapshot.settings.meetingNotesPreset === null
-          ? "No automatic notes. You can still choose Write notes in a meeting."
-          : "Notes use this model after transcription. You can cancel while they are being written."}
-      </p>
     </div>
   </div>
   <div class="stage-setting">
-    <span
-      >Name meetings automatically<small
-        >Uses a local model after transcription</small
+    <span class="label-with-info"
+      >Name meetings automatically<InfoTip label="About naming meetings"
+        ><p>Uses a model on this computer after transcription.</p></InfoTip
       ></span
     ><Toggle
       label="Name meetings automatically"
@@ -272,12 +281,6 @@
     align-items: flex-start;
     gap: 9px;
   }
-  .stage-setting > span small {
-    display: block;
-    color: var(--soft-ink);
-    font-size: 14px;
-    margin-top: 5px;
-  }
   .writers {
     align-items: flex-start;
   }
@@ -289,9 +292,6 @@
   }
   .writers .quiet-option {
     width: 100%;
-  }
-  .writers .field-help {
-    margin: 16px 12px;
   }
   select,
   textarea {

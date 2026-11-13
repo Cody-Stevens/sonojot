@@ -84,3 +84,25 @@ describe("private staging deployment overlay", () => {
     expect(() => runStaging(["delete"])).toThrow();
   });
 });
+
+it("attaches only the approved custom domain while keeping workers.dev", () => {
+  const config = stagingConfig(template, {
+    ...settings,
+    authOrigin: "https://auth.sonojot.com",
+  });
+  expect(config.env.staging.routes).toEqual([
+    { pattern: "auth.sonojot.com", custom_domain: true },
+  ]);
+  expect(config.env.staging.workers_dev).toBe(true);
+  expect(config.env.staging.vars.AUTH_ORIGIN).toBe("https://auth.sonojot.com");
+  expect(config.env.staging.vars.PUBLIC_ORIGIN).toBe(settings.origin);
+  for (const authOrigin of [
+    "http://auth.sonojot.com",
+    "https://auth.sonojot.com.evil.com",
+    "https://auth.sonojot.com/path",
+    "https://sync.sonojot.com",
+  ])
+    expect(() =>
+      stagingConfig(template, { ...settings, authOrigin }),
+    ).toThrow();
+});

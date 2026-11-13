@@ -1,19 +1,20 @@
 import type { PostprocessOptions, PostprocessResult } from "./contract.ts";
 import { localRules } from "./rules.ts";
-import { Document, sameWords } from "./punctuation.ts";
+import { Document, respaceGluedApostrophes, sameWords } from "./punctuation.ts";
 import { predict } from "./model.ts";
 import { finishWrittenForm, projectSpanLabels } from "./written-form.ts";
 import type { BioLabel } from "./written-form.ts";
 import { check, trimSpace } from "./shared.ts";
 
 export { loadPunctuationPackage } from "./model.ts";
+export { lowerSegmentStartCapitals } from "./punctuation.ts";
 export type * from "./contract.ts";
 
 // Rust cleanup.rs::run_with_delete_policy and punctuation.rs::finish_prediction (published v3).
 export async function postprocess(raw: string, options: PostprocessOptions): Promise<PostprocessResult> {
   check(options.signal);
   if (options.mode === "original") return { text: raw, stages: [] };
-  const prepared = localRules(raw, options.mode);
+  const prepared = respaceGluedApostrophes(localRules(raw, options.mode));
   const stages = ["rules"];
   if (!trimSpace(prepared)) return { text: prepared, stages };
   check(options.signal);

@@ -54,6 +54,17 @@ export function stagingConfig(template, settings) {
     throw Error(
       "Configure the staging origin, account, database and public AuthKit client ID in a private overlay.",
     );
+  if (
+    settings.authOrigin !== undefined &&
+    settings.authOrigin !== "https://auth.sonojot.com"
+  )
+    throw Error("Only the approved staging authentication domain is allowed.");
+  if (settings.authOrigin) {
+    c.routes = [
+      { pattern: new URL(settings.authOrigin).hostname, custom_domain: true },
+    ];
+    c.vars.AUTH_ORIGIN = settings.authOrigin;
+  }
   root.account_id = settings.accountId;
   c.vars.PUBLIC_ORIGIN = settings.origin;
   c.vars.WORKOS_CLIENT_ID = settings.workosClientId;

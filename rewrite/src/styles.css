@@ -247,11 +247,11 @@ textarea {
   stroke-linejoin: round;
 }
 .window-button:hover:not(:disabled) {
-  background: var(--dye);
+  background-color: var(--dye);
   color: var(--dye-ink);
 }
 .window-close:hover:not(:disabled) {
-  background: var(--danger);
+  background-color: var(--danger);
   color: var(--card);
 }
 .brand {
@@ -1362,7 +1362,11 @@ kbd {
   top: 10px;
   left: 15px;
   z-index: 20;
-  background: var(--card);
+  background-color: var(--card);
+  background-image: var(--paper-image);
+  background-size: var(--paper-tile-size);
+  background-blend-mode: multiply;
+  box-shadow: var(--raise-sm);
   color: var(--ink);
   padding: 8px 15px;
   border-radius: 6px;
@@ -1979,19 +1983,58 @@ kbd {
     gap: 9px;
   }
   select option:checked {
-    background: var(--dye);
+    background-color: var(--dye);
+    background-image: var(--paper-image);
+    background-size: var(--paper-tile-size);
+    background-blend-mode: multiply;
     color: var(--dye-ink);
-  }
-  select option:hover,
-  select option:focus-visible {
-    outline: 1px solid var(--dye);
-    outline-offset: -2px;
-    background: color-mix(in srgb, var(--dye) 13%, var(--card));
-    color: var(--ink);
+    box-shadow: var(--raise-sm);
   }
   select option:disabled {
     opacity: 0.5;
   }
+}
+
+/* Raised selected paper. A hovered or keyboard-highlighted choice in a list
+   (dropdown options, picker options) is the card's own stock, embossed; never
+   a flat light fill. Keyboard focus adds the focus ring around the whole row. */
+.picker-options button:is(:hover, :focus-visible),
+select option:is(:hover, :focus-visible):not(:checked) {
+  background-color: var(--card);
+  background-image: var(--paper-image);
+  background-size: var(--paper-tile-size);
+  background-position: top left;
+  background-blend-mode: multiply;
+  box-shadow: var(--raise-sm);
+  color: var(--ink);
+}
+.picker-options button:focus-visible,
+select option:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* A shortcut is shown in a pressed well (Shortcut and mic, Doubtful words).
+   A well is a recess in the card: the card's own grain shows through its
+   translucent tint, so it is not .stock (in Slate the cream stock tile under
+   the tint read as a light patch). */
+.key-well {
+  min-width: 230px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: var(--press);
+  background-color: var(--well);
+  color: var(--ink);
+  padding: 8px 13px;
+  min-height: 44px;
+}
+.key-well.capturing {
+  outline: 2px solid var(--dye);
+  outline-offset: 3px;
 }
 
 .theme-swatch[data-swatch="slate"] {

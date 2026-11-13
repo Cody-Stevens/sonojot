@@ -1332,6 +1332,7 @@ struct CudaApi {
     destroy_vad: DestroyVad,
     vad_accept: VadAccept,
     vad_empty: VadEmpty,
+    vad_detected: VadEmpty,
     vad_pop: VadPop,
     vad_front: VadFront,
     destroy_segment: DestroySegment,
@@ -1389,6 +1390,7 @@ impl CudaApi {
                 destroy_vad: symbol!("SherpaOnnxDestroyVoiceActivityDetector", DestroyVad),
                 vad_accept: symbol!("SherpaOnnxVoiceActivityDetectorAcceptWaveform", VadAccept),
                 vad_empty: symbol!("SherpaOnnxVoiceActivityDetectorEmpty", VadEmpty),
+                vad_detected: symbol!("SherpaOnnxVoiceActivityDetectorDetected", VadEmpty),
                 vad_pop: symbol!("SherpaOnnxVoiceActivityDetectorPop", VadPop),
                 vad_front: symbol!("SherpaOnnxVoiceActivityDetectorFront", VadFront),
                 destroy_segment: symbol!("SherpaOnnxDestroySpeechSegment", DestroySegment),
@@ -1528,6 +1530,9 @@ impl Engine {
             vad_samples_since_segment: 0,
             vad_samples: 0,
             vad_origin: 0,
+            level: None,
+            originals: None,
+            pieces: None,
             completeness: RecognitionCompleteness::Complete,
             warnings: Vec::new(),
             #[cfg(feature = "fidelity-eval")]
@@ -1573,7 +1578,7 @@ impl Engine {
 
     fn transcribe_segment(&self, samples: &[f32], mut evidence: Option<&mut serde_json::Value>) -> Result<crate::asr::RecognitionResult, String> {
         if samples.is_empty() {
-            return Ok(crate::asr::RecognitionResult {
+            return Ok(crate::asr::RecognitionResult { raw_words: Vec::new(),
                 word_confidence: Vec::new(),
                 original_text: None,
                 segments: Vec::new(),
@@ -1586,7 +1591,7 @@ impl Engine {
         if (self.model_id == QWEN_FP16_CUDA_ID || self.model_id == gpu_catalog_extra::WHISPER_TURBO_FP32_CUDA_ID)
             && !crate::sherpa::confirm_speech(samples, evidence.as_deref_mut())?
         {
-            return Ok(crate::asr::RecognitionResult { word_confidence: Vec::new(), original_text: None, segments: Vec::new(), text: String::new(),
+            return Ok(crate::asr::RecognitionResult { raw_words: Vec::new(), word_confidence: Vec::new(), original_text: None, segments: Vec::new(), text: String::new(),
                 completeness: RecognitionCompleteness::Complete, warnings: Vec::new() });
         }
         if self.model_id == QWEN_FP16_CUDA_ID {
@@ -1598,7 +1603,7 @@ impl Engine {
                 if let Some(evidence) = evidence {
                     *evidence = serde_json::json!({"native_text": &text});
                 }
-                Ok(crate::asr::RecognitionResult {
+                Ok(crate::asr::RecognitionResult { raw_words: Vec::new(),
                     word_confidence: Vec::new(),
                     original_text: None,
                     segments: Vec::new(),
@@ -1607,7 +1612,7 @@ impl Engine {
                     warnings: Vec::new(),
                 })
             }
-            Err(error) => Ok(crate::asr::RecognitionResult {
+            Err(error) => Ok(crate::asr::RecognitionResult { raw_words: Vec::new(),
                 word_confidence: Vec::new(),
                 original_text: None,
                 segments: Vec::new(),
@@ -1649,6 +1654,9 @@ pub struct Stream<'a> {
     vad_samples_since_segment: usize,
     vad_samples: u64,
     vad_origin: u64,
+    level: Option<crate::detector_level::DetectorLevel>,
+    originals: Option<crate::detector_level::OriginalRing>,
+    pieces: Option<crate::meeting_pieces::Pieces>,
     completeness: RecognitionCompleteness,
     warnings: Vec<String>,
     #[cfg(feature = "fidelity-eval")]
@@ -1656,6 +1664,21 @@ pub struct Stream<'a> {
 }
 
 impl Stream<'_> {
+    /// See `sherpa::Stream::assist_quiet_speech`.
+    pub(crate) fn assist_quiet_speech(&mut self) {
+        if self.vad_samples != 0 { return; }
+        if crate::detector_level::assist_enabled() {
+            self.level = Some(crate::detector_level::DetectorLevel::default());
+            if !crate::detector_level::decode_levelled() {
+                self.originals = Some(crate::detector_level::OriginalRing::default());
+            }
+        }
+        if let Some(seconds) = crate::meeting_pieces::piece_seconds() {
+            self.pieces = Some(crate::meeting_pieces::Pieces::new(seconds));
+            self.originals = None;
+        }
+    }
+
     /// Normalized f32 samples from the capture owner at any input rate.
     pub fn add(&mut self, samples: &[f32], sample_rate: u32) -> Result<(), String> {
         if sample_rate == 0 || sample_rate > 384_000 {
@@ -1689,7 +1712,7 @@ impl Stream<'_> {
 
     pub fn finish_recognition(mut self) -> Result<crate::asr::RecognitionResult, String> {
         self.drain_vad(true)?;
-        Ok(crate::asr::RecognitionResult {
+        Ok(crate::asr::RecognitionResult { raw_words: Vec::new(),
             word_confidence: Vec::new(),
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
@@ -1717,7 +1740,7 @@ impl Stream<'_> {
             "initialized_provider": "cuda",
             "observed_execution": null,
         });
-        let recognition = crate::asr::RecognitionResult {
+        let recognition = crate::asr::RecognitionResult { raw_words: Vec::new(),
             word_confidence: Vec::new(),
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
@@ -1732,6 +1755,10 @@ impl Stream<'_> {
         let window = 512usize;
         while self.pending.len() >= window {
             let chunk: Vec<f32> = self.pending.drain(..window).collect();
+            if let Some(originals) = &mut self.originals { originals.push(&chunk); }
+            let original = self.pieces.is_some().then(|| chunk.clone());
+            let chunk = match &mut self.level { Some(level) => level.process(&chunk), None => chunk };
+            if let (Some(pieces), Some(original)) = (&mut self.pieces, original) { pieces.push(&original, &chunk); }
             unsafe {
                 (self.engine.api.vad_accept)(self.engine.vad, chunk.as_ptr(), chunk.len() as i32);
             }
@@ -1745,10 +1772,18 @@ impl Stream<'_> {
                 self.vad_origin = self.vad_samples;
                 self.vad_samples_since_segment = 0;
             }
+            self.decode_pieces(false)?;
         }
         if flush {
             if !self.pending.is_empty() {
+                let real = self.pending.len();
                 self.pending.resize(window, 0.0);
+                if let Some(originals) = &mut self.originals { originals.push(&self.pending); }
+                let original = self.pieces.is_some().then(|| self.pending[..real].to_vec());
+                if let Some(level) = &mut self.level { self.pending = level.process(&self.pending); }
+                if let (Some(pieces), Some(original)) = (&mut self.pieces, original) {
+                    pieces.push(&original, &self.pending[..real]);
+                }
                 unsafe {
                     (self.engine.api.vad_accept)(
                         self.engine.vad,
@@ -1760,6 +1795,17 @@ impl Stream<'_> {
             }
             unsafe { (self.engine.api.vad_flush)(self.engine.vad) };
             self.collect_segments()?;
+            self.decode_pieces(true)?;
+        }
+        Ok(())
+    }
+
+    /// Pause-cut pieces (see meeting_pieces): decode everything between cuts.
+    fn decode_pieces(&mut self, finish: bool) -> Result<(), String> {
+        let speaking = unsafe { (self.engine.api.vad_detected)(self.engine.vad) } != 0;
+        let Some(pieces) = &mut self.pieces else { return Ok(()); };
+        for piece in pieces.poll(speaking, finish) {
+            self.decode_section(&piece.audio, piece.start as f32 / 16_000.0)?;
         }
         Ok(())
     }
@@ -1775,12 +1821,30 @@ impl Stream<'_> {
             let audio = if samples.is_null() || count <= 0 {
                 Vec::new()
             } else {
-                unsafe { std::slice::from_raw_parts(samples, count as usize) }.to_vec()
+                let from = self.vad_origin + start.max(0) as u64;
+                self.originals.as_ref().and_then(|o| o.get(from, count as usize)).unwrap_or_else(||
+                    unsafe { std::slice::from_raw_parts(samples, count as usize) }.to_vec())
             };
             unsafe {
                 (self.engine.api.destroy_segment)(segment);
                 (self.engine.api.vad_pop)(self.engine.vad);
             }
+            if let Some(pieces) = &mut self.pieces {
+                let from = self.vad_origin + start.max(0) as u64;
+                pieces.speech(from..from + count.max(0) as u64);
+                self.vad_samples_since_segment = 0;
+                continue;
+            }
+            self.decode_section(&audio, start_seconds)?;
+            self.vad_samples_since_segment = 0;
+        }
+        Ok(())
+    }
+
+    fn decode_section(&mut self, audio: &[f32], start_seconds: f32) -> Result<(), String> {
+        let count = audio.len() as i32;
+        {
+            let audio = audio.to_vec();
             #[cfg(feature = "fidelity-eval")]
             let mut evidence = serde_json::Value::Null;
             #[cfg(feature = "fidelity-eval")]

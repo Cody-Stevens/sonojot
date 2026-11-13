@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exchange } from "../src/authkit";
+import { exchange, sendCode, verifyCode } from "../src/authkit";
 const env = {
   WORKOS_CLIENT_ID: "client_test",
   WORKOS_API_KEY: "synthetic-api-key",
@@ -102,4 +102,89 @@ describe("WorkOS adapter", () => {
       ).rejects.toMatchObject({ status: 401 });
     },
   );
+});
+
+describe("headless identity adapter", () => {
+  it("returns a server-only code and threads IP, browser and Radar metadata", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const m = mock();
+    const fetcher: typeof fetch = async (input, init) => {
+      if (init?.body) calls.push(JSON.parse(String(init.body)));
+      if (String(input).endsWith("/magic_auth"))
+        return Response.json({
+          object: "magic_auth",
+          id: "magic_fixture",
+          user_id: user.id,
+          email: user.email,
+          code: "123456",
+          expires_at: new Date(Date.now() + 300000).toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          radar_auth_attempt_id: "radar_fixture",
+        });
+      return m.fetcher(input, init);
+    };
+    const signals = {
+      ipAddress: "203.0.113.10",
+      userAgent: "Synthetic browser",
+    };
+    const sent = await sendCode(env, user.email, signals, fetcher);
+    expect(sent).toEqual({ code: "123456", radarAttempt: "radar_fixture" });
+    const identity = await verifyCode(
+      env,
+      user.email,
+      "123456",
+      sent.radarAttempt,
+      signals,
+      fetcher,
+    );
+    expect(identity.subject).toBe(user.id);
+    expect(calls[0]).toMatchObject({
+      email: user.email,
+      ip_address: signals.ipAddress,
+      user_agent: signals.userAgent,
+    });
+    expect(calls[1]).toMatchObject({
+      grant_type: "urn:workos:oauth:grant-type:magic-auth:code",
+      radar_auth_attempt_id: "radar_fixture",
+      ip_address: signals.ipAddress,
+    });
+    expect(JSON.stringify(identity)).not.toMatch(
+      /123456|refresh_token|access_token/,
+    );
+  });
+  it("fails closed on provider challenges, errors and unverified identities without revealing details", async () => {
+    for (const code of [
+      "radar_blocked",
+      "radar_challenge",
+      "mfa_challenge",
+      "sso_required",
+    ]) {
+      const fetcher: typeof fetch = async () =>
+        Response.json(
+          {
+            code,
+            pending_authentication_token: "must-stay-secret",
+            message: "private-provider-detail",
+          },
+          { status: 403 },
+        );
+      await expect(
+        verifyCode(env, user.email, "123456", null, {}, fetcher),
+      ).rejects.toMatchObject({
+        status: 401,
+        message: "This code could not be verified. Start again.",
+      });
+    }
+    await expect(
+      verifyCode(
+        env,
+        user.email,
+        "123456",
+        null,
+        {},
+        mock({ verified: false }).fetcher,
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+  });
 });

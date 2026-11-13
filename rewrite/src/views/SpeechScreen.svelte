@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import RecommendedSetup from "../components/quiet/RecommendedSetup.svelte";
-  import SpeechChart from "../components/quiet/SpeechChart.svelte";
+  import CompareModels from "../components/quiet/CompareModels.svelte";
+  import InfoTip from "../components/quiet/InfoTip.svelte";
   import Sheet from "../components/quiet/Sheet.svelte";
   import Toggle from "../components/Toggle.svelte";
   import ModelDownload from "../components/ModelDownload.svelte";
@@ -14,15 +15,23 @@
   import {
     speechChoices,
     speechScore,
-    speechMeasurement,
     waitText,
     memoryObservation,
-    secondaryMemory,
-    gpuModel,
-    SONOJOT_PARAKEET,
+    memoryText,
+    speechLine,
+    speechDetail,
+    speechSources,
+    languageText,
+    speechViews,
+    viewName,
+    viewScore,
+    viewTestShort,
+    otherRunScore,
+    meetingPathScore,
   } from "../lib/speech-chart";
   import {
     checking,
+    discoverable,
     installed,
     installing,
     modelUnavailableReason,
@@ -45,25 +54,26 @@
   let { meeting = false }: { meeting?: boolean } = $props();
   let all = $state(false);
   let force = $state<ModelEntry | null>(null);
-  let details = $state(false);
+  let compare = $state(false);
   let reset = $state(false);
   let diskDismissed = $state("");
   const settings = $derived(app.snapshot.settings);
   const models = $derived(library.data?.models ?? []);
   const hardware = $derived(profiles.hardware);
   const mac = $derived(hardware?.hardware.appleSilicon ?? false);
+  // Shown in Compare models, where it explains which models can run here.
   const hardwareText = $derived(
     hardware
       ? [
           hardware.hardware.appleSilicon
             ? "Apple Silicon"
-            : hardware.hardware.gpuName || "CPU speech",
+            : hardware.hardware.gpuName || "no supported graphics card",
           !mac && hardware.hardware.totalVramBytes
             ? `${(hardware.hardware.totalVramBytes / 1e9).toFixed(1)} GB graphics memory`
             : "",
           hardware.hardware.totalRamBytes
             ? `${(hardware.hardware.totalRamBytes / 1e9).toFixed(1)} GB ${mac ? "unified memory" : "RAM"}`
-            : "Memory unknown",
+            : "memory unknown",
         ]
           .filter(Boolean)
           .join(" · ")
@@ -102,13 +112,15 @@
   const dictation = $derived(
     models.find((model) => model.id === settings.asrModel),
   );
-  const chartModels = $derived(
-    meeting
-      ? [dictation, granite].filter(
-          (model): model is ModelEntry =>
-            !!model && !modelUnavailableReason(model),
-        )
-      : rows,
+  // Every speech model this computer can run, for Compare models.
+  const runnable = $derived(
+    models.filter(
+      (model) =>
+        model.kind === "asr" &&
+        model.roles.includes("asr") &&
+        discoverable(model) &&
+        !modelUnavailableReason(model),
+    ),
   );
   const helper = $derived(
     models.find(
@@ -176,33 +188,29 @@
       force = model;
     else void speechChoice.use(model, meeting ? "meeting" : "dictation");
   }
-  function caption(model: ModelEntry) {
-    // Before the recommended captions, which describe Qwen and stock Parakeet.
-    if (model.id === SONOJOT_PARAKEET)
-      return model.id === recommended
-        ? "English only · tuned by SonoJot for dictation and meetings · faster and smaller than Qwen."
-        : "English only · tuned by SonoJot for dictation · leaves the GPU free.";
-    // Qwen is the multilingual main choice when SonoJot Parakeet is recommended.
-    if (
-      model.id !== recommended &&
-      model.id === hardware?.frontier.otherLanguages
-    )
-      return mac
-        ? "Multilingual · about the same measured word errors as Q8, with less memory."
-        : gpuModel(model)
-          ? "Multilingual · fewest measured TED-12 word errors among the main choices · uses the graphics card."
-          : "Multilingual · fewest measured TED-12 word errors among the main choices · waits longer after you stop.";
-    if (model.id === recommended)
-      return mac
-        ? "About the same measured word errors as Q8, with less memory and a shorter wait."
-        : gpuModel(model)
-          ? "Fewest measured TED-12 word errors among the recommended choices."
-          : "Quick English transcription; leaves the graphics card free.";
-    if (model.id.startsWith("parakeet"))
-      return "English only · leaves the GPU free.";
-    if (model.id.startsWith("moonshine"))
-      return "Smaller memory footprint; more measured word errors.";
-    return `Wait after speech: ${waitText(model.id)}.`;
+  function status(model: ModelEntry): string {
+    return checking(model)
+      ? "Checking…"
+      : installing(model)
+        ? "Downloading"
+        : installed(model)
+          ? model.id === current
+            ? "✓ In use"
+            : "Use"
+          : model.installable
+            ? `↓ ${formatBytes(model.diskBytes)}`
+            : "Unavailable";
+  }
+  function errorsText(model: ModelEntry, meetingScore: boolean): string {
+    const score = speechScore(model.id, mac, meetingScore);
+    if (!score) return "Not measured on this kind of computer";
+    return `${score.value} per 100 words on ${
+      meetingScore
+        ? "AMI meeting room recordings"
+        : mac
+          ? "a TED holdout through the Mac app"
+          : "12 TED talks"
+    }`;
   }
   async function source(value: "both" | "microphone" | "system") {
     if (locked) return;
@@ -215,10 +223,48 @@
   }
 </script>
 
+{#snippet details(model: ModelEntry, meetingScore: boolean)}
+  <p>{speechDetail(model)}</p>
+  <dl>
+    <dt>Languages</dt>
+    <dd>{languageText(model)}</dd>
+    {#if meetingScore}<dt>Word errors</dt>
+      <dd>{errorsText(model, true)}</dd>{:else}{#each speechViews(mac) as view}{@const score =
+          viewScore(model.id, mac, view)}{@const other = otherRunScore(
+          model.id,
+          mac,
+          view,
+        )}<dt>{viewName(view)}</dt>
+        <dd>
+          {score
+            ? `${score.value} per 100 words (${viewTestShort(view, mac)})`
+            : other
+              ? `${other.value} per 100 words (12 TED talks, another run)`
+              : "Not measured"}
+        </dd>{/each}{/if}
+    {#if meetingPathScore(model.id, mac)}<dt>Meetings</dt>
+      <dd>
+        {meetingPathScore(model.id, mac)?.value} per 100 words (AMI, NOTSOFAR, DiPCo,
+        pooled)
+      </dd>{/if}
+    <dt>Wait</dt>
+    <dd>
+      {waitText(model.id, mac) === "not measured"
+        ? "Not measured on this kind of computer"
+        : `${waitText(model.id, mac)} after you stop`}
+    </dd>
+    <dt>Memory</dt>
+    <dd>{memoryText(model)}</dd>
+    <dt>Download</dt>
+    <dd>{formatBytes(model.diskBytes)}</dd>
+  </dl>
+  {#if speechSources(model.id, mac).length}<small
+      >Source: {speechSources(model.id, mac).join(" · ")}</small
+    >{/if}
+{/snippet}
+
 <div class="speech-screen">
-  {#if hardware}<p class="hardware" data-text-surface="flat">
-      {hardwareText}
-    </p>{:else}<p>{profiles.hardwareError || "Reading this computer…"}</p>
+  {#if !hardware}<p>{profiles.hardwareError || "Reading this computer…"}</p>
     <button
       class="button small"
       disabled={profiles.checking}
@@ -250,54 +296,37 @@
           >{/if}
       </p>{/if}
   {/if}
-  <div class="subheading">
-    <span
-      >{meeting
-        ? "Tested on AMI room microphones"
-        : mac
-          ? "Tested on 12 TED talks · through the Mac app"
-          : "Tested on 12 TED talks"}</span
-    >{#if !meeting}<button
-        class="text-action"
-        aria-expanded={all}
-        onclick={() => (all = !all)}
-        >{all ? "Best here only" : "All models"}</button
-      >{/if}
-  </div>
-  <div class="speech-layout">
-    <div>
-      <SpeechChart
-        models={chartModels}
-        {frontier}
-        recommended={meeting ? settings.asrModel : recommended}
-        selected={current}
-        {meeting}
-      /><button
-        class="text-action measurements"
-        onclick={() => (details = true)}>Measurements and sources</button
-      >
-    </div>
-    <div class="model-list" aria-label="Speech models">
-      {#if meeting}
+  <div class="model-list" role="group" aria-label="Speech models">
+    {#if meeting}
+      {@const same =
+        current === settings.asrModel && !settings.meetingAsrModel}
+      <div class="stock paper-card model-card" class:chosen={same}>
         <button
-          class="stock paper-card model-card"
-          class:chosen={current === settings.asrModel &&
-            !settings.meetingAsrModel}
-          aria-pressed={current === settings.asrModel &&
-            !settings.meetingAsrModel}
+          class="card-choose"
+          aria-pressed={same}
           disabled={locked}
           onclick={() => speechChoice.sameAsDictation()}
           ><span class="choice-dot"></span><span class="model-copy"
-            ><strong data-text-surface="emboss">Same as dictation</strong><small
-              class="stamp">Recommended</small
-            ><small
-              >{dictation?.name ?? settings.asrModel} · nothing extra to download</small
-            ></span
-          ><span>{current === settings.asrModel ? "✓" : "Use"}</span></button
-        >
+            ><span class="title-line"
+              ><strong data-text-surface="emboss">Same as dictation</strong
+              ><small class="stamp">Recommended</small></span
+            ><small>{dictation?.name ?? settings.asrModel}</small></span
+          ><span class="cost">{same ? "✓ In use" : "Use"}</span></button
+        >{#if dictation}<InfoTip label="About Same as dictation"
+            ><p>
+              Meetings use your dictation model, so there is nothing extra to
+              download.
+            </p>
+            {@render details(dictation, true)}</InfoTip
+          >{/if}
+      </div>
+      <div
+        class="stock paper-card model-card"
+        class:chosen={current === GRANITE_SPEECH_MODEL}
+        data-model-id={GRANITE_SPEECH_MODEL}
+      >
         <button
-          class="stock paper-card model-card"
-          class:chosen={current === GRANITE_SPEECH_MODEL}
+          class="card-choose"
           aria-pressed={current === GRANITE_SPEECH_MODEL}
           disabled={locked ||
             !granite ||
@@ -305,161 +334,164 @@
             checking(granite)}
           onclick={() => granite && choose(granite)}
           ><span class="choice-dot"></span><span class="model-copy"
-            ><strong data-text-surface="emboss">Granite Speech 4.1</strong
-            ><small class="stamp">Meetings only</small><small
+            ><span class="title-line"
+              ><strong data-text-surface="emboss">Granite Speech 4.1</strong
+              ><small class="stamp">Meetings only</small></span
+            ><small
               >{!granite
                 ? "Not available on this computer"
                 : modelUnavailableReason(granite) ||
-                  "Fewer errors on AMI room microphones; personal speech may favor Qwen."}</small
-            >{#if granite}<small>{secondaryMemory(granite)}</small>{/if}
+                  "Fewer errors on meeting room microphones."}</small
             ></span
           ><span class="cost"
             >{granite && !modelUnavailableReason(granite)
-              ? installed(granite)
-                ? current === granite.id
-                  ? "✓ In use"
-                  : "Use"
-                : `↓ ${formatBytes(granite.diskBytes)}`
+              ? status(granite)
               : "Unavailable"}</span
           ></button
-        >
+        >{#if granite}<InfoTip label="About Granite Speech 4.1"
+            ><p>
+              Measured on AMI meeting room recordings. Your own voice may still
+              favor Qwen.
+            </p>
+            {@render details(granite, true)}</InfoTip
+          >{/if}
+      </div>
+      <div
+        class="stock paper-card model-card"
+        class:chosen={current === "openrouter"}
+      >
         <button
-          class="stock paper-card model-card"
-          class:chosen={current === "openrouter"}
+          class="card-choose"
           aria-pressed={current === "openrouter"}
           disabled={locked}
           onclick={() => openRouter.open("meeting")}
           ><span class="choice-dot"></span><span class="model-copy"
             ><strong data-text-surface="emboss">Online · OpenRouter</strong
-            ><small
-              >{ai.data?.speechModel || "Choose an online speech model"}</small
-            ><small
-              >Audio leaves this computer · errors and wait not measured</small
+            ><small>{ai.data?.speechModel || "Audio leaves this computer."}</small
             ></span
-          ><span>›</span></button
+          ><span class="cost" aria-hidden="true">›</span></button
+        ><InfoTip label="About online speech"
+          ><p>
+            Sends meeting audio to the online model you choose through
+            OpenRouter. Word errors and wait are not measured.
+          </p></InfoTip
         >
-      {:else}
-        {#each rows as model (model.id)}{@const edge =
-            frontier.includes(model.id) ||
-            model.id === hardware?.frontier.otherLanguages}
+      </div>
+    {:else}
+      {#each rows as model (model.id)}{@const edge =
+          frontier.includes(model.id) ||
+          model.id === hardware?.frontier.otherLanguages}
+        <div
+          class="stock paper-card model-card"
+          class:chosen={model.id === current}
+          class:dimmed={!edge}
+          data-model-id={model.id}
+        >
           <button
-            class="stock paper-card model-card"
-            class:chosen={model.id === current}
-            class:dimmed={!edge}
+            class="card-choose"
             aria-pressed={model.id === current}
             disabled={locked ||
               !!modelUnavailableReason(model) ||
               checking(model)}
             onclick={() => choose(model)}
-            data-model-id={model.id}
           >
             <span class="choice-dot"></span><span class="model-copy"
-              ><strong data-text-surface="emboss">{model.name}</strong><span
-                class="tags"
+              ><span class="title-line"
+                ><strong data-text-surface="emboss">{model.name}</strong
                 >{#if model.id === recommended}<small class="stamp"
                     >Recommended</small
-                  >{/if}{#if model.id === hardware?.frontier.otherLanguages && !frontier.includes(model.id)}<small
-                    class="stamp">Other languages</small
                   >{/if}{#if current === model.id && current !== recommended}<small
                     class="stamp custom">Custom</small
                   >{/if}{#if !edge}<small class="stamp custom"
                     >Not recommended here</small
                   >{/if}</span
-              ><small>{modelUnavailableReason(model) || caption(model)}</small
-              ><small>{secondaryMemory(model)}</small
-              >{#if !speechScore(model.id, mac, false)}<small
-                  >Word errors not measured</small
-                >{/if}{#if speechMeasurement(model.id)?.ram?.measuredPeak == null}<small
-                  >{memoryObservation(model, "ram")}</small
-                >{/if}<small class="sr-only">
-                {speechScore(model.id, mac, false)?.value ?? "Unmeasured"} word errors;
-                wait {waitText(model.id)}
-              </small></span
-            ><span class="cost"
-              >{checking(model)
-                ? "Checking…"
-                : installing(model)
-                  ? "Downloading"
-                  : installed(model)
-                    ? model.id === current
-                      ? "✓ In use"
-                      : "Use"
-                    : model.installable
-                      ? `↓ ${formatBytes(model.diskBytes)}`
-                      : "Unavailable"}</span
-            >
+              ><small
+                >{modelUnavailableReason(model) ||
+                  speechLine(model, { mac })}</small
+              ></span
+            ><span class="cost">{status(model)}</span>
           </button>
-        {/each}
-        {#if current !== recommended && recommended}<button
-            class="text-action back-recommended"
-            disabled={locked}
-            onclick={() => {
-              const model = models.find((m) => m.id === recommended);
-              if (model) void speechChoice.use(model, "dictation");
-            }}
-            >Back to {models.find((m) => m.id === recommended)?.name ??
-              "recommended speech"}</button
-          >{/if}
-      {/if}
-      {#if download && (installing(download) || checking(download))}<p
-          class="field-help"
-        >
-          {speechChoice.pending === download.id &&
-          speechChoice.pendingRole !== "helper"
-            ? "Downloads here; switches when ready."
-            : "Downloading model files."}
-        </p>
-        <ModelDownload
-          model={download}
-          pending={app.busy("model-cancel")}
-          retryDisabled={locked}
-          oncancel={(model) => speechChoice.cancel(model.id)}
-          onretry={(model) =>
-            speechChoice.use(model, meeting ? "meeting" : "dictation")}
-        />{/if}
-      {#if speechChoice.failure}<p role="alert">
-          {speechChoice.failure.message}
-        </p>
-        <button
-          class="button small"
+          <InfoTip label="About {model.name}"
+            >{@render details(model, false)}</InfoTip
+          >
+        </div>
+      {/each}
+    {/if}
+  </div>
+  {#if !meeting}<div class="list-actions">
+      <button class="button small" onclick={() => (compare = true)}
+        >Compare models</button
+      ><button
+        class="text-action"
+        aria-expanded={all}
+        onclick={() => (all = !all)}
+        >{all ? "Best here only" : "All models"}</button
+      >{#if current !== recommended && recommended}<button
+          class="text-action back-recommended"
           disabled={locked}
           onclick={() => {
-            const m = models.find(
-              (model) => model.id === speechChoice.failure?.id,
-            );
-            if (m && speechChoice.failure)
-              void speechChoice.use(m, speechChoice.failure.role);
-          }}>Retry</button
+            const model = models.find((m) => m.id === recommended);
+            if (model) void speechChoice.use(model, "dictation");
+          }}
+          >Back to {models.find((m) => m.id === recommended)?.name ??
+            "recommended speech"}</button
         >{/if}
-      <div class="stock paper-card helper-row">
-        <span
-          >{meeting ? "Speaker names" : "Live preview"}<small
-            >{meeting
-              ? "Labels voices in the transcript"
-              : LIVE_PREVIEW_SUMMARY}</small
-          ></span
-        >{#if helper && installed(helper)}<Toggle
-            label={meeting ? "Speaker names" : "Live preview"}
-            checked={meeting
-              ? settings.meetingSpeakerLabels
-              : settings.livePreview}
-            disabled={locked}
-            onchange={(value) =>
-              app.saveSettings(
-                meeting
-                  ? { meetingSpeakerLabels: value }
-                  : { livePreview: value },
-              )}
-          />{:else if helper && !modelUnavailableReason(helper)}<button
-            class="button small"
-            disabled={locked || checking(helper)}
-            onclick={() => speechChoice.use(helper, "helper")}
-            >{checking(helper)
-              ? "Checking…"
-              : `Install · ${formatBytes(helper.diskBytes)}`}</button
-          >{:else}<small>Not available on this computer</small>{/if}
-      </div>
-    </div>
+    </div>{/if}
+  {#if download && (installing(download) || checking(download))}<p
+      class="field-help"
+    >
+      {speechChoice.pending === download.id &&
+      speechChoice.pendingRole !== "helper"
+        ? "Downloads here; switches when ready."
+        : "Downloading model files."}
+    </p>
+    <ModelDownload
+      model={download}
+      pending={app.busy("model-cancel")}
+      retryDisabled={locked}
+      oncancel={(model) => speechChoice.cancel(model.id)}
+      onretry={(model) =>
+        speechChoice.use(model, meeting ? "meeting" : "dictation")}
+    />{/if}
+  {#if speechChoice.failure}<p role="alert">
+      {speechChoice.failure.message}
+    </p>
+    <button
+      class="button small"
+      disabled={locked}
+      onclick={() => {
+        const m = models.find((model) => model.id === speechChoice.failure?.id);
+        if (m && speechChoice.failure)
+          void speechChoice.use(m, speechChoice.failure.role);
+      }}>Retry</button
+    >{/if}
+  <div class="stock paper-card helper-row">
+    <span class="helper-label"
+      >{meeting ? "Speaker names" : "Live preview"}<InfoTip
+        label={meeting ? "About Speaker names" : "About Live preview"}
+        ><p>
+          {meeting ? "Labels voices in the transcript." : LIVE_PREVIEW_SUMMARY}
+        </p>
+        {#if helper}<p>
+            Uses {helper.name}, a {formatBytes(helper.diskBytes)} download.
+          </p>{/if}</InfoTip
+      ></span
+    >{#if helper && installed(helper)}<Toggle
+        label={meeting ? "Speaker names" : "Live preview"}
+        checked={meeting ? settings.meetingSpeakerLabels : settings.livePreview}
+        disabled={locked}
+        onchange={(value) =>
+          app.saveSettings(
+            meeting ? { meetingSpeakerLabels: value } : { livePreview: value },
+          )}
+      />{:else if helper && !modelUnavailableReason(helper)}<button
+        class="button small"
+        disabled={locked || checking(helper)}
+        onclick={() => speechChoice.use(helper, "helper")}
+        >{checking(helper)
+          ? "Checking…"
+          : `Install · ${formatBytes(helper.diskBytes)}`}</button
+      >{:else}<small>Not available on this computer</small>{/if}
   </div>
   {#if changes.length}<div class="reset-row">
       <span
@@ -492,7 +524,7 @@
     </p>
     <p>{memoryObservation(force, "ram")}</p>
     <p>{memoryObservation(force, "vram")}</p>
-    <p>Wait after speech: {waitText(force.id)}.</p>
+    <p>Wait after speech: {waitText(force.id, mac)}.</p>
     <div class="sheet-actions">
       <button class="button" onclick={() => (force = null)}>Cancel</button
       ><button
@@ -530,73 +562,19 @@
     </div></Sheet
   >{/if}
 {#if reset}<RecommendedSetup onclose={() => (reset = false)} />{/if}
-{#if details}<Sheet
-    title="Measurements and sources"
-    onclose={() => (details = false)}
-    ><p>
-      {meeting
-        ? "AMI single distant microphone recordings"
-        : mac
-          ? "TED-12 through the Mac app on an M4, normalized English word errors"
-          : "TED-12, normalized English word errors"}. Scores apply to these
-      exact packages and test paths. Different corpora are not comparable.
-    </p>
-    <p>
-      GB here means 1,000,000,000 bytes. GPU models also need system RAM. Apple
-      Silicon has one shared pool. Planning ranges are estimates; dots use
-      measured peaks only.
-    </p>
-    {#each chartModels as model}<section class="measurement">
-        <strong data-text-surface="emboss">{model.name}</strong>
-        <p>
-          {speechScore(model.id, mac, meeting)?.value ??
-            "Not measured"}{speechScore(model.id, mac, meeting)
-            ? "% word errors"
-            : " word errors"} · wait {waitText(model.id)}
-        </p>
-        <p>{memoryObservation(model, "ram")} system RAM</p>
-        <p>{memoryObservation(model, "vram")} dedicated GPU memory</p>
-        <small
-          >{speechMeasurement(model.id)?.wait?.basis ??
-            "Wait after speech not measured"}</small
-        ><small
-          >{[
-            speechScore(model.id, mac, meeting)?.source,
-            speechMeasurement(model.id)?.ram?.source,
-            speechMeasurement(model.id)?.vram?.source,
-            speechMeasurement(model.id)?.wait?.source,
-          ]
-            .flat()
-            .filter(Boolean)
-            .filter((value, index, all) => all.indexOf(value) === index)
-            .join(" · ") || "No SonoJot measurement available"}</small
-        >
-      </section>{/each}</Sheet
-  >{/if}
+{#if compare}<CompareModels
+    models={runnable}
+    {mac}
+    {current}
+    {recommended}
+    {hardwareText}
+    onclose={() => (compare = false)}
+  />{/if}
 
 <style>
   .speech-screen {
-    max-width: 1020px;
+    max-width: 760px;
     margin: 0 auto;
-  }
-  .hardware {
-    font-size: 14px;
-    color: var(--soft-ink);
-    margin: 0 0 16px;
-  }
-  .subheading {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 14px;
-    color: var(--soft-ink);
-    margin-bottom: 12px;
-  }
-  .speech-layout {
-    display: grid;
-    grid-template-columns: minmax(350px, 1.15fr) minmax(300px, 1fr);
-    gap: 20px;
-    align-items: start;
   }
   .model-list {
     display: grid;
@@ -606,13 +584,10 @@
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 13px;
-    width: 100%;
-    min-height: 100px;
-    padding: 16px;
+    gap: 6px;
+    padding: 0 16px 0 0;
     border: 1px solid transparent;
     border-radius: 14px;
-    text-align: left;
     background-color: var(--card);
     color: var(--ink);
     box-shadow: var(--raise-sm);
@@ -627,34 +602,58 @@
   .model-card.dimmed {
     opacity: 0.65;
   }
+  .card-choose {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    min-height: 76px;
+    margin: 0;
+    padding: 14px 6px 14px 16px;
+    border: 0;
+    border-radius: 14px;
+    background: transparent;
+    box-shadow: none;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+  }
+  /* The focus ring goes round the whole card, info button included. */
+  .card-choose:focus-visible {
+    outline: none;
+  }
+  .model-card:has(.card-choose:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
+  }
   .model-copy {
     display: grid;
-    gap: 5px;
+    gap: 4px;
     flex: 1;
+    min-width: 0;
+  }
+  .title-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
   }
   .model-copy strong {
     font-size: 16px;
     font-weight: 600;
   }
   .model-copy small {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.4;
     color: var(--soft-ink);
   }
-  .tags {
-    display: flex;
-    gap: 5px;
-    flex-wrap: wrap;
-  }
-  .tags:empty {
-    display: none;
-  }
   .model-copy .stamp {
     display: inline-block;
-    justify-self: start;
     border: 1px solid var(--line);
     padding: 0 4px;
     font-size: 10px;
+    line-height: 1.5;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--dye);
@@ -663,29 +662,43 @@
     color: var(--soft-ink);
   }
   .cost {
-    font-size: 12px;
-    max-width: 72px;
+    font-size: 13px;
     flex-shrink: 0;
     text-align: right;
+    white-space: nowrap;
+  }
+  .list-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 22px;
+    margin: 16px 0 0;
+  }
+  .list-actions .text-action {
+    font-size: 14px;
   }
   .helper-row {
     border-radius: 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 18px 22px;
-    margin-top: 2px;
+    padding: 16px 20px;
+    margin-top: 22px;
     gap: 18px;
   }
-  .helper-row small {
-    display: block;
+  .helper-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .helper-row > small {
     color: var(--soft-ink);
     font-size: 13px;
-    margin-top: 3px;
   }
   .source-row {
     display: flex;
-    gap: 20px;
+    flex-wrap: wrap;
+    gap: 12px 20px;
     align-items: center;
     padding: 14px 20px;
     margin: 0 0 12px;
@@ -708,18 +721,11 @@
   .permission button {
     margin-left: 12px;
   }
-  .measurements {
-    margin-top: 8px;
-    font-size: 12px;
-  }
-  .back-recommended {
-    justify-self: start;
-    font-size: 14px;
-  }
   .reset-row {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 16px;
+    gap: 8px 16px;
     margin-top: 18px;
     color: var(--soft-ink);
     font-size: 12px;
@@ -732,25 +738,5 @@
   }
   .warning {
     color: var(--danger);
-  }
-  .measurement {
-    border-top: 1px solid var(--line);
-    padding: 16px 0;
-  }
-  .measurement p {
-    margin: 4px 0;
-    font-size: 14px;
-  }
-  .measurement small {
-    display: block;
-    overflow-wrap: anywhere;
-    color: var(--soft-ink);
-    font-size: 12px;
-    margin-top: 5px;
-  }
-  @media (max-width: 1000px) {
-    .speech-layout {
-      grid-template-columns: 1fr;
-    }
   }
 </style>

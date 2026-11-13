@@ -2,6 +2,7 @@
   import { app } from "../lib/app.svelte";
   import { library } from "../lib/model-library.svelte";
   import { profiles } from "../lib/setup-profiles.svelte";
+  import InfoTip from "./quiet/InfoTip.svelte";
   import {
     hardwareLine,
     plainProfileReason,
@@ -19,39 +20,32 @@
 </script>
 
 <div class="recommendation" data-text-surface="flat">
-  <div class="hardware-row">
-    <p aria-label="Computer hardware">
-      {profiles.hardware
-        ? hardwareLine(profiles.hardware.hardware)
-        : "Hardware details unavailable"}
-    </p>
-    <button
-      class="button quiet small"
-      disabled={!app.native || profiles.checking || profiles.busy}
-      onclick={() => profiles.check()}
-      >{profiles.checking ? "Checking…" : "Check again"}</button
+  <div class="reason">
+    {plainProfileReason(profile, speech)}<InfoTip label="About this computer"
+      ><p aria-label="Computer hardware">
+        {profiles.hardware
+          ? hardwareLine(profiles.hardware.hardware)
+          : "Hardware details unavailable"}
+      </p>
+      <p>
+        {memory.label.replace("Speech about", "Speech uses about")}. Notes loads
+        only when you use it.
+      </p>
+      <button
+        class="button quiet small"
+        disabled={!app.native || profiles.checking || profiles.busy}
+        onclick={() => profiles.check()}
+        >{profiles.checking ? "Checking…" : "Check again"}</button
+      ></InfoTip
     >
   </div>
-  <p>
-    {memory.label.replace("Speech about", "Speech uses about")}. Notes loads
-    only when you use it.
-  </p>
-  <p>{plainProfileReason(profile, speech)}</p>
 </div>
 
 <style>
-  .hardware-row {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 9px 18px;
-  }
-  p {
+  p,
+  .reason {
     margin: 9px 0;
     overflow-wrap: anywhere;
-  }
-  .hardware-row p {
-    flex: 1 1 280px;
   }
   .recommendation {
     color: var(--soft-ink);

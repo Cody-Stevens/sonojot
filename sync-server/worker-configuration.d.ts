@@ -4,11 +4,13 @@ interface __BaseEnv_Env {
 	BACKUPS: R2Bucket;
 	DB: D1Database;
 	MAIL: SendEmail;
+	ASSETS: Fetcher;
 	ENVIRONMENT: string;
 	PUBLIC_ORIGIN: string;
 	MAIL_ENABLED: string;
 	WORKOS_CLIENT_ID: string;
 	SYNC_TEST_IDENTITY: string;
+	AUTH_ORIGIN: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
@@ -21,7 +23,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "ENVIRONMENT" | "PUBLIC_ORIGIN" | "MAIL_ENABLED" | "WORKOS_CLIENT_ID" | "SYNC_TEST_IDENTITY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "ENVIRONMENT" | "PUBLIC_ORIGIN" | "MAIL_ENABLED" | "WORKOS_CLIENT_ID" | "SYNC_TEST_IDENTITY" | "AUTH_ORIGIN">> {}
 }
 declare module "*.txt" {
 	const value: string;

@@ -8,7 +8,7 @@ import { splitForRecognition, SAMPLE_RATE } from "./audio.ts";
 import { ALL_FILES, PARAKEET, PUNCTUATION, type ModelFile, type ModelUrl } from "./models.ts";
 import type { Device, LoadReport, ProgressEvent, Request, Response, TranscribeJob, TranscribeResult, WorkerConfig } from "./protocol.ts";
 import { clearModelCache, ModelStore, type DownloadProgress } from "./store.ts";
-import { loadPunctuationPackage, postprocess } from "./text/index.ts";
+import { loadPunctuationPackage, lowerSegmentStartCapitals, postprocess } from "./text/index.ts";
 import type { PunctuationPackage } from "./text/contract.ts";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -305,7 +305,10 @@ async function transcribe(job: TranscribeJob, signal: AbortSignal): Promise<Tran
   }
   const raw = pieces.join(" ");
   const recognized = performance.now();
-  const cleaned = await postprocess(raw, { mode: job.cleanup, punctuation, signal });
+  // Each piece is decoded on its own; cleanup reads the join without the
+  // capital the recognizer gives a piece's first word mid-sentence.
+  const input = job.cleanup === "original" ? raw : (lowerSegmentStartCapitals(raw, pieces) ?? raw);
+  const cleaned = await postprocess(input, { mode: job.cleanup, punctuation, signal });
   const finished = performance.now();
   return {
     raw,

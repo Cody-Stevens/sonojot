@@ -39,6 +39,83 @@ export function recognizerCue(gap: string, last: boolean): string {
           ? "."
           : "";
 }
+// Rust punctuation.rs::lower_segment_start_capitals: lower the capital the
+// recognizer gives each separately decoded audio piece where no sentence ended.
+export function lowerSegmentStartCapitals(text: string, pieces: readonly string[]): string | undefined {
+  const segments = pieces.map((p) => trimSpace(p)).filter(Boolean);
+  if (segments.length < 2 || segments.join(" ") !== text) return undefined;
+  const titleCase = (w: string) => {
+    const chars = Array.from(w);
+    return chars.length > 1 && isUpper(chars[0]!) && !chars.slice(1).some(isUpper);
+  };
+  const named = new Set<string>();
+  for (const segment of segments)
+    [...segment.matchAll(wordRegex())].forEach((m, i) => {
+      const before = segment.slice(0, m.index).trimEnd();
+      if (i > 0 && titleCase(m[0]) && !/[.?!…:"“]$/u.test(before)) named.add(m[0].toLowerCase());
+    });
+  let changed = false;
+  const out = segments.map((segment, i) => {
+    if (i === 0 || /[.?!…:;]$/u.test(segments[i - 1]!.replace(/["'”’)\]]+$/u, ""))) return segment;
+    const first = wordRegex().exec(segment);
+    if (!first || first.index !== 0) return segment;
+    const word = first[0];
+    const lower = word.toLowerCase();
+    if (!titleCase(word) || ["i", "i'm", "i'll", "i've", "i'd"].includes(lower.replaceAll("’", "'"))) return segment;
+    if (!commonLowercase(lower) || named.has(lower)) return segment;
+    changed = true;
+    const [head = ""] = Array.from(word);
+    return head.toLowerCase() + segment.slice(head.length);
+  });
+  return changed ? out.join(" ") : undefined;
+}
+// Rust punctuation.rs::ELISIONS and CLITICS.
+const ELISIONS = new Set(
+  "bout cause cept cos coz cuz em fore fraid kay member n nother nuff round scuse specially sup til tis twas twere".split(" "),
+);
+const CLITICS = new Set(["d", "ll", "m", "re", "s", "t", "ve"]);
+const APOSTROPHE = /['’‘]/u;
+const ALNUM = /[\p{L}\p{N}]/u;
+// Rust punctuation.rs::respace_glued_apostrophes: restore the space a recognizer
+// drops between a mark and a word that starts with an apostrophe ("one?'Cause").
+export function respaceGluedApostrophes(text: string): string {
+  if (!APOSTROPHE.test(text)) return text;
+  const chars = Array.from(text);
+  let out = "";
+  let open = false;
+  for (let k = 0; k < chars.length; k++) {
+    const ch = chars[k]!;
+    if (ch === "\n") open = false;
+    if (!APOSTROPHE.test(ch)) {
+      out += ch;
+      continue;
+    }
+    const prev = chars[k - 1];
+    const next = chars[k + 1];
+    let word = "";
+    for (let j = k + 1; j < chars.length && ALNUM.test(chars[j]!); j++) word += chars[j];
+    const lower = word.toLowerCase();
+    const shortened = /^\p{N}/u.test(word) || ELISIONS.has(lower);
+    const startsWord = next !== undefined && ALNUM.test(next);
+    let marks = 0;
+    while (k - marks - 1 >= 0 && ".?!…,;:".includes(chars[k - marks - 1]!)) marks++;
+    const glued = startsWord && marks > 0 && k > marks && ALNUM.test(chars[k - marks - 1]!) && !CLITICS.has(lower);
+    if (glued) {
+      if (open && !shortened && ch !== "‘") {
+        out += ch + " ";
+        open = false;
+      } else {
+        out += " " + ch;
+        open ||= !shortened;
+      }
+      continue;
+    }
+    if (startsWord && (prev === undefined || SPACE.test(prev) || "([{\"“".includes(prev))) open ||= !shortened;
+    else if (open && prev !== undefined && !SPACE.test(prev) && (next === undefined || !ALNUM.test(next))) open = false;
+    out += ch;
+  }
+  return out;
+}
 // Rust punctuation.rs::literal_spans.
 function literalSpans(text: string): Range[] {
   const spans: Range[] = [];

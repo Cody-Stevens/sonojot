@@ -26,9 +26,9 @@ export async function rotation(
     return null;
   const s = await session(request, env);
   native(s);
-  fresh(s);
   await limit(env, "rekey:" + s.account, 10);
   const b = await body(request, 262144);
+  if (b.reset === true) fresh(s);
   if (b.confirmed !== true) throw new Fault(400, "Confirm the key change.");
   const epoch = integer(b.epoch, 1),
     previous = integer(b.previous, 1),

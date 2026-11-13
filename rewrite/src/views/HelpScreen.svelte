@@ -36,8 +36,11 @@
       >See what is sent first</span
     ><span>›</span></button
   >
-  <SettingRow label="Command line" help="sonojot-cli · commands for scripts"
-    ><code class="cli-path">{cliPath || "Reading installed path…"}</code><button
+  <SettingRow label="Command line"
+    >{#snippet info()}<p>
+        sonojot-cli runs everything the app window can do, for scripts and
+        other apps.
+      </p>{/snippet}<code class="cli-path">{cliPath || "Reading installed path…"}</code><button
       class="button"
       disabled={!cliPath || app.busy("copy-cli")}
       onclick={() =>
@@ -48,8 +51,10 @@
         )}>Copy path</button
     ></SettingRow
   >
-  <SettingRow label="First-run setup" help="And the meeting consent reminder"
-    ><button class="button" disabled={locked} onclick={runAgain}
+  <SettingRow label="First-run setup"
+    >{#snippet info()}<p>
+        Runs the first-run setup again, including the meeting consent reminder.
+      </p>{/snippet}<button class="button" disabled={locked} onclick={runAgain}
       >Run again</button
     ></SettingRow
   >

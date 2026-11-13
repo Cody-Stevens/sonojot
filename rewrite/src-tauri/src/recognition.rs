@@ -107,6 +107,9 @@ struct Request {
 enum Operation {
     Load { root: PathBuf, model: String },
     Begin,
+    /// File and meeting streams: level the detector's copy (detector_level).
+    /// Sent after Begin and before any audio, and again on replay.
+    AssistQuietSpeech,
     Audio { samples: Vec<f32>, rate: u32 },
     Finish { observed: bool },
     Abort,
@@ -510,7 +513,7 @@ impl Connection {
                 (_, Reply::Error)
                     | (Operation::Load { .. }, Reply::Loaded { .. })
                     | (
-                        Operation::Begin | Operation::Abort | Operation::Shutdown,
+                        Operation::Begin | Operation::AssistQuietSpeech | Operation::Abort | Operation::Shutdown,
                         Reply::Ack
                     )
                     | (Operation::Audio { .. }, Reply::Text { .. })
@@ -799,6 +802,7 @@ impl Remote {
             session,
             replay: if retried { None } else { Replay::new().ok() },
             retried,
+            assist_quiet_speech: false,
             raw: String::new(),
             committed_seconds: None,
             original_text: None,
@@ -871,6 +875,7 @@ pub struct RemoteStream<'a> {
     session: u64,
     replay: Option<Replay>,
     retried: bool,
+    assist_quiet_speech: bool,
     raw: String,
     committed_seconds: Option<f32>,
     original_text: Option<String>,
@@ -882,6 +887,15 @@ pub struct RemoteStream<'a> {
     last_decode_log: Instant,
 }
 impl RemoteStream<'_> {
+    /// Ask the worker to level its detector input; call before any audio.
+    pub(crate) fn assist_quiet_speech(&mut self) -> Result<(), String> {
+        if self.failed { return Ok(()); }
+        self.assist_quiet_speech = true;
+        match self.remote.call(self.session, Operation::AssistQuietSpeech, self.cancel)? {
+            Reply::Ack => Ok(()),
+            _ => Err("Recognition worker refused the stream option.".into()),
+        }
+    }
     pub(crate) fn failed(&self) -> bool {
         self.failed
     }
@@ -940,6 +954,11 @@ impl RemoteStream<'_> {
                 .call(self.session, Operation::Begin, self.cancel)?,
             Reply::Ack
         ) {
+            return Err("Recognition replay could not begin.".into());
+        }
+        if self.assist_quiet_speech
+            && !matches!(self.remote.call(self.session, Operation::AssistQuietSpeech, self.cancel)?, Reply::Ack)
+        {
             return Err("Recognition replay could not begin.".into());
         }
         replay
@@ -1106,7 +1125,7 @@ impl RemoteStream<'_> {
         }
         self.finished = true;
         Ok((
-            RecognitionResult {
+            RecognitionResult { raw_words: Vec::new(),
                 word_confidence: Vec::new(),
                 original_text: self.original_text.clone(),
                 segments: Vec::new(),
@@ -1314,6 +1333,10 @@ fn serve_stream(
                 let (result, details) = result.map_err(|_| "Native finish failed.")?;
                 send_reply(socket, &request, Reply::Finished { result, details })?;
                 return Ok(());
+            }
+            Operation::AssistQuietSpeech => {
+                stream.assist_quiet_speech().map_err(|_| "Stream option failed.")?;
+                Reply::Ack
             }
             Operation::Abort => {
                 drop(stream);

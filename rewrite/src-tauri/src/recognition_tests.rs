@@ -98,6 +98,11 @@ fn fake_child() {
                 count = 0;
                 Reply::Ack
             }
+            Operation::AssistQuietSpeech => {
+                assert_eq!(request.session, active);
+                assert_eq!(count, 0, "the stream option must precede audio");
+                Reply::Ack
+            }
             Operation::Audio { samples, rate } => {
                 assert_eq!(request.session, active);
                 assert!(!samples.is_empty() && samples.len() <= MAX_SAMPLES);
@@ -145,7 +150,7 @@ fn fake_child() {
                     std::process::exit(79);
                 }
                 Reply::Finished {
-                    result: RecognitionResult {
+                    result: RecognitionResult { raw_words: Vec::new(),
                         word_confidence: Vec::new(),
                         original_text: behavior.starts_with("guarded").then(|| format!("{raw} go go go go")),
                         segments: Vec::new(),
@@ -632,7 +637,7 @@ fn original_text_roundtrips_in_worker_frames_and_obeys_byte_limits() {
             if length > MAX_TEXT { original.push('!'); }
             let body = if finished {
                 Reply::Finished {
-                    result: RecognitionResult {
+                    result: RecognitionResult { raw_words: Vec::new(),
                         word_confidence: Vec::new(),
                         text: String::new(), original_text: Some(original), segments: Vec::new(),
                         completeness: RecognitionCompleteness::Incomplete, warnings: vec!["omitted".into()],

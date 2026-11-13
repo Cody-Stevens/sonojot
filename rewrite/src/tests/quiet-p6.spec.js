@@ -35,6 +35,9 @@ async function nav(page, tab) {
 }
 async function setting(page, name) {
   await nav(page, "settings");
+  // Memory and On disk sit in the Advanced fold (November 13).
+  if (name === "Memory" || name === "On disk")
+    await page.locator("details.advanced > summary").click();
   await page
     .locator(".settings-link")
     .filter({ has: page.getByText(name, { exact: true }) })
@@ -70,52 +73,44 @@ for (const [name, fixture, file] of [
     page,
   }) => {
     const errors = await open(page, fixture, "/?page=setup");
-    await expect(page.locator("[data-chart-model]").first()).toBeVisible();
-    const ids = await page
+    // November 13: one Pareto chart behind Compare models, not two panels.
+    await expect(page.locator(".speech-chart")).toHaveCount(0);
+    await page.getByRole("button", { name: "Compare models" }).click();
+    const sheet = page.getByRole("dialog", { name: "Compare models" });
+    await expect(sheet.locator("[data-chart-model]").first()).toBeVisible();
+    const ids = await sheet
       .locator("[data-chart-model]")
       .evaluateAll((nodes) =>
         nodes.map((node) => node.getAttribute("data-chart-model")),
       );
     expect(new Set(ids).size).toBe(ids.length);
-    for (const panel of await page.locator(".speech-chart .plot").all()) {
-      const boxes = await panel
-        .locator("[data-chart-label]")
-        .evaluateAll((nodes) =>
-          nodes
-            .map((node) => {
-              const r = node.querySelector("text").getBoundingClientRect();
-              const last = node
-                .querySelector("text:last-child")
-                .getBoundingClientRect();
-              return { top: r.top, bottom: last.bottom };
-            })
-            .sort((a, b) => a.top - b.top),
-        );
-      for (let i = 1; i < boxes.length; i++)
-        expect(boxes[i].top).toBeGreaterThan(boxes[i - 1].bottom);
-    }
-    if (name === "NVIDIA") {
-      await expect(
-        page
-          .getByRole("region", { name: "GPU memory chart" })
-          .locator("[data-chart-model]"),
-      ).toHaveCount(1);
-      await expect(
-        page
-          .getByRole("region", { name: "CPU system memory chart" })
-          .locator("[data-chart-model]"),
-      ).toHaveCount(1);
-    }
-    if (name === "Mac") {
-      await expect(
-        page.getByRole("region", { name: "GPU memory chart" }),
-      ).toContainText("unified memory");
-      await expect(
-        page
-          .getByRole("region", { name: "CPU system memory chart" })
-          .locator("[data-chart-model]"),
-      ).toHaveCount(0);
-    }
+    const boxes = await sheet.locator(".label").evaluateAll((nodes) =>
+      nodes
+        .map((node) => {
+          const texts = node.querySelectorAll("text");
+          return {
+            top: texts[0].getBoundingClientRect().top,
+            bottom: texts[texts.length - 1].getBoundingClientRect().bottom,
+            left: texts[0].getBoundingClientRect().left,
+            right: texts[0].getBoundingClientRect().right,
+          };
+        })
+        .sort((a, b) => a.top - b.top),
+    );
+    for (let i = 1; i < boxes.length; i++)
+      for (let j = 0; j < i; j++) {
+        const apart =
+          boxes[i].top >= boxes[j].bottom ||
+          boxes[i].left >= boxes[j].right ||
+          boxes[j].left >= boxes[i].right;
+        expect(apart).toBe(true);
+      }
+    if (name === "Mac")
+      // The Mac app has no TED run for Windows-only scores.
+      expect(ids.every((id) => /metal/.test(id))).toBe(true);
+    else expect(ids.length).toBeGreaterThan(1);
+    await sheet.getByRole("button", { name: "Table", exact: true }).click();
+    await expect(sheet.getByRole("table")).toBeVisible();
     await shot(page, file);
     expect(errors).toEqual([]);
   });
@@ -504,7 +499,6 @@ test("punctuation download and other local Notes remain reachable after model ma
     .locator(".settings-link")
     .filter({ has: page.getByText("Cleanup", { exact: true }) })
     .click();
-  await page.getByRole("button", { name: /More Punctuation/ }).click();
   await page
     .getByRole("button", { name: "Install punctuation model", exact: true })
     .click();

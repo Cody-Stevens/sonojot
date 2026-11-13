@@ -7,6 +7,7 @@
   import { openRouter } from "./lib/openrouter.svelte";
   import InputScreen from "./views/InputScreen.svelte";
   import OutputScreen from "./views/OutputScreen.svelte";
+  import TrustScreen from "./views/TrustScreen.svelte";
   import Vocabulary from "./views/Vocabulary.svelte";
   import MeetingsTab from "./views/MeetingsTab.svelte";
   import MeetingNotesScreen from "./views/MeetingNotesScreen.svelte";
@@ -486,9 +487,13 @@
                         (route.tab === "meetings" &&
                           ["notes", "speech"].includes(route.stage ?? "")) ||
                         (route.tab === "dictation" &&
-                          ["input", "output", "cleanup", "speech"].includes(
-                            route.stage ?? "",
-                          ))}
+                          [
+                            "input",
+                            "output",
+                            "trust",
+                            "cleanup",
+                            "speech",
+                          ].includes(route.stage ?? ""))}
                       onback={() => void navigate(backRoute(route))}
                     />
                   {/if}
@@ -509,6 +514,8 @@
                       onreview={reviewMicrophoneTest}
                     />
                   {:else if route.tab === "dictation" && route.stage === "output"}<OutputScreen
+                    />
+                  {:else if route.tab === "dictation" && route.stage === "trust"}<TrustScreen
                     />
                   {:else if route.tab === "dictation" && route.stage === "cleanup"}<CleanupScreen
                       onmanage={manageModels}

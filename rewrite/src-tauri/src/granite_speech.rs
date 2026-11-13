@@ -22,7 +22,7 @@ fn transcribe_with(
     cancel: &AtomicBool,
     mut recognize: impl FnMut(&[f32]) -> Result<String, String>,
 ) -> Result<RecognitionResult, String> {
-    let mut result = RecognitionResult {
+    let mut result = RecognitionResult { raw_words: Vec::new(),
         word_confidence: Vec::new(),
         text: String::new(),
         original_text: None,

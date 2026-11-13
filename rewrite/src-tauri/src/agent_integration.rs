@@ -67,11 +67,30 @@ pub fn is_development_build(path: &Path) -> bool {
 /// after the user removes it with `sonojot-cli agents remove`.
 pub fn ensure_once(data_dir: &Path) {
     if crate::flavor::SYNC_TEST { return; }
+    // A test copy started with its own data folder is not the installed app:
+    // it must not put itself on PATH or in coding tools' settings.
+    if isolated_data_folder(|name| std::env::var_os(name)) {
+        crate::recognition_diagnostics::event("agent-integration", "skipped-isolated-data", std::process::id(), 0, 0, 0);
+        return;
+    }
     let Ok(executable) = std::env::current_exe() else { return };
     if let Some(items) = ensure(&cli_beside(&executable), data_dir) {
         let summary = items.iter().map(|i| format!("{}={}", i.target, i.state)).collect::<Vec<_>>().join(" ");
         crate::recognition_diagnostics::event("agent-integration", &summary, std::process::id(), 0, 0, 0);
     }
+}
+
+/// True when the app runs with a data folder other than the user's own: on
+/// Windows a `LOCALAPPDATA` that is not `%USERPROFILE%\AppData\Local`, and on
+/// macOS and Linux any `LOCALAPPDATA` at all (the store honours it there too).
+pub fn isolated_data_folder(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    let Some(local) = var("LOCALAPPDATA") else { return false };
+    if !cfg!(windows) {
+        return true;
+    }
+    let Some(profile) = var("USERPROFILE") else { return true };
+    let normal = |p: &Path| p.to_string_lossy().trim_end_matches(['\\', '/']).replace('/', "\\").to_lowercase();
+    normal(Path::new(&local)) != normal(&Path::new(&profile).join("AppData").join("Local"))
 }
 
 /// Installs unless this location is already done or the user removed it.
@@ -597,6 +616,18 @@ mod tests {
         let (removed, state) = codex_edit(&added, Mode::Remove, CLI);
         assert_eq!(state, "removed");
         assert_eq!(removed.unwrap(), text);
+    }
+
+    #[test]
+    fn a_test_copy_with_its_own_data_folder_is_isolated() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| std::ffi::OsString::from(*v));
+        assert!(!isolated_data_folder(env(&[])));
+        assert!(isolated_data_folder(env(&[("LOCALAPPDATA", r"C:\temp\sonojot-test"), ("USERPROFILE", r"C:\Users\someone")])));
+        #[cfg(windows)]
+        {
+            assert!(!isolated_data_folder(env(&[("LOCALAPPDATA", r"C:\Users\someone\AppData\Local"), ("USERPROFILE", r"C:\Users\someone")])));
+            assert!(!isolated_data_folder(env(&[("LOCALAPPDATA", "c:/users/someone/appdata/local/"), ("USERPROFILE", r"C:\Users\someone")])));
+        }
     }
 
     #[test]

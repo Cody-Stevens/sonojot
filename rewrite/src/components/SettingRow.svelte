@@ -1,12 +1,20 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import InfoTip from "./quiet/InfoTip.svelte";
   let {
     label,
     help,
     children,
     detail,
-  }: { label: string; help?: string; children: Snippet; detail?: Snippet } =
-    $props();
+    info,
+  }: {
+    label: string;
+    help?: string;
+    children: Snippet;
+    detail?: Snippet;
+    /** Longer explanation behind an information button beside the label. */
+    info?: Snippet;
+  } = $props();
   const id = $props.id();
 </script>
 
@@ -17,7 +25,9 @@
   aria-describedby={help ? `${id}-help` : undefined}
 >
   <div class="row-copy">
-    <span id={`${id}-label`}>{label}</span>{#if help}<small
+    <span id={`${id}-label`}>{label}</span>{#if info}<InfoTip
+        label={`About ${label}`}>{@render info()}</InfoTip
+      >{/if}{#if help}<small
         id={`${id}-help`}
         data-text-surface="flat">{help}</small
       >{/if}

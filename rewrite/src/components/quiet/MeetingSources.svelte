@@ -6,6 +6,7 @@
   import { library } from "../../lib/model-library.svelte";
   import { app } from "../../lib/app.svelte";
   import { installed, checking, formatBytes } from "../../lib/model-library";
+  import { speakerEchoRemoval } from "../../lib/meeting-models";
   import type { MeetingSession } from "../../lib/meeting-session.svelte";
   let {
     session,
@@ -18,6 +19,12 @@
       app.busy("settings") ||
       session.dictating ||
       app.snapshot.meetingRecording,
+  );
+  const echo = $derived(
+    speakerEchoRemoval(
+      app.snapshot.settings.meetingRemoveEcho,
+      session.transcriptionModel,
+    ),
   );
   const sources = [
     { id: "both", label: "Both", detail: "You and the people you hear" },
@@ -53,6 +60,23 @@
         onclick={session.fixSystem}>{session.systemState.action}</button
       >{/if}{/if}
   {#if session.systemFixError}<p role="alert">{session.systemFixError}</p>{/if}
+  {#if session.source === "both"}
+    <div class="speaker-row">
+      <span>Remove speaker echo</span><Toggle
+        label="Remove speaker echo"
+        checked={echo.on}
+        disabled={!app.native || app.busy("settings")}
+        onchange={(meetingRemoveEcho) => app.saveSettings({ meetingRemoveEcho })}
+      />
+    </div>
+    <p class="field-help">
+      For calls on speakers: your microphone also hears the others. This keeps
+      their words out of your side of the transcript.{#if echo.automatic}
+        {echo.on
+          ? "On automatically for this speech model."
+          : "Off automatically for this speech model, which could also remove words you repeat."}{/if}
+    </p>
+  {/if}
   {#if app.snapshot.capabilities.platform !== "linux" && session.speakerLabelsAvailable && session.speakerModel}
     <div class="speaker-row">
       <span>Label speakers</span>{#if installed(session.speakerModel)}<Toggle

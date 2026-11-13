@@ -154,7 +154,7 @@
     <div class="stage-control">
       <button
         bind:this={keyButton}
-        class="stock key-well"
+        class="key-well"
         class:capturing
         disabled={locked}
         aria-label="Change shortcut"
@@ -242,24 +242,6 @@
 </details>
 
 <style>
-  .key-well {
-    min-width: 230px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    box-shadow: var(--press);
-    background-color: var(--well);
-    color: var(--ink);
-    padding: 8px 13px;
-    min-height: 44px;
-  }
-  .key-well.capturing {
-    outline: 2px solid var(--dye);
-    outline-offset: 3px;
-  }
   .input-meter {
     width: 90px;
   }

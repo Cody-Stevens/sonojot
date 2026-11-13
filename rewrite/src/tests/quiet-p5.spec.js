@@ -18,8 +18,9 @@ async function open(page, fixture, meeting = false, theme = "fog") {
   await expect(
     page.getByRole("heading", { name: "Speech", exact: true }),
   ).toBeVisible();
+  // November 13: no chart on the page; one chart behind Compare models.
   await expect(
-    page.getByRole("region", { name: "CPU system memory chart" }),
+    page.getByRole("group", { name: "Speech models" }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 }
@@ -28,7 +29,9 @@ async function shot(page, name) {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: fileURLToPath(new URL(name, folder)) });
 }
-const card = (page, id) => page.locator(`[data-model-id="${id}"]`);
+// The choose button of a speech card; its information button sits beside it.
+const card = (page, id) =>
+  page.locator(`[data-model-id="${id}"] .card-choose`);
 const settings = (page) =>
   page.evaluate(() => window.__testSnapshot().settings);
 test("NVIDIA speech shows separate pools, measured waits and switching back", async ({
@@ -36,9 +39,11 @@ test("NVIDIA speech shows separate pools, measured waits and switching back", as
 }) => {
   await open(page, pc());
   await expect(card(page, qwen)).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Compare models" }).click();
   await expect(
-    page.getByText(/SonoJot’s planned share.*on this card/),
-  ).toBeVisible();
+    page.getByRole("dialog", { name: "Compare models" }),
+  ).toContainText("NVIDIA RTX 5070 · 12.0 GB graphics memory");
+  await page.keyboard.press("Escape");
   await shot(page, "01-nvidia-speech.png");
   await card(page, parakeet).click();
   await expect.poll(async () => (await settings(page)).asrModel).toBe(parakeet);
@@ -65,9 +70,12 @@ test("CPU-only speech uses the CPU frontier without inventing a GPU", async ({
 }) => {
   await open(page, pc(false));
   await expect(card(page, parakeet)).toContainText("Recommended");
-  await expect(
-    page.getByText(/No compatible dedicated GPU memory/),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Compare models" }).click();
+  const compare = page.getByRole("dialog", { name: "Compare models" });
+  await expect(compare).toContainText("no supported graphics card");
+  // No graphics marks without a graphics card.
+  await expect(compare.locator(".mark.gpu")).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await shot(page, "03-cpu-speech.png");
 });
 for (const ram of [16, 32])
@@ -97,7 +105,11 @@ for (const ram of [16, 32])
     await expect(card(page, "qwen3-asr-1.7b-q4-metal")).toContainText(
       "Recommended",
     );
-    await expect(page.getByText(/Apple GPU · unified memory/)).toBeVisible();
+    await page.getByRole("button", { name: "Compare models" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Compare models" }),
+    ).toContainText("Apple Silicon");
+    await page.keyboard.press("Escape");
     await shot(page, `${ram === 16 ? "04" : "05"}-mac-${ram}-speech.png`);
   });
 test("meeting speech retains source choice, speaker labels, AMI scores and shared online sheet", async ({
@@ -105,14 +117,14 @@ test("meeting speech retains source choice, speaker labels, AMI scores and share
 }) => {
   await open(page, pc(), true);
   await expect(
-    page.getByRole("button", { name: /Granite Speech 4.1/ }),
+    page.getByRole("button", { name: /^Granite Speech 4.1/ }),
   ).toBeEnabled();
   await shot(page, "06-meeting-speech.png");
-  await page.getByRole("button", { name: /Granite Speech 4.1/ }).click();
+  await page.getByRole("button", { name: /^Granite Speech 4.1/ }).click();
   await expect
     .poll(async () => (await settings(page)).meetingAsrModel)
     .toBe(granite);
-  await page.getByRole("button", { name: /Same as dictation/ }).click();
+  await page.getByRole("button", { name: /^Same as dictation/ }).click();
   await expect
     .poll(async () => (await settings(page)).meetingAsrModel)
     .toBe("");
@@ -120,7 +132,7 @@ test("meeting speech retains source choice, speaker labels, AMI scores and share
   await expect
     .poll(async () => (await settings(page)).meetingSource)
     .toBe("microphone");
-  await page.getByRole("button", { name: /Online · OpenRouter/ }).click();
+  await page.getByRole("button", { name: /^Online · OpenRouter/ }).click();
   await expect(page.getByRole("dialog")).toContainText("OpenRouter");
 });
 test("whole-setup reset lists every override and retains connection and saved models", async ({
@@ -251,15 +263,16 @@ test("CPU meeting speech disables Granite and marks missing AMI data", async ({
 }) => {
   await open(page, pc(false), true);
   await expect(
-    page.getByRole("button", { name: /Granite Speech 4.1/ }),
+    page.getByRole("button", { name: /^Granite Speech 4.1/ }),
   ).toBeDisabled();
   await expect(
-    page.getByRole("button", { name: /Granite Speech 4.1/ }),
+    page.getByRole("button", { name: /^Granite Speech 4.1/ }),
   ).toContainText("Needs a compatible NVIDIA GPU");
-  await page.getByRole("button", { name: "Measurements and sources" }).click();
-  await expect(page.getByRole("dialog")).toContainText(
-    "Not measured word errors",
-  );
+  // AMI scores live in each card's details now.
+  await page.getByRole("button", { name: "About Same as dictation" }).click();
+  await expect(
+    page.getByRole("note", { name: "About Same as dictation" }),
+  ).toContainText("Not measured on this kind of computer");
 });
 test("retrying the preview download never chooses it as the speech model", async ({
   page,

@@ -65,6 +65,13 @@
 .stage-setting.wide-label {
   grid-template-columns: minmax(0, 1fr) auto;
 }
+/* A setting label followed by its information button. */
+.label-with-info {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
 .stage-control {
   display: flex;
   align-items: center;
@@ -142,21 +149,32 @@
 .settings-link {
   display: grid;
   grid-template-columns: 180px 1fr 12px;
-  width: 100%;
+  /* The highlight reaches into the card's padding so it covers the whole door
+     and clears the text; the divider stays outside the fill. */
+  width: calc(100% + 24px);
+  margin-inline: -12px;
   align-items: baseline;
   gap: 22px;
-  padding: 18px 0;
+  padding: 18px 12px;
+  position: relative;
   background: transparent;
   border: 0;
-  border-top: 1px solid var(--line);
+  border-radius: 10px;
   text-align: left;
 }
-.settings-link:first-child {
-  border-top: 0;
+.settings-link + .settings-link::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline: 12px;
+  border-top: 1px solid var(--line);
+  pointer-events: none;
 }
 .settings-link:hover {
   background-color: var(--well);
-  border-radius: 6px;
+}
+.settings-link:focus-visible {
+  outline-offset: 1px;
 }
 .settings-link strong {
   font-weight: 600;

@@ -71,7 +71,9 @@ async function shot(page, name) {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: fileURLToPath(new URL(name, folder)) });
 }
-const card = (page, id) => page.locator(`[data-model-id="${id}"]`);
+// The choose button of a speech card; its information button sits beside it.
+const card = (page, id) =>
+  page.locator(`[data-model-id="${id}"] .card-choose`);
 
 async function firstRunModels(page, fixture, prefix) {
   await page.clock.install();
@@ -131,11 +133,16 @@ async function speechScreen(page, fixture, prefix, qwenId) {
   ).toBeVisible();
   expect(errors).toEqual([]);
   await expect(card(page, ft2)).toContainText("Recommended");
-  await expect(card(page, ft2)).toContainText(
-    "tuned by SonoJot for dictation and meetings",
+  await expect(card(page, ft2)).toContainText("English only. Fast and small.");
+  // The longer claim lives behind the information button.
+  await page.getByRole("button", { name: "About SonoJot Parakeet" }).click();
+  await expect(
+    page.getByRole("note", { name: "About SonoJot Parakeet" }),
+  ).toContainText(
+    "tuned by SonoJot for English dictation and meetings. Faster and smaller than Qwen3-ASR",
   );
-  await expect(card(page, ft2)).toContainText("faster and smaller than Qwen");
-  await expect(card(page, qwenId)).toContainText("Multilingual");
+  await page.keyboard.press("Escape");
+  await expect(card(page, qwenId)).toContainText("Many languages");
   await expect(card(page, qwenId)).not.toContainText("Recommended");
   await shot(page, `${prefix}-3-speech.png`);
 }
@@ -158,7 +165,7 @@ test("NVIDIA PC in English: Speech picker", async ({ page }) => {
   });
   await speechScreen(page, fixture, "nvidia", qwen);
   await expect(card(page, qwen)).toContainText(
-    "fewest measured TED-12 word errors among the main choices",
+    "fewer errors on prepared talks",
   );
 });
 
@@ -197,10 +204,14 @@ test("Apple Silicon Mac in English: Speech picker", async ({ page }) => {
     { dictation: [ft2, q4, q8], other: q4, firstRun: false },
   );
   await speechScreen(page, fixture, "mac", q4);
-  // Measured on an M4 Mac mini on November 13, 2026: the card has word errors
-  // and the chart plots SonoJot Parakeet with the recommended ring.
-  await expect(card(page, ft2)).not.toContainText("Word errors not measured");
+  // Measured on an M4 Mac mini on November 13, 2026: Compare models plots
+  // SonoJot Parakeet, marked recommended, with its Mac numbers.
+  await page.getByRole("button", { name: "Compare models" }).click();
   const point = page.locator(`[data-chart-model="${ft2}"]`);
-  await expect(point.locator("circle.ring")).toHaveCount(1);
-  await expect(point.locator("title")).toContainText("3.73% word errors");
+  await point.focus();
+  await expect(page.locator(".readout")).toContainText("Recommended");
+  await expect(page.locator(".readout")).toContainText(
+    "3.73 word errors per 100 words",
+  );
+  await expect(page.locator(".readout")).toContainText("waits 0.23 s");
 });

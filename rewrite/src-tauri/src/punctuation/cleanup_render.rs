@@ -176,27 +176,30 @@ pub(super) fn render_clean(
             keep_case = false;
             continue;
         }
-        let quotes: String = gap
-            .chars()
-            .filter(|c| ['"', '“', '”', ')'].contains(c))
-            .collect();
+        // An opening quote, bracket or leading apostrophe ("'cause") before
+        // this word stays in front of it.
+        if i > 0 {
+            out += &gap_sides(&doc.text[words[i - 1].end..word.start]).2;
+        }
+        let (before, after, _) = gap_sides(gap);
         out += &w;
         // An abbreviation keeps its own period whatever the label says, as
         // rebuilt_gap keeps it on the rules path ("e.g. apples", "etc. for").
         let abbreviation = !last && doc.abbreviation(i);
-        if abbreviation {
-            out.push('.');
-        } else if last && !labels[i].terminal() {
-            let final_gap = doc.text[words.last().unwrap().end..].trim();
-            out += if i + 1 == words.len() && !final_gap.is_empty() {
-                final_gap
-            } else {
-                "."
-            };
+        let final_gap = doc.text[words.last().unwrap().end..].trim();
+        if last && !labels[i].terminal() && i + 1 == words.len() && !final_gap.is_empty() {
+            out += final_gap;
         } else {
-            out += labels[i].text();
+            out += &before;
+            out += if abbreviation {
+                "."
+            } else if last && !labels[i].terminal() {
+                "."
+            } else {
+                labels[i].text()
+            };
+            out += &after;
         }
-        out += &quotes;
         if !last {
             out.push(' ');
         }
@@ -210,6 +213,32 @@ pub(super) fn render_clean(
         keep_case = abbreviation && !cap;
     }
     Ok((cleanup_house_style(&out), kept))
+}
+
+/// Quotes, brackets and apostrophes in a gap, by the side they attach to:
+/// before the mark, after it, and in front of the next word. Closing marks
+/// and possessive apostrophes ("the dogs' bowls") stay on the left.
+fn gap_sides(gap: &str) -> (String, String, String) {
+    let split = gap.find(char::is_whitespace).unwrap_or(gap.len());
+    let (mut before, mut after, mut opening) = (String::new(), String::new(), String::new());
+    let mut saw_mark = false;
+    for ch in gap[..split].chars() {
+        if editable_punctuation(ch) {
+            saw_mark = true;
+        } else if matches!(ch, '"' | '\'' | '“' | '”' | '‘' | '’' | '(' | ')' | '[' | ']' | '{' | '}') {
+            if saw_mark { after.push(ch) } else { before.push(ch) }
+        }
+    }
+    for ch in gap[split..].chars() {
+        if editable_punctuation(ch) {
+            saw_mark = true;
+        } else if matches!(ch, ')' | ']' | '}' | '”') {
+            if saw_mark { after.push(ch) } else { before.push(ch) }
+        } else if matches!(ch, '"' | '\'' | '“' | '‘' | '’' | '(' | '[' | '{') {
+            opening.push(ch);
+        }
+    }
+    (before, after, opening)
 }
 
 #[cfg(test)]

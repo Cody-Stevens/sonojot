@@ -65,7 +65,14 @@
     ></SettingRow
   >
   <SettingRow label="Channel"
-    ><div class="segments" aria-label="Update channel">
+    >{#snippet info()}<p>
+        Nightly builds are early builds for testing. Changing the channel
+        checks for a build for this computer. Returning to Stable can offer an
+        older version.
+      </p>
+      <p>
+        Your words and settings stay; features only in the newer build go away.
+      </p>{/snippet}<div class="segments" aria-label="Update channel">
       <button
         aria-pressed={app.snapshot.settings.updateChannel === "stable"}
         disabled={channelLocked}
@@ -80,11 +87,6 @@
     </div></SettingRow
   >
 </section>
-<p class="field-help">
-  Nightly builds are early builds for testing. Changing the channel checks for a
-  build for this computer. Returning to Stable can offer an older version. Your
-  words and settings stay; features only in the newer build go away.
-</p>
 
 <style>
   /* Version and status above the buttons, all in the control column.

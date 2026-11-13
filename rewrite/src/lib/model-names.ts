@@ -3,10 +3,10 @@ import type { AiModel } from "./ai";
 import type { ModelEntry } from "./model-library";
 
 const choices: Record<string, string> = {
-  "local-rules": "Rules",
+  "local-rules": "No proofreader",
   openrouter: "OpenRouter",
   "Same as dictation": "Same as dictation",
-  "SonoJot cleanup": "SonoJot cleanup",
+  "SonoJot cleanup": "SonoJot proofreader",
 };
 
 export function modelName(

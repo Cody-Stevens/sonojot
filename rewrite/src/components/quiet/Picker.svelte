@@ -81,7 +81,7 @@
     bind:this={trigger}
     onkeydown={keyboard}
     type="button"
-    class="picker-well stock"
+    class="picker-well"
     aria-label={label}
     aria-haspopup="listbox"
     aria-expanded={open}
@@ -169,8 +169,5 @@
     background: transparent;
     color: var(--ink);
   }
-  .picker-options button:hover,
-  .picker-options button:focus-visible {
-    background: color-mix(in srgb, var(--dye) 10%, transparent);
-  }
+  /* Hover and keyboard highlight: "Raised selected paper" in styles.css. */
 </style>

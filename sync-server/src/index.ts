@@ -12,6 +12,7 @@ import { pairing } from "./pairing";
 import { store } from "./store";
 import { maintenance } from "./maintenance";
 import { rotation } from "./rotation";
+import { signinPage } from "./signin";
 import { accountPage } from "./account";
 import { health, serverFailure, requestCount } from "./monitoring";
 export function worker(deps: AuthDependencies = productionAuth) {
@@ -25,8 +26,11 @@ export function worker(deps: AuthDependencies = productionAuth) {
           request.headers.get("origin") !== u.origin
         )
           throw new Fault(403, "This origin is not allowed.");
+        if (u.pathname.startsWith("/assets/"))
+          return headers(await env.ASSETS.fetch(request));
         if (u.pathname === "/v1/health") return headers(await health(env));
         const response =
+          signinPage(request) ??
           accountPage(request) ??
           (await webhook(request, env)) ??
           (await testIdentity(request, env)) ??

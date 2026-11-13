@@ -246,9 +246,9 @@ fn sync_commands(client: &Client<'_>, words: &[&str]) -> Outcome {
             let value = zeroize::Zeroizing::new(read_key_stdin(stdin.lock())?);
             send("test_signin", json!({"subject":subject,"token":*value}))
         }
-        ["signin"] => send(
+        ["signin"] | ["signup"] => send(
             "signin",
-            json!({"provider":o.values.get("provider").map(String::as_str).unwrap_or("authkit"),"server":o.values.get("server"),"noBrowser":o.no_browser}),
+            json!({"provider":o.values.get("provider").map(String::as_str).unwrap_or("email"),"intent":if words[0] == "signup" {"sign-up"} else {"sign-in"},"server":o.values.get("server"),"noBrowser":o.no_browser}),
         ),
         ["status", "remote"] => send("remote_status",json!({})),
         ["now"] => send("now", json!({})),
@@ -346,7 +346,7 @@ fn sync_commands(client: &Client<'_>, words: &[&str]) -> Outcome {
             send("account_delete", json!({"confirmed":true}))
         }
         _ => Err(Failure::Usage(
-            "Use sync signin|status|now|signout|setup|devices|recovery|account. See docs/CLI.md."
+            "Use sync signup|signin|status|now|signout|setup|devices|recovery|account. See docs/CLI.md."
                 .into(),
         )),
     }

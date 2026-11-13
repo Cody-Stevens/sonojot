@@ -113,7 +113,7 @@ test("first-run: ten screens, dwell, one Downloads step and finish", async ({
   );
   await expect(
     page.getByText(
-      "Later, open Speech or Notes from Dictation, Meetings or Settings to change models or choose OpenRouter.",
+      "You can change models later in Settings.",
     ),
   ).toBeVisible();
   await screenshot(page, "05-models");

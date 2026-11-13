@@ -173,7 +173,7 @@ export async function session(request: Request, env: Env): Promise<Session> {
     .first<Session>();
   if (!s) throw new Fault(401, "Sign in to continue.");
   if (s.provider_revoked) {
-    if (!s.public_key) throw new Fault(401, "WorkOS sign-in was revoked.");
+    if (!s.public_key) throw new Fault(401, "Sign-in was revoked.");
     await (await import("./authorization")).authorizeKeys(request, env, s);
   }
   if (!["GET", "HEAD"].includes(request.method))
@@ -197,13 +197,14 @@ export function native(s: Session): void {
 }
 export function configuredOrigin(request: Request, env: Env): string {
   const actual = new URL(request.url).origin;
-  if (env.PUBLIC_ORIGIN && env.PUBLIC_ORIGIN !== actual)
+  if (env.PUBLIC_ORIGIN && env.PUBLIC_ORIGIN !== actual && env.AUTH_ORIGIN !== actual)
     throw new Fault(400, "Wrong service address.");
   return actual;
 }
 export function headers(response: Response): Response {
   const h = new Headers(response.headers);
-  h.set("Cache-Control", "no-store");
+  // Keep the authentication document unchanged by automatic analytics injection.
+  h.set("Cache-Control", "no-store, no-transform");
   h.set("X-Content-Type-Options", "nosniff");
   h.set("Referrer-Policy", "no-referrer");
   h.set("X-Frame-Options", "DENY");

@@ -45,6 +45,8 @@ pub struct Control {
     target: Option<platform::PasteTarget>,
     target_app: Option<Arc<OnceLock<String>>>,
     no_history: bool,
+    /// This capture fixes a doubtful word by voice instead of pasting.
+    voice_fix: bool,
     last_meter: Instant,
     privacy_generation: u64,
 }
@@ -95,6 +97,9 @@ enum SpeechUpdate {
 
 struct Publication {
     kept_audio: Option<Arc<Vec<f32>>>,
+    /// Evidence for the trust layer; never stored.
+    trust: Option<Arc<crate::trust::Capture>>,
+    voice_fix: bool,
     word_confidence: Vec<crate::confidence::WordConfidence>,
     session_id: u64,
     original_text: String,
@@ -118,6 +123,7 @@ struct Publication {
 impl Publication {
     fn save(&self, store: &Store, privacy_generation: u64) -> Result<Option<DictationRecord>, String> {
         if self.no_history
+            || self.voice_fix
             || (self.original_text.trim().is_empty()
                 && self.text.trim().is_empty()
                 && self.recognition_completeness != RecognitionCompleteness::Incomplete)
@@ -220,6 +226,9 @@ impl Control {
         self.session = None;
         self.target = None;
         self.target_app = None;
+        if std::mem::take(&mut self.voice_fix) {
+            crate::trust::voice_end(None);
+        }
         state.state = AppState::Idle;
         state.interim_text.clear();
         state.original_text.clear();
@@ -341,6 +350,8 @@ impl Control {
                 }
                 return SpeechUpdate::Publish(Publication {
                     kept_audio: result.kept_audio,
+                    trust: result.trust,
+                    voice_fix: self.voice_fix,
                     word_confidence: result.word_confidence,
                     session_id: id,
                     original_text: result.original_text,
@@ -363,6 +374,9 @@ impl Control {
                 self.session = None;
                 self.target = None;
                 self.target_app = None;
+                if std::mem::take(&mut self.voice_fix) {
+                    crate::trust::voice_end(None);
+                }
                 state.state = AppState::Idle;
                 state.audio_level = 0.0;
                 state.interim_text.clear();
@@ -393,6 +407,9 @@ impl Control {
                 self.session = None;
                 self.target = None;
                 self.target_app = None;
+                if std::mem::take(&mut self.voice_fix) {
+                    crate::trust::voice_end(None);
+                }
                 state.state = AppState::Error;
                 state.error = Some(message.clone());
                 state.audio_level = 0.0;
@@ -427,6 +444,23 @@ impl Control {
         self.update_activity = None;
         true
     }
+}
+
+/// Set by the dictation key while a doubtful-word popover is open.
+static VOICE_FIX_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The screen tab's after-paste line ("Pasted · 2 to check").
+pub(crate) fn set_delivery_notice(app: &AppHandle, text: &str) {
+    let Some(runtime) = app.try_state::<Arc<Runtime>>() else { return };
+    let runtime = runtime.inner().clone();
+    if let Ok(mut snapshot) = runtime.snapshot.lock() {
+        // A new dictation already underway owns the status line.
+        if matches!(snapshot.state, AppState::Loading | AppState::Listening | AppState::Cleaning) {
+            return;
+        }
+        snapshot.delivery_notice = Some(text.to_owned());
+    }
+    runtime.emit(app);
 }
 
 pub fn lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>, String> {
@@ -654,6 +688,7 @@ impl Runtime {
                 target: None,
                 target_app: None,
                 no_history: false,
+                voice_fix: false,
                 last_meter: Instant::now(),
                 privacy_generation: 0,
             }),
@@ -730,6 +765,30 @@ impl Runtime {
         value.update = self.updater.snapshot()?;
         Ok(value)
     }
+    /// Hand a pasted dictation to the trust layer. Never fails the paste.
+    fn hand_to_trust(&self, publication: &Publication, target: Option<platform::PasteTarget>) {
+        let Ok(snapshot) = self.snapshot() else { return };
+        let settings = snapshot.settings;
+        let (Some(target), Some(capture)) = (target, publication.trust.clone()) else { return };
+        if !settings.trust.enabled || publication.recognition_completeness != RecognitionCompleteness::Complete {
+            return;
+        }
+        let vocabulary = self
+            .store
+            .get_vocabulary()
+            .map(|entries| entries.into_iter().filter(|e| e.enabled).map(|e| e.written).collect())
+            .unwrap_or_default();
+        crate::trust::after_paste(crate::trust::Pasted::new(
+            publication.text.clone(),
+            Some(capture),
+            platform::trust_target(&target),
+            publication.target_app.clone(),
+            vocabulary,
+            settings.hotkey.clone(),
+            settings.hotkey_mode == HotkeyMode::Hold,
+        ));
+    }
+
     pub fn emit(&self, app: &AppHandle) {
         if let Ok(value) = self.snapshot() {
             #[cfg(target_os = "macos")]
@@ -1014,6 +1073,15 @@ impl Runtime {
             confirmed,
             Some(self.store.clone()),
         );
+        let voice_fix = VOICE_FIX_REQUESTED.swap(false, Ordering::AcqRel);
+        let mut options = options;
+        if voice_fix {
+            options.no_history = true;
+            options.trust = false;
+        } else {
+            crate::trust::new_dictation();
+        }
+        control.voice_fix = voice_fix;
         control.target_app = target.clone()
             .map(|target| lookup_target_app(target, options.layout_app_category.clone()));
         control.no_history = options.no_history;
@@ -1154,6 +1222,21 @@ impl Runtime {
             SpeechUpdate::Updated => {}
             SpeechUpdate::CloseCursor => windows::close_cursor(app),
             SpeechUpdate::FinishCursor => windows::finish_cursor(app),
+            SpeechUpdate::Publish(mut publication) if publication.voice_fix => {
+                // A spoken fix goes to the open mark, never to the clipboard or history.
+                control.voice_fix = false;
+                let finished = control.finish_publication(publication.session_id, &mut state);
+                state.delivery_notice = None;
+                drop(state);
+                drop(control);
+                let text = std::mem::take(&mut publication.text);
+                crate::trust::voice_end((publication.recognition_completeness == RecognitionCompleteness::Complete).then_some(text));
+                if finished {
+                    windows::finish_cursor(app);
+                }
+                self.emit(app);
+                return Ok(());
+            }
             SpeechUpdate::Publish(mut publication) => {
                 // Persist raw before attempting delivery. A storage error does not discard the clipboard result.
                 let saved = publication.save(&self.store, control.privacy_generation);
@@ -1171,11 +1254,16 @@ impl Runtime {
                 }
                 let runtime = self.clone();
                 let delivery_app = app.clone();
+                let trust_target = publication.target.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Some(delivered) = publication.deliver_with(platform::deliver_text).await
                     {
                         match delivered {
                             Ok(outcome) => {
+                                // Paste first, mark after: the trust layer runs on its own thread.
+                                if outcome.paste_sent {
+                                    runtime.hand_to_trust(&publication, trust_target);
+                                }
                                 if let Ok(mut last) = runtime.last_published.lock() {
                                     *last = publication.text.clone();
                                 }
@@ -1511,8 +1599,14 @@ pub fn shortcut_event(app: &AppHandle, key: ShortcutState) {
     if action == 0 {
         return;
     }
+    // With a doubtful-word popover open, the dictation key fixes that word.
+    let voice_fix = action == 1 && crate::trust::voice_fix_armed();
+    if voice_fix {
+        VOICE_FIX_REQUESTED.store(true, Ordering::Release);
+        crate::trust::voice_begin();
+    }
     // Preserve the focused editor at the key event, before any app UI or worker delay.
-    let target = if action == 1 {
+    let target = if action == 1 && !voice_fix {
         platform::capture_paste_target()
     } else {
         None
@@ -1525,7 +1619,12 @@ pub fn shortcut_event(app: &AppHandle, key: ShortcutState) {
     };
     tauri::async_runtime::spawn_blocking(move || {
         let result = if action == 1 {
-            runtime.start_at_generation(&app, target, generation)
+            let started = runtime.start_at_generation(&app, target, generation);
+            // A start that never reached capture must not leave a fix armed.
+            if VOICE_FIX_REQUESTED.swap(false, Ordering::AcqRel) {
+                crate::trust::voice_end(None);
+            }
+            started
         } else if action == 3 {
             let Some(ticket) = stop_ticket else { return };
             runtime.stop_cleanup_at(ticket)
@@ -1591,6 +1690,7 @@ mod publication_boundary_tests {
                 target: None,
                 target_app: None,
                 no_history: false,
+                voice_fix: false,
                 last_meter: Instant::now() - std::time::Duration::from_secs(1),
                 privacy_generation: 0,
             },
@@ -1845,7 +1945,7 @@ mod publication_boundary_tests {
     ) -> Event {
         Event::Completed {
             session_id: id,
-            result: DictationResult {
+            result: DictationResult { trust: None,
                 kept_audio: None,
                 word_confidence: Vec::new(),
                 original_text: raw.into(),

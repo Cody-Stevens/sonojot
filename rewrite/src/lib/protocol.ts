@@ -42,6 +42,25 @@ export const notesPresetSchema = z.enum([
 ]);
 export type NotesPreset = z.infer<typeof notesPresetSchema>;
 
+export const trustSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+  sensitivity: z.enum(["fewer", "balanced", "more"]).default("balanced"),
+  markStyle: z.enum(["band", "dots"]).default("band"),
+  popoverStyle: z.enum(["card", "strip"]).default("card"),
+  playOn: z.enum(["hover", "click"]).default("hover"),
+  offApps: z.array(z.string()).default([]),
+  nextShortcut: z.string().default(""),
+});
+export type TrustSettings = z.infer<typeof trustSettingsSchema>;
+const trustDefaults: TrustSettings = {
+  enabled: true,
+  sensitivity: "balanced",
+  markStyle: "band",
+  popoverStyle: "card",
+  playOn: "hover",
+  offApps: [],
+  nextShortcut: "",
+};
 export const settingsSchema = z.object({
   updateChannel: z.enum(["stable", "nightly"]).default("stable"),
   termsAcceptedVersion: z.number().int().nonnegative().default(0),
@@ -84,6 +103,8 @@ export const settingsSchema = z.object({
   meetingNotesPreset: notesPresetSchema.nullable().default(null),
   meetingNotesInstructions: z.string().default(""),
   meetingSpeakerLabels: z.boolean().default(true),
+  /** Two-source meetings: drop far-end words the microphone picked up from speakers. Null: automatic (on with word-timed recognizers). */
+  meetingRemoveEcho: z.boolean().nullable().default(null),
   meetingSource: z.enum(["microphone", "system", "both"]).default("both"),
   meetingSourceMigrated: z.boolean().default(false),
   systemAudioDefaultApplied: z.boolean().default(false),
@@ -93,6 +114,8 @@ export const settingsSchema = z.object({
   learnFromCorrections: z.boolean().default(false),
   memoryMode: memoryModeSchema.default("overlap"),
   modelRetention: modelRetentionSchema.default("10m"),
+  /** Doubtful-word marks after a paste. */
+  trust: trustSettingsSchema.default(trustDefaults),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export const systemAudioStatusSchema = z.enum([
@@ -424,6 +447,7 @@ export const commandSchemas = {
     snapshot: snapshotSchema,
   }),
   count_dictations: z.number().int().nonnegative(),
+  trust_recent_apps: z.array(z.string()),
   get_dictation_audio_usage: z.object({
     count: z.number().int().nonnegative(),
     bytes: z.number().finite().nonnegative(),
@@ -557,6 +581,7 @@ export interface CommandArguments {
   delete_dictation: { id: string; confirmed: boolean };
   delete_all_dictations: { confirmed: boolean };
   count_dictations: undefined;
+  trust_recent_apps: undefined;
   get_dictation_audio_usage: undefined;
   delete_dictation_audio: undefined;
   save_dictation_correction: { id: string; text: string; scope: string | null };
@@ -747,6 +772,7 @@ export const previewSnapshot: Snapshot = {
     learnFromCorrections: false,
     memoryMode: "overlap",
     modelRetention: "10m",
+    trust: { ...trustDefaults },
     startTabHidden: false,
     cursorIndicator: true,
     meetingSource: "both",
@@ -756,6 +782,7 @@ export const previewSnapshot: Snapshot = {
     meetingNotesPreset: null,
     meetingNotesInstructions: "",
     meetingSpeakerLabels: true,
+    meetingRemoveEcho: null,
   },
   state: "idle",
   originalText: "",

@@ -106,9 +106,9 @@
     transform: translateY(-50%);
     pointer-events: none;
   }
+  /* The row's padding already clears the text; the actions sit on the row's
+     own paper rather than a flat patch. */
   .row-tools :global(.quiet-row-actions) {
-    background-color: var(--card);
-    border-radius: 9px;
     padding: 4px;
   }
   .dictation-row:hover .row-open,

@@ -218,7 +218,7 @@ mod outages {
         }
         #[test]
         fn collapse_mixed_with_a_failure_is_a_stop_and_omissions_keep_known_bounds() {
-            let mut result = RecognitionResult {
+            let mut result = RecognitionResult { raw_words: Vec::new(),
                 word_confidence: Vec::new(),
                 original_text: None, text: "Retained words.".into(),
                 segments: vec![crate::asr::Segment {
@@ -428,6 +428,8 @@ pub struct MeetingTranscription {
     diarization_root: Option<PathBuf>,
     /// Explicit job or imported-media identity; never inferred from the voice.
     known_speaker: Option<String>,
+    /// Remove far-end voices the microphone picked up (setting, captured at begin).
+    remove_far_end: crate::meeting_leak::EchoRemoval,
     _update_activity: crate::resource_manager::UpdateActivityLease,
 }
 
@@ -466,7 +468,7 @@ impl MeetingTranscription {
         F: FnMut(&Path, &str, &AtomicBool) -> Result<String, String>,
     {
         self.run_recognition(move |path, model, cancel| {
-            recognize(path, model, cancel).map(|text| crate::asr::RecognitionResult {
+            recognize(path, model, cancel).map(|text| crate::asr::RecognitionResult { raw_words: Vec::new(),
                 word_confidence: Vec::new(),
                 original_text: None,
                 segments: Vec::new(),
@@ -604,6 +606,7 @@ impl MeetingTranscription {
                 crate::ai::check_cancel(&self.cancel)?;
                 let other = recognize(system, &self.asr_model, &self.cancel);
                 crate::ai::check_cancel(&self.cancel)?;
+                let mut mic = mic;
                 let mut other = match other {
                     Ok(value) => value,
                     Err(error) => {
@@ -614,6 +617,9 @@ impl MeetingTranscription {
                         return Ok(merge_stems(partial, empty_recognition()));
                     }
                 };
+                // Far-end speech the microphone picked up on loudspeakers.
+                // The unfiltered microphone text stays in original_text.
+                crate::meeting_leak::remove_far_end_words(&mut mic, &other, self.remove_far_end);
                 if mic.completeness == crate::domain::RecognitionCompleteness::Incomplete
                     || other.completeness == crate::domain::RecognitionCompleteness::Incomplete
                     || (!mic.text.trim().is_empty() && !other.text.trim().is_empty())
@@ -676,7 +682,7 @@ struct MeetingRecognition {
 }
 
 fn empty_recognition() -> crate::asr::RecognitionResult {
-    crate::asr::RecognitionResult {
+    crate::asr::RecognitionResult { raw_words: Vec::new(),
         word_confidence: Vec::new(),
         original_text: None,
         text: String::new(), segments: Vec::new(),
@@ -1096,7 +1102,7 @@ impl Meetings {
                 let history: Value = self.store.read(&path).ok()?;
                 serde_json::from_value(history["segments"].clone()).ok()
             }).unwrap_or_default();
-            let recognition = crate::asr::RecognitionResult {
+            let recognition = crate::asr::RecognitionResult { raw_words: Vec::new(),
                 word_confidence: Vec::new(),
                 original_text: None, text: record.detail.transcript.clone(), segments,
                 completeness: record.detail.recognition_completeness,
@@ -1446,7 +1452,7 @@ impl Meetings {
             .ok_or("This meeting has no saved speaker labels. Transcribe it again first.")?;
         let path = self.store.meetings_dir().join(format!("{id}.asr")).join(file);
         let saved: Value = self.store.read(&path)?;
-        let raw = crate::asr::RecognitionResult {
+        let raw = crate::asr::RecognitionResult { raw_words: Vec::new(),
             word_confidence: Vec::new(),
             original_text: None,
             // New history stores raw speech separately. An explicitly empty
@@ -1680,6 +1686,7 @@ impl Meetings {
             remote,
             diarization_root,
             known_speaker,
+            remove_far_end: crate::meeting_leak::EchoRemoval::from_setting(settings.meeting_remove_echo),
         })
     }
     pub fn generate_notes<F>(
@@ -2251,7 +2258,7 @@ mod meeting_tests {
     use super::*;
 
     fn recognition(text: &str, start: f32, end: f32) -> crate::asr::RecognitionResult {
-        crate::asr::RecognitionResult {
+        crate::asr::RecognitionResult { raw_words: Vec::new(),
             word_confidence: Vec::new(),
             original_text: None,
             text: text.into(), completeness: crate::domain::RecognitionCompleteness::Complete,
@@ -2706,6 +2713,38 @@ mod meeting_tests {
         let saved = meetings.finish_recognition_operation(&job.id, &job.cancel, Ok(result), &job.asr_model).unwrap();
         assert_eq!(saved.speaker_count, 1);
         assert!(meetings.set_speaker_labels(&detail.id, false, false).is_err());
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn speaker_echo_switch_removes_far_end_words_from_the_microphone_when_chosen() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let far = "we can ship the new pricing page on Thursday morning";
+        let run = |mode: crate::meeting_leak::EchoRemoval| {
+            // A fresh recording per run: one active operation per meeting.
+            let detail = stems(&meetings, "both", Some(8192));
+            let paths = meetings.recording_paths(&detail.id).unwrap();
+            let mut job = meetings.begin_transcription(&detail.id, None).unwrap();
+            job.remove_far_end = mode;
+            job.recognize_audio_with(|path, _, _| Ok(if path == paths.microphone {
+                // The microphone heard the far end (no word times: spread over the segment).
+                let mut mic = recognition("Sounds good to me.", 1.0, 2.0);
+                mic.segments.push(recognition(far, 10.2, 13.2).segments.remove(0));
+                mic.text = format!("Sounds good to me. {far}");
+                mic
+            } else { recognition(far, 10.0, 13.0) }), |_, _, _| Ok(Vec::new())).unwrap()
+        };
+        use crate::meeting_leak::EchoRemoval;
+        let off = run(EchoRemoval::Off);
+        assert!(off.published.contains("You: we can ship"));
+        // These test recognitions carry no word times: automatic leaves them alone.
+        assert_eq!(run(EchoRemoval::Automatic).published, off.published);
+        let on = run(EchoRemoval::On);
+        assert_eq!(on.published, "[0:01] You: Sounds good to me.
+
+[0:10] Other speakers: we can ship the new pricing page on Thursday morning");
+        assert!(on.raw.original_text.as_deref().unwrap().contains(&format!("Sounds good to me. {far}")));
         fs::remove_dir_all(meetings.store.root()).unwrap();
     }
 
@@ -3177,7 +3216,7 @@ mod meeting_tests {
             .begin_transcription(&detail.id, None)
             .unwrap()
             .run_recognition(|_, _, _| {
-                Ok(crate::asr::RecognitionResult {
+                Ok(crate::asr::RecognitionResult { raw_words: Vec::new(),
                     word_confidence: Vec::new(),
                     original_text: None,
                     segments: Vec::new(),

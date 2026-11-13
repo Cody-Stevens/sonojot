@@ -87,7 +87,7 @@
     width: fit-content;
   }
   summary:focus-visible {
-    outline: 2px solid currentColor;
+    outline: 2px solid var(--focus);
     outline-offset: 4px;
   }
   pre {

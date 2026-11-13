@@ -169,6 +169,9 @@ pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], ca
     );
     // Capture guards pin a prewarmed helper until this job finishes.
     let retention = crate::resource_manager::current_retention();
+    let original = text;
+    let respaced = respace_glued_apostrophes(text);
+    let text = respaced.as_ref();
     let document = Document::new(text, vocabulary, cancel);
     let words = document.as_ref().map_or(0, |document| document.words.len() as u64);
     let predicting = Instant::now();
@@ -188,8 +191,11 @@ pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], ca
         release_idle(retention);
     }
     let finishing = Instant::now();
-    let (output, stage, reason) =
+    let (mut output, stage, reason) =
         finish_prediction(text, document.as_ref(), prediction, vocabulary, cancel, mode, clean);
+    if check(cancel).is_err() {
+        output = original.into();
+    }
     event("punctuation-finish", label, finishing.elapsed().as_secs_f64() * 1000.0, words);
     let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
     if let Some(reason) = reason {
@@ -1985,6 +1991,166 @@ fn render_gap(gap: &str, prediction: Option<Mark>, terminal: bool) -> String {
     }
 }
 
+/// Lower the capital a recognizer gives the first word of each separately
+/// decoded audio segment when the previous segment did not end a sentence.
+/// Parakeet decodes every pause-separated segment on its own and starts each
+/// one with a capital ("a feature" + "Request for..."), which cleanup would
+/// otherwise keep as a deliberate name. Only ordinary lower-case words change:
+/// "I", acronyms, mixed case, single letters, vocabulary terms and words the
+/// recognizer also capitalises inside a segment keep their capital.
+/// Returns None when nothing changes or the segments do not make up `text`.
+pub(crate) fn lower_segment_start_capitals(
+    text: &str,
+    segments: &[&str],
+    vocabulary: &[Vocabulary],
+) -> Option<String> {
+    let segments: Vec<&str> = segments.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    if segments.len() < 2 || segments.join(" ") != text {
+        return None;
+    }
+    let title_case = |word: &str| {
+        let mut chars = word.chars();
+        chars.next().is_some_and(char::is_uppercase)
+            && word.chars().count() > 1
+            && !chars.any(char::is_uppercase)
+    };
+    // A capital inside a segment, away from any sentence start, is evidence
+    // that the recognizer means a name wherever that word appears.
+    let mut named = HashSet::new();
+    for segment in &segments {
+        for (index, word) in word_regex().find_iter(segment).enumerate() {
+            let before = segment[..word.start()].trim_end();
+            if index > 0
+                && title_case(word.as_str())
+                && !before.ends_with(['.', '?', '!', '…', ':', '"', '“'])
+            {
+                named.insert(word.as_str().to_lowercase());
+            }
+        }
+    }
+    let vocabulary: Vec<String> = vocabulary
+        .iter()
+        .filter(|entry| entry.enabled)
+        .flat_map(|entry| [&entry.heard, &entry.written])
+        .flat_map(|term| word_regex().find_iter(term).map(|w| w.as_str().to_lowercase()).collect::<Vec<_>>())
+        .collect();
+    let mut changed = false;
+    let mut out = String::with_capacity(text.len());
+    for (index, segment) in segments.iter().enumerate() {
+        if index > 0 {
+            out.push(' ');
+        }
+        let previous = segments.get(index.wrapping_sub(1)).map(|s| {
+            s.trim_end_matches(['"', '\'', '”', '’', ')', ']'])
+        });
+        let first = word_regex().find(segment).filter(|word| word.start() == 0);
+        let lower = first.map(|word| word.as_str().to_lowercase()).unwrap_or_default();
+        if let Some(word) = first.filter(|word| {
+            previous.is_some_and(|p| !p.ends_with(['.', '?', '!', '…', ':', ';']))
+                && title_case(word.as_str())
+                && !I_FORMS.contains(&lower.replace('’', "'").as_str())
+                && common_lowercase(&lower)
+                && !named.contains(&lower)
+                && !vocabulary.contains(&lower)
+        }) {
+            let mut chars = word.as_str().chars();
+            let head = chars.next().unwrap();
+            out.extend(head.to_lowercase());
+            out.push_str(chars.as_str());
+            out.push_str(&segment[word.end()..]);
+            changed = true;
+        } else {
+            out.push_str(segment);
+        }
+    }
+    changed.then_some(out)
+}
+
+/// Shortened words written with a leading apostrophe ('cause, 'em, 'n').
+const ELISIONS: &[&str] = &[
+    "bout", "cause", "cept", "cos", "coz", "cuz", "em", "fore", "fraid", "kay", "member", "n",
+    "nother", "nuff", "round", "scuse", "specially", "sup", "til", "tis", "twas", "twere",
+];
+/// Contraction endings that stay glued: "the U.S.'s plan".
+const CLITICS: &[&str] = &["d", "ll", "m", "re", "s", "t", "ve"];
+
+fn apostrophe(ch: char) -> bool {
+    matches!(ch, '\'' | '’' | '‘')
+}
+
+/// Restore the space a recognizer drops between a mark and a word that starts
+/// with an apostrophe ("one?'Cause", "yeah,'cause"). The SentencePiece rule
+/// that recognizers share keeps a space only before a letter or digit. Without
+/// a space the joined text reads as one glued literal and stays unedited.
+///
+/// The apostrophe goes with the next word unless a single quote is open and
+/// that word is no shortened form; then it closes the quote ("stop?' Then").
+pub(crate) fn respace_glued_apostrophes(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains(apostrophe) {
+        return text.into();
+    }
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut out = String::new();
+    let mut copied = 0;
+    let mut open = false;
+    for (k, &(at, ch)) in chars.iter().enumerate() {
+        if ch == '\n' {
+            open = false;
+        }
+        if !apostrophe(ch) {
+            continue;
+        }
+        let prev = k.checked_sub(1).map(|p| chars[p].1);
+        let next = chars.get(k + 1).map(|&(_, c)| c);
+        let word: String = chars[k + 1..]
+            .iter()
+            .map(|&(_, c)| c)
+            .take_while(|c| c.is_alphanumeric())
+            .collect();
+        let lower = word.to_lowercase();
+        let shortened = word.chars().next().is_some_and(char::is_numeric)
+            || ELISIONS.contains(&lower.as_str());
+        let starts_word = next.is_some_and(char::is_alphanumeric);
+        let marks = chars[..k]
+            .iter()
+            .rev()
+            .take_while(|&&(_, c)| matches!(c, '.' | '?' | '!' | '…' | ',' | ';' | ':'))
+            .count();
+        let glued = starts_word
+            && marks > 0
+            && k > marks
+            && chars[k - marks - 1].1.is_alphanumeric()
+            && !CLITICS.contains(&lower.as_str());
+        if glued {
+            out.push_str(&text[copied..at]);
+            if open && !shortened && ch != '‘' {
+                out.push(ch);
+                out.push(' ');
+                open = false;
+            } else {
+                out.push(' ');
+                out.push(ch);
+                open |= !shortened;
+            }
+            copied = at + ch.len_utf8();
+        } else if starts_word
+            && prev.is_none_or(|p| p.is_whitespace() || matches!(p, '(' | '[' | '{' | '"' | '“'))
+        {
+            open |= !shortened;
+        } else if open
+            && prev.is_some_and(|p| !p.is_whitespace())
+            && next.is_none_or(|n| !n.is_alphanumeric())
+        {
+            open = false;
+        }
+    }
+    if copied == 0 {
+        return text.into();
+    }
+    out.push_str(&text[copied..]);
+    out.into()
+}
+
 fn literal_spans(text: &str) -> Vec<(usize, usize)> {
     // Speech in quotes is prose, and a leading apostrophe is often part of a
     // word. Only paired code delimiters protect a whole quoted span.
@@ -2716,6 +2882,165 @@ mod tests {
         }
     }
 
+    /// Both render paths as run_cleanup drives them, with a model that agrees
+    /// with the recognizer's own marks (and ends the text with a period).
+    fn both_paths(text: &str) -> [String; 2] {
+        let cancel = AtomicBool::new(false);
+        let text = respace_glued_apostrophes(text);
+        let document = Document::new(&text, &[], &cancel).unwrap();
+        let count = document.words.len();
+        let labels: Vec<_> = (0..count)
+            .map(|index| {
+                let gap = document.gap(index);
+                if gap.contains('?') {
+                    Mark::Question
+                } else if gap.contains(['.', '!']) && !gap.contains('…') {
+                    Mark::Period
+                } else if gap.contains([',', '…']) {
+                    Mark::Comma
+                } else if index + 1 == count {
+                    Mark::Period
+                } else {
+                    Mark::None
+                }
+            })
+            .collect();
+        [false, true].map(|clean| {
+            let prediction = Prediction {
+                labels: labels.clone(),
+                spans: None,
+                deletes: clean.then(|| vec![false; count]),
+            };
+            let (output, stage, _) = finish_prediction(&text, Ok(&document), Ok(prediction), &[],
+                &cancel, WrittenFormMode::Off, clean);
+            assert_eq!(stage, "punctuation_model");
+            assert!(same_words(&text, &output), "{output}");
+            output
+        })
+    }
+
+    #[test]
+    fn a_word_with_a_leading_apostrophe_keeps_its_space_on_both_paths() {
+        for apostrophe in ["'", "’"] {
+            let a = apostrophe;
+            for (text, expected) in [
+                // A recognizer drops the space before an apostrophe.
+                (format!("is the oven still on?{a}Cause it smells hot"),
+                    format!("Is the oven still on? {a}Cause it smells hot.")),
+                (format!("is it done?{a}cause I want it"), format!("Is it done? {a}Cause I want it.")),
+                (format!("is it done? {a}cause I want it"), format!("Is it done? {a}Cause I want it.")),
+                (format!("we waited.{a}til noon it rained"), format!("We waited. {a}Til noon it rained.")),
+                (format!("call them now!{a}em too"), format!("Call them now. {a}Em too.")),
+                (format!("we talked…{a}bout the plan"), format!("We talked, {a}bout the plan.")),
+                (format!("yeah,{a}cause you said so"), format!("Yeah, {a}cause you said so.")),
+                (format!("yeah, {a}cause you said so"), format!("Yeah, {a}cause you said so.")),
+                (format!("it was loud.{a}tis the season"), format!("It was loud. {a}Tis the season.")),
+                (format!("it was the music then.{a}90s songs mostly"),
+                    format!("It was the music then. {a}90s songs mostly.")),
+                // Start of text, after an opening quote or bracket, mid-sentence.
+                (format!("{a}cause I said so"), format!("{a}Cause I said so.")),
+                (format!("she said \"{a}tis fine\" today"), format!("She said \"{a}tis fine\" today.")),
+                (format!("we left early ({a}cause it rained) today"),
+                    format!("We left early ({a}cause it rained) today.")),
+                (format!("we play rock {a}n{a} roll {a}til late"),
+                    format!("We play rock {a}n{a} roll {a}til late.")),
+                // Closing quotes and possessives attach to the left.
+                (format!("he yelled {a}stop?{a}Then he left"),
+                    format!("He yelled {a}stop?{a} Then he left.")),
+                (format!("the dogs{a} bowls and James{a} car"),
+                    format!("The dogs{a} bowls and James{a} car.")),
+                (format!("we fed the dogs{a}, then James{a} cat"),
+                    format!("We fed the dogs{a}, then James{a} cat.")),
+            ] {
+                assert_eq!(both_paths(&text), [expected.clone(), expected], "{text}");
+            }
+        }
+        // A curly opening quote always opens.
+        assert_eq!(both_paths("is it done?‘cause I want it"),
+            ["Is it done? ‘Cause I want it.", "Is it done? ‘Cause I want it."]);
+    }
+
+    #[test]
+    fn glued_apostrophe_respacing_leaves_other_apostrophes_alone() {
+        for text in [
+            "the U.S.'s plan works", "it's fine, isn't it", "rock'n'roll", "the dogs' bowls",
+            "James' car", "he said 'no' and left", "I know.'", "a.m.'d", "",
+        ] {
+            assert_eq!(respace_glued_apostrophes(text), text);
+        }
+        assert_eq!(respace_glued_apostrophes("one?'Cause two,’cuz three.'em"),
+            "one? 'Cause two, ’cuz three. 'em");
+        // A quote opened by an ordinary word closes; a shortened word never opens one.
+        assert_eq!(respace_glued_apostrophes("say 'stop?'Then go"), "say 'stop?' Then go");
+        assert_eq!(respace_glued_apostrophes("say 'stop?'cause go"), "say 'stop? 'cause go");
+        assert_eq!(respace_glued_apostrophes("'cause I said.'Then go"), "'cause I said. 'Then go");
+        assert_eq!(respace_glued_apostrophes("say 'stop'\nok?'Then go"), "say 'stop'\nok? 'Then go");
+    }
+
+    #[test]
+    fn segment_start_capitals_are_lowered_only_where_no_sentence_ended() {
+        let lower = |segments: &[&str]| {
+            let text = segments.join(" ");
+            lower_segment_start_capitals(&text, segments, &[]).unwrap_or(text)
+        };
+        assert_eq!(lower(&["we should file a feature", "Request for the export button"]),
+            "we should file a feature request for the export button");
+        assert_eq!(lower(&["it feels kind of weird and", "Kind of slow when it starts"]),
+            "it feels kind of weird and kind of slow when it starts");
+        assert_eq!(lower(&["move the files into", "The archive", "Folder now"]),
+            "move the files into the archive folder now");
+        // A sentence end before the segment is left to the punctuation model.
+        assert_eq!(lower(&["the build passed.", "Then the tests failed"]),
+            "the build passed. Then the tests failed");
+        assert_eq!(lower(&["did it pass?", "Maybe not"]), "did it pass? Maybe not");
+        // I, acronyms, mixed case, single letters, unknown names and quotes stay.
+        for segments in [
+            ["then", "I think so"], ["ask the", "NASA team"], ["open", "GitHub today"],
+            ["pick plan", "A today"], ["call", "Zorvath tomorrow"], ["she said", "\"Hello there"],
+        ] {
+            assert_eq!(lower(&segments), segments.join(" "));
+        }
+        // A word the recognizer also capitalises inside a segment is a name.
+        assert_eq!(lower(&["open the Speech page then the", "Speech settings"]),
+            "open the Speech page then the Speech settings");
+        // Vocabulary terms keep their capital.
+        let vocabulary = [crate::cleanup::Vocabulary {
+            kind: crate::domain::VocabularyKind::Replace, aliases: Vec::new(),
+            heard: "Summit".into(), written: "Summit".into(), enabled: true, context: vec![],
+        }];
+        assert_eq!(lower_segment_start_capitals("we met at the Summit today", &["we met at the", "Summit today"], &vocabulary), None);
+        // Segments that do not make up the text are not trusted.
+        assert_eq!(lower_segment_start_capitals("other text", &["a", "Request"], &[]), None);
+        assert_eq!(lower_segment_start_capitals("one segment", &["one segment"], &[]), None);
+    }
+
+    #[test]
+    fn a_lowered_segment_start_stays_lower_on_both_paths() {
+        let cancel = AtomicBool::new(false);
+        let segments = ["We should file a feature", "Request for the export button.", "It feels kind of", "Weird today."];
+        let text = lower_segment_start_capitals(&segments.join(" "), &segments, &[]).unwrap();
+        let document = Document::new(&text, &[], &cancel).unwrap();
+        let mut labels = vec![Mark::None; document.words.len()];
+        labels[9] = Mark::Period;
+        *labels.last_mut().unwrap() = Mark::Period;
+        for clean in [false, true] {
+            let prediction = Prediction { labels: labels.clone(), spans: None, deletes: clean.then(|| vec![false; labels.len()]) };
+            let (output, _, _) = finish_prediction(&text, Ok(&document), Ok(prediction), &[], &cancel, WrittenFormMode::Off, clean);
+            assert_eq!(output, "We should file a feature request for the export button. It feels kind of weird today.", "clean={clean}");
+        }
+    }
+
+    #[test]
+    fn cleanup_without_the_model_restores_the_space() {
+        let cancel = AtomicBool::new(false);
+        let root = Path::new("missing-apostrophe-test-model");
+        for clean in [false, true] {
+            let outcome = run_cleanup(root, "is it done?'cause I want it", &[], &cancel,
+                WrittenFormMode::Off, clean, false);
+            assert_eq!(outcome.text, "Is it done? 'Cause I want it");
+        }
+    }
+
     #[test]
     fn apostrophes_stay_on_their_side_of_whitespace() {
         for apostrophe in ["'", "’"] {
@@ -3356,6 +3681,7 @@ mod tests {
 #[cfg(feature = "fidelity-eval")]
 pub fn evaluation_cleanup_render(root: &Path, text: &str, cancel: &AtomicBool) -> std::result::Result<String, String> {
     let selection = evaluation_selection(root, cancel)?;
+    let text = &respace_glued_apostrophes(text);
     let doc = Document::new(text, &[], cancel).map_err(|e| e.event().to_owned())?;
     let prediction = crate::punctuation_worker::predict(&selection, text, doc.words.len(), cancel).map_err(|e| e.event().to_owned())?;
     let deletes = prediction.deletes.ok_or("Model has no delete head")?;

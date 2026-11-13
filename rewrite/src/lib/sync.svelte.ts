@@ -4,6 +4,7 @@ import { app } from "./app.svelte";
 const statusSchema = z.object({
   signedIn: z.boolean(),
   unlocked: z.boolean(),
+  initialized: z.boolean().nullable().optional(),
   server: z.string(),
   email: z.string().optional(),
   device: z.string().optional(),

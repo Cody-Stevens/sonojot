@@ -62,9 +62,9 @@
   );
   const cleaner = $derived(
     choice.kind === "off"
-      ? "Rules"
+      ? ""
       : choice.kind === "sonojot"
-        ? "SonoJot"
+        ? "SonoJot proofreader"
         : choice.kind === "online"
           ? onlineCleanupName(choice.model)
           : (cleanupModel?.name ?? choice.model),
@@ -168,8 +168,9 @@
             : settings.cleanupMode === "format"
               ? "Format"
               : "Clean"}</span
-        ><span class="stage-dot">·</span><span class="chip-name">{cleaner}</span
-        >{#if cleanupHealth}<span
+        >{#if cleaner}<span class="stage-dot">·</span><span class="chip-name"
+            >{cleaner}</span
+          >{/if}{#if cleanupHealth}<span
             class="health-dot"
             aria-label="Cleanup needs attention"
           ></span>{/if}</Chip

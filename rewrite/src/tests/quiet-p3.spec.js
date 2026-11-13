@@ -130,7 +130,7 @@ test("Cleanup levels, local warning and More keep their settings and capture loc
   expect((await settings(page)).cleanupMode).toBe("format");
   await expect(page.getByLabel("Cleanup example")).toContainText("Um, so");
   await page
-    .getByRole("button", { name: "Choose local cleanup model" })
+    .getByRole("button", { name: "Choose a proofreader on this computer" })
     .click();
   const local = page.getByRole("dialog", { name: "Local cleanup model" });
   await local.getByRole("button", { name: /Qwen 3 4B/ }).click();
@@ -142,8 +142,8 @@ test("Cleanup levels, local warning and More keep their settings and capture loc
   await local.getByRole("button", { name: "Use anyway" }).click();
   expect((await settings(page)).cleanupModel).toBe("qwen3-4b-instruct-2507");
   expect((await settings(page)).setupProfile).toBe("custom");
-  await page.getByRole("button", { name: /^More Punctuation/ }).click();
-  const more = page.getByRole("dialog", { name: "More", exact: true });
+  await page.getByRole("button", { name: /^Advanced Written form/ }).click();
+  const more = page.getByRole("dialog", { name: "Advanced", exact: true });
   await more
     .getByRole("switch", { name: "Shape by type", exact: true })
     .click();
@@ -154,7 +154,7 @@ test("Cleanup levels, local warning and More keep their settings and capture loc
   await capture(page, "03-cleanup-more.png");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "As heard", exact: true }).click();
-  await page.getByRole("button", { name: /^More Punctuation/ }).click();
+  await page.getByRole("button", { name: /^Advanced Written form/ }).click();
   await expect(
     more.getByRole("switch", { name: "Shape by type", exact: true }),
   ).toBeDisabled();
@@ -174,7 +174,7 @@ test("Written form stays saved while Format and As heard disable it", async ({
   await open(page);
   await cleanup(page);
   await page.getByRole("button", { name: "Clean", exact: true }).click();
-  await page.getByRole("button", { name: /^More Punctuation/ }).click();
+  await page.getByRole("button", { name: /^Advanced Written form/ }).click();
   const toggle = page.getByRole("switch", {
     name: "Written form",
     exact: true,
@@ -185,13 +185,13 @@ test("Written form stays saved while Format and As heard disable it", async ({
   await page.keyboard.press("Escape");
   for (const name of ["Format", "As heard"]) {
     await page.getByRole("button", { name, exact: true }).click();
-    await page.getByRole("button", { name: /^More Punctuation/ }).click();
+    await page.getByRole("button", { name: /^Advanced Written form/ }).click();
     await expect(toggle).toBeDisabled();
     await expect(toggle).not.toBeChecked();
     await page.keyboard.press("Escape");
   }
   await page.getByRole("button", { name: "Clean", exact: true }).click();
-  await page.getByRole("button", { name: /^More Punctuation/ }).click();
+  await page.getByRole("button", { name: /^Advanced Written form/ }).click();
   await toggle.click();
   expect((await settings(page)).writtenForm).toBe(true);
 });
@@ -209,7 +209,7 @@ test("browser sign-in cancels, resumes and selects cleanup without changing Note
   });
   await cleanup(page);
   await page
-    .getByRole("button", { name: "Choose online cleanup model" })
+    .getByRole("button", { name: "Choose an online proofreader" })
     .click();
   const sheet = online(page);
   await expect(
@@ -233,7 +233,7 @@ test("browser sign-in cancels, resumes and selects cleanup without changing Note
     model: "test/dual",
     backend: "local",
   });
-  await page.getByRole("button", { name: /^Rules RECOMMENDED/ }).click();
+  await page.getByRole("button", { name: /^None RECOMMENDED/ }).click();
   expect(await settings(page)).toMatchObject({
     proofreader: false,
     localProofreader: false,
@@ -256,7 +256,7 @@ test("key retry, catalog search and exact-model training consent preserve earlie
   );
   await cleanup(page);
   await page
-    .getByRole("button", { name: "Choose online cleanup model" })
+    .getByRole("button", { name: "Choose an online proofreader" })
     .click();
   const sheet = online(page);
   await sheet
@@ -291,7 +291,7 @@ test("key retry, catalog search and exact-model training consent preserve earlie
     (await page.evaluate(() => window.__testAiSettings())).quickModels,
   ).toContainEqual({ id: "meta/muse-spark-1.3-contributor", role: "text" });
   await page
-    .getByRole("button", { name: "Choose online cleanup model" })
+    .getByRole("button", { name: "Choose an online proofreader" })
     .click();
   await sheet.getByRole("button", { name: "Privacy ↗" }).click();
   expect(await calls(page, "open_openrouter_privacy")).toHaveLength(1);
@@ -391,7 +391,7 @@ test("capture during consent prevents selection; failed catalog loads offer retr
   });
   await cleanup(page);
   await page
-    .getByRole("button", { name: "Choose online cleanup model" })
+    .getByRole("button", { name: "Choose an online proofreader" })
     .click();
   const sheet = online(page);
   await expect(sheet).toContainText("Could not refresh every model list");
@@ -431,7 +431,7 @@ test("local downloads keep license consent, cancellation and installed selection
   });
   await cleanup(page);
   await page
-    .getByRole("button", { name: "Choose local cleanup model" })
+    .getByRole("button", { name: "Choose a proofreader on this computer" })
     .click();
   const local = page.getByRole("dialog", { name: "Local cleanup model" });
   await local.getByRole("button", { name: /Smart cleanup 0.8B/ }).click();

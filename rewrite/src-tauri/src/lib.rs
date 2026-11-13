@@ -1,5 +1,6 @@
 pub mod flavor;
 mod confidence;
+pub mod trust;
 pub mod acceleration;
 mod permissions;
 mod ai;
@@ -16,6 +17,7 @@ pub mod audio;
 mod audio_backlog;
 pub mod cleanup;
 mod commands;
+mod detector_level;
 mod download_consent;
 mod diarization;
 mod diarization_model;
@@ -29,6 +31,8 @@ mod llama_asr;
 mod live_preview;
 mod media_support;
 pub mod meeting_ai;
+mod meeting_pieces;
+mod meeting_leak;
 pub mod meeting_audio_export;
 mod meeting_speech;
 pub mod meetings;
@@ -321,6 +325,10 @@ pub fn run() {
             commands::get_diagnostics,
             commands::get_cli_path,
             commands::copy_cli_path,
+            commands::trust_ui,
+            commands::trust_snippet,
+            commands::trust_recent_apps,
+            commands::trust_debug_inject,
             permissions::permission_status,
             permissions::permission_assistant,
             permissions::permission_drag,
@@ -377,6 +385,10 @@ pub fn run() {
             }
             // Agents and scripts drive the app through `sonojot-cli` (see cli_protocol).
             cli_server::start(app.handle());
+            // Doubtful-word marks after a paste; idle (no thread work) until then.
+            if let Ok(snapshot) = runtime.snapshot() {
+                trust::init(app.handle(), &snapshot.settings.trust);
+            }
             // Once per install location: sonojot-cli on PATH, agents pointed at it.
             let data_dir = runtime.store.root().to_path_buf();
             std::thread::spawn(move || agent_integration::ensure_once(&data_dir));
@@ -432,6 +444,13 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let check = MenuItem::with_id(
+                app,
+                "trust-next",
+                "Check doubtful words",
+                true,
+                None::<&str>,
+            )?;
             let separator = PredefinedMenuItem::separator(app)?;
             let screen_tab = MenuItem::with_id(
                 app,
@@ -447,7 +466,7 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", format!("Quit {}", flavor::NAME), true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&settings, &screen_tab, &dictation, &copy, &separator, &quit],
+                &[&settings, &screen_tab, &dictation, &copy, &check, &separator, &quit],
             )?;
             // AppKit opens a status item's attached menu on the click itself.
             // The paper sheet needs that click, so the menu is shown only on right click.
@@ -462,6 +481,7 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     let runtime = app.state::<Arc<Runtime>>().inner().clone();
                     match event.id.as_ref() {
+                        "trust-next" => trust::next(),
                         "screen-tab" => {
                             let app = app.clone();
                             tauri::async_runtime::spawn_blocking(move || {

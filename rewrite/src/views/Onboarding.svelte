@@ -840,10 +840,7 @@
               />{:else}<p data-text-surface="flat">{missingDetails}</p>{/if}
           </section>
         </div>
-        <p data-text-surface="flat">
-          Later, open Speech or Notes from Dictation, Meetings or Settings to
-          change models or choose OpenRouter.
-        </p>
+        <p data-text-surface="flat">You can change models later in Settings.</p>
       {:else if stepId === "meetings"}
         <div class="meetings-copy" data-text-surface="flat">
           <p>Your recordings, transcripts and notes live in Meetings.</p>

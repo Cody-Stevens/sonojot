@@ -22,6 +22,22 @@ export function defaultMeetingModel(
   );
 }
 
+/**
+ * Speaker echo removal: a saved choice wins; without one it is on only for
+ * recognizers that report word times (SonoJot Parakeet on the CPU). The
+ * backend applies the same rule from the recognition it actually got.
+ */
+export function speakerEchoRemoval(
+  choice: boolean | null,
+  meetingModel: string,
+): { on: boolean; automatic: boolean } {
+  if (choice !== null) return { on: choice, automatic: false };
+  return {
+    on: meetingModel.startsWith("parakeet") && !meetingModel.endsWith("-cuda"),
+    automatic: true,
+  };
+}
+
 export type MeetingModelChoice =
   { kind: "local"; id: string } | { kind: "online"; id: string };
 

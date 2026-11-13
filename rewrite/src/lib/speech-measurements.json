@@ -43,6 +43,28 @@
         "rewrite/evaluation/asr-bench-2026-10/REPORT.md",
         "rewrite/evaluation/BENCHMARK-WINDOWS-2026-09-28.md"
       ]
+    },
+    "views": {
+      "everyday": {
+        "value": 7.16,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "People's Speech and Common Voice Spontaneous, 187 clips, 5,282 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "accented": {
+        "value": 18.43,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "VoxPopuli accented English, 400 clips, 10,675 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "talks": {
+        "value": 2.6,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "TED-12, 1,233 words, clips decoded whole. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      }
+    },
+    "meetings": {
+      "value": 9.87,
+      "source": "docs/research/ParakeetMeetingsFp16.md",
+      "note": "Pooled over AMI headset, NOTSOFAR-1 close-talk and DiPCo close-talk (86,393 words, public speakers only), through the app's meeting recognition path on Windows"
     }
   },
   "qwen3-asr-1.7b-q4-cpu": {
@@ -81,6 +103,28 @@
       "label": "2.00 s",
       "basis": "Median after speech on a 4-core Linux CPU",
       "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    },
+    "views": {
+      "everyday": {
+        "value": 7.06,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "People's Speech and Common Voice Spontaneous, 187 clips, 5,282 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "accented": {
+        "value": 18.22,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "VoxPopuli accented English, 400 clips, 10,675 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "talks": {
+        "value": 2.51,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "TED-12, 1,233 words, clips decoded whole. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      }
+    },
+    "meetings": {
+      "value": 9.82,
+      "source": "docs/research/ParakeetMeetingsFp16.md",
+      "note": "Pooled over AMI headset, NOTSOFAR-1 close-talk and DiPCo close-talk (86,393 words, public speakers only), through the app's meeting recognition path on Windows"
     }
   },
   "qwen3-asr-0.6b-q8-cpu": {
@@ -115,6 +159,23 @@
       "label": "1.52 s",
       "basis": "Median after speech on a 4-core Linux CPU",
       "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    },
+    "views": {
+      "everyday": {
+        "value": 7.78,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "People's Speech and Common Voice Spontaneous, 187 clips, 5,282 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "accented": {
+        "value": 15.59,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "VoxPopuli accented English, 400 clips, 10,675 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "talks": {
+        "value": 3.57,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "TED-12, 1,233 words, clips decoded whole. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      }
     }
   },
   "qwen3-asr-1.7b-q8-metal": {
@@ -219,6 +280,23 @@
       "label": "0.15 s",
       "basis": "Median after speech on a 4-core Linux CPU",
       "source": "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md"
+    },
+    "views": {
+      "everyday": {
+        "value": 8.56,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "People's Speech and Common Voice Spontaneous, 187 clips, 5,282 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "accented": {
+        "value": 18.95,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "VoxPopuli accented English, 400 clips, 10,675 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "talks": {
+        "value": 3.97,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "TED-12, 1,233 words, clips decoded whole. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      }
     }
   },
   "parakeet-tdt-0.6b-v2-sonojot-ft2": {
@@ -260,6 +338,34 @@
         "rewrite/evaluation/BENCHMARK-LINUX-CPU-2026-10-15.md",
         "docs/research/ParakeetFineTuneDesktop.md"
       ]
+    },
+    "views": {
+      "everyday": {
+        "value": 7.54,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "People's Speech and Common Voice Spontaneous, 187 clips, 5,282 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "accented": {
+        "value": 16.28,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "VoxPopuli accented English, 400 clips, 10,675 words. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      },
+      "talks": {
+        "value": 3.89,
+        "source": "docs/research/ParakeetFineTuneDesktop.md",
+        "note": "TED-12, 1,233 words, clips decoded whole. One run on SonoJot's test server: sherpa-onnx 1.13.8 for Parakeet, llama-server b10900 with the shipped GGUF files for Qwen; Whisper English normaliser"
+      }
+    },
+    "macWait": {
+      "seconds": 0.23,
+      "label": "0.23 s",
+      "basis": "Median wait after speech ends, real-time replay of TED-12 through the Mac app's worker on an M4",
+      "source": "rewrite/evaluation/BENCHMARK-MAC-M4-2026-11-13.md"
+    },
+    "meetings": {
+      "value": 10.14,
+      "source": "docs/research/ParakeetMeetingsFp16.md",
+      "note": "Pooled over AMI headset, NOTSOFAR-1 close-talk and DiPCo close-talk (86,393 words, public speakers only), through the app's meeting recognition path on Windows"
     }
   },
   "moonshine-medium": {

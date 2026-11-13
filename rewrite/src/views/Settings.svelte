@@ -1,4 +1,9 @@
-﻿<script lang="ts">
+﻿<script lang="ts" module>
+  // Advanced stays open when you come Back from Memory or On disk.
+  const remembered = { advanced: false };
+</script>
+
+<script lang="ts">
   import { onMount } from "svelte";
   import RecommendedSetup from "../components/quiet/RecommendedSetup.svelte";
   import LookScreen from "./LookScreen.svelte";
@@ -46,9 +51,9 @@
   );
   const cleanupName = $derived(
     cleanup.kind === "off"
-      ? "Rules"
+      ? ""
       : cleanup.kind === "sonojot"
-        ? "SonoJot cleanup"
+        ? "SonoJot proofreader"
         : modelName(cleanup.model, models, catalog),
   );
   const notesName = $derived(
@@ -92,7 +97,14 @@
             },
             {
               label: "Cleanup",
-              detail: `${{ original: "As heard", format: "Format", clean: "Clean" }[settings.cleanupMode]} · ${cleanupName}`,
+              detail: [
+                { original: "As heard", format: "Format", clean: "Clean" }[
+                  settings.cleanupMode
+                ],
+                cleanupName,
+              ]
+                .filter(Boolean)
+                .join(" · "),
               role: "cleanup",
               target: { tab: "dictation", stage: "cleanup", from: "settings" },
             },
@@ -100,6 +112,13 @@
               label: "Paste and history",
               detail: `${settings.autoPaste ? "Paste where I was typing" : "Clipboard only"} · ${settings.doNotSaveDictations ? "keep nothing" : settings.keepDictationAudio ? "keep text and audio" : "keep text"}`,
               target: { tab: "dictation", stage: "output", from: "settings" },
+            },
+            {
+              label: "Doubtful words",
+              detail: settings.trust.enabled
+                ? `${{ fewer: "Fewer", balanced: "Balanced", more: "More" }[settings.trust.sensitivity]} · ${settings.trust.markStyle === "band" ? "marker band" : "dotted underline"}`
+                : "Off",
+              target: { tab: "dictation", stage: "trust", from: "settings" },
             },
           ],
         ]
@@ -124,7 +143,13 @@
             [
               {
                 label: "Dictation",
-                detail: `${settings.hotkey} · ${modelName(settings.asrModel, models, catalog)} · ${cleanupName}`,
+                detail: [
+                  settings.hotkey,
+                  modelName(settings.asrModel, models, catalog),
+                  cleanupName,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
                 target: { tab: "settings", stage: "dictation" },
               },
               {
@@ -152,16 +177,6 @@
                   ]
                 : []),
               {
-                label: "Memory",
-                detail: `${settings.memoryMode === "overlap" ? "Keep all ready" : "Load one at a time"} · ${settings.modelRetention === "exit" ? "unload on quit" : settings.modelRetention === "immediately" ? "unload immediately" : `unload after ${settings.modelRetention.replace("m", " min")}`}`,
-                target: { tab: "settings", stage: "memory" },
-              },
-              {
-                label: "On disk",
-                detail: `${models.filter(installed).length} models · ${formatBytes(models.filter(installed).reduce((sum, m) => sum + m.diskBytes, 0))}`,
-                target: { tab: "settings", stage: "disk" },
-              },
-              {
                 label: "Updates",
                 detail: `${app.snapshot.version} · ${settings.updateChannel}`,
                 target: { tab: "settings", stage: "updates" },
@@ -173,6 +188,23 @@
               },
             ],
           ],
+  );
+  // Memory and disk details sit one click down, in one Advanced fold.
+  const advanced = $derived<Door[]>(
+    route.stage
+      ? []
+      : [
+          {
+            label: "Memory",
+            detail: `${settings.memoryMode === "overlap" ? "Keep all ready" : "Load one at a time"} · ${settings.modelRetention === "exit" ? "unload on quit" : settings.modelRetention === "immediately" ? "unload immediately" : `unload after ${settings.modelRetention.replace("m", " min")}`}`,
+            target: { tab: "settings", stage: "memory" },
+          },
+          {
+            label: "On disk",
+            detail: `${models.filter(installed).length} models · ${formatBytes(models.filter(installed).reduce((sum, m) => sum + m.diskBytes, 0))}`,
+            target: { tab: "settings", stage: "disk" },
+          },
+        ],
   );
   onMount(() => {
     const release = library.acquire();
@@ -252,6 +284,26 @@
         >
       {/each}
     </section>{/each}
+  {#if advanced.length}<details
+      class="stock paper-card quiet-settings advanced"
+      open={remembered.advanced}
+      ontoggle={(event) => (remembered.advanced = event.currentTarget.open)}
+    >
+      <summary
+        ><strong data-text-surface="emboss">Advanced</strong><span
+          class="door-detail"
+          data-text-surface="flat">Memory · On disk</span
+        ></summary
+      >
+      {#each advanced as door}<button
+          class="settings-link"
+          onclick={() => onnavigate(door.target)}
+          ><strong data-text-surface="emboss">{door.label}</strong><span
+            class="door-detail"
+            data-text-surface="flat">{door.detail}</span
+          ><span aria-hidden="true">›</span></button
+        >{/each}
+    </details>{/if}
 {/if}
 {#if profiles.failure}<p class="field-help" role="alert">
     {profiles.failure.message}
@@ -273,6 +325,40 @@
 {#if reset}<RecommendedSetup onclose={() => (reset = false)} />{/if}
 
 <style>
+  /* The fold reads like the door rows below it. */
+  .advanced summary {
+    display: grid;
+    grid-template-columns: 180px 1fr 12px;
+    align-items: baseline;
+    gap: 22px;
+    padding: 18px 0;
+    cursor: pointer;
+    list-style: none;
+  }
+  .advanced summary::-webkit-details-marker {
+    display: none;
+  }
+  .advanced summary::after {
+    content: "›";
+    color: var(--soft-ink);
+    transition: transform var(--motion-control) var(--ease-settle);
+  }
+  .advanced[open] summary::after {
+    transform: rotate(90deg);
+  }
+  .advanced summary strong {
+    font-weight: 600;
+    font-size: 19px;
+  }
+  .advanced summary .door-detail {
+    color: var(--soft-ink);
+    font-size: 15px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .advanced summary::after {
+      transition: none;
+    }
+  }
   .setup-bar {
     display: flex;
     align-items: center;

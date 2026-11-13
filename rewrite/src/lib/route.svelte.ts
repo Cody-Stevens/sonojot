@@ -10,7 +10,7 @@ export type Route = Origin &
   (
     | {
         tab: "dictation";
-        stage?: "input" | "speech" | "cleanup" | "output";
+        stage?: "input" | "speech" | "cleanup" | "output" | "trust";
         item?: "microphone" | "shortcuts";
         sheet?: never;
       }
@@ -89,6 +89,7 @@ export function routeTitle(route: Route): string {
       speech: "Speech",
       cleanup: "Cleanup",
       output: "Paste and history",
+      trust: "Doubtful words",
       notes: "Notes",
       dictation: "Dictation",
       meetings: "Meetings",

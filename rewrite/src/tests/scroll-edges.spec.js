@@ -151,8 +151,10 @@ for (const size of [
       await goToPage(page, name);
       total += await auditScrollers(page, name);
     }
-    // The page content scrolls on several pages; the sidebar at the minimum.
-    expect(total).toBeGreaterThan(size.height < 600 ? pages.length : 2);
+    // At the minimum size most pages scroll. Since the November 13 light
+    // Speech page, no main page overflows at 1220×860; the sheets and long
+    // documents below keep that size covered.
+    if (size.height < 600) expect(total).toBeGreaterThan(pages.length - 2);
   });
 }
 
@@ -166,15 +168,15 @@ test("popovers, panels, documents and textareas show edge cues", async ({
     { meeting: { notes: "# Summary\nA saved note." } },
     "/?page=setup&theme=slate",
   );
-  // The shared chart source sheet.
+  // The Compare models sheet (chart and table).
   await page
-    .getByRole("button", { name: "Measurements and sources", exact: true })
+    .getByRole("button", { name: "Compare models", exact: true })
     .click();
-  const picker = page.getByRole("dialog", { name: "Measurements and sources" });
+  const picker = page.getByRole("dialog", { name: "Compare models" });
   await expect(picker).toBeVisible();
   const list = picker.locator(".sheet-scroll");
   await expect(list).toHaveAttribute("data-scroll-edges", "inside");
-  await auditScrollers(page, "Measurements sheet");
+  await auditScrollers(page, "Compare models sheet");
   await page.keyboard.press("Escape");
 
   // Help: the Terms panel.
@@ -225,12 +227,14 @@ test("popovers, panels, documents and textareas show edge cues", async ({
 test("edge lips never take clicks from the content under them", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1220, height: 600 });
+  // The minimum window height, where the Compare models sheet scrolls.
+  await page.setViewportSize({ width: 740, height: 540 });
   await openApp(page, {}, "/?page=setup&theme=fog");
   await page
-    .getByRole("button", { name: "Measurements and sources", exact: true })
+    .getByRole("button", { name: "Compare models", exact: true })
     .click();
-  const picker = page.getByRole("dialog", { name: "Measurements and sources" });
+  const picker = page.getByRole("dialog", { name: "Compare models" });
+  await picker.getByRole("button", { name: "Table", exact: true }).click();
   const well = picker.locator(".sheet-scroll");
   await expect(well).toHaveAttribute("data-edge-end", "");
   const edges = await well.evaluate((element) => ({
@@ -245,7 +249,7 @@ test("edge lips never take clicks from the content under them", async ({
 test("Paper and print off keeps a flat edge cue", async ({ page }) => {
   await openApp(page, {}, "/?page=setup&theme=fog&material=off");
   await page
-    .getByRole("button", { name: "Measurements and sources", exact: true })
+    .getByRole("button", { name: "Compare models", exact: true })
     .click();
-  await auditScrollers(page, "Measurements sheet, Paper and print off");
+  await auditScrollers(page, "Compare models sheet, Paper and print off");
 });

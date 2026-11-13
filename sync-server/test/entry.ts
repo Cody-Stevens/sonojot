@@ -23,6 +23,14 @@ const app = worker({
           : "person@example.invalid",
     };
   },
+  sendCode: async (_env, email) => {
+    if (email.startsWith("reject")) throw new Fault(400, "synthetic rejection");
+    return { code: "123456", radarAttempt: "synthetic-radar" };
+  },
+  verifyCode: async (_env, email, code) => {
+    if (code !== "123456") throw new Fault(401, "Invalid code.");
+    return { provider: "workos", subject: email === "person@example.invalid" ? "user_synthetic" : "user_new", session: "session_synthetic", email, authTime: Math.floor(Date.now() / 1000) };
+  },
   mail: async () => {},
 });
 
