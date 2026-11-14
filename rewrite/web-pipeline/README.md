@@ -19,12 +19,12 @@ const { raw, text, language } = await transcriber.transcribe(recordingBlob, { la
 | Stage | Model | Download | License |
 | --- | --- | ---: | --- |
 | Speech recognition | SonoJot Parakeet v1 (SonoJot's fine-tune of NVIDIA Parakeet TDT 0.6B v2), encoder weights in 4-bit | 375 MB | CC BY 4.0 |
-| Punctuation and written form | SonoJot Punctuation v3 | 303 MB | CC BY-SA 4.0 |
+| Punctuation, written form and casing | SonoJot Punctuation v4, 8-bit weights | 181 MB | CC BY-SA 4.0 |
 | Cleanup rules | ported from the desktop app | in the package | Apache-2.0 |
 
 Recognition uses WebGPU when the browser has it and WebAssembly otherwise. Punctuation runs on WebAssembly. Everything runs in a Web Worker, so the page stays responsive. Only English is supported; any other `language` rejects with `UnsupportedLanguageError`, so an app can say so instead of showing a wrong transcript.
 
-Downloads are checked against pinned SHA-256 values and kept in Cache Storage under their hash. Later starts read them back and check only their size: they were verified when stored, and hashing 678 MB on every start would cost 0.4 s on a fast desktop and more on a laptop. A file that has not been used for `maxAgeDays` (default 30) is deleted the next time the transcriber starts; the browser may also evict it earlier when storage runs low, and it is then downloaded again. `clearModelCache()` removes everything.
+Downloads are checked against pinned SHA-256 values and kept in Cache Storage under their hash. Later starts read them back and check only their size: they were verified when stored, and hashing 556 MB on every start would cost about 0.3 s on a fast desktop and more on a laptop. A file that has not been used for `maxAgeDays` (default 30) is deleted the next time the transcriber starts; the browser may also evict it earlier when storage runs low, and it is then downloaded again. `clearModelCache()` removes everything.
 
 ### Resumed downloads
 
@@ -62,8 +62,8 @@ During a download the worker holds only the chunk in flight. The whole file is r
 
 ## Host requirements
 
-- By default the models are downloaded from Hugging Face at pinned commits: the `web/` folder of `SonoJot/sonojot-parakeet-v1` and the root of `SonoJot/sonojot-punct-v3`. Downloads redirect to CDN hosts, so `connect-src` needs `https://huggingface.co https://*.hf.co`.
-- To serve them yourself, lay the files out as `<model>/<file>` (`sonojot-parakeet-v1-web-q4/…`, `sonojot-punct-v3/…`) on a host listed in `connect-src`, with CORS allowing your origin, and pass `modelUrl: "https://models.example.com/{model}/{name}"`. Files are cached by hash, so changing hosts later does not cause a new download.
+- By default the models are downloaded from Hugging Face at pinned commits: the `web/` folder of `SonoJot/sonojot-parakeet-v1` and the root of `SonoJot/sonojot-punct-v4`. Downloads redirect to CDN hosts, so `connect-src` needs `https://huggingface.co https://*.hf.co`.
+- To serve them yourself, lay the files out as `<model>/<file>` (`sonojot-parakeet-v1-web-q4/…`, `sonojot-punct-v4/…`) on a host listed in `connect-src`, with CORS allowing your origin, and pass `modelUrl: "https://models.example.com/{model}/{name}"`. Files are cached by hash, so changing hosts later does not cause a new download.
 - `script-src` needs `'wasm-unsafe-eval'` to compile WebAssembly. Workers and `.wasm` files load from your own origin, so `worker-src 'self'` (or the `script-src` fallback) is enough. No third-party scripts are loaded.
 - Recording needs `Permissions-Policy: microphone=(self)`.
 - Optional: `Cross-Origin-Opener-Policy: same-origin` with `Cross-Origin-Embedder-Policy: require-corp` lets WebAssembly use several threads, which speeds up the WebAssembly path.
@@ -98,7 +98,7 @@ Without `wasmPaths` the export condition breaks the default setup, since onnxrun
 
 Measured in Chrome 157 on Windows, on a Ryzen 9 9900X with an RTX 5070, with the models served from a local folder:
 
-- First run, models from a local server: 5 to 8 s to download, verify, cache and load the 678 MB, depending on machine load.
+- First run, models from a local server: 5 to 8 s to download, verify, cache and load the models (measured with the earlier 678 MB set; the current set is 556 MB), depending on machine load.
 - Later starts, from the cache: 3.0 to 3.3 s when the machine was lightly loaded, 4.6 to 4.8 s while other jobs kept its CPU about 90% busy. With the browser held to half a CPU core, as a stand-in for a slower laptop, starts took 13 to 17 s (21 to 24 s with the CPU also busy). Expect a laptop to fall between these. Most of the time is onnxruntime building the speech model's session (about 60%) and the punctuation model and tokenizer (about 40%), all on one thread.
 - Recognition on WebGPU runs at about 0.01 of real time (a 60 s note in under a second); single-threaded WebAssembly at about 0.4.
 

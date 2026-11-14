@@ -4,12 +4,12 @@ import { folderUrls, huggingFaceUrls, PARAKEET, PUNCTUATION } from "../src/model
 
 test("huggingFaceUrls resolves files at the repository root or in a subfolder", () => {
   const url = huggingFaceUrls({
-    [PUNCTUATION.id]: { repo: "SonoJot/sonojot-punct-v3", revision: "abc123" },
+    [PUNCTUATION.id]: { repo: "SonoJot/sonojot-punct-v4", revision: "abc123" },
     [PARAKEET.id]: { repo: "SonoJot/sonojot-parakeet-v1", revision: "def456", path: "web" },
   });
   assert.equal(
     url(PUNCTUATION.files.tokenizer),
-    "https://huggingface.co/SonoJot/sonojot-punct-v3/resolve/abc123/tokenizer.json",
+    "https://huggingface.co/SonoJot/sonojot-punct-v4/resolve/abc123/tokenizer.json",
   );
   assert.equal(
     url(PARAKEET.files.encoder),

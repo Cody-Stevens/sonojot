@@ -16,7 +16,7 @@ export interface TranscriberOptions {
    * Where the model files are downloaded from. Default: the pinned Hugging
    * Face commits (`HUGGING_FACE_MODEL_URLS`). Otherwise a URL template with
    * {model}, {name} and {sha256}, or a map from model folder
-   * ("sonojot-parakeet-v1-web-q4", "sonojot-punct-v3") to a base URL.
+   * ("sonojot-parakeet-v1-web-q4", "sonojot-punct-v4") to a base URL.
    * Files are verified against pinned SHA-256 values whatever the host.
    */
   modelUrl?: WorkerConfig["modelUrl"];

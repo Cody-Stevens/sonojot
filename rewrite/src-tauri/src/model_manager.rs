@@ -799,7 +799,10 @@ fn punctuation_entry_with_status(models_root: &Path, model: crate::punctuation_m
         ram_max_bytes: Some(crate::punctuation_model::RAM_ESTIMATE_BYTES),
         vram_min_bytes: Some(0),
         vram_max_bytes: Some(0),
-        memory_basis: "CPU only. Estimated resident memory: about 400 MB; model and tokenizer download about 303 MB, plus the shared runtime when missing.".into(),
+        memory_basis: format!(
+            "CPU only. Estimated resident memory: about 400 MB; model and tokenizer download about {} MB, plus the shared runtime when missing.",
+            match model.pinned_bytes() { 0 => 303, bytes => (bytes + 500_000) / 1_000_000 },
+        ),
         guidance: if model != Package::V1 && !model.released() {
             "Fixes punctuation and helps write numbers and symbols in Clean dictation; runs on CPU. Download is not available yet."
         } else if model != Package::V1 {
@@ -810,7 +813,7 @@ fn punctuation_entry_with_status(models_root: &Path, model: crate::punctuation_m
             "Fixes sentence breaks and commas in dictation; runs on CPU. Download is unavailable until the model upload is complete."
         }.into(),
         evidence: match model {
-            Package::P4 => "CC BY-SA 4.0. Local test package only. Adds casing that works with every speech model: it can capitalise names and acronyms and only lowers a capital when it is very sure. Removes fillers, repeats and restarts in Clean dictation.",
+            Package::P4 => "CC BY-SA 4.0. Downloads verify pinned sizes and SHA-256 checksums; existing local manifests remain supported. Adds casing that works with every speech model: it can capitalise names and acronyms and only lowers a capital when it is very sure. Keeps v3's punctuation and written numbers, money and dates, and removes fillers, repeats and restarts in Clean dictation. 8-bit weights make it a smaller download than v3. Preferred over v3, v2 and v1 when ready. Model, source and license: https://huggingface.co/SonoJot/sonojot-punct-v4",
             Package::V4 => "CC BY-SA 4.0. Local test package only. Earnings-21/22, AMI and ICSI attribution is included beside the weights. Removes fillers, repeats and restarts in Clean dictation.",
             Package::V1 => "CC BY-SA 4.0. Downloads verify pinned sizes and SHA-256 checksums; existing local manifests remain supported. Model, source and license: https://huggingface.co/SonoJot/sonojot-punct-v1",
             Package::V2 => "CC BY-SA 4.0. Downloads verify pinned sizes and SHA-256 checksums; existing local manifests remain supported. Adds written numbers, money and dates in Clean dictation. Preferred over v1 when ready. Model, source and license: https://huggingface.co/SonoJot/sonojot-punct-v2",

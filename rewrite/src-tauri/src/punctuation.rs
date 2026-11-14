@@ -157,18 +157,18 @@ pub fn run_with_written_form_mode(
 /// the package is never loaded and the rules run as if it were absent.
 pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], cancel: &AtomicBool, mode: WrittenFormMode, clean: bool, model: bool) -> Outcome {
     let started = Instant::now();
-    let selection = Selection::new(
+    let mut selection = Selection::new(
         root,
         std::env::var_os("SONOJOT_PUNCT_MODEL_DIR").map(PathBuf::from),
     );
-    let label = selection.label();
+    let mut label = selection.label().to_owned();
     event(
         if selection.overridden {
             "punctuation-source-override"
         } else {
             "punctuation-source-installed"
         },
-        label,
+        &label,
         0.0,
         0,
     );
@@ -185,8 +185,19 @@ pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], ca
         Ok(document) if !document.words.is_empty() => {
             let texts: Vec<&str> = document.words.iter().map(|word| word.text).collect();
             let bounds = casing::piece_bounds(&texts);
-            crate::punctuation_worker::predict(&selection, text, document.words.len(), &bounds, cancel)
-                .map(|prediction| (prediction, bounds))
+            let mut result = crate::punctuation_worker::predict(&selection, text, document.words.len(), &bounds, cancel);
+            // An installed package whose verified files did not open is skipped from
+            // now on; this dictation retries once with the next verified package.
+            if matches!(result, Err(Failure::Load)) && !selection.overridden {
+                let next = Selection::new(root, None);
+                if next.directory != selection.directory && next.available() {
+                    event("punctuation-package-fallback", next.label(), 0.0, 0);
+                    selection = next;
+                    label = selection.label().to_owned();
+                    result = crate::punctuation_worker::predict(&selection, text, document.words.len(), &bounds, cancel);
+                }
+            }
+            result.map(|prediction| (prediction, bounds))
         }
         Ok(_) => Err(Failure::Missing),
         Err(error) => Err(*error),
@@ -204,7 +215,7 @@ pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], ca
     });
     // Model time includes any wait for a helper still loading; value = words.
     if model && words > 0 {
-        event("punctuation-predict", label, predicting.elapsed().as_secs_f64() * 1000.0, words);
+        event("punctuation-predict", &label, predicting.elapsed().as_secs_f64() * 1000.0, words);
     }
     if retention == ModelRetention::Immediately {
         release_idle(retention);
@@ -215,12 +226,12 @@ pub(crate) fn run_cleanup(root: &Path, text: &str, vocabulary: &[Vocabulary], ca
     if check(cancel).is_err() {
         output = original.into();
     }
-    event("punctuation-finish", label, finishing.elapsed().as_secs_f64() * 1000.0, words);
+    event("punctuation-finish", &label, finishing.elapsed().as_secs_f64() * 1000.0, words);
     let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
     if let Some(reason) = reason {
-        event(reason.event(), label, elapsed_ms, 0);
+        event(reason.event(), &label, elapsed_ms, 0);
     }
-    event(stage, label, elapsed_ms, words);
+    event(stage, &label, elapsed_ms, words);
     Outcome {
         text: output,
         stage,
@@ -777,6 +788,16 @@ impl Selection {
                     .unwrap_or_else(|| crate::punctuation_model::path(root))
             }),
         );
+        let stamps = Self::stamps(root, &directory, overridden);
+        Self {
+            root: identity_path(root),
+            directory,
+            overridden,
+            stamps,
+        }
+    }
+
+    fn stamps(root: &Path, directory: &Path, overridden: bool) -> Vec<Option<Stamp>> {
         let mut stamps: Vec<_> = crate::punctuation_model::FILES
             .iter()
             .map(|file| stamp(&directory.join(file)))
@@ -785,19 +806,24 @@ impl Selection {
             stamps.push(stamp(&directory.join("manifest.json")));
         }
         stamps.push(stamp(&crate::diarization_model::runtime_library(root)));
-        Self {
-            root: identity_path(root),
-            directory,
-            overridden,
-            stamps,
-        }
+        stamps
     }
+
+    /// Whether this package folder's files (and the shared runtime) are as they were
+    /// when the selection was made. It re-stamps the same folder rather than choosing
+    /// again: the helper process does not see the parent's per-session skip list, and
+    /// a newer package is noticed by the parent, which compares selections per job.
     pub(crate) fn unchanged(&self) -> bool {
-        *self == Self::new(&self.root, self.overridden.then(|| self.directory.clone()))
+        self.stamps == Self::stamps(&self.root, &self.directory, self.overridden)
     }
 
     pub(crate) fn available(&self) -> bool {
         self.stamps.iter().all(Option::is_some)
+    }
+
+    /// The installed package folder this selection loads; None for the development override.
+    pub(crate) fn package_directory(&self) -> Option<&Path> {
+        (!self.overridden).then_some(self.directory.as_path())
     }
 
     /// The package folder name for diagnostics ("sonojot-cleanup-v4").

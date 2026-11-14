@@ -35,9 +35,18 @@ pub(crate) const V2_ID: &str = "sonojot-punct-v2";
 pub(crate) const V2_RELEASE_COMMIT: Option<&str> = Some("94d84b4b17d4d2fb3cee46dbd7a4425b8a6ed625");
 pub(crate) const V4_ID: &str = "sonojot-cleanup-v4";
 /// Punctuation, written form, optional filler and repeat removal, and casing.
-/// Local test package until the upload is approved; downloads stay disabled.
 pub(crate) const P4_ID: &str = "sonojot-punct-v4";
-// TODO: pin the approved HF upload commit and SHA-256 files before enabling downloads.
+/// The public Hugging Face upload commit (November 14, 2026).
+pub(crate) const P4_RELEASE_COMMIT: Option<&str> = Some("2c242cbb72f54cf698d6aabfad5d84cacccef91f");
+/// v4's graph uses 8-bit `MatMulNBits` (com.microsoft), which ONNX Runtime's CPU
+/// provider supports from 1.22. Both shared runtimes are pinned to 1.28.2.
+pub(crate) const P4_MIN_RUNTIME: (u32, u32) = (1, 22);
+/// The released v4 package's decision thresholds. Downloads write them into the
+/// local manifest, which the engine requires for v4.
+pub(crate) const P4_DELETE_THRESHOLD: f32 = 0.955;
+pub(crate) const P4_CASE_THRESHOLDS: crate::punctuation::CaseThresholds = crate::punctuation::CaseThresholds {
+    raise: 0.8, upper: 0.7, lower_positional: 0.8, lower: 0.98,
+};
 pub(crate) const V3_ID: &str = "sonojot-punct-v3";
 /// Set only to the real Hugging Face upload commit after publication is approved.
 /// None keeps v3 local-only, including direct install requests.
@@ -100,6 +109,25 @@ pub(crate) const V3_PINS: &[PinnedFile] = &[
         sha256: "8bbd52775cedbbcf33c6be4402c9cb77d7c6f581fbc10909518384425039c9e4",
     },
 ];
+// From the v4 upload package's manifest (8-bit weights in blocks of 32), November 14, 2026.
+// Same tokenizer as v2 and v3; the config adds the casing input and thresholds.
+pub(crate) const P4_PINS: &[PinnedFile] = &[
+    PinnedFile {
+        relative: "model.int8.onnx",
+        bytes: 146_682_294,
+        sha256: "5bd49ab7dfae3d7c0352852532db082a2beffc294adc3c70e17775a83208c3a2",
+    },
+    PinnedFile {
+        relative: "tokenizer.json",
+        bytes: 34_363_188,
+        sha256: "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+    },
+    PinnedFile {
+        relative: "punct-config.json",
+        bytes: 2_500,
+        sha256: "250ff56bfa7c7070a1b9a42401fa0dd82eff50cfa52c62036f0550fa5a360c43",
+    },
+];
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,7 +174,7 @@ impl Package {
             Self::V2 => "SonoJot Punctuation v2",
             Self::V3 => "SonoJot Punctuation v3",
             Self::V4 => "SonoJot Cleanup v4 (local test)",
-            Self::P4 => "SonoJot Punctuation v4 (local test)",
+            Self::P4 => "SonoJot Punctuation v4",
         }
     }
 
@@ -169,7 +197,8 @@ impl Package {
             Self::V1 => Some(REVISION),
             Self::V2 => V2_RELEASE_COMMIT,
             Self::V3 => V3_RELEASE_COMMIT,
-            Self::V4 | Self::P4 => None,
+            Self::P4 => P4_RELEASE_COMMIT,
+            Self::V4 => None,
         };
         revision.filter(|value| value.len() == 40 && value.bytes().all(|ch| ch.is_ascii_hexdigit()))
     }
@@ -177,7 +206,15 @@ impl Package {
     pub(crate) fn released(self) -> bool { self.revision().is_some() }
 
     pub(crate) fn pins(self) -> &'static [PinnedFile] {
-        match self { Self::V1 => PINS, Self::V2 => V2_PINS, Self::V3 => V3_PINS, Self::V4 | Self::P4 => &[] }
+        match self { Self::V1 => PINS, Self::V2 => V2_PINS, Self::V3 => V3_PINS, Self::P4 => P4_PINS, Self::V4 => &[] }
+    }
+
+    /// Thresholds a downloaded package's manifest carries (v4 needs both).
+    fn release_thresholds(self) -> (Option<f32>, Option<crate::punctuation::CaseThresholds>) {
+        match self {
+            Self::P4 => (Some(P4_DELETE_THRESHOLD), Some(P4_CASE_THRESHOLDS)),
+            _ => (None, None),
+        }
     }
 
     pub(crate) fn pinned_bytes(self) -> u64 {
@@ -240,8 +277,31 @@ pub(crate) fn selected_package(root: &Path, check: Check) -> Option<Package> {
 
 fn selected_package_with_runtime(root: &Path, check: Check, runtime: Status) -> Option<Package> {
     Package::NEWEST_FIRST.into_iter().find(|package| {
-        Status::all([package.files_status(root, check), runtime]).ready()
+        !unloadable(&package.path(root)) && Status::all([package.files_status(root, check), runtime]).ready()
     })
+}
+
+/// Verified packages whose graph still failed to open in this process, for example
+/// on a runtime without an operator the graph needs (v4's 8-bit `MatMulNBits`
+/// needs ONNX Runtime 1.22). Selection skips them until restart, so an older
+/// verified package takes over instead of every dictation falling back to rules.
+static UNLOADABLE: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+fn identity(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+pub(crate) fn mark_unloadable(directory: &Path) {
+    let directory = identity(directory);
+    let mut list = UNLOADABLE.lock().unwrap_or_else(|e| e.into_inner());
+    if !list.contains(&directory) {
+        list.push(directory);
+    }
+}
+
+fn unloadable(directory: &Path) -> bool {
+    let list = UNLOADABLE.lock().unwrap_or_else(|e| e.into_inner());
+    !list.is_empty() && list.contains(&identity(directory))
 }
 
 /// Verify the exact selected directory, rather than another installed version.
@@ -415,11 +475,12 @@ fn stage_and_activate(
             }
         }
         check_cancel(cancel)?;
+        let (delete_threshold, case_thresholds) = package.release_thresholds();
         let manifest = Manifest {
             schema: 1,
             id: package.id().into(),
-            delete_threshold: None,
-            case_thresholds: None,
+            delete_threshold,
+            case_thresholds,
             files: pins.iter().map(|file| FileRecord {
                 name: file.relative.into(), bytes: file.bytes, sha256: file.sha256.into(),
             }).collect(),
@@ -545,8 +606,8 @@ mod tests {
         let root = std::env::temp_dir().join(format!("punct-v4-{}", uuid::Uuid::new_v4()));
         write_fixture(&root, Package::V4);
         write_fixture(&root, Package::P4);
-        assert!(!Package::P4.released());
-        assert_eq!(Package::offered(), Package::V3);
+        assert!(Package::P4.released());
+        assert_eq!(Package::offered(), Package::P4);
         assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::P4));
         let path = Package::P4.path(&root).join("manifest.json");
         let good = fs::read(&path).unwrap();
@@ -569,7 +630,7 @@ mod tests {
         write_fixture(&root, Package::V3);
         write_fixture(&root, Package::V4);
         assert!(!Package::V4.released());
-        assert_eq!(Package::offered(), Package::V3);
+        assert_eq!(Package::offered(), Package::P4);
         assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V4));
         let path = Package::V4.path(&root).join("manifest.json");
         let mut manifest: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -622,8 +683,127 @@ mod tests {
         assert!(Package::V3.released());
         assert_eq!(Package::V3.revision(), V3_RELEASE_COMMIT);
         assert_eq!(Package::LATEST, Package::V3);
-        assert_eq!(Package::offered(), Package::V3);
+        assert_eq!(Package::offered(), Package::P4);
         assert_eq!(Package::V3.page_url(), "https://huggingface.co/SonoJot/sonojot-punct-v3");
+    }
+
+    #[test]
+    fn v4_release_pins_match_the_published_package() {
+        assert_eq!(Package::P4.pinned_bytes(), 181_047_982);
+        assert_eq!(P4_PINS.len(), FILES.len());
+        for ((file, name), (bytes, sha256)) in P4_PINS.iter().zip(FILES).zip([
+            (146_682_294, "5bd49ab7dfae3d7c0352852532db082a2beffc294adc3c70e17775a83208c3a2"),
+            (34_363_188, "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f"),
+            (2_500, "250ff56bfa7c7070a1b9a42401fa0dd82eff50cfa52c62036f0550fa5a360c43"),
+        ]) {
+            assert_eq!((file.relative, file.bytes, file.sha256), (name, bytes, sha256));
+        }
+        assert_eq!(P4_RELEASE_COMMIT, Some("2c242cbb72f54cf698d6aabfad5d84cacccef91f"));
+        assert!(Package::P4.released());
+        for (file, name) in P4_PINS.iter().zip(FILES) {
+            let url = Package::P4.download_url(file).unwrap();
+            assert_eq!(url, format!("https://huggingface.co/SonoJot/sonojot-punct-v4/resolve/2c242cbb72f54cf698d6aabfad5d84cacccef91f/{name}"));
+        }
+        assert_eq!(Package::offered(), Package::P4);
+        assert!(P4_CASE_THRESHOLDS.valid());
+        assert_eq!(Package::P4.name(), "SonoJot Punctuation v4");
+        assert_eq!(Package::P4.page_url(), "https://huggingface.co/SonoJot/sonojot-punct-v4");
+    }
+
+    #[test]
+    fn downloaded_v4_manifest_carries_its_release_thresholds() {
+        let root = std::env::temp_dir().join(format!("punct-v4-install-{}", uuid::Uuid::new_v4()));
+        stage_and_activate(&root, Package::P4, &fixture_pins(), &AtomicBool::new(false),
+            &|_, path, _| fs::write(path, b"abc").map_err(|e| e.to_string()), &|| {},
+        ).unwrap();
+        let manifest = manifest_for(&root, Package::P4).unwrap();
+        assert_eq!(manifest.delete_threshold, Some(P4_DELETE_THRESHOLD));
+        assert_eq!(manifest.case_thresholds, Some(P4_CASE_THRESHOLDS));
+        assert!(Package::P4.files_status(&root, Check::Blocking).ready());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_package_that_fails_to_open_yields_to_the_next_verified_one() {
+        let root = std::env::temp_dir().join(format!("punct-unloadable-{}", uuid::Uuid::new_v4()));
+        write_fixture(&root, Package::V3);
+        write_fixture(&root, Package::P4);
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::P4));
+        mark_unloadable(&Package::P4.path(&root));
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), Some(Package::V3));
+        mark_unloadable(&Package::V3.path(&root));
+        assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Opt-in, network: a fresh model store downloads v4 from Hugging Face through the
+    /// installer, cleans a sentence through the real helper, then falls back to a
+    /// verified v3 when v4's verified model cannot be opened.
+    ///   SONOJOT_PUNCT_TEST_WORKER   release fidelity_eval.exe built from this tree
+    ///   SONOJOT_LIVE_STORE          a folder that does not exist yet (created and removed)
+    ///   SONOJOT_LIVE_V3_DIR         an installed sonojot-punct-v3 folder to copy in
+    ///   SONOJOT_LIVE_BROKEN_V4      an ONNX graph that verifies but fails to open
+    #[test]
+    #[ignore]
+    fn live_v4_download_then_fallback_when_its_model_cannot_open() {
+        use crate::punctuation::{run_with_written_form_mode, WrittenFormMode};
+        let var = |name: &str| PathBuf::from(std::env::var_os(name).unwrap_or_else(|| panic!("set {name}")));
+        let (store, v3, broken) = (var("SONOJOT_LIVE_STORE"), var("SONOJOT_LIVE_V3_DIR"), var("SONOJOT_LIVE_BROKEN_V4"));
+        assert!(var("SONOJOT_PUNCT_TEST_WORKER").is_file());
+        assert!(!store.exists(), "SONOJOT_LIVE_STORE must be a fresh folder");
+        let root = store.join("models");
+        let cancel = AtomicBool::new(false);
+        install_package(&root, Package::P4, &cancel, &|_, _| {}, &|| {}).unwrap();
+        let manifest = manifest_for(&root, Package::P4).unwrap();
+        assert_eq!(manifest.delete_threshold, Some(P4_DELETE_THRESHOLD));
+        assert_eq!(manifest.case_thresholds, Some(P4_CASE_THRESHOLDS));
+        assert!(Package::P4.model_status(&root, Check::Blocking).ready());
+        assert_eq!(selected_package(&root, Check::Background), Some(Package::P4));
+        let sentence = "so we met john and maria in paris on friday";
+        let downloaded = run_with_written_form_mode(&root, sentence, &[], &cancel, WrittenFormMode::Model);
+        eprintln!("downloaded v4: {} | {}", downloaded.stage, downloaded.text);
+        assert_eq!(downloaded.stage, "punctuation_model");
+        assert!(downloaded.text.contains("John") && downloaded.text.contains("Paris"), "{}", downloaded.text);
+
+        // An older verified package, and a v4 whose verified model cannot be opened.
+        let dest = Package::V3.path(&root);
+        fs::create_dir_all(&dest).unwrap();
+        for entry in fs::read_dir(&v3).unwrap() {
+            let entry = entry.unwrap();
+            fs::copy(entry.path(), dest.join(entry.file_name())).unwrap();
+        }
+        assert!(Package::V3.files_status(&root, Check::Blocking).ready());
+        let p4 = Package::P4.path(&root);
+        fs::copy(&broken, p4.join("model.int8.onnx")).unwrap();
+        let mut manifest = manifest_for(&root, Package::P4).unwrap();
+        let bytes = fs::read(p4.join("model.int8.onnx")).unwrap();
+        let model = manifest.files.iter_mut().find(|file| file.name == "model.int8.onnx").unwrap();
+        model.bytes = bytes.len() as u64;
+        model.sha256 = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&bytes));
+        fs::write(p4.join("manifest.json"), serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+        assert!(Package::P4.files_status(&root, Check::Blocking).ready(), "the broken v4 must still verify");
+        assert_eq!(selected_package(&root, Check::Background), Some(Package::P4));
+        let fallback = run_with_written_form_mode(&root, sentence, &[], &cancel, WrittenFormMode::Model);
+        eprintln!("unloadable v4: {} | {}", fallback.stage, fallback.text);
+        assert_eq!(fallback.stage, "punctuation_model", "the same dictation must use v3, not rules");
+        assert!(!fallback.text.contains("John"), "v3 has no casing output: {}", fallback.text);
+        assert_eq!(selected_package(&root, Check::Background), Some(Package::V3));
+        let again = run_with_written_form_mode(&root, sentence, &[], &cancel, WrittenFormMode::Model);
+        assert_eq!((again.stage, again.text.as_str()), (fallback.stage, fallback.text.as_str()));
+        crate::punctuation::release_cached();
+        fs::remove_dir_all(&store).unwrap();
+    }
+
+    #[test]
+    fn shared_runtimes_meet_the_v4_operator_minimum() {
+        let version = crate::diarization_model::MAC_RUNTIME_URL
+            .split("/download/v").nth(1).and_then(|rest| rest.split('/').next()).unwrap();
+        let mut parts = version.split('.').map(|part| part.parse::<u32>().unwrap());
+        assert!((parts.next().unwrap(), parts.next().unwrap()) >= P4_MIN_RUNTIME, "{version}");
+        // sherpa-onnx 1.13.8's onnxruntime.dll is ONNX Runtime 1.28.2 (file version read
+        // 2026-11-14). A new pin must be checked against P4_MIN_RUNTIME before it lands.
+        #[cfg(windows)]
+        assert_eq!(optional_asr::RUNTIME_FILES[0].sha256, "7f66f939a881baf4f46a2216496798edf4a1429878b646d12674aa62f27d8a25");
     }
 
     #[test]

@@ -54,30 +54,30 @@ export const PARAKEET = {
   },
 } as const satisfies { id: string; repo: string; revision: string; path: string; maxSeconds: number; files: Record<string, ModelFile> };
 
-/** SonoJot Punctuation v3 (CC BY-SA 4.0), unchanged from the desktop download. */
+/** SonoJot Punctuation v4 (CC BY-SA 4.0, 8-bit weights), unchanged from the desktop download. Adds casing. */
 export const PUNCTUATION = {
-  id: "sonojot-punct-v3",
-  repo: "SonoJot/sonojot-punct-v3",
+  id: "sonojot-punct-v4",
+  repo: "SonoJot/sonojot-punct-v4",
   /** Hugging Face commit the files come from. */
-  revision: "e023ae245a00bac1785bb6a022b16d181e346e48",
+  revision: "2c242cbb72f54cf698d6aabfad5d84cacccef91f",
   files: {
     model: {
-      model: "sonojot-punct-v3",
+      model: "sonojot-punct-v4",
       name: "model.int8.onnx",
-      bytes: 268_364_003,
-      sha256: "11f46c02f68a2a05912ed0c65a6dc063f199280b816307fa3ec17ce23a5e2182",
+      bytes: 146_682_294,
+      sha256: "5bd49ab7dfae3d7c0352852532db082a2beffc294adc3c70e17775a83208c3a2",
     },
     tokenizer: {
-      model: "sonojot-punct-v3",
+      model: "sonojot-punct-v4",
       name: "tokenizer.json",
       bytes: 34_363_188,
       sha256: "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
     },
     config: {
-      model: "sonojot-punct-v3",
+      model: "sonojot-punct-v4",
       name: "punct-config.json",
-      bytes: 1_672,
-      sha256: "8bbd52775cedbbcf33c6be4402c9cb77d7c6f581fbc10909518384425039c9e4",
+      bytes: 2_500,
+      sha256: "250ff56bfa7c7070a1b9a42401fa0dd82eff50cfa52c62036f0550fa5a360c43",
     },
   },
 } as const satisfies { id: string; repo: string; revision: string; files: Record<string, ModelFile> };

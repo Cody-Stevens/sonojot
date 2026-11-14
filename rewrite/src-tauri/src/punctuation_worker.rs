@@ -381,7 +381,19 @@ fn ensure_loaded(
         }
     }
     if slot.is_none() {
-        *slot = Some(Connection::load(selection, cancel)?);
+        match Connection::load(selection, cancel) {
+            Ok(connection) => *slot = Some(connection),
+            Err(Failure::Load) => {
+                // The verified files did not open (for example an operator the
+                // runtime lacks). Later selections skip this package until restart.
+                // A package replaced during the load is not marked; it is new.
+                if let Some(directory) = selection.package_directory().filter(|_| selection.unchanged()) {
+                    crate::punctuation_model::mark_unloadable(directory);
+                }
+                return Err(Failure::Load);
+            }
+            Err(failure) => return Err(failure),
+        }
         return Ok(true);
     }
     Ok(false)
