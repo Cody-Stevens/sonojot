@@ -902,6 +902,7 @@ fn abbreviation(word: &str) -> bool {
     matches!(
         word.to_ascii_lowercase().as_str(),
         "mr" | "mrs" | "ms" | "dr" | "prof" | "sr" | "jr" | "st" | "vs" | "etc"
+            | "e.g" | "i.e"
     ) || (word.chars().count() == 1 && word != "a" && word != "A" && word != "I" && word != "i")
 }
 fn pause_suffix(suffix: &str) -> bool {
@@ -937,6 +938,12 @@ fn sentence_boundary(text: &str, token: &Token) -> SentenceBoundary {
     let ending = raw.trim_end_matches(['"', '”', '\'', '’', ')', ']', '}']);
     let content = ending.trim_end_matches(['.', '?', '!']);
     let punctuation = &ending[content.len()..];
+    // After a recognizer's "a.m."/"p.m." a sentence may or may not end ("2:30
+    // p.m. on Tuesday", "3 p.m. Then"): keep the next word's own case and let
+    // the punctuation stage decide.
+    if punctuation == "." && matches!(content.to_ascii_lowercase().as_str(), "a.m" | "p.m") {
+        return SentenceBoundary::Quotation;
+    }
     if !content.is_empty()
         && !punctuation.is_empty()
         && !pause_suffix(punctuation)
@@ -5854,6 +5861,22 @@ pub(crate) fn prewarm_model_bg(root: PathBuf, model: String) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn meridiem_periods_do_not_start_a_sentence() {
+        let cancel = AtomicBool::new(false);
+        for (source, kept) in [
+            ("meet at two thirty p.m. on tuesday", "p.m. on tuesday"),
+            ("leave at three p.m. Then rest", "p.m. Then rest"),
+            ("bring fruit e.g. apples and pears", "e.g. apples"),
+        ] {
+            let result = run_interruptible_with_policy(
+                Path::new("missing-model-root"), source, Mode::Format, &[], &[], "local-rules",
+                CleanupPolicy::conservative(), &cancel, &cancel,
+            );
+            assert!(result.text.contains(kept), "{source} -> {}", result.text);
+        }
+    }
+
     #[test]
     fn prose_function_word_case_keeps_a_standalone_capital_a() {
         let cancel = AtomicBool::new(false);

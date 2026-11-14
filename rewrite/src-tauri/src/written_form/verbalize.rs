@@ -114,6 +114,16 @@ pub(super) fn numeric_speech(value: &str) -> Vec<String> {
                     .map(|s| format!("{s} thousand")),
             );
         }
+        // Colloquial hundreds: 1,200 as "twelve hundred", 2,550 as "twenty
+        // five hundred fifty" (never a round ten of hundreds).
+        if (1100..=9999).contains(&n) && (n / 100) % 10 != 0 {
+            let (century, rem) = (integer_speech(n / 100), n % 100);
+            options.push(if rem == 0 {
+                format!("{century} hundred")
+            } else {
+                format!("{century} hundred {}", integer_speech(rem))
+            });
+        }
         if (1000..=2999).contains(&n) {
             let (century, rem) = (integer_speech(n / 100), n % 100);
             if rem > 0 {

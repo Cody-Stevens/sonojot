@@ -48,7 +48,7 @@
 {#if sync.status?.signedIn}<div class="sync-words" aria-live="polite">
     <span data-text-surface="flat"
       >{!sync.status.unlocked
-        ? "Approve this computer in Settings → Account and sync"
+        ? "Getting your key from your other computer"
         : sync.status.lastSync
           ? `Synced ${new Date(sync.status.lastSync * 1000).toLocaleTimeString()}`
           : "Vocabulary ready to sync"}</span

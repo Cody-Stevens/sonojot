@@ -17,9 +17,14 @@ import { signinPage } from "./signin";
 import { rekeyPages } from "./rekey_pages";
 import { accountPage } from "./account";
 import { health, serverFailure, requestCount } from "./monitoring";
+import { NOTICE_CRON, sendNotices } from "./notices";
 export function worker(deps: AuthDependencies = productionAuth) {
   return {
-    async fetch(request: Request, env: Env): Promise<Response> {
+    async fetch(
+      request: Request,
+      env: Env,
+      ctx?: ExecutionContext,
+    ): Promise<Response> {
       try {
         configuredOrigin(request, env);
         const u = new URL(request.url);
@@ -36,7 +41,7 @@ export function worker(deps: AuthDependencies = productionAuth) {
           accountPage(request) ??
           (await webhook(request, env)) ??
           (await testIdentity(request, env)) ??
-          (await auth(request, env, deps)) ??
+          (await auth(request, env, deps, ctx)) ??
           (await authorization(request, env)) ??
           (await devicesAndWraps(request, env)) ??
           (await pairing(request, env)) ??
@@ -69,8 +74,11 @@ export function worker(deps: AuthDependencies = productionAuth) {
         } catch {}
       }
     },
-    async scheduled(_event: ScheduledController, env: Env): Promise<void> {
-      await maintenance(env);
+    async scheduled(event: ScheduledController, env: Env): Promise<void> {
+      // The frequent trigger only retries queued notices. Every other trigger
+      // runs the daily maintenance job, which also sends them.
+      if (event.cron === NOTICE_CRON) await sendNotices(env, deps.mail);
+      else await maintenance(env, deps.mail);
     },
   };
 }

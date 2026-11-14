@@ -586,37 +586,69 @@ mod tests {
         crate::secret_store::save(&a, &ca).unwrap();
         crate::secret_store::save(&b, &cb).unwrap();
         crate::secret_store::save(&lost, &clost).unwrap();
-        async fn pair(a: &Store, b: &Store) {
+        // Automatic relay: the new computer and every unlocked computer only
+        // run their own polls. Nobody compares digits or presses Approve.
+        async fn pair(approvers: &[&Store], b: &Store) {
             use crate::sync_account::action;
-            let id = action(b, "pair_start", serde_json::json!({}))
-                .await
-                .unwrap()["id"]
-                .as_str()
+            let none = || serde_json::json!({});
+            assert_eq!(action(b, "pair_wait", none()).await.unwrap()["advanced"], true);
+            let id = crate::secret_store::load::<Credentials>(b)
                 .unwrap()
-                .to_owned();
-            let arg = serde_json::json!({"id":id});
-            action(a, "pair_accept", arg.clone()).await.unwrap();
-            // Opening either screen again must keep its committed nonce.
-            assert_eq!(action(b, "pair_start", serde_json::json!({})).await.unwrap()["id"], id);
-            action(a, "pair_accept", arg.clone()).await.unwrap();
-            action(b, "pair_poll", arg.clone()).await.unwrap();
-            action(a, "pair_poll", arg.clone()).await.unwrap();
-            assert!(action(a, "pair_approve", serde_json::json!({"id":id,"confirmed":true})).await.is_err());
-            let on_b = action(b, "pair_poll", arg.clone()).await.unwrap();
-            let on_a = action(a, "pair_poll", arg.clone()).await.unwrap();
-            assert_eq!(on_a["code"], on_b["code"]);
-            assert!(action(b, "pair_approve", serde_json::json!({"id":id,"confirmed":true})).await.is_err());
-            assert!(action(a, "pair_approve", arg.clone()).await.is_err());
-            assert_ne!(action(b, "pair_poll", arg.clone()).await.unwrap()["unlocked"], true);
-            action(
-                a,
-                "pair_approve",
-                serde_json::json!({"id":id,"confirmed":true}),
-            )
-            .await
-            .unwrap();
-            let poll = action(b, "pair_poll", arg.clone()).await.unwrap();
-            assert_eq!(poll["unlocked"], true);
+                .unwrap()
+                .pairs
+                .keys()
+                .next()
+                .unwrap()
+                .clone();
+            // Reopening Settings or restarting keeps the committed nonce.
+            assert_eq!(action(b, "pair_start", none()).await.unwrap()["id"], id);
+            assert_ne!(action(b, "pair_wait", none()).await.unwrap()["unlocked"], true);
+            if let [_, later] = approvers {
+                // Let the most recently added computer claim the request, so
+                // its own older roster proof is exercised against the newer one.
+                assert_eq!(action(later, "pair_relay", none()).await.unwrap()["advanced"], true);
+            }
+            let mut unlocked = false;
+            for _ in 0..10 {
+                // Every unlocked computer polls at once; the server lets one
+                // claim the request and the others carry on without an error.
+                let relays: Vec<_> = approvers
+                    .iter()
+                    .map(|a| {
+                        let root = a.root().to_path_buf();
+                        tokio::spawn(async move {
+                            let store = Store::open(Some(root)).unwrap();
+                            action(&store, "pair_relay", serde_json::json!({})).await
+                        })
+                    })
+                    .collect();
+                for relay in relays {
+                    relay.await.unwrap().unwrap();
+                }
+                if action(b, "pair_wait", none()).await.unwrap()["unlocked"] == true {
+                    unlocked = true;
+                    break;
+                }
+            }
+            assert!(unlocked, "the new computer gets the key on its own");
+            let receiver = crate::secret_store::load::<Credentials>(b).unwrap().unwrap();
+            assert!(receiver.pairs.is_empty());
+            for a in approvers {
+                let mut approver = crate::secret_store::load::<Credentials>(a).unwrap().unwrap();
+                assert!(approver.pairs.is_empty(), "no claim is left behind");
+                // The roster proof reaches every computer, not only the approver.
+                let (ring, _) = crate::sync_account::keyring(a, &mut approver).await.unwrap();
+                assert_eq!(ring.devices.get(&receiver.device_id), Some(&receiver.device.public));
+                assert_eq!(
+                    approver.trusted.get(&receiver.device_id),
+                    Some(&receiver.device.public),
+                    "{} trusts {}: {:?}",
+                    approver.device_id,
+                    receiver.device_id,
+                    approver.trusted.keys().collect::<Vec<_>>()
+                );
+                assert_eq!(receiver.trusted.get(&approver.device_id), Some(&approver.device.public));
+            }
         }
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async {
@@ -627,8 +659,46 @@ mod tests {
             crate::sync_account::action(&b, "reset_request", serde_json::json!({"confirmed":true}))
                 .await
                 .unwrap();
-            pair(&a, &b).await;
-            pair(&a, &lost).await;
+            // The harness signs every computer in up front. Record A's view as
+            // it was before B and the lost device existed.
+            a.write(
+                &a.root().join("sync-joins.json"),
+                &serde_json::json!({"account":ca.account,"server":ca.server,"seen":[],"pending":[]}),
+            )
+            .unwrap();
+            pair(&[&a], &b).await;
+            let joined = crate::sync_account::action(&a, "join_check", serde_json::json!({}))
+                .await
+                .unwrap();
+            let mut ids: Vec<&str> = joined["joined"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|j| j["id"].as_str().unwrap())
+                .collect();
+            ids.sort();
+            assert_eq!(ids, vec!["b", "lost-device"], "A alerts about each later computer");
+            crate::sync_account::action(&a, "join_ack", serde_json::json!({"device":"b"}))
+                .await
+                .unwrap();
+            assert_eq!(
+                crate::sync_account::status(&a).unwrap()["joins"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|j| j["id"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                vec!["lost-device"]
+            );
+            // B never alerts about itself or about computers that predate it.
+            assert_eq!(crate::sync_account::status(&b).unwrap()["joins"], serde_json::json!([]));
+            assert_eq!(
+                crate::sync_account::action(&b, "join_check", serde_json::json!({}))
+                    .await
+                    .unwrap()["joined"],
+                serde_json::json!([])
+            );
+            pair(&[&a, &b], &lost).await;
             crate::sync_account::action(&lost, "now", serde_json::json!({})).await.unwrap();
             let poll: Value = cb
                 .client()
@@ -779,6 +849,10 @@ mod tests {
             let current = crate::secret_store::load::<Credentials>(&a)
                 .unwrap()
                 .unwrap();
+            // Not me is this same removal: the alert clears and the computer
+            // leaves the trusted roster along with the old key.
+            assert_eq!(crate::sync_account::status(&a).unwrap()["joins"], serde_json::json!([]));
+            assert!(!current.trusted.contains_key("lost-device"));
             let wraps = current.client().unwrap().wraps().await.unwrap();
             let recipients = wraps
                 .iter()

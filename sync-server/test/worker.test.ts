@@ -127,6 +127,7 @@ beforeAll(async () => {
   await db.exec(readFileSync("migrations/0009_meetings.sql", "utf8"));
   await db.exec(readFileSync("migrations/0010_meeting_lifecycle.sql", "utf8"));
   await db.exec(readFileSync("migrations/0011_meeting_restore.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0012_notification_detail.sql", "utf8"));
 }, 30000);
 afterAll(async () => {
   await mf?.dispose();
@@ -145,7 +146,7 @@ beforeEach(async () => {
     }
   }
   await db.exec(
-    "DELETE FROM restore_accounts; DELETE FROM restore_run; DELETE FROM trash; DELETE FROM operations; DELETE FROM pairings; DELETE FROM sessions; DELETE FROM wraps; DELETE FROM devices; DELETE FROM identities; DELETE FROM accounts; DELETE FROM auth_requests; DELETE FROM rate_limits; DELETE FROM workos_events; DELETE FROM workos_revocations;",
+    "DELETE FROM notifications; DELETE FROM restore_accounts; DELETE FROM restore_run; DELETE FROM trash; DELETE FROM operations; DELETE FROM pairings; DELETE FROM sessions; DELETE FROM wraps; DELETE FROM devices; DELETE FROM identities; DELETE FROM accounts; DELETE FROM auth_requests; DELETE FROM rate_limits; DELETE FROM workos_events; DELETE FROM workos_revocations;",
   );
 });
 describe("auth isolation", () => {
@@ -529,6 +530,132 @@ describe("auth isolation", () => {
     expect(
       (await call("/v1/pairings/pair", "GET", undefined, a.token)).status,
     ).toBe(404);
+  });
+  function receiverCommitment(
+    account: string,
+    request: string,
+    device: string,
+    nonce: string,
+  ) {
+    const parts = [
+      Buffer.from("pair-receiver/v2"),
+      Buffer.from(account),
+      Buffer.from(request),
+      Buffer.from(device),
+      Buffer.from(pk, "base64url"),
+      Buffer.from(nonce, "base64url"),
+    ];
+    const framed = parts.flatMap((p) => {
+      const n = Buffer.alloc(4);
+      n.writeUInt32BE(p.length);
+      return [n, p];
+    });
+    return createHash("sha256")
+      .update(Buffer.concat(framed))
+      .digest("base64url");
+  }
+  it("a request waits a day and only one unlocked computer relays it", async () => {
+    const a = await signin("a");
+    const c = await signin("c");
+    const b = await signin("b");
+    for (const t of [a, c])
+      await call(
+        "/v1/wraps",
+        "PUT",
+        { kind: "device", ref: t.device, ciphertext: "YWJj", previous: 0 },
+        t.token,
+      );
+    const nonce = Buffer.alloc(32, 7).toString("base64url");
+    const created = await call(
+      "/v1/pairings",
+      "POST",
+      {
+        id: "relay",
+        commitment: receiverCommitment(b.account.id, "relay", "b", nonce),
+      },
+      b.token,
+    );
+    expect(created.status).toBe(201);
+    const { expiresAt } = (await created.json()) as { expiresAt: number };
+    const day = Math.floor(Date.now() / 1000) + 86400;
+    expect(Math.abs(expiresAt - day)).toBeLessThan(60);
+    const listed = (await (
+      await call("/v1/pairings", "GET", undefined, c.token)
+    ).json()) as { id: string; state: string }[];
+    expect(listed.map((p) => [p.id, p.state])).toEqual([
+      ["relay", "committed"],
+    ]);
+    const accept = { action: "accept", commitment: pk };
+    expect(
+      (await call("/v1/pairings/relay", "POST", accept, a.token)).status,
+    ).toBe(200);
+    // The second computer loses quietly; the request keeps its first approver.
+    expect(
+      (await call("/v1/pairings/relay", "POST", accept, c.token)).status,
+    ).toBe(409);
+    expect(
+      (
+        await call(
+          "/v1/pairings/relay",
+          "POST",
+          { action: "reveal", nonce },
+          b.token,
+        )
+      ).status,
+    ).toBe(200);
+    const revealApprover = { action: "reveal_approver", nonce: pk };
+    expect(
+      (await call("/v1/pairings/relay", "POST", revealApprover, c.token))
+        .status,
+    ).toBe(409);
+    expect(
+      (await call("/v1/pairings/relay", "POST", revealApprover, a.token))
+        .status,
+    ).toBe(200);
+    // Older apps still send the explicit confirmation; it stays required.
+    const approve = { action: "approve", ciphertext: "c2VhbGVk" };
+    expect(
+      (await call("/v1/pairings/relay", "POST", approve, a.token)).status,
+    ).toBe(409);
+    expect(
+      (
+        await call(
+          "/v1/pairings/relay",
+          "POST",
+          { ...approve, confirmed: true },
+          a.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await call(
+          "/v1/pairings/relay",
+          "POST",
+          { action: "consume" },
+          b.token,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      await (await call("/v1/pairings", "GET", undefined, a.token)).json(),
+    ).toEqual([]);
+  });
+  it("requests from revoked computers are not offered for relay", async () => {
+    const a = await signin("a");
+    const b = await signin("b");
+    await call(
+      "/v1/pairings",
+      "POST",
+      { id: "stale", commitment: pk },
+      b.token,
+    );
+    await db
+      .prepare("UPDATE devices SET revoked_at=unixepoch() WHERE id='b'")
+      .run();
+    expect(
+      await (await call("/v1/pairings", "GET", undefined, a.token)).json(),
+    ).toEqual([]);
   });
 });
 
@@ -1591,6 +1718,24 @@ describe("branded email sign-in", () => {
     expect((await email(b, "new@example.com")).status).toBe(200);
     expect((await redeem(b)).status).toBe(200);
     expect((await verify(b)).status).toBe(401);
+  });
+  it("leaves code delivery to the provider and only queues join alerts while mail is disabled", async () => {
+    await call("/__test/mail");
+    const a = await attempt("sign-up");
+    expect((await email(a, "new@example.com")).status).toBe(200);
+    await signin("first-computer");
+    await signin("second-computer");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await (await call("/__test/mail")).json()).toEqual([]);
+    expect(
+      (
+        await db
+          .prepare("SELECT kind,detail,attempts FROM notifications")
+          .all()
+      ).results,
+    ).toEqual([{ kind: "new-device", detail: "Test", attempts: 0 }]);
+    expect((await call("/__test/cron")).status).toBe(200);
+    expect(await (await call("/__test/mail")).json()).toEqual([]);
   });
   it("requires email ownership before distinguishing a missing account", async () => {
     const a = await attempt("sign-in");

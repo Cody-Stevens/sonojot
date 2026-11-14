@@ -1,6 +1,7 @@
 import { now } from "./common";
 import { eraseAccount } from "./store";
-import { productionAuth } from "./auth";
+import { sendMail, type MailSender } from "./mail";
+import { sendNotices } from "./notices";
 import { RESET_WINDOW } from "./authorization";
 import { backupColumns } from "./restore";
 import { meetingMaintenance } from "./meetings";
@@ -67,7 +68,10 @@ export async function backup(env: Env): Promise<string> {
     await env.DB.prepare("DELETE FROM backup_rows WHERE run=?").bind(run).run();
   }
 }
-export async function maintenance(env: Env): Promise<void> {
+export async function maintenance(
+  env: Env,
+  mail: MailSender = sendMail,
+): Promise<void> {
   try {
     const t = now();
     let backupFailed = false;
@@ -223,41 +227,9 @@ export async function maintenance(env: Env): Promise<void> {
       }
       cursor = page.truncated ? page.cursor : undefined;
     } while (cursor);
-    if (env.MAIL_ENABLED === "true") {
-      const notices = (
-        await env.DB.prepare(
-          "SELECT n.id,n.kind,COALESCE(n.recipient,a.email) AS email FROM notifications n JOIN accounts a ON a.id=n.account WHERE n.attempts<5 ORDER BY n.created_at LIMIT 50",
-        ).all<{ id: string; kind: string; email: string }>()
-      ).results;
-      for (const n of notices) {
-        await env.DB.prepare(
-          "UPDATE notifications SET attempts=attempts+1 WHERE id=?",
-        )
-          .bind(n.id)
-          .run();
-        await productionAuth.mail(
-          env,
-          n.email,
-          n.kind === "identity-updated"
-            ? "WorkOS identity changed"
-            : n.kind === "email-changed"
-              ? "SonoJot contact email changed"
-              : n.kind === "reset-requested"
-                ? "SonoJot sync reset requested"
-                : "New device added to SonoJot",
-          n.kind === "identity-updated"
-            ? "Your WorkOS email changed. SonoJot kept this address for reset notices. Open Account and sync in an unlocked SonoJot app and confirm the contact email if this change was yours. Otherwise secure your WorkOS sign-in."
-            : n.kind === "email-changed"
-              ? "Your SonoJot contact email changed. This notice was sent to your previous address. If this was not you, open SonoJot on an unlocked device and re-key your account, then secure your sign-in accounts."
-              : n.kind === "reset-requested"
-                ? "A sync reset was requested. It cannot complete for 72 hours and expires 7 days later. Open SonoJot on an unlocked device to cancel it automatically."
-                : "A device signed in to your SonoJot account. It cannot read encrypted words until approved or recovered. If this was not you, open Account and sync on a trusted device and remove it.",
-        );
-        await env.DB.prepare("DELETE FROM notifications WHERE id=?")
-          .bind(n.id)
-          .run();
-      }
-    }
+    // Failed sends stay queued and are recorded as a 'notices' failure; they no
+    // longer stop the rest of maintenance.
+    await sendNotices(env, mail);
     do {
       const page = await env.BACKUPS.list({ cursor, limit: 500 });
       const old = page.objects.filter(

@@ -17,7 +17,7 @@
       "vars": {
         "ENVIRONMENT": "staging",
         "PUBLIC_ORIGIN": "https://sonojot-sync-staging.example.workers.dev",
-        "MAIL_ENABLED": "false",
+        "MAIL_ENABLED": "true",
         "WORKOS_CLIENT_ID": "",
         "SYNC_TEST_IDENTITY": "true",
         "AUTH_ORIGIN": ""
@@ -42,12 +42,17 @@
       ],
       "send_email": [
         {
-          "name": "MAIL"
+          "name": "MAIL",
+          "allowed_sender_addresses": [
+            "signin@sonojot.com",
+            "notices@sonojot.com"
+          ]
         }
       ],
       "triggers": {
         "crons": [
-          "17 3 * * *"
+          "17 3 * * *",
+          "*/10 * * * *"
         ]
       },
       "workers_dev": true,

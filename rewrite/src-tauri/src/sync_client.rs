@@ -243,8 +243,21 @@ impl SyncClient {
         path: &str,
         data: Option<&Value>,
     ) -> Result<T, String> {
+        Ok(self.json_status(method, path, data).await?)
+    }
+    /// Like `json`, but keeps the HTTP status so callers can tell an expired
+    /// request (404) or a lost race (409) from a failure.
+    pub async fn json_status<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        data: Option<&Value>,
+    ) -> Result<T, Failure> {
         let (_, bytes) = self.request(method, path, data, None, None, 0).await?;
-        serde_json::from_slice(&bytes).map_err(|_| "Sync returned an unsupported response.".into())
+        serde_json::from_slice(&bytes).map_err(|_| Failure {
+            status: 0,
+            message: "Sync returned an unsupported response.".into(),
+        })
     }
     /// Long read-only inventories can span several server rate-limit windows.
     /// A retry never repeats a mutation or restarts an already verified inventory.

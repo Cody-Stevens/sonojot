@@ -63,7 +63,7 @@ const word = (s: string, t: Token) => s.slice(t.coreStart, t.coreEnd);
 const lower = (s: string, t: Token) => word(s, t).toLowerCase();
 // Rust cleanup.rs::abbreviation, pause_suffix, pause_prose.
 const abbreviation = (w: string) =>
-  "mr mrs ms dr prof sr jr st vs etc".split(" ").includes(asciiLower(w)) ||
+  "mr mrs ms dr prof sr jr st vs etc e.g i.e".split(" ").includes(asciiLower(w)) ||
   ([...w].length === 1 && !["a", "A", "I", "i"].includes(w));
 const pauseSuffix = (s: string) => /^[.…]+$/.test(s) && (s.includes("…") || s.length >= 2);
 const pauseProse = (s: string, t: Token) =>
@@ -78,6 +78,8 @@ function sentenceBoundary(s: string, t: Token): "none" | "external" | "quotation
   const ending = raw.replace(/["”'’)\]}]+$/g, ""),
     content = ending.replace(/[.?!]+$/g, ""),
     punctuation = ending.slice(content.length);
+  // Rust cleanup.rs::sentence_boundary: after "a.m."/"p.m." keep the next word's own case.
+  if (punctuation === "." && ["a.m", "p.m"].includes(asciiLower(content))) return "quotation";
   return content && punctuation && !pauseSuffix(punctuation) && !abbreviation(word(s, t))
     ? quotation
       ? "quotation"
@@ -300,6 +302,7 @@ export function localRules(raw: string, mode: CleanupMode): string {
     else if (
       !afterQuote &&
       data.function_word.includes(asciiLower(current)) &&
+      current !== "A" && // Rust cleanup.rs: a capital letter A inside a sentence is a label ("option A")
       !(i > 0 && /^[A-Z]\.$/.test(source.slice(all[i - 1]!.start, all[i - 1]!.end)))
     )
       replacement = current.toLowerCase();

@@ -89,6 +89,7 @@ try {
   await db.exec(readFileSync("migrations/0009_meetings.sql", "utf8"));
   await db.exec(readFileSync("migrations/0010_meeting_lifecycle.sql", "utf8"));
   await db.exec(readFileSync("migrations/0011_meeting_restore.sql", "utf8"));
+  await db.exec(readFileSync("migrations/0012_notification_detail.sql", "utf8"));
   let account;
   const sessions = {};
   const identities = {};
@@ -224,7 +225,7 @@ try {
       ? "Two devices converged 200 synthetic meetings across bounded rate-limit windows; idle passes wrote no references or holds."
       : process.argv.includes("--meetings")
       ? "Two Rust devices converged meeting layers, resolved an edit conflict, resumed authenticated audio, and retained local edits after deletion through Miniflare; R2 held only encrypted SJV1 envelopes."
-      : "Three Rust devices signed in, paired and synced through Miniflare. Removing one re-keyed the other two automatically; old keys and a forged roster were rejected. R2 held only encrypted SJV1 envelopes.",
+      : "Three Rust devices signed in, got the key by automatic relay (one approver per request, join alerts on the others) and synced through Miniflare. Removing one re-keyed the other two automatically; old keys and a forged roster were rejected. R2 held only encrypted SJV1 envelopes.",
   );
 } finally {
   await mf.dispose();

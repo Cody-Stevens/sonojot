@@ -6,6 +6,22 @@ import { resolve } from "node:path";
 
 const directory = fileURLToPath(new URL("../", import.meta.url));
 
+// The only addresses SonoJot sends from. The binding must never send as anyone else.
+export const mailSenders = ["signin@sonojot.com", "notices@sonojot.com"];
+function mailRestricted(bindings) {
+  return (
+    Array.isArray(bindings) &&
+    bindings.length === 1 &&
+    bindings[0].name === "MAIL" &&
+    Object.keys(bindings[0]).every((key) =>
+      ["name", "allowed_sender_addresses"].includes(key),
+    ) &&
+    Array.isArray(bindings[0].allowed_sender_addresses) &&
+    bindings[0].allowed_sender_addresses.length > 0 &&
+    bindings[0].allowed_sender_addresses.every((a) => mailSenders.includes(a))
+  );
+}
+
 export function stagingConfig(template, settings) {
   const root = structuredClone(template);
   const c = root.env?.staging;
@@ -26,7 +42,8 @@ export function stagingConfig(template, settings) {
     !c.d1_databases[0].database_name.endsWith("-staging") ||
     !Array.isArray(c.r2_buckets) ||
     c.r2_buckets.length !== 2 ||
-    c.r2_buckets.some((b) => !b.bucket_name.endsWith("-staging"))
+    c.r2_buckets.some((b) => !b.bucket_name.endsWith("-staging")) ||
+    !mailRestricted(c.send_email)
   )
     throw Error(
       "Staging resources must be configured. Production and routes are forbidden.",

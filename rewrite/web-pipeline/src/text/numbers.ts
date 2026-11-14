@@ -55,10 +55,12 @@ function smallInt(t: string[]): bigint | undefined {
     return tail !== undefined && tail > 0n && tail < 100n ? BigInt(t[0]!) + tail : undefined;
   }
   if (t.includes("hundred")) {
-    if (t.length < 2 || t[1] !== "hundred" || t.filter((w) => w === "hundred").length !== 1) return;
-    const lead = smallInt(t.slice(0, 1));
-    if (lead === undefined || lead < 1n || lead > 9n) return;
-    let rest = t.slice(2);
+    // Rust numbers.rs::small_int: "four hundred" and the colloquial "twelve hundred" (11 to 99, no round tens).
+    const at = t.indexOf("hundred");
+    if (at < 1 || at > 2 || t.filter((w) => w === "hundred").length !== 1) return;
+    const lead = smallInt(t.slice(0, at));
+    if (lead === undefined || !((lead >= 1n && lead <= 9n) || (lead >= 11n && lead <= 99n && lead % 10n !== 0n))) return;
+    let rest = t.slice(at + 1);
     if (rest[0] === "and") {
       rest = rest.slice(1);
       if (!rest.length) return;

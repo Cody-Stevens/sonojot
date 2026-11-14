@@ -367,6 +367,7 @@ pub fn run() {
             app.manage(runtime.clone());
             app.manage(sync_account::SyncService::default());
             sync_account::start_scheduler(app.handle());
+            sync_account::start_pairing(app.handle());
             if flavor::sync_enabled() && !flavor::SYNC_TEST {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let handle = app.handle().clone();

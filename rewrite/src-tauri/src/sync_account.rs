@@ -36,10 +36,27 @@ pub struct PairState {
     #[serde(default)]
     pub transcript: Option<crypto::PairTranscript>,
     #[serde(default)]
-    pub displayed: Option<[u8; 32]>,
-    #[serde(default)]
     pub expires_at: u64,
+    /// Last server state this computer saw, and when it changed. A request
+    /// that stops moving is replaced (receiver) or forgotten (approver).
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub progress_at: u64,
 }
+/// How long a request waits for one of the person's other computers.
+/// Matches the server; an older server answers with its own shorter expiry.
+const PAIR_LIFETIME: u64 = 86_400;
+/// A claimed request that has not moved for this long is abandoned, for
+/// example when an older app is waiting for someone to press Approve.
+const PAIR_STALL: u64 = 600;
+/// An automatic approver seals the key within seconds of reaching "ready".
+/// A request that sits there was claimed by an older app waiting for a person.
+const PAIR_READY_STALL: u64 = 90;
+/// Background pairing poll: idle and while an exchange is moving.
+const PAIR_IDLE: u64 = 20;
+const PAIR_FAST: u64 = 3;
+const JOINS: &str = "sync-joins.json";
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Credentials {
     pub server: String,
@@ -191,7 +208,7 @@ pub fn status(store: &Store) -> Result<Value, String> {
             let reset_notice: Value = store
                 .read(&store.root().join("sync-reset-notice.json"))
                 .unwrap_or(Value::Null);
-            json!({"signedIn":!c.session.is_empty(),"unlocked":c.ak.is_some(),"email":c.email,"account":c.account,"device":c.device_id,"server":c.server,"recoveryPending":c.recovery.is_some(),"pendingSignin":c.pending.is_some(),"initialized":remote["ring_rev"].as_u64().filter(|_| remote["account"] == c.account && remote["server"] == c.server).map(|r| r > 0).or(c.initialized),"lastSync":meta.last_sync,"conflicts":meta.conflicts.len(),"pendingReset":pending_reset,"notice":notice,"meetings":crate::meeting_sync::outcome(&crate::meeting_sync::state(store, &c)?),"resetCancelled":reset_notice["account"] == c.account && reset_notice["server"] == c.server})
+            json!({"signedIn":!c.session.is_empty(),"unlocked":c.ak.is_some(),"email":c.email,"account":c.account,"device":c.device_id,"server":c.server,"recoveryPending":c.recovery.is_some(),"pendingSignin":c.pending.is_some(),"initialized":remote["ring_rev"].as_u64().filter(|_| remote["account"] == c.account && remote["server"] == c.server).map(|r| r > 0).or(c.initialized),"lastSync":meta.last_sync,"conflicts":meta.conflicts.len(),"pendingReset":pending_reset,"notice":notice,"meetings":crate::meeting_sync::outcome(&crate::meeting_sync::state(store, &c)?),"resetCancelled":reset_notice["account"] == c.account && reset_notice["server"] == c.server,"joins":if c.ak.is_some() { pending_joins(store, &c) } else { Vec::new() }})
         }
     })
 }
@@ -232,7 +249,7 @@ struct RotationWrap {
     #[serde(default)]
     introduction: Option<String>,
 }
-const REPAIR_TRUST: &str = "This computer cannot verify the key change; compare six digits with a computer that is up to date, or use the newest recovery code.";
+const REPAIR_TRUST: &str = "This computer cannot verify the key change. Sign out and add it again, or use the newest recovery code.";
 
 fn accept_roster(c: &Credentials, encoded: &str) -> Result<TrustedRoster, String> {
     let proof: RosterProof = serde_json::from_slice(&B64.decode(encoded).map_err(|_| REPAIR_TRUST)?).map_err(|_| REPAIR_TRUST)?;
@@ -299,7 +316,7 @@ pub async fn keyring(store: &Store, c: &mut Credentials) -> Result<(Keyring, u64
     let bytes = B64.decode(&w.ciphertext).map_err(|_| "Invalid keyring.")?;
     let ak =
         c.ak.as_ref()
-            .ok_or("Approve this device or use your recovery code first.")?;
+            .ok_or("This computer is still waiting for its key. Use your recovery code if no other computer is available.")?;
     let mut ring = match Keyring::open(ak, &c.account, w.rev, &bytes) {
         Ok(ring) => { check_keyset(c, &ring)?; ring }
         Err(_) => {
@@ -317,7 +334,15 @@ pub async fn keyring(store: &Store, c: &mut Credentials) -> Result<(Keyring, u64
     };
     if let Some(w) = wraps.iter().find(|w| w.kind == "roster" && w.reference == c.device_id) {
         if let Ok(roster) = accept_roster(c, &w.ciphertext) {
-            if c.trusted != roster.devices { c.trusted = roster.devices; secret_store::save(store, c)?; }
+            // Within one keyset, roster proofs only add computers; a re-key
+            // changes the keyset and replaces trust. Merge, so an older proof
+            // (for example the one that introduced this computer) never drops
+            // a computer it approved since, and never replaces a pinned key.
+            let before = c.trusted.len();
+            for (id, public) in roster.devices {
+                c.trusted.entry(id).or_insert(public);
+            }
+            if c.trusted.len() != before { secret_store::save(store, c)?; }
         }
     }
     crate::sync_cutovers::hydrate(store, c, &mut ring).await?;
@@ -327,15 +352,14 @@ pub async fn keyring(store: &Store, c: &mut Credentials) -> Result<(Keyring, u64
     )?;
     Ok((ring, w.rev))
 }
-fn confirmed_transfer(
+/// Opens the key package only if it was sealed in authenticated mode by the
+/// approver named in the transcript, bound to this exact exchange. Nobody
+/// compares digits any more, so the transcript itself is the binding.
+fn authenticated_transfer(
     device: &DeviceKey,
     transcript: &crypto::PairTranscript,
-    displayed: Option<[u8; 32]>,
     ciphertext: &[u8],
 ) -> Result<KeyTransfer, String> {
-    if displayed != Some(transcript.hash()) {
-        return Err("Display the code on this device first.".into());
-    }
     let plain = crypto::unwrap_from(
         device,
         &transcript.sender,
@@ -347,7 +371,7 @@ fn confirmed_transfer(
 }
 fn check_keyset(c: &Credentials, ring: &Keyring) -> Result<(), String> {
     if c.keyset != Some(crypto::keyset_pin(ring)) {
-        return Err("Encryption keys changed. Compare a pairing code on both devices or use the new recovery code.".into());
+        return Err("Encryption keys changed. Sign out and add this computer again, or use the new recovery code.".into());
     }
     Ok(())
 }
@@ -710,7 +734,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                     device_wrap(&c).await?;
                     return status(store);
                 }
-                return Err("This account already has encrypted words. Approve this device or use recovery.".into());
+                return Err("This account already has an encryption key. This computer gets it from your other computer, or use your recovery code.".into());
             }
             if c.ak.is_none() {
                 c.ak = Some(Secret::random())
@@ -792,6 +816,10 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
             secret_store::save(store, &c)?;
             cancel_reset(store, &c).await?;
             device_wrap(&c).await?;
+            // The waiting request is no longer needed; withdraw it so no other
+            // computer relays a key this one already has.
+            withdraw_requests(store, &mut c).await;
+            let _ = baseline_joins(store, &c).await;
         }
         "remote_status" => {
             let mut poll: Value = c.client()?.json(Method::GET, "/v1/poll", None).await?;
@@ -829,6 +857,7 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
             let target = text(&args, "device")?;
             if removal_rekeys(&args, target, &c.device_id)? {
                 rekey(store, &mut c, target, false).await?;
+                ack_join(store, &c, target)?;
                 return status(store);
             }
             let _: Value = c
@@ -841,59 +870,111 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 .await?;
             if target == c.device_id {
                 secret_store::delete(store)?;
+                forget_joins(store);
                 return status(store);
             }
+            ack_join(store, &c, target)?;
         }
         "pair_start" => {
             if c.ak.is_some() {
-                return Err("This computer is already approved.".into());
+                return Err("This computer already has the key.".into());
             }
-            // Reopening Settings resumes the same commitment, never a new nonce.
-            if let Some(pair) = c.pairs.values().find(|p| !p.approver) {
-                return Ok(json!({"id":pair.id,"expiresAt":pair.expires_at}));
+            let pair = pair_start(store, &mut c).await?;
+            return Ok(json!({"id":pair.id,"expiresAt":pair.expires_at}));
+        }
+        "pair_wait" => {
+            // The new computer drives its side on its own: start a request,
+            // reveal when an approver commits, and import the sealed key.
+            if c.ak.is_some() {
+                return Ok(json!({"unlocked":true}));
             }
-            let id = uuid::Uuid::new_v4().to_string();
-            let transcript = crypto::PairTranscript {
-                account: c.account.clone(),
-                request: id.clone(),
-                receiver_id: c.device_id.clone(),
-                receiver: c.device.public,
-                sender_id: String::new(),
-                sender: [0; 32],
-                nonce_a: [0; 32],
-                nonce_b: crypto::random(),
+            if c.session.is_empty() {
+                return Err("Sign in first.".into());
+            }
+            let Some(id) = c.pairs.values().find(|p| !p.approver).map(|p| p.id.clone()) else {
+                pair_start(store, &mut c).await?;
+                return Ok(json!({"waiting":true,"advanced":true}));
             };
-            let commit = transcript.receiver_commit();
-            let reply: Value = c
-                .client()?
-                .json(
-                    Method::POST,
-                    "/v1/pairings",
-                    Some(&json!({"id":id,"commitment":B64.encode(commit)})),
-                )
-                .await?;
-            c.pairs.clear();
-            c.pairs.insert(
-                id.clone(),
-                PairState {
-                    id: id.clone(),
-                    nonce: transcript.nonce_b,
-                    public: c.device.public,
-                    commitment: commit,
-                    approver: false,
-                    peer_nonce: None,
-                    transcript: Some(transcript),
-                    displayed: None,
-                    expires_at: reply["expiresAt"].as_u64().unwrap_or(now() + 300).min(now() + 300),
-                },
-            );
-            secret_store::save(store, &c)?;
-            return Ok(json!({"id":id,"expiresAt":c.pairs[&id].expires_at}));
+            let result = pair_step(store, &mut c, &id).await?;
+            if result["expired"] == true || result["denied"] == true {
+                // The next call starts a fresh request.
+                return Ok(json!({"waiting":true,"advanced":true}));
+            }
+            if c.pairs.get(&id).is_some_and(|p| {
+                let limit = if p.state == "ready" { PAIR_READY_STALL } else { PAIR_STALL };
+                p.state != "committed" && p.progress_at.saturating_add(limit) < now()
+            }) {
+                // Another computer claimed the request and went quiet, or an
+                // older app is waiting for a person. Replace it so any other
+                // computer can relay a fresh one.
+                withdraw_requests(store, &mut c).await;
+                return Ok(json!({"waiting":true,"advanced":false}));
+            }
+            if result["unlocked"] == true {
+                let _ = baseline_joins(store, &c).await;
+            }
+            return Ok(result);
+        }
+        "pair_relay" => {
+            // An unlocked computer answers requests from the person's other
+            // computers. The server lets exactly one approver claim each
+            // request; a computer that loses that race moves on quietly.
+            if c.ak.is_none() || c.session.is_empty() {
+                return Ok(json!({"advanced":false,"approved":0}));
+            }
+            let requests: Vec<Value> = c.client()?.json(Method::GET, "/v1/pairings", None).await?;
+            let before = c.pairs.len();
+            c.pairs.retain(|_, p| !p.approver || p.progress_at.saturating_add(PAIR_STALL) > now());
+            if c.pairs.len() != before {
+                secret_store::save(store, &c)?;
+            }
+            let (mut advanced, mut approved, mut failure) = (false, 0, None);
+            for request in &requests {
+                let Some(id) = request["id"].as_str().and_then(|id| safe_id(id).ok()) else {
+                    continue;
+                };
+                if request["device"] == c.device_id.as_str() {
+                    continue;
+                }
+                let claimed = request["approver"] == c.device_id.as_str()
+                    && c.pairs.get(id).is_some_and(|p| p.approver);
+                if request["state"] == "committed" && !c.pairs.contains_key(id) {
+                    if pair_accept(store, &mut c, id, request).await.is_err() {
+                        continue;
+                    }
+                    advanced = true;
+                } else if !claimed {
+                    continue;
+                }
+                match pair_step(store, &mut c, id).await {
+                    Ok(step) => {
+                        if step["approved"] == true {
+                            approved += 1;
+                        }
+                        advanced |= step["advanced"] == true || step["approved"] == true;
+                    }
+                    Err(error) => failure = failure.or(Some(error)),
+                }
+            }
+            if let (Some(error), false) = (failure, advanced) {
+                return Err(error);
+            }
+            return Ok(json!({"advanced":advanced,"approved":approved}));
+        }
+        "join_check" => {
+            if c.ak.is_none() || c.session.is_empty() {
+                return Ok(json!({"joined":[]}));
+            }
+            let devices: Vec<Value> = c.client()?.json(Method::GET, "/v1/devices", None).await?;
+            return Ok(json!({"joined":record_joins(store, &c, &devices)?}));
+        }
+        "join_ack" => {
+            ack_join(store, &c, text(&args, "device")?)?;
         }
         "pair_list" => return c.client()?.json(Method::GET, "/v1/pairings", None).await,
         "pair_accept" => {
             if c.ak.is_none() {
-                return Err("Approve this computer before adding another.".into());
+                return Err("This computer needs the key before it can add another.".into());
             }
             let id = safe_id(text(&args, "id")?)?;
             if let Some(pair) = c.pairs.get(id).filter(|p| p.approver) {
@@ -903,256 +984,31 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 .client()?
                 .json(Method::GET, &format!("/v1/pairings/{id}"), None)
                 .await?;
-            if p["state"] != "committed" || p["device"] == c.device_id {
-                return Err("This request is already being checked on another computer. Cancel it there and get a new code.".into());
-            }
-            let transcript = crypto::PairTranscript {
-                account: c.account.clone(),
-                request: id.into(),
-                receiver_id: text(&p, "device")?.into(),
-                receiver: decode32(text(&p, "public_key")?)?,
-                sender_id: c.device_id.clone(),
-                sender: c.device.public,
-                nonce_a: crypto::random(),
-                nonce_b: [0; 32],
-            };
-            let _:Value = c.client()?.json(Method::POST,&format!("/v1/pairings/{id}"),Some(&json!({"action":"accept","commitment":B64.encode(transcript.sender_commit())}))).await?;
-            c.pairs.insert(
-                id.into(),
-                PairState {
-                    id: id.into(),
-                    nonce: transcript.nonce_a,
-                    public: transcript.receiver,
-                    commitment: decode32(text(&p, "commitment")?)?,
-                    approver: true,
-                    peer_nonce: Some(transcript.sender_commit()),
-                    transcript: Some(transcript),
-                    displayed: None,
-                    expires_at: p["expires_at"].as_u64().ok_or("Missing pairing expiry.")?.min(now() + 300),
-                },
-            );
-            secret_store::save(store, &c)?;
+            pair_accept(store, &mut c, id, &p).await?;
             return Ok(json!({"waiting":true}));
         }
-        "pair_poll" | "pair_approve" | "pair_confirm" | "pair_deny" => {
+        "pair_poll" => {
+            let id = safe_id(text(&args, "id")?)?.to_owned();
+            return pair_step(store, &mut c, &id).await;
+        }
+        "pair_deny" => {
             let id = safe_id(text(&args, "id")?)?;
-            let path = format!("/v1/pairings/{id}");
-            if operation == "pair_deny" {
-                let _: Value = c
-                    .client()?
-                    .json(Method::POST, &path, Some(&json!({"action":"deny"})))
-                    .await?;
-                c.pairs.remove(id);
-                secret_store::save(store, &c)?;
-                return Ok(json!({"denied":true}));
-            }
-            if !c.pairs.contains_key(id) && operation == "pair_poll" {
-                return Ok(json!({"expired":true}));
-            }
-            let p: Value = c.client()?.json(Method::GET, &path, None).await?;
-            if p["state"] == "denied" || p["state"] == "consumed" {
-                c.pairs.remove(id);
-                secret_store::save(store, &c)?;
-                return Ok(json!({"denied":true}));
-            }
-            let mut local = c
-                .pairs
-                .get(id)
-                .ok_or("Start pairing on this device again.")?
-                .clone();
-            let mut t = local
-                .transcript
-                .clone()
-                .ok_or("Start pairing again with the updated app.")?;
-            if text(&p, "device")? != t.receiver_id
-                || decode32(text(&p, "public_key")?)? != t.receiver
-                || decode32(text(&p, "commitment")?)? != local.commitment
-            {
-                return Err("Pairing identity changed. Deny and start again.".into());
-            }
-            if p["state"] == "committed" {
-                return Ok(json!({"waiting":true}));
-            }
-            if !local.approver && local.peer_nonce.is_none() {
-                // Pin the approver's commitment BEFORE revealing our nonce.
-                if p["state"] != "accepted" {
-                    return Err("Pairing skipped its commitment. Start again.".into());
-                }
-                local.peer_nonce = Some(decode32(text(&p, "commitment_a")?)?);
-                local.transcript = Some(t.clone());
-                c.pairs.insert(id.into(), local.clone());
-                secret_store::save(store, &c)?;
-            }
-            if local.peer_nonce != Some(decode32(text(&p, "commitment_a")?)?) {
-                return Err("Approver commitment changed.".into());
-            }
-            if !local.approver && p["state"] == "accepted" {
-                let _: Value = c
-                    .client()?
-                    .json(
-                        Method::POST,
-                        &path,
-                        Some(&json!({"action":"reveal","nonce":B64.encode(t.nonce_b)})),
-                    )
-                    .await?;
-                return Ok(json!({"waiting":true}));
-            }
-            if local.approver && p["state"] == "accepted" {
-                return Ok(json!({"waiting":true}));
-            }
-            let b = decode32(text(&p, "nonce_b")?)?;
-            if !local.approver && b != t.nonce_b {
-                return Err("Pairing nonce changed.".into());
-            }
-            t.nonce_b = b;
-            if t.receiver_commit() != local.commitment {
-                return Err("Recipient commitment changed.".into());
-            }
-            if local.approver && p["state"] == "revealed" {
-                let _: Value = c
-                    .client()?
-                    .json(
-                        Method::POST,
-                        &path,
-                        Some(&json!({"action":"reveal_approver","nonce":B64.encode(t.nonce_a)})),
-                    )
-                    .await?;
-                return Ok(json!({"waiting":true}));
-            }
-            if p["state"] == "revealed" {
-                return Ok(json!({"waiting":true}));
-            }
-            if !local.approver {
-                t.sender = decode32(text(&p, "public_key_a")?)?;
-                t.sender_id = text(&p, "approver")?.into();
-                t.nonce_a = decode32(text(&p, "nonce_a")?)?;
-            }
-            if t.sender_commit() != local.peer_nonce.ok_or("Missing approver commitment.")? {
-                return Err("Approver identity changed.".into());
-            }
-            if !["ready", "approved"].contains(&text(&p, "state")?) {
-                return Err("Pairing is no longer available.".into());
-            }
-            let code = t.code();
-            let binding = t.binding();
-            if operation == "pair_approve" || operation == "pair_confirm" {
-                confirmed(&args)?;
-                if local.displayed != Some(t.hash()) {
-                    return Err("Display and compare the code on both devices first.".into());
-                }
-            }
-            if operation == "pair_approve" {
-                if !local.approver || p["state"] != "ready" {
-                    return Err("Pairing is not ready for approval.".into());
-                }
-                let (mut ring, rev) = keyring(store, &mut c).await?;
-                c.trusted.insert(c.device_id.clone(), c.device.public);
-                c.trusted.insert(t.receiver_id.clone(), t.receiver);
-                ring.devices = c.trusted.clone();
-                let ak = c.ak.as_ref().ok_or("Unlock this device first.")?;
-                c.client()?
-                    .put_wrap(
-                        "keyring",
-                        "main",
-                        B64.encode(ring.seal(ak, &c.account, rev + 1)?),
-                        rev,
-                    )
-                    .await?;
-                let meta = crate::sync_engine::metadata(store, &c)?;
-                let transfer = KeyTransfer {
-                    ak: ak.clone(),
-                    ring_rev: rev + 1,
-                    vocabulary_rev: meta.rev,
-                    epoch: ring.epoch,
-                    trust: Some(TrustedRoster { keyset: crypto::keyset_pin(&ring), devices: c.trusted.clone() }),
-                };
-                let plain = zeroize::Zeroizing::new(
-                    serde_json::to_vec(&transfer).map_err(|_| "Cannot encode pairing keys.")?,
-                );
-                let wrap = crypto::wrap_from(&c.device, &t.receiver, &c.account, &binding, &plain)?;
-                let _:Value = c.client()?.json(Method::POST,&path,Some(&json!({"action":"approve","confirmed":true,"ciphertext":B64.encode(wrap)}))).await?;
-                c.pairs.remove(id);
-                secret_store::save(store, &c)?;
-                publish_roster(&c).await?;
-                return Ok(json!({"approved":true}));
-            }
-            // The trusted computer is the only approval surface. The receiver
-            // imports only an authenticated transfer bound to its displayed SAS.
-            // If approval arrived before its first display, return the code once
-            // and leave import to the next poll.
-            if operation == "pair_confirm"
-                || (operation == "pair_poll" && !local.approver
-                    && p["state"] == "approved" && local.displayed == Some(t.hash()))
-            {
-                if local.approver || p["state"] != "approved" {
-                    return Err("Approve on the other computer first.".into());
-                }
-                let transfer = confirmed_transfer(
-                    &c.device,
-                    &t,
-                    local.displayed,
-                    &B64.decode(text(&p, "ciphertext")?)
-                        .map_err(|_| "Invalid wrapped keys.")?,
-                )?;
-                let wraps = c.client()?.wraps().await?;
-                let w = wraps
-                    .iter()
-                    .find(|w| w.kind == "keyring")
-                    .ok_or("Missing paired keyring.")?;
-                if w.rev < transfer.ring_rev {
-                    return Err("The service returned older keys.".into());
-                }
-                let ring = Keyring::open(
-                    &transfer.ak,
-                    &c.account,
-                    w.rev,
-                    &B64.decode(&w.ciphertext).map_err(|_| "Invalid keyring.")?,
-                )?;
-                if ring.epoch != transfer.epoch
-                    || ring.devices.get(&t.sender_id) != Some(&t.sender)
-                    || ring.devices.get(&t.receiver_id) != Some(&t.receiver)
-                {
-                    return Err("Paired keyring identity changed.".into());
-                }
-                if let Some(roster) = &transfer.trust {
-                    if roster.keyset != crypto::keyset_pin(&ring) || roster.devices.len() > 64
-                        || roster.devices.get(&t.sender_id) != Some(&t.sender)
-                        || roster.devices.get(&t.receiver_id) != Some(&t.receiver) { return Err(REPAIR_TRUST.into()); }
-                }
-                c.ak = Some(transfer.ak.clone());
-                c.keyset = Some(crypto::keyset_pin(&ring));
-                c.trusted = [
-                    (t.sender_id.clone(), t.sender),
-                    (t.receiver_id.clone(), t.receiver),
-                ]
-                .into();
-                if let Some(roster) = &transfer.trust { c.trusted = roster.devices.clone(); }
-                apply_checkpoint(store, &c, &transfer)?;
-                secret_store::save(store, &c)?;
-                cancel_reset(store, &c).await?;
-                device_wrap(&c).await?;
-                let _: Value = c
-                    .client()?
-                    .json(Method::POST, &path, Some(&json!({"action":"consume"})))
-                    .await?;
-                c.pairs.remove(id);
-                secret_store::save(store, &c)?;
-                return Ok(json!({"unlocked":true}));
-            }
-            local.transcript = Some(t.clone());
-            local.displayed = Some(t.hash());
-            c.pairs.insert(id.into(), local.clone());
+            let _: Value = c
+                .client()?
+                .json(Method::POST, &format!("/v1/pairings/{id}"), Some(&json!({"action":"deny"})))
+                .await?;
+            c.pairs.remove(id);
             secret_store::save(store, &c)?;
-            return Ok(
-                json!({"code":code,"approver":local.approver,"ready":p["state"] == "approved"}),
-            );
+            return Ok(json!({"denied":true}));
         }
         "signout" => {
+            withdraw_requests(store, &mut c).await;
             let result = c
                 .client()?
                 .json::<Value>(Method::POST, "/v1/auth/signout", Some(&json!({})))
                 .await;
             secret_store::delete(store)?;
+            forget_joins(store);
             if result.is_err() {
                 return Ok(
                     json!({"signedOut":true,"notice":"Local keys removed. Remove this device from your account to revoke its server session while offline."}),
@@ -1204,10 +1060,458 @@ pub async fn action(store: &Store, operation: &str, args: Value) -> Result<Value
                 )
                 .await?;
             secret_store::delete(store)?;
+            forget_joins(store);
         }
         _ => return Err("Unknown sync action.".into()),
     }
     status(store)
+}
+/// Starts this computer's request, or resumes the one it already has.
+/// Reopening Settings or restarting keeps the same commitment and nonce.
+async fn pair_start(store: &Store, c: &mut Credentials) -> Result<PairState, String> {
+    if let Some(pair) = c.pairs.values().find(|p| !p.approver) {
+        return Ok(pair.clone());
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let transcript = crypto::PairTranscript {
+        account: c.account.clone(),
+        request: id.clone(),
+        receiver_id: c.device_id.clone(),
+        receiver: c.device.public,
+        sender_id: String::new(),
+        sender: [0; 32],
+        nonce_a: [0; 32],
+        nonce_b: crypto::random(),
+    };
+    let commit = transcript.receiver_commit();
+    let reply: Value = c
+        .client()?
+        .json(
+            Method::POST,
+            "/v1/pairings",
+            Some(&json!({"id":id,"commitment":B64.encode(commit)})),
+        )
+        .await?;
+    let pair = PairState {
+        id: id.clone(),
+        nonce: transcript.nonce_b,
+        public: c.device.public,
+        commitment: commit,
+        approver: false,
+        peer_nonce: None,
+        transcript: Some(transcript),
+        expires_at: reply["expiresAt"]
+            .as_u64()
+            .unwrap_or(now() + PAIR_LIFETIME)
+            .min(now() + PAIR_LIFETIME),
+        state: "committed".into(),
+        progress_at: now(),
+    };
+    c.pairs.clear();
+    c.pairs.insert(id, pair.clone());
+    secret_store::save(store, c)?;
+    Ok(pair)
+}
+/// Claims a committed request from another computer of this account. The
+/// server accepts only the first claim; the caller treats an error as "another
+/// computer has it".
+async fn pair_accept(store: &Store, c: &mut Credentials, id: &str, p: &Value) -> Result<(), String> {
+    if p["state"] != "committed" || p["device"] == c.device_id.as_str() {
+        return Err("Another computer is already handling this request.".into());
+    }
+    let transcript = crypto::PairTranscript {
+        account: c.account.clone(),
+        request: id.into(),
+        receiver_id: text(p, "device")?.into(),
+        receiver: decode32(text(p, "public_key")?)?,
+        sender_id: c.device_id.clone(),
+        sender: c.device.public,
+        nonce_a: crypto::random(),
+        nonce_b: [0; 32],
+    };
+    let commitment = decode32(text(p, "commitment")?)?;
+    let expires_at = p["expires_at"].as_u64().ok_or("Missing pairing expiry.")?.min(now() + PAIR_LIFETIME);
+    let _: Value = c
+        .client()?
+        .json(
+            Method::POST,
+            &format!("/v1/pairings/{id}"),
+            Some(&json!({"action":"accept","commitment":B64.encode(transcript.sender_commit())})),
+        )
+        .await?;
+    c.pairs.insert(
+        id.into(),
+        PairState {
+            id: id.into(),
+            nonce: transcript.nonce_a,
+            public: transcript.receiver,
+            commitment,
+            approver: true,
+            peer_nonce: Some(transcript.sender_commit()),
+            transcript: Some(transcript),
+            expires_at,
+            state: "accepted".into(),
+            progress_at: now(),
+        },
+    );
+    secret_store::save(store, c)
+}
+/// Advances one request as far as the server state allows. Both computers
+/// call it on their own. Every commit-then-reveal, identity and nonce check
+/// of the manual flow still runs; only the person comparing digits is gone.
+async fn pair_step(store: &Store, c: &mut Credentials, id: &str) -> Result<Value, String> {
+    let path = format!("/v1/pairings/{id}");
+    let Some(mut local) = c.pairs.get(id).cloned() else {
+        return Ok(json!({"expired":true}));
+    };
+    let p: Value = match c.client()?.json_status(Method::GET, &path, None).await {
+        Ok(p) => p,
+        Err(e) if e.status == 404 => {
+            c.pairs.remove(id);
+            secret_store::save(store, c)?;
+            return Ok(json!({"expired":true}));
+        }
+        Err(e) => return Err(e.message),
+    };
+    let state = text(&p, "state")?.to_owned();
+    if state == "denied" || state == "consumed" {
+        c.pairs.remove(id);
+        secret_store::save(store, c)?;
+        return Ok(json!({"denied":true}));
+    }
+    let mut t = local
+        .transcript
+        .clone()
+        .ok_or("Start pairing again with the updated app.")?;
+    if text(&p, "device")? != t.receiver_id
+        || decode32(text(&p, "public_key")?)? != t.receiver
+        || decode32(text(&p, "commitment")?)? != local.commitment
+        || (local.approver && p["approver"] != c.device_id.as_str())
+    {
+        return Err("Pairing identity changed. Start again.".into());
+    }
+    let advanced = state != local.state;
+    if advanced {
+        local.state = state.clone();
+        local.progress_at = now();
+        c.pairs.insert(id.into(), local.clone());
+        secret_store::save(store, c)?;
+    }
+    let waiting = |advanced: bool| -> Result<Value, String> {
+        Ok(json!({"waiting":true,"advanced":advanced}))
+    };
+    if state == "committed" {
+        return waiting(advanced);
+    }
+    if !local.approver && local.peer_nonce.is_none() {
+        // Pin the approver's commitment BEFORE revealing our nonce.
+        if state != "accepted" {
+            return Err("Pairing skipped its commitment. Start again.".into());
+        }
+        local.peer_nonce = Some(decode32(text(&p, "commitment_a")?)?);
+        c.pairs.insert(id.into(), local.clone());
+        secret_store::save(store, c)?;
+    }
+    if local.peer_nonce != Some(decode32(text(&p, "commitment_a")?)?) {
+        return Err("Approver commitment changed.".into());
+    }
+    if state == "accepted" {
+        if local.approver {
+            return waiting(advanced);
+        }
+        let _: Value = c
+            .client()?
+            .json(
+                Method::POST,
+                &path,
+                Some(&json!({"action":"reveal","nonce":B64.encode(t.nonce_b)})),
+            )
+            .await?;
+        return waiting(true);
+    }
+    let b = decode32(text(&p, "nonce_b")?)?;
+    if !local.approver && b != t.nonce_b {
+        return Err("Pairing nonce changed.".into());
+    }
+    t.nonce_b = b;
+    if t.receiver_commit() != local.commitment {
+        return Err("Recipient commitment changed.".into());
+    }
+    if state == "revealed" {
+        if !local.approver {
+            return waiting(advanced);
+        }
+        let _: Value = c
+            .client()?
+            .json(
+                Method::POST,
+                &path,
+                Some(&json!({"action":"reveal_approver","nonce":B64.encode(t.nonce_a)})),
+            )
+            .await?;
+        return waiting(true);
+    }
+    if !local.approver {
+        t.sender = decode32(text(&p, "public_key_a")?)?;
+        t.sender_id = text(&p, "approver")?.into();
+        t.nonce_a = decode32(text(&p, "nonce_a")?)?;
+    }
+    if t.sender_commit() != local.peer_nonce.ok_or("Missing approver commitment.")? {
+        return Err("Approver identity changed.".into());
+    }
+    if state != "ready" && state != "approved" {
+        return Err("Pairing is no longer available.".into());
+    }
+    if local.approver {
+        if state != "ready" {
+            return waiting(advanced);
+        }
+        approve_pair(store, c, id, &t).await?;
+        return Ok(json!({"approved":true,"advanced":true}));
+    }
+    if state != "approved" {
+        return waiting(advanced);
+    }
+    let ciphertext = B64
+        .decode(text(&p, "ciphertext")?)
+        .map_err(|_| "Invalid wrapped keys.")?;
+    import_pair(store, c, id, &t, &ciphertext).await?;
+    Ok(json!({"unlocked":true}))
+}
+/// Seals the account key to the new computer and adds it to the roster,
+/// exactly as a manual approval did.
+async fn approve_pair(
+    store: &Store,
+    c: &mut Credentials,
+    id: &str,
+    t: &crypto::PairTranscript,
+) -> Result<(), String> {
+    let (mut ring, rev) = keyring(store, c).await?;
+    let mut trusted = c.trusted.clone();
+    trusted.insert(c.device_id.clone(), c.device.public);
+    trusted.insert(t.receiver_id.clone(), t.receiver);
+    ring.devices = trusted.clone();
+    let ak = c.ak.clone().ok_or("Unlock this device first.")?;
+    c.client()?
+        .put_wrap(
+            "keyring",
+            "main",
+            B64.encode(ring.seal(&ak, &c.account, rev + 1)?),
+            rev,
+        )
+        .await?;
+    let meta = crate::sync_engine::metadata(store, c)?;
+    let transfer = KeyTransfer {
+        ak: ak.clone(),
+        ring_rev: rev + 1,
+        vocabulary_rev: meta.rev,
+        epoch: ring.epoch,
+        trust: Some(TrustedRoster { keyset: crypto::keyset_pin(&ring), devices: trusted.clone() }),
+    };
+    let plain = zeroize::Zeroizing::new(
+        serde_json::to_vec(&transfer).map_err(|_| "Cannot encode pairing keys.")?,
+    );
+    let wrap = crypto::wrap_from(&c.device, &t.receiver, &c.account, &t.binding(), &plain)?;
+    // Older servers still require the explicit confirmation flag.
+    let _: Value = c
+        .client()?
+        .json(
+            Method::POST,
+            &format!("/v1/pairings/{id}"),
+            Some(&json!({"action":"approve","confirmed":true,"ciphertext":B64.encode(wrap)})),
+        )
+        .await?;
+    c.trusted = trusted;
+    c.pairs.remove(id);
+    secret_store::save(store, c)?;
+    publish_roster(c).await
+}
+/// Imports the sealed key on the new computer after checking that it came
+/// from the committed approver and that the keyring names both computers.
+async fn import_pair(
+    store: &Store,
+    c: &mut Credentials,
+    id: &str,
+    t: &crypto::PairTranscript,
+    ciphertext: &[u8],
+) -> Result<(), String> {
+    let transfer = authenticated_transfer(&c.device, t, ciphertext)?;
+    let wraps = c.client()?.wraps().await?;
+    let w = wraps
+        .iter()
+        .find(|w| w.kind == "keyring")
+        .ok_or("Missing paired keyring.")?;
+    if w.rev < transfer.ring_rev {
+        return Err("The service returned older keys.".into());
+    }
+    let ring = Keyring::open(
+        &transfer.ak,
+        &c.account,
+        w.rev,
+        &B64.decode(&w.ciphertext).map_err(|_| "Invalid keyring.")?,
+    )?;
+    if ring.epoch != transfer.epoch
+        || ring.devices.get(&t.sender_id) != Some(&t.sender)
+        || ring.devices.get(&t.receiver_id) != Some(&t.receiver)
+    {
+        return Err("Paired keyring identity changed.".into());
+    }
+    if let Some(roster) = &transfer.trust {
+        if roster.keyset != crypto::keyset_pin(&ring)
+            || roster.devices.len() > 64
+            || roster.devices.get(&t.sender_id) != Some(&t.sender)
+            || roster.devices.get(&t.receiver_id) != Some(&t.receiver)
+        {
+            return Err(REPAIR_TRUST.into());
+        }
+    }
+    c.ak = Some(transfer.ak.clone());
+    c.keyset = Some(crypto::keyset_pin(&ring));
+    c.trusted = [
+        (t.sender_id.clone(), t.sender),
+        (t.receiver_id.clone(), t.receiver),
+    ]
+    .into();
+    if let Some(roster) = &transfer.trust {
+        c.trusted = roster.devices.clone();
+    }
+    apply_checkpoint(store, c, &transfer)?;
+    secret_store::save(store, c)?;
+    cancel_reset(store, c).await?;
+    device_wrap(c).await?;
+    let _: Value = c
+        .client()?
+        .json(
+            Method::POST,
+            &format!("/v1/pairings/{id}"),
+            Some(&json!({"action":"consume"})),
+        )
+        .await?;
+    c.pairs.remove(id);
+    secret_store::save(store, c)
+}
+/// Withdraws this computer's own waiting requests, best effort.
+async fn withdraw_requests(store: &Store, c: &mut Credentials) {
+    let ids: Vec<String> = c.pairs.values().filter(|p| !p.approver).map(|p| p.id.clone()).collect();
+    if ids.is_empty() {
+        return;
+    }
+    if let Ok(client) = c.client() {
+        for id in &ids {
+            let _ = client
+                .json::<Value>(Method::POST, &format!("/v1/pairings/{id}"), Some(&json!({"action":"deny"})))
+                .await;
+        }
+    }
+    for id in &ids {
+        c.pairs.remove(id);
+    }
+    let _ = secret_store::save(store, c);
+}
+
+/// A computer of this account that other computers have not acknowledged yet.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Joined {
+    id: String,
+    platform: String,
+    joined_at: u64,
+}
+#[derive(Default, Serialize, Deserialize)]
+struct Joins {
+    account: String,
+    server: String,
+    #[serde(default)]
+    seen: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    pending: Vec<Joined>,
+}
+fn load_joins(store: &Store, c: &Credentials) -> Option<Joins> {
+    store
+        .read::<Joins>(&store.root().join(JOINS))
+        .ok()
+        .filter(|j| j.account == c.account && j.server == c.server)
+}
+/// Signed-in, unrevoked computers other than this one. A computer counts as
+/// joined from sign-in: with automatic relay it receives the key moments later.
+fn other_devices(c: &Credentials, devices: &[Value]) -> Vec<Joined> {
+    devices
+        .iter()
+        .filter(|d| {
+            d["revoked_at"].is_null()
+                && d["public_key"].as_str().is_some_and(|k| !k.is_empty())
+                && d["id"].as_str().is_some_and(|id| id != c.device_id)
+        })
+        .map(|d| Joined {
+            id: d["id"].as_str().unwrap_or_default().into(),
+            platform: d["platform"].as_str().unwrap_or_default().chars().take(40).collect(),
+            joined_at: d["created_at"].as_u64().unwrap_or(0),
+        })
+        .collect()
+}
+/// Adds computers this one has not seen before to the pending alerts and
+/// returns them. The first look on a computer only records what is already
+/// there, so upgrading or joining never alerts about older computers.
+fn record_joins(store: &Store, c: &Credentials, devices: &[Value]) -> Result<Vec<Joined>, String> {
+    if !devices.iter().any(|d| d["id"] == c.device_id.as_str()) {
+        return Ok(Vec::new());
+    }
+    let active = other_devices(c, devices);
+    let path = store.root().join(JOINS);
+    let Some(mut joins) = load_joins(store, c) else {
+        store.write(
+            &path,
+            &Joins {
+                account: c.account.clone(),
+                server: c.server.clone(),
+                seen: active.iter().map(|j| j.id.clone()).collect(),
+                pending: Vec::new(),
+            },
+        )?;
+        return Ok(Vec::new());
+    };
+    let before = (joins.seen.len(), joins.pending.len());
+    joins.seen.retain(|id| devices.iter().any(|d| d["id"] == id.as_str()));
+    joins.pending.retain(|j| active.iter().any(|a| a.id == j.id));
+    let fresh: Vec<Joined> = active.into_iter().filter(|j| !joins.seen.contains(&j.id)).collect();
+    for j in &fresh {
+        joins.seen.insert(j.id.clone());
+        joins.pending.push(j.clone());
+    }
+    if !fresh.is_empty() || before != (joins.seen.len(), joins.pending.len()) {
+        store.write(&path, &joins)?;
+    }
+    Ok(fresh)
+}
+/// After this computer gets the key, everything already in the account
+/// predates it; only later computers raise an alert here.
+async fn baseline_joins(store: &Store, c: &Credentials) -> Result<(), String> {
+    let devices: Vec<Value> = c.client()?.json(Method::GET, "/v1/devices", None).await?;
+    forget_joins(store);
+    record_joins(store, c, &devices).map(|_| ())
+}
+fn ack_join(store: &Store, c: &Credentials, device: &str) -> Result<(), String> {
+    let Some(mut joins) = load_joins(store, c) else {
+        return Ok(());
+    };
+    joins.pending.retain(|j| j.id != device);
+    joins.seen.insert(device.into());
+    store.write(&store.root().join(JOINS), &joins)
+}
+fn pending_joins(store: &Store, c: &Credentials) -> Vec<Joined> {
+    load_joins(store, c).map(|j| j.pending).unwrap_or_default()
+}
+fn forget_joins(store: &Store) {
+    let _ = std::fs::remove_file(store.root().join(JOINS));
+}
+fn platform_name(platform: &str) -> &'static str {
+    match platform {
+        "macos" => "Mac",
+        "windows" => "Windows PC",
+        "linux" => "Linux computer",
+        "ios" => "iPhone",
+        _ => "A new computer",
+    }
 }
 async fn save_recovery(c: &Credentials, wraps: &[Wrap]) -> Result<(), String> {
     let code = c.recovery.as_ref().ok_or("Create a recovery code first.")?;
@@ -1373,11 +1677,25 @@ pub async fn sync_command(
             | "meeting_status"
             | "meeting_storage"
             | "meeting_preferences"
+            | "pair_wait"
+            | "pair_relay"
+            | "join_check"
     ) {
         if let Ok(mut failure) = service.failure.lock() {
             *failure = result.as_ref().err().cloned()
         }
         let _ = app.emit("sync-changed", ());
+    } else if let (Ok(value), true) = (
+        &result,
+        matches!(operation.as_str(), "pair_wait" | "pair_relay" | "join_check"),
+    ) {
+        // Pairing polls stay quiet unless they changed something worth showing.
+        if pairing_changed(value) {
+            let _ = app.emit("sync-changed", ());
+            if value["unlocked"] == true {
+                wake();
+            }
+        }
     }
     if result.is_ok()
         && (operation == "now"
@@ -1524,6 +1842,76 @@ pub fn start_scheduler(app: &tauri::AppHandle) {
     });
 }
 
+fn pairing_changed(value: &Value) -> bool {
+    value["unlocked"] == true
+        || value["approved"].as_u64().is_some_and(|n| n > 0)
+        || value["joined"].as_array().is_some_and(|j| !j.is_empty())
+}
+
+/// Relays the account key between the person's computers while SonoJot runs.
+/// An unlocked computer looks for requests three times a minute and checks
+/// for newly joined computers once a minute; a computer without the key keeps
+/// asking until one answers. While an exchange moves, polls run every few
+/// seconds so it finishes quickly.
+pub fn start_pairing(app: &tauri::AppHandle) {
+    if !crate::flavor::sync_enabled() {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let mut tick = 0u64;
+        loop {
+            let delay = pairing_tick(&app, tick).await;
+            tick = tick.wrapping_add(1);
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        }
+    });
+}
+
+async fn pairing_tick(app: &tauri::AppHandle, tick: u64) -> u64 {
+    let saved = {
+        let runtime = app.state::<Arc<Runtime>>();
+        secret_store::load::<Credentials>(&runtime.store).ok().flatten()
+    };
+    let Some(c) = saved.filter(|c| !c.session.is_empty()) else {
+        return PAIR_IDLE;
+    };
+    let result = if c.ak.is_some() {
+        let relay = sync_command(app.clone(), "pair_relay".into(), None).await;
+        let approved = relay.as_ref().is_ok_and(|r| r["approved"].as_u64().is_some_and(|n| n > 0));
+        if tick % 3 == 0 || approved {
+            if let Ok(found) = sync_command(app.clone(), "join_check".into(), None).await {
+                notify_joins(app, &found["joined"]);
+            }
+        }
+        relay
+    } else if c.initialized != Some(false) {
+        sync_command(app.clone(), "pair_wait".into(), None).await
+    } else {
+        return PAIR_IDLE;
+    };
+    match result {
+        Ok(value) if value["advanced"] == true => PAIR_FAST,
+        Ok(_) => PAIR_IDLE,
+        Err(error) => crate::sync_client::rate_limit_delay(&error).unwrap_or(60).max(PAIR_IDLE),
+    }
+}
+
+fn notify_joins(app: &tauri::AppHandle, joined: &Value) {
+    use tauri_plugin_notification::NotificationExt;
+    for device in joined.as_array().into_iter().flatten() {
+        let name = platform_name(device["platform"].as_str().unwrap_or_default());
+        // The in-app alert in Account and sync stays until OK or Not me.
+        let _ = app
+            .notification()
+            .builder()
+            .title(format!("{name} joined sync"))
+            .body("If this wasn't you, open Account and sync and choose Not me.")
+            .show();
+    }
+}
+
 #[cfg(test)]
 mod security_tests {
     use super::*;
@@ -1613,7 +2001,8 @@ mod security_tests {
         let pair = PairState {
             id: "synthetic-pair".into(), nonce: crypto::random(), public: c.device.public,
             commitment: crypto::random(), approver: false, peer_nonce: None,
-            transcript: None, displayed: None, expires_at: now() + 300,
+            transcript: None, expires_at: now() + 300,
+            state: "committed".into(), progress_at: now(),
         };
         c.pairs.insert(pair.id.clone(), pair.clone());
         secret_store::save(&store, &c).unwrap();
@@ -1664,13 +2053,81 @@ mod security_tests {
         .unwrap();
         let good =
             crypto::wrap_from(&sender, &receiver.public, &t.account, &t.binding(), &plain).unwrap();
-        assert!(confirmed_transfer(&receiver, &t, None, &good).is_err());
-        assert!(confirmed_transfer(&receiver, &t, Some(t.hash()), &base).is_err());
-        assert!(confirmed_transfer(&receiver, &t, Some(t.hash()), &forged).is_err());
-        assert!(confirmed_transfer(&receiver, &t, Some(t.hash()), &good).is_ok());
+        assert!(authenticated_transfer(&receiver, &t, &base).is_err());
+        assert!(authenticated_transfer(&receiver, &t, &forged).is_err());
+        assert!(authenticated_transfer(&receiver, &t, &good).is_ok());
+        // The package is bound to this exchange's nonces and request.
+        let mut other = t.clone();
+        other.nonce_a = crypto::random();
+        assert!(authenticated_transfer(&receiver, &other, &good).is_err());
         let mut swapped = t.clone();
         swapped.sender = attacker.public;
-        assert!(confirmed_transfer(&receiver, &swapped, Some(t.hash()), &forged).is_err());
+        assert!(authenticated_transfer(&receiver, &swapped, &forged).is_err());
+    }
+    fn joins_fixture() -> (std::path::PathBuf, Store, Credentials) {
+        let root = std::env::temp_dir().join(format!("sj-joins-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(Some(root.clone())).unwrap();
+        let mut c = Credentials::new("https://example.invalid".into());
+        c.account = "synthetic-account".into();
+        c.device_id = "self".into();
+        (root, store, c)
+    }
+    fn device(id: &str, platform: &str, created: u64) -> Value {
+        json!({"id":id,"platform":platform,"public_key":"cGs","created_at":created,"last_seen_at":created,"revoked_at":null})
+    }
+    #[test]
+    fn join_alerts_start_after_this_computer_and_include_every_later_computer() {
+        let (root, store, c) = joins_fixture();
+        let mut devices = vec![device("self", "windows", 1), device("old", "linux", 2)];
+        // The first look records what was already there without alerting.
+        assert!(record_joins(&store, &c, &devices).unwrap().is_empty());
+        assert!(pending_joins(&store, &c).is_empty());
+        // A computer that joined through any route (relay by another computer
+        // or recovery code) is simply a new signed-in computer here.
+        devices.push(device("mac", "macos", 3));
+        let fresh = record_joins(&store, &c, &devices).unwrap();
+        assert_eq!(fresh, vec![Joined { id: "mac".into(), platform: "macos".into(), joined_at: 3 }]);
+        assert_eq!(pending_joins(&store, &c), fresh);
+        // Repeated checks never alert twice.
+        assert!(record_joins(&store, &c, &devices).unwrap().is_empty());
+        assert_eq!(pending_joins(&store, &c).len(), 1);
+        // A computer that was removed drops out of the alerts.
+        devices.push(device("phone", "ios", 4));
+        record_joins(&store, &c, &devices).unwrap();
+        devices.last_mut().unwrap()["revoked_at"] = json!(5);
+        record_joins(&store, &c, &devices).unwrap();
+        assert_eq!(pending_joins(&store, &c).iter().map(|j| j.id.as_str()).collect::<Vec<_>>(), vec!["mac"]);
+        ack_join(&store, &c, "mac").unwrap();
+        assert!(pending_joins(&store, &c).is_empty());
+        assert!(record_joins(&store, &c, &devices).unwrap().is_empty());
+        // Placeholder rows without a key, and a response missing this
+        // computer, never raise an alert.
+        devices.push(json!({"id":"half","platform":"linux","public_key":"","created_at":6,"revoked_at":null}));
+        assert!(record_joins(&store, &c, &devices).unwrap().is_empty());
+        assert!(record_joins(&store, &c, &devices[1..]).unwrap().is_empty());
+        // Another account on this computer starts over from its own baseline.
+        let mut other = Credentials::new(c.server.clone());
+        other.account = "other-account".into();
+        other.device_id = "self".into();
+        assert!(pending_joins(&store, &other).is_empty());
+        assert!(record_joins(&store, &other, &devices).unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn this_computer_never_alerts_about_itself() {
+        let (root, store, c) = joins_fixture();
+        record_joins(&store, &c, &[device("self", "windows", 1)]).unwrap();
+        forget_joins(&store);
+        store.write(&store.root().join(JOINS), &Joins { account: c.account.clone(), server: c.server.clone(), ..Default::default() }).unwrap();
+        let fresh = record_joins(&store, &c, &[device("self", "windows", 1), device("b", "macos", 2)]).unwrap();
+        assert_eq!(fresh.iter().map(|j| j.id.as_str()).collect::<Vec<_>>(), vec!["b"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn platform_names_read_naturally() {
+        assert_eq!(platform_name("macos"), "Mac");
+        assert_eq!(platform_name("windows"), "Windows PC");
+        assert_eq!(platform_name("Test"), "A new computer");
     }
     #[test]
     fn removed_device_cannot_replace_the_pinned_keyset_even_with_old_ak() {

@@ -56,3 +56,15 @@ test("the rebuild applies the model choice only off sentence starts", () => {
   assert.equal(rebuilt("file a feature Request now", [3]), "File a feature request now.");
   assert.equal(rebuilt("iphone sales grew"), "iPhone sales grew.");
 });
+
+// Rust written_form tests: colloquial hundreds and the p.m. period.
+import { renderSpan as renderSpanWf, finishWrittenForm } from "../src/text/written-form.ts";
+test("colloquial hundreds render as digits", () => {
+  assert.equal(renderSpanWf("twelve hundred dollars", "MONEY"), "$1,200");
+  assert.equal(renderSpanWf("twenty five hundred dollars", "MONEY"), "$2,500");
+  assert.equal(renderSpanWf("fifteen hundred", "CARDINAL"), "1,500");
+  assert.equal(renderSpanWf("twenty hundred dollars", "MONEY"), undefined);
+});
+test("a recognizer's p.m. period does not start a sentence", () => {
+  assert.equal(finishWrittenForm("meet at two thirty p.m. on tuesday."), "Meet at 2:30 PM on tuesday.");
+});

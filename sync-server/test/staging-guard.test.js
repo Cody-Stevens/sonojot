@@ -27,6 +27,17 @@ describe("private staging deployment overlay", () => {
       settings.workosClientId,
     );
     expect(config.routes).toBeUndefined();
+    expect(config.env.staging.vars.MAIL_ENABLED).toBe("true");
+    expect(config.env.staging.send_email).toEqual([
+      {
+        name: "MAIL",
+        allowed_sender_addresses: ["signin@sonojot.com", "notices@sonojot.com"],
+      },
+    ]);
+    expect(config.env.staging.triggers.crons).toEqual([
+      "17 3 * * *",
+      "*/10 * * * *",
+    ]);
     expect(template.account_id).toBeUndefined();
     expect(template.env.staging.d1_databases[0].database_id).toMatch(
       /^00000000/,
@@ -74,6 +85,20 @@ describe("private staging deployment overlay", () => {
       },
       (c) => {
         c.env.staging.r2_buckets[0].bucket_name = "production";
+      },
+      (c) => {
+        delete c.env.staging.send_email[0].allowed_sender_addresses;
+      },
+      (c) => {
+        c.env.staging.send_email[0].allowed_sender_addresses.push(
+          "anyone@sonojot.com",
+        );
+      },
+      (c) => {
+        c.env.staging.send_email[0].remote = true;
+      },
+      (c) => {
+        c.env.staging.send_email.push({ name: "OTHER" });
       },
     ]) {
       const bad = structuredClone(template);

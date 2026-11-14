@@ -55,6 +55,11 @@ export function numericSpeech(input: string): string[] {
     if (n >= 1000n && n < 1000000n && n % 1000n !== 0n) {
       options.push(...numericSpeech(new Decimal(n, 3).trimmedDigits()).map((s) => `${s} thousand`));
     }
+    // Rust verbalize.rs: colloquial hundreds ("twelve hundred", "twenty five hundred fifty").
+    if (n >= 1100n && n <= 9999n && (n / 100n) % 10n !== 0n) {
+      const rem = n % 100n;
+      options.push(`${integerSpeech(n / 100n)} hundred${rem ? ` ${integerSpeech(rem)}` : ""}`);
+    }
     if (n >= 1000n && n <= 2999n) {
       const century = integerSpeech(n / 100n),
         rem = n % 100n;

@@ -1975,16 +1975,16 @@
       "source": "new synthetic",
       "input": "meet at two thirty p.m. on Friday",
       "mode": "clean",
-      "expected": "Meet at 2:30 PM. On Friday.",
-      "rulesExpected": "Meet at two thirty p.m. On Friday."
+      "expected": "Meet at 2:30 PM on Friday.",
+      "rulesExpected": "Meet at two thirty p.m. on Friday."
     },
     {
       "id": "text-124-format",
       "source": "new synthetic",
       "input": "meet at two thirty p.m. on Friday",
       "mode": "format",
-      "expected": "Meet at two thirty p.m. On Friday.",
-      "rulesExpected": "Meet at two thirty p.m. On Friday."
+      "expected": "Meet at two thirty p.m. on Friday.",
+      "rulesExpected": "Meet at two thirty p.m. on Friday."
     },
     {
       "id": "text-125-clean",
@@ -2280,15 +2280,15 @@
       "input": "we held a Q and A session",
       "mode": "clean",
       "expected": "We held a Q&A session.",
-      "rulesExpected": "We held a Q and a session."
+      "rulesExpected": "We held a Q and A session."
     },
     {
       "id": "text-143-format",
       "source": "new synthetic",
       "input": "we held a Q and A session",
       "mode": "format",
-      "expected": "We held a Q and a session.",
-      "rulesExpected": "We held a Q and a session."
+      "expected": "We held a Q and A session.",
+      "rulesExpected": "We held a Q and A session."
     },
     {
       "id": "text-144-clean",
@@ -2951,16 +2951,16 @@
       "source": "new synthetic",
       "input": "use p.m. exactly",
       "mode": "clean",
-      "expected": "Use p.m. Exactly.",
-      "rulesExpected": "Use p.m. Exactly."
+      "expected": "Use p.m. exactly.",
+      "rulesExpected": "Use p.m. exactly."
     },
     {
       "id": "text-185-format",
       "source": "new synthetic",
       "input": "use p.m. exactly",
       "mode": "format",
-      "expected": "Use p.m. Exactly.",
-      "rulesExpected": "Use p.m. Exactly."
+      "expected": "Use p.m. exactly.",
+      "rulesExpected": "Use p.m. exactly."
     },
     {
       "id": "text-186-clean",
@@ -3063,16 +3063,16 @@
       "source": "new synthetic",
       "input": "um so i think we should meet at three thirty p.m. on march fifth and uh spend about twenty five dollars",
       "mode": "clean",
-      "expected": "So I think we should meet at 3:30 PM. On March 5 and spend about $25.",
-      "rulesExpected": "So I think we should meet at three thirty p.m. On march fifth and spend about twenty five dollars."
+      "expected": "So I think we should meet at 3:30 PM on March 5 and spend about $25.",
+      "rulesExpected": "So I think we should meet at three thirty p.m. on march fifth and spend about twenty five dollars."
     },
     {
       "id": "text-192-format",
       "source": "new synthetic",
       "input": "um so i think we should meet at three thirty p.m. on march fifth and uh spend about twenty five dollars",
       "mode": "format",
-      "expected": "Um, so I think we should meet at three thirty p.m. On march fifth and, uh, spend about twenty five dollars.",
-      "rulesExpected": "Um so I think we should meet at three thirty p.m. On march fifth and uh spend about twenty five dollars."
+      "expected": "Um, so I think we should meet at three thirty p.m. on march fifth and, uh, spend about twenty five dollars.",
+      "rulesExpected": "Um so I think we should meet at three thirty p.m. on march fifth and uh spend about twenty five dollars."
     },
     {
       "id": "text-193-clean",

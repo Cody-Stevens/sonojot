@@ -177,7 +177,9 @@ export function projectSpanLabels(text: string, labels: BioLabel[]): BioLabel[] 
 // Rust punctuation.rs::written_form_finish (empty vocabulary).
 export function finishWrittenForm(text: string, labels?: BioLabel[]): string {
   const protectedSpans = preservedCandidates(text);
-  const converted = applySpans(text, proposeSpans(splitWords(text), labels), protectedSpans);
+  let converted = applySpans(text, proposeSpans(splitWords(text), labels), protectedSpans);
+  // A recognizer's "p.m." period after a written "2:30 PM" ends a sentence only before a capital.
+  if (/[ap]\.m\./i.test(text)) converted = converted.replace(/\b([AP]M)\.(\s+)(\p{Ll})/gu, "$1$2$3");
   const terms = renderTerms(converted, preservedCandidates(converted));
   const doc = new Document(terms);
   return doc.rebuildGaps(

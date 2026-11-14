@@ -281,6 +281,9 @@ fn reverse_verbalizer_examples() {
         ("256 gigabytes", "two hundred fifty six gigabytes"),
         ("21st", "twenty first"),
         ("R&D", "R and D"),
+        ("$1,200", "twelve hundred dollars"),
+        ("$2,500", "twenty five hundred dollars"),
+        ("1,250", "twelve hundred fifty"),
     ] {
         assert!(
             verbalize(written).iter().any(|s| s == spoken),
@@ -1397,4 +1400,19 @@ Box crosses a line."),
         assert_eq!(respell_vocabulary(text, &names, &[]), expected, "{text}");
     }
     assert_eq!(respell_vocabulary("Quill Box and Quill Box", &names, &[0..9]), "Quill Box and Quillbox");
+}
+
+#[test]
+fn colloquial_hundreds_render_as_digits() {
+    for (spoken, class, written) in [
+        ("twelve hundred dollars", Class::Money, "$1,200"),
+        ("twenty five hundred dollars", Class::Money, "$2,500"),
+        ("fifteen hundred", Class::Cardinal, "1,500"),
+        ("twelve hundred fifty dollars", Class::Money, "$1,250"),
+        ("four hundred dollars", Class::Money, "$400"),
+    ] {
+        assert_eq!(render_span(spoken, class, None, None).as_deref(), Some(written), "{spoken}");
+    }
+    // A round ten of hundreds is not a colloquial amount.
+    assert_eq!(render_span("twenty hundred dollars", Class::Money, None, None), None);
 }

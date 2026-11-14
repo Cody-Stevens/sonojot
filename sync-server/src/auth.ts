@@ -24,27 +24,19 @@ import {
   type Identity,
   type AuthRequest,
 } from "./authkit";
+import { codeMail, mailOrigin, sendMail, type MailSender } from "./mail";
+import { deliverNotice } from "./notices";
 export type AuthDependencies = {
   exchange: typeof exchange;
   sendCode: typeof sendCode;
   verifyCode: typeof verifyCode;
-  mail: (env: Env, to: string, subject: string, text: string) => Promise<void>;
+  mail: MailSender;
 };
 export const productionAuth: AuthDependencies = {
   exchange,
   sendCode,
   verifyCode,
-  mail: async (env, to, subject, text) => {
-    if (env.MAIL_ENABLED !== "true")
-      throw new Fault(503, "Security notices are not configured yet.");
-    await env.MAIL.send({
-      from: "notices@sonojot.com",
-      to,
-      subject,
-      text,
-      replyTo: "support@sonojot.com",
-    });
-  },
+  mail: sendMail,
 };
 async function requestRow(env: Env, requestId: string): Promise<AuthRequest> {
   const a = await env.DB.prepare(
@@ -206,6 +198,7 @@ export async function auth(
   request: Request,
   env: Env,
   deps: AuthDependencies,
+  ctx?: Pick<ExecutionContext, "waitUntil">,
 ): Promise<Response | null> {
   const u = new URL(request.url);
   const path = u.pathname;
@@ -331,23 +324,21 @@ export async function auth(
       const email = str(b.email, 254).trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
         throw new Fault(400, "Enter your email address.");
+      const intent: "sign-up" | "sign-in" =
+        !a.link_account && b.intent === "sign-up"
+          ? "sign-up"
+          : b.intent === "sign-in"
+            ? "sign-in"
+            : (a.intent ?? "sign-in");
       // One send per browser attempt; concurrent calls cannot send twice.
       const claimed = await env.DB.prepare(
         "UPDATE auth_requests SET code_started=1,email=?,intent=? WHERE id=? AND code_started=0 AND callback_started=0 AND used=0 AND expires_at>?",
       )
-        .bind(
-          email,
-          !a.link_account && b.intent === "sign-up"
-            ? "sign-up"
-            : b.intent === "sign-in"
-              ? "sign-in"
-              : (a.intent ?? "sign-in"),
-          a.id,
-          now(),
-        )
+        .bind(email, intent, a.id, now())
         .run();
       if (claimed.meta.changes !== 1)
         throw new Fault(409, "Start again to request another code.");
+      let undelivered = false;
       try {
         await limit(env, "email-address:" + (await sha(email)), 5);
         const sent = await deps.sendCode(env, email, signals);
@@ -361,9 +352,34 @@ export async function auth(
             now(),
           )
           .run();
+        // With SonoJot's own email on, the provider's email must be turned off
+        // in its dashboard. The code is used only for this message; it is never
+        // logged or stored.
+        if (env.MAIL_ENABLED === "true")
+          try {
+            await deps.mail(
+              env,
+              codeMail(
+                { to: email, code: sent.code, expiresAt: sent.expiresAt, intent },
+                mailOrigin(env),
+              ),
+            );
+          } catch {
+            undelivered = true;
+          }
       } catch {
         // Unknown addresses, provider rejections, and per-email limits have the
         // same response. The provider can create a user only after verification.
+      }
+      if (undelivered) {
+        // Our own delivery failed after the provider accepted the address, so this
+        // says nothing about whether an account exists. Let the same attempt retry.
+        await env.DB.prepare(
+          "UPDATE auth_requests SET code_started=0,code_hash=NULL,radar_attempt=NULL WHERE id=? AND callback_started=0 AND used=0",
+        )
+          .bind(a.id)
+          .run();
+        throw new Fault(503, "Sign-in is temporarily unavailable. Try again.");
       }
       return json({
         sent: true,
@@ -480,13 +496,15 @@ export async function auth(
         403,
         "Device identity changed. Start with a new device identity.",
       );
+    let others = 0;
     if (!device && a.public_key) {
       const count = await env.DB.prepare(
         "SELECT COUNT(*) AS n FROM devices WHERE account=? AND revoked_at IS NULL AND public_key<>''",
       )
         .bind(a.account)
         .first<{ n: number }>();
-      if ((count?.n ?? 0) >= 64)
+      others = count?.n ?? 0;
+      if (others >= 64)
         throw new Fault(409, "Remove an unused device before adding another.");
     }
     const raw = token();
@@ -510,12 +528,20 @@ export async function auth(
         a.workos_session ?? null,
       ),
     ]);
-    if (!device && a.public_key)
+    // A computer joining an account that already has one gets an alert at once.
+    // The first computer of a new account does not. The queue and the notice cron
+    // retry a send that fails.
+    if (!device && a.public_key && others > 0) {
+      const notice = crypto.randomUUID();
       await env.DB.prepare(
-        "INSERT INTO notifications(id,account,kind,created_at) VALUES(?,?,'new-device',?)",
+        "INSERT INTO notifications(id,account,kind,created_at,detail) VALUES(?,?,'new-device',?,?)",
       )
-        .bind(crypto.randomUUID(), a.account, t)
+        .bind(notice, a.account, t, a.platform)
         .run();
+      const delivery = deliverNotice(env, notice, deps.mail).catch(() => false);
+      if (ctx) ctx.waitUntil(delivery);
+      else await delivery;
+    }
     const account = await env.DB.prepare(
       "SELECT id,email,epoch,EXISTS(SELECT 1 FROM wraps WHERE account=accounts.id AND kind='keyring') AS encrypted FROM accounts WHERE id=?",
     )

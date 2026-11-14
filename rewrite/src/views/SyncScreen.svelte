@@ -7,7 +7,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { z } from "zod";
   import { save } from "@tauri-apps/plugin-dialog";
-  import { sync, runSync, refreshSync } from "../lib/sync.svelte";
+  import { sync, runSync, refreshSync, platformName } from "../lib/sync.svelte";
   const devicesSchema = z.array(
     z.object({
       id: z.string(),
@@ -16,7 +16,6 @@
     }),
   );
   let devices = $state<z.infer<typeof devicesSchema>>([]);
-  let alternatives = $state(false);
   let useRecovery = $state(false);
   let accountOptions = $state(false);
   let recovery = $state("");
@@ -29,6 +28,7 @@
     | "recovery_new"
     | "account_delete"
     | "remove"
+    | "not_me"
     | null
   >(null);
   let removing = $state("");
@@ -45,7 +45,6 @@
   $effect(() => {
     accountState;
     untrack(() => {
-      alternatives = false;
       useRecovery = false;
       accountOptions = false;
       entered = "";
@@ -100,11 +99,14 @@
     const op = confirm;
     confirm = null;
     if (!op) return;
+    // Not me removes the computer that joined and always changes the key.
+    const notMe = op === "not_me";
     const rekey =
-      op === "remove" && removing !== sync.status?.device && !signoutOnly;
-    const result = await runSync(op, {
+      notMe ||
+      (op === "remove" && removing !== sync.status?.device && !signoutOnly);
+    const result = await runSync(notMe ? "remove" : op, {
       confirmed: true,
-      ...(op === "remove"
+      ...(op === "remove" || notMe
         ? {
             device: removing,
             rekey,
@@ -174,40 +176,32 @@
         <SyncPairing />
         <button
           class="text-action"
-          aria-expanded={alternatives}
-          onclick={() => (alternatives = !alternatives)}
-          >Can't approve from another computer?</button
+          aria-expanded={useRecovery}
+          onclick={() => (useRecovery = !useRecovery)}
+          >Use recovery code instead</button
         >
-        {#if alternatives}
+        {#if useRecovery}
           <div class="sync-options">
-            <button
-              class="button"
-              aria-expanded={useRecovery}
-              onclick={() => (useRecovery = !useRecovery)}
-              >Use recovery code</button
+            <form
+              onsubmit={async (e) => {
+                e.preventDefault();
+                await runSync("recovery_use", { code: entered });
+                entered = "";
+                await reload();
+              }}
             >
-            {#if useRecovery}
-              <form
-                onsubmit={async (e) => {
-                  e.preventDefault();
-                  await runSync("recovery_use", { code: entered });
-                  entered = "";
-                  await reload();
-                }}
+              <label
+                >Recovery code<input
+                  class="well"
+                  type="password"
+                  autocomplete="off"
+                  bind:value={entered}
+                /></label
               >
-                <label
-                  >Recovery code<input
-                    class="well"
-                    type="password"
-                    autocomplete="off"
-                    bind:value={entered}
-                  /></label
-                >
-                <button class="button" disabled={sync.busy || !entered}
-                  >Unlock</button
-                >
-              </form>
-            {/if}
+              <button class="button" disabled={sync.busy || !entered}
+                >Unlock</button
+              >
+            </form>
             <button
               class="text-action"
               disabled={sync.busy}
@@ -236,7 +230,34 @@
         onclick={() => runSync("signout")}>Sign out</button
       >
     {:else}
-      <SyncPairing trusted />
+      {#each sync.status.joins ?? [] as join (join.id)}
+        <section class="sync-join" aria-label="Computer joined">
+          <h2 data-text-surface="emboss">
+            {platformName(join.platform) ?? "A new computer"} joined sync
+          </h2>
+          <p data-text-surface="flat">
+            {new Date(join.joinedAt * 1000).toLocaleString(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+          </p>
+          <div class="sync-actions">
+            <button
+              class="button"
+              disabled={sync.busy}
+              onclick={() => runSync("join_ack", { device: join.id })}
+              >OK</button
+            ><button
+              class="button"
+              disabled={sync.busy}
+              onclick={() => {
+                removing = join.id;
+                confirm = "not_me";
+              }}>Not me</button
+            >
+          </div>
+        </section>
+      {/each}
       <strong data-text-surface="emboss">{sync.status.email}</strong>
       <p data-text-surface="flat">
         Words and meetings · {devices.filter((d) => d.revoked_at === null)
@@ -290,7 +311,8 @@
           {#each devices.filter((d) => d.revoked_at === null) as device}
             <div class="sync-row">
               <span
-                >{device.platform}{device.id === sync.status.device
+                >{platformName(device.platform) ??
+                  device.platform}{device.id === sync.status.device
                   ? " · this device"
                   : ""}</span
               ><button
@@ -414,18 +436,22 @@
                 ? "Replace your recovery code?"
                 : confirm === "remove"
                   ? "Remove this device?"
-                  : "Delete your sync account?"}
+                  : confirm === "not_me"
+                    ? "Remove this computer and change the key?"
+                    : "Delete your sync account?"}
       </h2>
       <p>
-        {confirm === "setup"
-          ? "Your device creates the encryption key. Save the recovery code on the next screen."
-          : confirm === "recovery_new"
-            ? "The previous code will stop working. Save the new code before closing this screen."
-            : confirm === "remove"
-              ? "This revokes its sessions. Copies already on that device remain."
-              : confirm === "reset_request"
-                ? "Your encrypted words stay in place during the waiting period."
-                : "Synced data and account access will be deleted. Local vocabulary stays on this computer."}
+        {confirm === "not_me"
+          ? "It loses access to your synced words and meetings. Your other computers pick up the new key on their own. Save the new recovery code on the next screen; the previous code stops working."
+          : confirm === "setup"
+            ? "Your device creates the encryption key. Save the recovery code on the next screen."
+            : confirm === "recovery_new"
+              ? "The previous code will stop working. Save the new code before closing this screen."
+              : confirm === "remove"
+                ? "This revokes its sessions. Copies already on that device remain."
+                : confirm === "reset_request"
+                  ? "Your encrypted words stay in place during the waiting period."
+                  : "Synced data and account access will be deleted. Local vocabulary stays on this computer."}
       </p>
       {#if confirm === "remove" && removing !== sync.status?.device && sync.status?.unlocked}<label
           ><input type="checkbox" bind:checked={signoutOnly} />Sign out only, no
@@ -451,7 +477,11 @@
           class="button"
           disabled={sync.busy || (confirm === "reset" && !resetReady)}
           onclick={confirmed}
-          >{confirm === "remove" ? "Remove device" : "Confirm"}</button
+          >{confirm === "remove"
+            ? "Remove device"
+            : confirm === "not_me"
+              ? "Remove and change key"
+              : "Confirm"}</button
         ><button class="button" onclick={() => (confirm = null)}>Cancel</button>
       </div>
     </div></Sheet
@@ -499,6 +529,15 @@
   .sync-options {
     display: grid;
     gap: 18px;
+  }
+  .sync-join {
+    display: grid;
+    gap: 9px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sync-join h2 {
+    margin: 0;
   }
   .text-action {
     justify-self: start;

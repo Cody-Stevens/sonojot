@@ -450,6 +450,14 @@ fn written_form_finish(
         guarded.push(span);
     }
     let converted = written_form::apply_spans(text, &guarded);
+    // A recognizer's "p.m." keeps its own period through punctuation. Once the
+    // time is written "2:30 PM" that period ends a sentence only when the next
+    // word already starts one; otherwise it would capitalise "on" below.
+    let converted = if text.contains("a.m.") || text.contains("p.m.") || text.contains("A.M.") || text.contains("P.M.") {
+        static MERIDIEM: OnceLock<Regex> = OnceLock::new();
+        MERIDIEM.get_or_init(|| Regex::new(r"\b([AP]M)\.(\s+)(\p{Ll})").unwrap())
+            .replace_all(&converted, "$1$2$3").into_owned()
+    } else { converted };
     if check(cancel).is_err() { return text.into(); }
     // A split match of a joined Vocabulary name takes the user's spelling
     // ("Next js" -> "Next.js"); then shipped protected terms take theirs
@@ -2343,6 +2351,8 @@ mod tests {
             ("use GPT six point one. Soul today.", "Use GPT-6.1 Sol today."),
             ("pay four thousand. Dollars today.", "Pay $4,000 today."),
             ("pay 4.2 million dollars. send it.", "Pay $4.2 million. Send it."),
+            ("meet at two thirty p.m. on tuesday.", "Meet at 2:30 PM on tuesday."),
+            ("leave at three p.m. Then rest.", "Leave at 3 PM. Then rest."),
         ] {
             assert_eq!(super::written_form_finish(source, &[], None, &cancel), expected);
         }

@@ -280,14 +280,13 @@ fn sync_commands(client: &Client<'_>, words: &[&str]) -> Outcome {
                 json!({"device":device,"rekey":o.rekey,"confirmed":true}),
             )
         }
-        ["devices", "add"] => send("pair_start", json!({})),
+        ["devices", "add"] => send("pair_wait", json!({})),
         ["devices", "requests"] => send("pair_list", json!({})),
+        ["devices", "relay"] => send("pair_relay", json!({})),
+        ["devices", "joined"] => send("join_check", json!({})),
+        ["devices", "ok", device] => send("join_ack", json!({"device":device})),
         ["devices", step, id] if ["accept", "poll", "deny"].contains(step) => {
             send(&format!("pair_{step}"), json!({"id":id}))
-        }
-        ["devices", step, id] if ["approve", "confirm"].contains(step) => {
-            confirm()?;
-            send(&format!("pair_{step}"), json!({"id":id,"confirmed":true}))
         }
         ["recovery", "show"] => {
             confirm()?;

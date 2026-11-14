@@ -921,8 +921,7 @@ export async function installDesktopFixture(page, options = {}) {
     window.__testCalls = [];
     window.__testSyncChange = (patch) => {
       if (patch.status) options.syncStatus={...options.syncStatus,...patch.status};
-      if (patch.pairs) options.syncPairs=clone(patch.pairs);
-      if (patch.polls) options.syncPairPolls=clone(patch.polls);
+      if (patch.waits) options.syncWaits=clone(patch.waits);
       callbacks.get(handlers.get("sync-changed"))?.({event:"sync-changed",id:1,payload:null});
     };
     // Mock-only system audio permission: status follows capabilities unless
@@ -1037,24 +1036,23 @@ export async function installDesktopFixture(page, options = {}) {
             if (args.operation === "meeting_resolve") {meetingSync.conflicts=[];return {resolved:true};}
             if (args.operation === "meeting_field_resolve") {delete meetingSync.fieldConflicts[args.args.field];return {resolved:true};}
             if (args.operation === "meeting_delete_resolve") {meetingSync.deleteConflict=false;meetingSync.status=args.args.keep?"localOnly":"deleted";return {resolved:true};}
-            if (args.operation === "pair_start") return {id:"fixture-pair",expiresAt:Math.floor(Date.now()/1000)+(options.syncPairLifetime ?? 300)};
-            if (args.operation === "pair_accept") return {waiting:true};
-            if (args.operation === "pair_poll") {
+            // Automatic relay: the waiting computer only polls pair_wait.
+            if (args.operation === "pair_wait") {
               if (options.syncPairError) {const error=options.syncPairError;options.syncPairError=null;throw new Error(error);}
-              const result=options.syncPairPolls?.length ? (options.syncPairPolls.length>1 ? options.syncPairPolls.shift() : options.syncPairPolls[0]) : {code:"654321",approver:status.unlocked,ready:false};
+              const result=options.syncWaits?.length ? (options.syncWaits.length>1 ? options.syncWaits.shift() : options.syncWaits[0]) : {waiting:true,advanced:false};
               if (result.unlocked) options.syncStatus={...status,unlocked:true};
               return clone(result);
             }
-            if (["pair_approve","pair_deny"].includes(args.operation)) {options.syncPairs=[];return {approved:args.operation==="pair_approve",denied:args.operation==="pair_deny"};}
+            if (args.operation === "join_ack") {options.syncStatus={...status,joins:(status.joins ?? []).filter((j)=>j.id!==args.args.device)};return clone(options.syncStatus);}
             if (args.operation === "recovery_use") {options.syncStatus={...status,unlocked:true};return {unlocked:true};}
             if (args.operation === "remove" && args.args.device === status.device) {options.syncStatus={signedIn:false,unlocked:false,server:status.server};return {signedOut:true};}
+            if (args.operation === "remove") {options.syncStatus={...status,joins:(status.joins ?? []).filter((j)=>j.id!==args.args.device)};return clone(options.syncStatus);}
             if (args.operation === "signout" || args.operation === "account_delete") {options.syncStatus={signedIn:false,unlocked:false,server:status.server};return {signedOut:true};}
             if (args.operation === "reset_cancel") {options.syncStatus={...status,pendingReset:null};return {cancelled:true};}
             if (args.operation === "recovery_show") return {code:"SYNTHETIC-RECOVERY-FIXTURE"};
             if (args.operation === "setup") { options.syncStatus={...status,unlocked:true,recoveryPending:true}; return {unlocked:true}; }
             if (args.operation === "recovery_ack") { options.syncStatus={...status,recoveryPending:false}; return {saved:true}; }
             if (args.operation === "devices") return [{ id: "fixture-device", platform: "Windows", revoked_at: null }];
-            if (args.operation === "pair_list") return clone(options.syncPairs ?? []);
             if (args.operation === "conflicts") return [];
             if (args.operation === "signin") {
               if (options.syncSigninStatus) {options.syncStatus=clone(options.syncSigninStatus);return {opened:true};}

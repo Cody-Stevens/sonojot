@@ -21,9 +21,25 @@ const statusSchema = z.object({
   notice: z.string().nullable().optional(),
   pendingReset: z.number().nullable().optional(),
   resetCancelled: z.boolean().optional(),
+  // Computers that joined since this one last pressed OK or Not me.
+  joins: z
+    .array(
+      z.object({ id: z.string(), platform: z.string(), joinedAt: z.number() }),
+    )
+    .optional(),
   error: z.string().nullable().optional(),
 });
 export type SyncStatus = z.infer<typeof statusSchema>;
+const platformNames: Record<string, string> = {
+  macos: "Mac",
+  windows: "Windows PC",
+  linux: "Linux computer",
+  ios: "iPhone",
+};
+/** A plain name for the operating system a device reports, if known. */
+export function platformName(platform: string): string | undefined {
+  return platformNames[platform.toLowerCase()];
+}
 export const sync = $state<{
   status: SyncStatus | null;
   busy: boolean;

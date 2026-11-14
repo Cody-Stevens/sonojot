@@ -185,9 +185,14 @@ export async function sendCode(
     result.expiresAt.getTime() <= Date.now()
   )
     throw new Fault(503, "Sign-in is temporarily unavailable. Try again.");
-  // The code is returned server-to-server, but default provider delivery stays on
-  // until SonoJot's sending domain is approved. Never persist or log the plaintext.
-  return { code: result.code, radarAttempt: result.radarAuthAttemptId ?? null };
+  // The code is returned server-to-server. With MAIL_ENABLED, SonoJot emails it
+  // itself; otherwise the provider's default delivery does. Never persist or log
+  // the plaintext.
+  return {
+    code: result.code,
+    expiresAt: result.expiresAt.getTime(),
+    radarAttempt: result.radarAuthAttemptId ?? null,
+  };
 }
 export async function verifyCode(
   env: Env,

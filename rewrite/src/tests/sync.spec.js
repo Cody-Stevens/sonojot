@@ -24,14 +24,6 @@ const trusted = {
   device: "a",
   lastSync: 1794000000,
 };
-const request = () => ({
-  id: "fixture-pair",
-  device: "b",
-  platform: "Windows",
-  name: "Study computer",
-  state: "committed",
-  expires_at: Math.floor(Date.now() / 1000) + 300,
-});
 const operations = (page, operation) =>
   page.evaluate(
     (operation) =>
@@ -158,7 +150,7 @@ test("removing a device needs a confirmation and can re-key", async ({
   ).toHaveLength(0);
 });
 
-test("second computer starts automatically after sign-in and shows digits, waiting and Cancel", async ({
+test("second computer waits for its key with nothing to compare or approve", async ({
   page,
 }) => {
   await installDesktopFixture(page, {
@@ -168,26 +160,32 @@ test("second computer starts automatically after sign-in and shows digits, waiti
   await page.goto("/?page=sync&flavor=synctest&theme=fog");
   await page.getByRole("button", { name: "Add this computer" }).click();
   await expect(
-    page.getByRole("heading", { name: "Approve on another device" }),
+    page.getByRole("heading", {
+      name: "Getting your key from your other computer",
+    }),
   ).toBeVisible();
-  await expect(page.locator(".pair-code")).toHaveText("654 321");
   await expect(
-    page.getByRole("status").filter({ hasText: "Waiting for approval…" }),
+    page.getByText(
+      "Keep SonoJot open on one of your other computers. This happens on its own.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Waiting…" }),
   ).toBeVisible();
   await expect(page.locator(".spinner")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Cancel", exact: true }),
-  ).toBeEnabled();
-  await expect(
-    page.getByText(
-      "On a computer where SonoJot sync is already set up, open Settings → Account and sync and approve this computer. Check that it shows the same six digits.",
-    ),
+    page.getByRole("button", { name: "Use recovery code instead" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".pair-code")).toHaveCount(0);
   for (const name of [
-    "Compare six digits",
-    "Check pairing",
-    "They match",
     "Approve",
+    "Deny",
+    "Cancel",
+    "They match",
+    "Get a new code",
     "Account options",
     "Download account data",
     "Delete account",
@@ -196,17 +194,13 @@ test("second computer starts automatically after sign-in and shows digits, waiti
       0,
     );
   await expect(page.locator(".sync-sheet")).toHaveCount(1);
-  expect(await operations(page, "pair_start")).toHaveLength(1);
-  expect(await operations(page, "pair_approve")).toHaveLength(0);
-  expect(await operations(page, "pair_confirm")).toHaveLength(0);
+  await expect
+    .poll(async () => (await operations(page, "pair_wait")).length)
+    .toBeGreaterThan(0);
   await screenshot(page, "new-computer");
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(page.getByText("Approval cancelled.")).toBeVisible();
-  await expect(page.locator(".pair-code")).toHaveCount(0);
-  expect(await operations(page, "pair_deny")).toEqual([{ id: "fixture-pair" }]);
 });
 
-test("sign-in callback starts approval without reloading Settings", async ({
+test("sign-in callback starts waiting without reloading Settings", async ({
   page,
 }) => {
   await installDesktopFixture(page, { syncEnabled: true });
@@ -215,133 +209,159 @@ test("sign-in callback starts approval without reloading Settings", async ({
     page.getByRole("button", { name: "Add this computer" }),
   ).toBeVisible();
   await page.evaluate((status) => window.__testSyncChange({ status }), locked);
-  await expect(page.locator(".pair-code")).toHaveText("654 321");
+  await expect(
+    page.getByRole("heading", {
+      name: "Getting your key from your other computer",
+    }),
+  ).toBeVisible();
 });
 
-for (const decision of ["Approve", "Deny"])
-  test(`trusted computer shows digits and ${decision} directly`, async ({
-    page,
-  }) => {
-    await installDesktopFixture(page, {
-      syncEnabled: true,
-      syncStatus: trusted,
-      syncPairs: [request()],
-    });
-    await page.goto("/?page=sync&flavor=synctest&theme=fog");
-    await expect(
-      page.getByRole("heading", { name: "A new computer wants to join sync" }),
-    ).toBeVisible();
-    await expect(page.getByText("Study computer · Windows")).toBeVisible();
-    await expect(page.locator(".pair-code")).toHaveText("654 321");
-    await expect(
-      page.getByRole("button", { name: "Approve", exact: true }),
-    ).toBeEnabled();
-    await expect(
-      page.getByRole("button", { name: "Deny", exact: true }),
-    ).toBeEnabled();
-    expect(await operations(page, "pair_approve")).toHaveLength(0);
-    await screenshot(page, "trusted-computer");
-    await page.getByRole("button", { name: decision, exact: true }).click();
-    expect(
-      await operations(
-        page,
-        decision === "Approve" ? "pair_approve" : "pair_deny",
-      ),
-    ).toEqual([
-      {
-        id: "fixture-pair",
-        ...(decision === "Approve" ? { confirmed: true } : {}),
-      },
-    ]);
-    await expect(page.locator(".pair-code")).toHaveCount(0);
-  });
-
-test("trusted computer discovers requests while Settings stays open", async ({
+test("waiting computer keeps asking every few seconds and unlocks on its own", async ({
   page,
 }) => {
+  await page.clock.install();
+  await installDesktopFixture(page, {
+    syncEnabled: true,
+    syncStatus: locked,
+    syncWaits: [{ waiting: true }, { waiting: true }, { unlocked: true }],
+  });
+  await page.goto("/?page=sync&flavor=synctest");
+  await expect
+    .poll(async () => (await operations(page, "pair_wait")).length)
+    .toBe(1);
+  await page.clock.fastForward(3100);
+  await expect
+    .poll(async () => (await operations(page, "pair_wait")).length)
+    .toBe(2);
+  await page.clock.fastForward(3100);
+  await expect(
+    page.getByRole("button", { name: "Sync now", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Getting your key from your other computer",
+    }),
+  ).toHaveCount(0);
+});
+
+test("a failed check shows the reason and keeps waiting", async ({ page }) => {
+  await page.clock.install();
+  await installDesktopFixture(page, {
+    syncEnabled: true,
+    syncStatus: locked,
+    syncPairError:
+      "Sync is offline. Your local words are safe; try Sync now when connected.",
+  });
+  await page.goto("/?page=sync&flavor=synctest");
+  await expect(
+    page.getByText("Sync is offline.", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Waiting…" }),
+  ).toBeVisible();
+  // It backs off instead of retrying every poll, then resumes on its own.
+  await page.clock.fastForward(9000);
+  expect(await operations(page, "pair_wait")).toHaveLength(1);
+  await page.clock.fastForward(15000);
+  await expect
+    .poll(async () => (await operations(page, "pair_wait")).length)
+    .toBe(2);
+  await expect(
+    page.getByText("Sync is offline.", { exact: false }),
+  ).toHaveCount(0);
+});
+
+const joined = {
+  id: "mac",
+  platform: "macos",
+  joinedAt: Math.floor(new Date("2026-11-13T15:04:00Z").getTime() / 1000),
+};
+
+test("trusted computer shows a join alert and OK dismisses it", async ({
+  page,
+}) => {
+  await installDesktopFixture(page, {
+    syncEnabled: true,
+    syncStatus: { ...trusted, joins: [joined] },
+  });
+  await page.goto("/?page=sync&flavor=synctest&theme=fog");
+  const alert = page.getByRole("region", { name: "Computer joined" });
+  await expect(
+    alert.getByRole("heading", { name: "Mac joined sync" }),
+  ).toBeVisible();
+  await expect(alert).toContainText(
+    await page.evaluate(
+      (t) =>
+        new Date(t * 1000).toLocaleString(undefined, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }),
+      joined.joinedAt,
+    ),
+  );
+  for (const name of ["Approve", "Deny"])
+    await expect(page.getByRole("button", { name, exact: true })).toHaveCount(
+      0,
+    );
+  await screenshot(page, "join-alert");
+  await alert.getByRole("button", { name: "OK", exact: true }).click();
+  expect(await operations(page, "join_ack")).toEqual([{ device: "mac" }]);
+  await expect(alert).toHaveCount(0);
+  expect(await operations(page, "remove")).toHaveLength(0);
+});
+
+test("Not me confirms, removes that computer and changes the key", async ({
+  page,
+}) => {
+  await installDesktopFixture(page, {
+    syncEnabled: true,
+    syncStatus: { ...trusted, joins: [joined] },
+  });
+  await page.goto("/?page=sync&flavor=synctest&theme=fog");
+  await page.getByRole("button", { name: "Not me", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("heading", {
+      name: "Remove this computer and change the key?",
+    }),
+  ).toBeVisible();
+  await expect(dialog.getByLabel("Sign out only, no re-key")).toHaveCount(0);
+  await screenshot(page, "not-me");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(await operations(page, "remove")).toHaveLength(0);
+  await page.getByRole("button", { name: "Not me", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Remove and change key", exact: true })
+    .click();
+  expect(await operations(page, "remove")).toEqual([
+    { confirmed: true, device: "mac", rekey: true },
+  ]);
+  // The replacement recovery code follows, as for any re-key.
+  await expect(page.getByText("SYNTHETIC-RECOVERY-FIXTURE")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Computer joined" }),
+  ).toHaveCount(0);
+});
+
+test("join alerts appear while Settings stays open", async ({ page }) => {
   await installDesktopFixture(page, { syncEnabled: true, syncStatus: trusted });
   await page.goto("/?page=sync&flavor=synctest");
   await expect(
     page.getByRole("button", { name: "Account options" }),
   ).toBeVisible();
-  await page.evaluate(
-    (pairs) => window.__testSyncChange({ pairs }),
-    [request()],
-  );
-  await expect(page.locator(".pair-code")).toHaveText("654 321");
-});
-
-test("commitment exchange runs automatically before digits are shown", async ({
-  page,
-}) => {
-  await page.clock.install();
-  await installDesktopFixture(page, {
-    syncEnabled: true,
-    syncStatus: locked,
-    syncPairPolls: [{ waiting: true }, { waiting: true }, { code: "012345" }],
-  });
-  await page.goto("/?page=sync&flavor=synctest");
-  await expect(page.getByText("Preparing six digits…")).toBeVisible();
-  await expect
-    .poll(async () => (await operations(page, "pair_poll")).length)
-    .toBe(1);
-  await expect(page.locator(".pair-code")).toHaveCount(0);
-  await page.clock.fastForward(3100);
-  await expect
-    .poll(async () => (await operations(page, "pair_poll")).length)
-    .toBe(2);
-  await page.clock.fastForward(3100);
-  await expect(page.locator(".pair-code")).toHaveText("012 345");
-});
-
-test("receiver unlocks by polling only after trusted approval", async ({
-  page,
-}) => {
-  await page.clock.install();
-  await installDesktopFixture(page, { syncEnabled: true, syncStatus: locked });
-  await page.goto("/?page=sync&flavor=synctest");
-  await expect(page.locator(".pair-code")).toHaveText("654 321");
-  await page.evaluate(() =>
-    window.__testSyncChange({ polls: [{ unlocked: true }] }),
-  );
-  await page.clock.fastForward(3100);
   await expect(
-    page.getByRole("button", { name: "Sync now", exact: true }),
+    page.getByRole("region", { name: "Computer joined" }),
+  ).toHaveCount(0);
+  await page.evaluate(
+    (joins) => window.__testSyncChange({ status: { joins } }),
+    [{ ...joined, platform: "windows", id: "pc" }],
+  );
+  await expect(
+    page.getByRole("heading", { name: "Windows PC joined sync" }),
   ).toBeVisible();
-  await expect(page.locator(".pair-code")).toHaveCount(0);
-  expect(await operations(page, "pair_confirm")).toHaveLength(0);
-  expect(await operations(page, "pair_approve")).toHaveLength(0);
 });
 
-test("expired codes clear and offer Get a new code", async ({ page }) => {
-  await page.clock.install();
-  await installDesktopFixture(page, { syncEnabled: true, syncStatus: locked });
-  await page.goto("/?page=sync&flavor=synctest");
-  await expect(page.locator(".pair-code")).toHaveText("654 321");
-  await page.clock.fastForward(301000);
-  await expect(page.getByText("This code expired.")).toBeVisible();
-  await expect(page.locator(".pair-code")).toHaveCount(0);
-  await page.getByRole("button", { name: "Get a new code" }).click();
-  await expect(page.locator(".pair-code")).toHaveText("654 321");
-  expect(await operations(page, "pair_start")).toHaveLength(2);
-});
-
-test("pairing errors can retry without starting another commitment", async ({
-  page,
-}) => {
-  await installDesktopFixture(page, {
-    syncEnabled: true,
-    syncStatus: locked,
-    syncPairError: "Connection interrupted. Try again.",
-  });
-  await page.goto("/?page=sync&flavor=synctest");
-  await expect(page.getByRole("alert")).toContainText("Connection interrupted");
-  await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.locator(".pair-code")).toHaveText("654 321");
-  expect(await operations(page, "pair_start")).toHaveLength(1);
-});
-
-test("recovery and reset alternatives stay hidden until requested", async ({
+test("recovery and reset options stay hidden until requested", async ({
   page,
 }) => {
   await installDesktopFixture(page, { syncEnabled: true, syncStatus: locked });
@@ -350,27 +370,20 @@ test("recovery and reset alternatives stay hidden until requested", async ({
     page.getByRole("button", { name: "Sign out", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Use recovery code", exact: true }),
-  ).toHaveCount(0);
-  await expect(
     page.getByRole("button", { name: "I lost my devices and recovery code" }),
   ).toHaveCount(0);
   await expect(page.getByLabel("Recovery code", { exact: true })).toHaveCount(
     0,
   );
-  await page
-    .getByRole("button", { name: "Can't approve from another computer?" })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Use recovery code", exact: true }),
-  ).toBeVisible();
+  const instead = page.getByRole("button", {
+    name: "Use recovery code instead",
+  });
+  await expect(instead).toHaveAttribute("aria-expanded", "false");
+  await instead.click();
   await expect(
     page.getByRole("button", { name: "I lost my devices and recovery code" }),
   ).toBeVisible();
-  await screenshot(page, "approval-alternatives");
-  await page
-    .getByRole("button", { name: "Use recovery code", exact: true })
-    .click();
+  await screenshot(page, "recovery-instead");
   await page
     .getByLabel("Recovery code", { exact: true })
     .fill("SYNTHETIC-RECOVERY-FIXTURE");
@@ -563,9 +576,7 @@ test("L4 reset completion waits for ready_at and shows its availability", async 
   await page
     .getByRole("button", { name: "Account and sync", exact: false })
     .click();
-  await page
-    .getByRole("button", { name: "Can't approve from another computer?" })
-    .click();
+  await page.getByRole("button", { name: "Use recovery code instead" }).click();
   const button = page.getByRole("button", {
     name: "Complete reset after 72 hours",
   });

@@ -37,6 +37,10 @@ async function commitment(
   }
   return b64(new Uint8Array(await crypto.subtle.digest("SHA-256", all)));
 }
+// A request waits long enough for one of the person's other computers to come
+// online and relay the key on its own. Older apps cap their local copy at five
+// minutes, so the longer lifetime is additive for them.
+export const PAIR_LIFETIME = 86400;
 type Pair = {
   id: string;
   account: string;
@@ -65,7 +69,7 @@ export async function pairing(
     return json(
       (
         await env.DB.prepare(
-          "SELECT p.*,d.platform FROM pairings p JOIN devices d ON d.account=p.account AND d.id=p.device WHERE p.account=? AND p.expires_at>? AND p.state NOT IN ('denied','consumed')",
+          "SELECT p.*,d.platform FROM pairings p JOIN devices d ON d.account=p.account AND d.id=p.device WHERE p.account=? AND p.expires_at>? AND p.state NOT IN ('denied','consumed') AND d.revoked_at IS NULL",
         )
           .bind(s.account, now())
           .all()
@@ -85,12 +89,12 @@ export async function pairing(
         s.device,
         s.public_key,
         c,
-        now() + 300,
+        now() + PAIR_LIFETIME,
         now(),
         String(request.cf?.country ?? "Unknown"),
       )
       .run();
-    return json({ id: requestId, expiresAt: now() + 300 }, 201);
+    return json({ id: requestId, expiresAt: now() + PAIR_LIFETIME }, 201);
   }
   const requestId = id(u.pathname.slice("/v1/pairings/".length));
   const p = await env.DB.prepare(

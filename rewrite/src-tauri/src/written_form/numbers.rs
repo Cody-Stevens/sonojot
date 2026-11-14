@@ -132,14 +132,17 @@ fn small_int(t: &[&str]) -> Option<i128> {
         return (0 < tail && tail < 100).then(|| t[0].parse::<i128>().unwrap() + tail);
     }
     if t.contains(&"hundred") {
-        if t.len() < 2 || t[1] != "hundred" || t.iter().filter(|w| **w == "hundred").count() != 1 {
+        // "four hundred", and the colloquial "twelve hundred" / "twenty five
+        // hundred" (11 to 99 hundreds, never a round ten such as "twenty hundred").
+        let at = t.iter().position(|w| *w == "hundred")?;
+        if !(1..=2).contains(&at) || t.iter().filter(|w| **w == "hundred").count() != 1 {
             return None;
         }
-        let lead = small_int(&t[..1])?;
-        if !(1..=9).contains(&lead) {
+        let lead = small_int(&t[..at])?;
+        if !((1..=9).contains(&lead) || ((11..=99).contains(&lead) && lead % 10 != 0)) {
             return None;
         }
-        let mut rest = &t[2..];
+        let mut rest = &t[at + 1..];
         if rest.first() == Some(&"and") {
             rest = &rest[1..];
             if rest.is_empty() {

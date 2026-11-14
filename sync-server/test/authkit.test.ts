@@ -129,7 +129,8 @@ describe("headless identity adapter", () => {
       userAgent: "Synthetic browser",
     };
     const sent = await sendCode(env, user.email, signals, fetcher);
-    expect(sent).toEqual({ code: "123456", radarAttempt: "radar_fixture" });
+    expect(sent).toMatchObject({ code: "123456", radarAttempt: "radar_fixture" });
+    expect(sent.expiresAt).toBeGreaterThan(Date.now());
     const identity = await verifyCode(
       env,
       user.email,

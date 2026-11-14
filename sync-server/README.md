@@ -58,7 +58,7 @@ Keep credentials in managed Worker secrets, never in this JSON file. Bare
 Wrangler commands use the placeholder config; use the wrappers for staging.
 
 All Worker/D1/R2 names end in `-staging`. There are no custom routes or production
-environment in this configuration. Provider secrets and email remain disabled.
+environment in this configuration. Provider secrets stay in managed Worker secrets.
 Do not use `.dev.vars` for actual
 credentials, commit keys, or pass codes in command arguments.
 
@@ -106,9 +106,22 @@ Session renewal uses a separate daily heartbeat. The expanded restore drill uses
 
 AuthKit uses browser-bound PKCE and signed lifecycle events. Migration 0006
 removes the retired email-code table and adds WorkOS session mappings/tombstones.
-No Google/Apple ID-token validation or application email-code sender remains.
+No Google/Apple ID-token validation remains.
 Current SonoJot contact email changes require a fresh WorkOS login plus AK proof;
 webhooks never overwrite it. Live AuthKit stays unavailable until the public
-client ID and two managed secrets are set. Security-notice mail remains disabled.
+client ID and two managed secrets are set.
+
+Email: with `MAIL_ENABLED` set to `"true"` (staging), SonoJot sends its own email
+through the `MAIL` binding, restricted to `signin@sonojot.com` and
+`notices@sonojot.com`; replies go to `support@sonojot.com`. `src/mail.ts` holds
+the one layout and every message. Sign-in codes are emailed when they are
+created and are never logged or stored; a failed send returns a retryable 503.
+The provider's own Magic Auth email must be switched off in its dashboard, or
+people get two codes. Security notices are queued in `notifications`. A join
+alert is sent during the sign-in request (none for an account's first
+computer); the `*/10` trigger and the daily job retry failed notices up to five
+times with growing waits. Run `node scripts/mail-preview.mjs` to write every
+email to `mail-preview/` (add `--screenshots` for 600px PNGs). With
+`MAIL_ENABLED` off, the provider delivers codes and notices wait in the queue.
 
 Synthetic test identities require both the staging environment and its managed test secret. The deployment wrappers always select staging; the base config is deliberately unconfigured.
