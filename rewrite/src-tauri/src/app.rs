@@ -1021,46 +1021,12 @@ impl Runtime {
             let _ = self.apply_tab(app, true, Some(true), false, true);
             return Err(error);
         }
-        let mut vocabulary = Vec::new();
-        let mut confirmed = Vec::new();
-        for entry in self
-            .store
-            .get_vocabulary()?
-            .into_iter()
-            .filter(|v| v.enabled)
-        {
-            // Scoped entries are explicit user confirmations and always reach
-            // the structured stage with their scope (daily-v6 default/UI
-            // promise). The `cleanup_trial` bool is preserved in Settings only
-            // for migration/evidence and no longer gates runtime vocabulary.
-            // Unscoped entries keep using only the existing host path. Nothing
-            // here is derived from dictation history.
-            let _ = settings.cleanup_trial;
-            if let Some(scope) = entry
-                .scope
-                .as_deref()
-                .map(str::trim)
-                .filter(|scope| !scope.is_empty() && entry.kind != crate::domain::VocabularyKind::Hint)
-            {
-                confirmed.push(crate::structured_clean::VocabularyEntry {
-                    id: Some(entry.id.clone()),
-                    canonical: entry.written.clone(),
-                    aliases: vec![entry.heard.clone()],
-                    scope: scope.to_owned(),
-                    status: crate::structured_clean::VocabularyStatus::Confirmed,
-                    provenance:
-                        crate::structured_clean::VocabularyProvenance::ExplicitUserConfirmation,
-                });
-            }
-            vocabulary.push(cleanup::Vocabulary {
-                kind: entry.kind,
-                aliases: entry.aliases,
-                heard: entry.heard,
-                written: entry.written,
-                enabled: true,
-                context: entry.context,
-            });
-        }
+        // Scoped entries are explicit user confirmations and always reach the
+        // structured stage with their scope (daily-v6 default/UI promise). The
+        // `cleanup_trial` bool is preserved in Settings only for migration and
+        // evidence and no longer gates runtime vocabulary.
+        let _ = settings.cleanup_trial;
+        let (vocabulary, confirmed) = self.store.cleanup_vocabulary()?;
         // Learned aliases require actual ASR text and nearby scope evidence.
         // Speech retrieves them with learned_cleanup_vocabulary_for after
         // recognition (full raw + mapped mode + 1536 budget via the Store

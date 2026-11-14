@@ -437,7 +437,7 @@ impl Engine {
         let mut vad_config: VadModelConfig = unsafe { std::mem::zeroed() };
         vad_config.silero_vad.model = path(&mut keep, optional_asr::sherpa_vad_path(root))?;
         vad_config.silero_vad.threshold = if is_qwen(requested) { crate::qwen_window::vad_threshold() } else { 0.25 };
-        vad_config.silero_vad.min_silence_duration = 0.5;
+        vad_config.silero_vad.min_silence_duration = crate::meeting_pieces::detector_min_silence();
         vad_config.silero_vad.min_speech_duration = 0.25;
         vad_config.silero_vad.window_size = 512;
         vad_config.silero_vad.max_speech_duration = crate::asr::sherpa_section_seconds() as f32;
@@ -477,12 +477,13 @@ impl Engine {
         unsafe { (self.api.vad_reset)(self.vad) };
         let qwen = is_qwen(&self.model_id);
         let seconds = crate::qwen_window::target_seconds_for_model(&self.model_id);
+        let cut = crate::meeting_pieces::dictation_cut(&self.model_id);
         Ok(Stream {
             engine: self,
             pending: Vec::new(),
             gate_pending: Vec::new(),
             qwen_input: qwen.then(QwenInput::new),
-            windows: qwen.then(|| crate::qwen_window::Assembler::new(seconds)),
+            windows: (qwen && cut.is_none()).then(|| crate::qwen_window::Assembler::new(seconds)),
             merged_windows: seconds != 0,
             text_guard: crate::qwen_guard::Session::default(),
             ledger: BTreeMap::new(),
@@ -497,7 +498,9 @@ impl Engine {
             vad_origin: 0,
             level: None,
             originals: None,
-            pieces: None,
+            pieces: cut.map(crate::meeting_pieces::Pieces::dictation),
+            early: None,
+            early_ok: cut.is_some_and(|cut| cut.step.is_some()),
             completeness: RecognitionCompleteness::Complete,
             warnings: Vec::new(),
             #[cfg(feature = "fidelity-eval")]
@@ -1599,8 +1602,14 @@ pub struct Stream<'a> {
     level: Option<crate::detector_level::DetectorLevel>,
     /// Original samples by detector index, for non-Qwen segments.
     originals: Option<crate::detector_level::OriginalRing>,
-    /// Evaluation arm: decode pause-cut pieces instead of detector sections.
+    /// Pause-cut pieces instead of detector sections: meetings and files
+    /// (see meeting_pieces) and live dictation (`meeting_pieces::dictation_cut`).
     pieces: Option<crate::meeting_pieces::Pieces>,
+    /// The open dictation piece decoded at its last pause, kept until the piece
+    /// closes there or Stop arrives, so Stop only waits for the speech after it.
+    early: Option<Early>,
+    /// Off for meetings and files, and once early decoding proves too slow.
+    early_ok: bool,
     completeness: RecognitionCompleteness,
     /// Visible recognition warnings recorded at the adapter boundary, for
     /// example ambiguous output retained for review after one retry.
@@ -1636,11 +1645,19 @@ impl Stream<'_> {
                 self.originals = Some(crate::detector_level::OriginalRing::default());
             }
         }
+        // Meetings and files never use the dictation cut.
+        self.pieces = None;
         if let Some(seconds) = crate::meeting_pieces::piece_seconds() {
             self.pieces = Some(crate::meeting_pieces::Pieces::new(seconds));
             self.windows = None;
             self.originals = None;
+        } else if is_qwen(&self.engine.model_id) && self.windows.is_none() {
+            let seconds = crate::qwen_window::target_seconds_for_model(&self.engine.model_id);
+            self.windows = Some(crate::qwen_window::Assembler::new(seconds));
+            self.originals = None;
         }
+        self.early = None;
+        self.early_ok = false;
     }
 
     pub fn add(&mut self, samples: &[f32], sample_rate: u32) -> Result<(), String> {
@@ -1661,13 +1678,28 @@ impl Stream<'_> {
         self.drain_vad(false)
     }
 
+    /// Text so far for display. An open dictation piece decoded early shows
+    /// too, so the screen and the live preview advance at pauses as they did
+    /// when every pause closed a section.
     pub fn update(&mut self) -> Result<String, String> {
         self.drain_vad(false)?;
-        Ok(crate::asr::assemble_segments(&self.ledger, false))
+        let mut text = crate::asr::assemble_segments(&self.ledger, false);
+        if let Some(early) = self.early.as_ref().and_then(|e| e.recognition.as_ref())
+            .map(|r| r.text.trim()).filter(|t| !t.is_empty())
+        {
+            if !text.is_empty() { text.push(' '); }
+            text.push_str(early);
+        }
+        Ok(text)
     }
 
     pub(crate) fn committed_seconds(&self) -> Option<f32> {
-        crate::asr::ledger_end(&self.ledger)
+        let early = self.early.as_ref().filter(|e| e.recognition.is_some())
+            .map(|e| e.window.end as f32 / 16_000.0);
+        match (crate::asr::ledger_end(&self.ledger), early) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     pub(crate) fn original_text(&self) -> Option<&str> {
@@ -1706,7 +1738,13 @@ impl Stream<'_> {
         mut self,
     ) -> Result<(crate::asr::RecognitionResult, serde_json::Value), String> {
         self.drain_vad(true)?;
-        let recognition = crate::asr::RecognitionResult { raw_words: Vec::new(),
+        let text = crate::asr::assemble_segments(&self.ledger, false);
+        let raw_words = if self.raw_words_missing || crate::confidence::words(&text).len() != self.raw_words.len() {
+            Vec::new()
+        } else {
+            std::mem::take(&mut self.raw_words)
+        };
+        let recognition = crate::asr::RecognitionResult { raw_words,
             word_confidence: if self.confidence_missing { vec![] } else { self.word_confidence },
             original_text: self.original_text,
             segments: crate::asr::ordered_segments(&self.ledger),
@@ -1835,16 +1873,73 @@ impl Stream<'_> {
     fn decode_pieces(&mut self, finish: bool) -> Result<(), String> {
         let speaking = unsafe { (self.engine.api.vad_detected)(self.engine.vad) } != 0;
         let Some(pieces) = &mut self.pieces else { return Ok(()); };
-        for piece in pieces.poll(speaking, finish) {
-            if is_qwen(&self.engine.model_id) {
-                self.decode_qwen_window(crate::qwen_window::Window { ranges: vec![piece.start..piece.end],
-                    audio: piece.audio, gate_audio: piece.gate, start: piece.start, end: piece.end,
-                    reason: "pause_cut_piece", recovered_tail: false })?;
-            } else {
-                self.decode_section(&piece.audio, piece.start as f32 / 16_000.0, piece.end as f32 / 16_000.0)?;
+        // Stop: keep the open piece's text decoded at its last pause; only the
+        // audio after that pause is decoded now.
+        let stopped = if finish {
+            self.early.take().filter(|early| early.window.start == pieces.start())
+                .and_then(|early| pieces.close_at(early.window.end).map(|_| early))
+        } else { None };
+        let ready = pieces.poll(speaking, finish);
+        if let Some(early) = stopped {
+            self.commit_piece(early.window, early.recognition, early.evidence)?;
+        }
+        for piece in ready {
+            let window = piece_window(piece);
+            match self.early.take() {
+                Some(early) if early.window.start == window.start && early.window.end == window.end =>
+                    self.commit_piece(early.window, early.recognition, early.evidence)?,
+                // A different closing point: decode the closed piece whole.
+                early => {
+                    self.early = early.filter(|early| early.window.start != window.start);
+                    let (recognition, evidence) = self.transcribe_piece(&window)?;
+                    self.commit_piece(window, recognition, evidence)?;
+                }
             }
         }
+        if finish || !self.early_ok { return Ok(()); }
+        let Some(open) = self.pieces.as_mut().and_then(|p| p.early(speaking)) else { return Ok(()); };
+        let window = piece_window(open);
+        let started = std::time::Instant::now();
+        let (recognition, evidence) = self.transcribe_piece(&window)?;
+        // Decoding the open piece again every few seconds of speech must stay
+        // cheap; on a slow computer stop doing it for this dictation.
+        let seconds = (window.end - window.start) as f64 / 16_000.0;
+        if started.elapsed().as_secs_f64() > EARLY_MAX_RTF * seconds { self.early_ok = false; }
+        self.early = Some(Early { window, recognition, evidence });
         Ok(())
+    }
+
+    /// Decode one piece without publishing it. `None` when Qwen's speech gate
+    /// rejects it.
+    fn transcribe_piece(&self, window: &crate::qwen_window::Window)
+        -> Result<(Option<crate::asr::RecognitionResult>, serde_json::Value), String>
+    {
+        #[allow(unused_mut)]
+        let mut evidence = serde_json::Value::Null;
+        if !is_qwen(&self.engine.model_id) {
+            #[cfg(feature = "fidelity-eval")]
+            let recognition = self.engine.transcribe_observed(&window.audio, Some(&mut evidence))?;
+            #[cfg(not(feature = "fidelity-eval"))]
+            let recognition = self.engine.transcribe(&window.audio)?;
+            return Ok((Some(recognition), evidence));
+        }
+        #[cfg(any(windows, target_os = "macos", test))]
+        let qualified = confirm_speech(&window.gate_audio, Some(&mut evidence))?;
+        #[cfg(not(any(windows, target_os = "macos", test)))]
+        let qualified = true;
+        let recognition = if qualified {
+            Some(self.engine.transcribe_qualified(&window.audio, Some(&mut evidence))?)
+        } else { None };
+        Ok((recognition, evidence))
+    }
+
+    fn commit_piece(&mut self, window: crate::qwen_window::Window,
+        recognition: Option<crate::asr::RecognitionResult>, evidence: serde_json::Value) -> Result<(), String>
+    {
+        if is_qwen(&self.engine.model_id) { return self.commit_qwen_window(window, recognition, evidence); }
+        let recognition = recognition.ok_or("A decoded piece has no recognition.")?;
+        self.commit_section(recognition, evidence, window.audio.len(),
+            window.start as f32 / 16_000.0, window.end as f32 / 16_000.0)
     }
 
     fn collect_segments(&mut self) -> Result<(), String> {
@@ -1913,20 +2008,30 @@ impl Stream<'_> {
         Ok(())
     }
 
-    /// Decode one detector section (or one pause-cut piece) and publish it.
+    /// Decode one detector section and publish it.
     fn decode_section(&mut self, audio: &[f32], start_seconds: f32, end_seconds: f32) -> Result<(), String> {
         #[cfg(feature = "fidelity-eval")]
-        {
+        let (recognition, evidence) = {
             let mut evidence = serde_json::Value::Null;
-            let recognition = self
-                .engine
-                .transcribe_observed(audio, Some(&mut evidence))?;
+            (self.engine.transcribe_observed(audio, Some(&mut evidence))?, evidence)
+        };
+        #[cfg(not(feature = "fidelity-eval"))]
+        let (recognition, evidence) = (self.engine.transcribe(audio)?, serde_json::Value::Null);
+        self.commit_section(recognition, evidence, audio.len(), start_seconds, end_seconds)
+    }
+
+    fn commit_section(&mut self, recognition: crate::asr::RecognitionResult,
+        #[allow(unused_mut)] mut evidence: serde_json::Value, audio_samples: usize,
+        start_seconds: f32, end_seconds: f32) -> Result<(), String>
+    {
+        #[cfg(feature = "fidelity-eval")]
+        {
             evidence["text"] = serde_json::json!(&recognition.text);
             if evidence["skipped"] == true {
                 self.vad_evidence.sections_skipped += 1;
             } else {
                 self.vad_evidence.sections_decoded += 1;
-                self.vad_evidence.decoded_audio_samples += audio.len() as u64;
+                self.vad_evidence.decoded_audio_samples += audio_samples as u64;
                 evidence["decoded"] = serde_json::json!(true);
                 evidence["skipped"] = serde_json::json!(false);
             }
@@ -1937,32 +2042,20 @@ impl Stream<'_> {
                 recognition.completeness == RecognitionCompleteness::Complete
             );
             self.segment_evidence.push(evidence);
-            if recognition.completeness == RecognitionCompleteness::Incomplete {
-                self.completeness = RecognitionCompleteness::Incomplete;
-            }
-            crate::asr::retain_original_section(&mut self.original_text,
-                || crate::asr::assemble_segments(&self.ledger, false), &recognition);
-            self.append_raw_words(&recognition.text, &recognition.raw_words, start_seconds);
-            crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
-            crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
-            self.push_text(&recognition.text, start_seconds, end_seconds,
-                recognition.completeness == RecognitionCompleteness::Complete)?;
         }
         #[cfg(not(feature = "fidelity-eval"))]
-        {
-            let recognition = self.engine.transcribe(audio)?;
-            if recognition.completeness == RecognitionCompleteness::Incomplete {
-                self.completeness = RecognitionCompleteness::Incomplete;
-            }
-            crate::asr::retain_original_section(&mut self.original_text,
-                || crate::asr::assemble_segments(&self.ledger, false), &recognition);
-            self.append_raw_words(&recognition.text, &recognition.raw_words, start_seconds);
-            crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing, &recognition.text, recognition.word_confidence);
-            crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
-            self.push_text(&recognition.text, start_seconds, end_seconds,
-                recognition.completeness == RecognitionCompleteness::Complete)?;
+        let _ = (evidence, audio_samples);
+        if recognition.completeness == RecognitionCompleteness::Incomplete {
+            self.completeness = RecognitionCompleteness::Incomplete;
         }
-        Ok(())
+        crate::asr::retain_original_section(&mut self.original_text,
+            || crate::asr::assemble_segments(&self.ledger, false), &recognition);
+        self.append_raw_words(&recognition.text, &recognition.raw_words, start_seconds);
+        crate::confidence::append(&mut self.word_confidence, &mut self.confidence_missing,
+            &recognition.text, recognition.word_confidence);
+        crate::asr::append_recognition_warnings(&mut self.warnings, recognition.warnings);
+        self.push_text(&recognition.text, start_seconds, end_seconds,
+            recognition.completeness == RecognitionCompleteness::Complete)
     }
 
     fn decode_windows(&mut self, finish: bool) -> Result<(), String> {
@@ -1977,13 +2070,16 @@ impl Stream<'_> {
     }
 
     fn decode_qwen_window(&mut self, window: crate::qwen_window::Window) -> Result<(), String> {
-        let mut evidence = serde_json::Value::Null;
-        #[cfg(any(windows, target_os = "macos", test))]
-        let qualified = confirm_speech(&window.gate_audio, Some(&mut evidence))?;
-        #[cfg(not(any(windows, target_os = "macos", test)))]
-        let qualified = true;
-        if qualified {
-            let recognition = self.engine.transcribe_qualified(&window.audio, Some(&mut evidence))?;
+        let (recognition, evidence) = self.transcribe_piece(&window)?;
+        self.commit_qwen_window(window, recognition, evidence)
+    }
+
+    fn commit_qwen_window(&mut self, window: crate::qwen_window::Window,
+        recognition: Option<crate::asr::RecognitionResult>, mut evidence: serde_json::Value) -> Result<(), String>
+    {
+        #[cfg_attr(not(feature = "fidelity-eval"), allow(unused_variables))]
+        let qualified = recognition.is_some();
+        if let Some(recognition) = recognition {
             let id = self.next_id;
             self.next_id += 1;
             let complete = recognition.completeness == RecognitionCompleteness::Complete;
@@ -2063,6 +2159,23 @@ impl Stream<'_> {
         );
         Ok(())
     }
+}
+
+/// Early decoding of an open dictation piece may take at most this share of
+/// the audio it decodes, or it stops for that dictation.
+const EARLY_MAX_RTF: f64 = 0.15;
+
+/// An open dictation piece decoded at a pause, with its decode results.
+struct Early {
+    window: crate::qwen_window::Window,
+    recognition: Option<crate::asr::RecognitionResult>,
+    evidence: serde_json::Value,
+}
+
+fn piece_window(piece: crate::meeting_pieces::Piece) -> crate::qwen_window::Window {
+    crate::qwen_window::Window { ranges: vec![piece.start..piece.end], audio: piece.audio,
+        gate_audio: piece.gate, start: piece.start, end: piece.end,
+        reason: "pause_cut_piece", recovered_tail: false }
 }
 
 /// Qwen emits a language header before each independent audio segment.

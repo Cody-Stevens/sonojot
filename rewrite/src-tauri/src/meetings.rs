@@ -273,23 +273,7 @@ mod clean {
     impl Meetings {
         pub fn clean_local(&self, id: &str, started: impl FnOnce()) -> Result<MeetingDetail, String> {
             let settings = self.store.load_settings()?;
-            let mut vocabulary = Vec::new();
-            let mut confirmed = Vec::new();
-            for entry in self.store.get_vocabulary()?.into_iter().filter(|entry| entry.enabled) {
-                if let Some(scope) = entry.scope.as_deref().map(str::trim).filter(|scope| !scope.is_empty() && entry.kind != crate::domain::VocabularyKind::Hint) {
-                    confirmed.push(crate::structured_clean::VocabularyEntry {
-                        id: Some(entry.id.clone()), canonical: entry.written.clone(),
-                        aliases: vec![entry.heard.clone()], scope: scope.into(),
-                        status: crate::structured_clean::VocabularyStatus::Confirmed,
-                        provenance: crate::structured_clean::VocabularyProvenance::ExplicitUserConfirmation,
-                    });
-                }
-                vocabulary.push(crate::cleanup::Vocabulary {
-                    kind: entry.kind,
-                    aliases: entry.aliases,
-                    heard: entry.heard, written: entry.written, enabled: true, context: entry.context,
-                });
-            }
+            let (vocabulary, confirmed) = self.store.cleanup_vocabulary()?;
             let pieces = self.recognizer_pieces(id);
             // A punctuation package with a casing label reads the pieces itself.
             let casing = settings.sonojot_punctuation
@@ -300,23 +284,34 @@ mod clean {
                 let stop = AtomicBool::new(false);
                 export::map_passages(transcript, |passage| {
                     crate::ai::check_cancel(cancel)?;
+                    let unedited = passage_pieces(passage, &pieces);
+                    // Learned corrections apply per passage (one speaker turn),
+                    // chosen exactly as for a dictation of that text, and only
+                    // to passages still as recognized: a passage the user
+                    // edited keeps its words.
+                    let mut terms = vocabulary.clone();
+                    if unedited.is_some() {
+                        terms.extend(self.store.learned_cleanup_vocabulary_for(
+                            passage, crate::domain::CleanupMode::Clean, LEARNED_BUDGET).unwrap_or_default());
+                    }
                     // As in dictation, cleanup reads an unedited passage with the
                     // capital each mid-sentence recognizer piece starts with lowered.
-                    let parts = passage_pieces(passage, &pieces);
                     let joined = if casing { None } else {
-                        parts.as_ref().and_then(|parts|
-                            crate::punctuation::lower_segment_start_capitals(&tidy_spaces(passage), parts, &vocabulary))
+                        unedited.as_ref().and_then(|parts|
+                            crate::punctuation::lower_segment_start_capitals(&tidy_spaces(passage), parts, &terms))
                     };
-                    let passage = joined.as_deref().unwrap_or(passage);
-                    // Public entry point owns punctuation's resource admission and
-                    // worker. local-rules avoids acquiring an optional LLM lease.
-                    let run = || crate::cleanup::run_with_delete_policy(
-                        &self.store.models_dir(), passage, crate::cleanup::Mode::Clean,
-                        &vocabulary, &confirmed, "local-rules", crate::cleanup::CleanupPolicy::conservative(),
-                        cancel, &stop, if settings.written_form { crate::punctuation::WrittenFormMode::Model } else { crate::punctuation::WrittenFormMode::Off }, false,
-                        settings.sonojot_punctuation,
-                    );
-                    let result = match parts.filter(|_| casing) {
+                    // The transcript cleanup dictation also gets, without word
+                    // deletion and without an optional cleanup model.
+                    let run = || crate::cleanup::clean_transcript(&crate::cleanup::Transcript {
+                        root: &self.store.models_dir(), text: joined.as_deref().unwrap_or(passage),
+                        mode: crate::cleanup::Mode::Clean, vocabulary: &terms, confirmed: &confirmed,
+                        policy: crate::cleanup::CleanupPolicy::conservative(),
+                        written_form: if settings.written_form { crate::punctuation::WrittenFormMode::Model }
+                            else { crate::punctuation::WrittenFormMode::Off },
+                        allow_delete: false, punctuation_model: settings.sonojot_punctuation,
+                        cancel, stop_cleanup: &stop,
+                    });
+                    let result = match unedited.filter(|_| casing) {
                         Some(parts) => crate::punctuation::with_pieces(&parts, run),
                         None => run(),
                     };
@@ -387,6 +382,9 @@ mod clean {
         }
     }
 }
+
+/// Learned-vocabulary byte budget per passage, the same as one dictation.
+const LEARNED_BUDGET: usize = 1536;
 
 /// The consecutive recognizer pieces a published passage is made of, or None
 /// when the passage was edited or has no saved pieces. Passages join whole
@@ -3546,6 +3544,54 @@ mod meeting_tests {
         meetings.write(&record).unwrap();
         let edited = meetings.clean_local(&detail.id, || {}).unwrap().cleaned_transcript.unwrap();
         assert!(edited.contains("one feature Request"), "{edited}");
+        fs::remove_dir_all(meetings.store.root()).unwrap();
+    }
+
+    #[test]
+    fn meeting_clean_copy_applies_learned_corrections_per_unedited_passage() {
+        let _gate = crate::resource_manager::tests::test_gate();
+        let meetings = library();
+        let mut settings = meetings.store.load_settings().unwrap();
+        settings.learn_from_corrections = true;
+        settings.do_not_save_dictations = false;
+        meetings.store.save_settings(&settings).unwrap();
+        // One scoped correction in dictation teaches "grock" -> "Grok" near model talk.
+        let generation = meetings.store.privacy_generation();
+        let taught = meetings.store.commit_dictation(generation, "ask grock about the model",
+            "ask grock about the model", crate::domain::RecognitionCompleteness::Complete, &[]).unwrap().unwrap();
+        assert_eq!(meetings.store.save_dictation_correction(&taught.id, "ask Grok about the model",
+            Some("AI model discussion")).unwrap().learned_count, 1);
+
+        let detail = recorded(&meetings);
+        let job = meetings.begin_transcription(&detail.id, None).unwrap();
+        let passage = |text: &str, start: f32, speaker: &str| {
+            let mut segment = recognition(text, start, start + 2.0).segments.remove(0);
+            segment.speaker = Some(speaker.into());
+            segment
+        };
+        let mut raw = recognition("", 0.0, 0.0);
+        raw.segments = vec![
+            passage("We could ask grock about the model.", 0.0, "You"),
+            passage("The garden needs water.", 3.0, "Other speakers"),
+            passage("Then ask grock about the model again.", 6.0, "You"),
+            passage("Other speakers said grock twice.", 9.0, "Other speakers"),
+        ];
+        raw.text = raw.segments.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" ");
+        let published = publish(&raw, false);
+        meetings.finish_recognition_operation(&job.id, &job.cancel,
+            Ok(MeetingRecognition { published, raw, known_speaker: None }), &job.asr_model).unwrap();
+        // The user edits the third passage before cleaning.
+        let mut record = meetings.read(&detail.id).unwrap();
+        record.detail.transcript = record.detail.transcript.replace("Then ask grock", "Then we ask grock");
+        meetings.write(&record).unwrap();
+
+        let cleaned = meetings.clean_local(&detail.id, || {}).unwrap();
+        let copy = cleaned.cleaned_transcript.unwrap();
+        assert!(copy.contains("ask Grok about the model"), "unedited passage with model talk: {copy}");
+        assert!(copy.contains("we ask grock about the model again"), "edited passage keeps its words: {copy}");
+        assert!(copy.contains("said grock twice"), "no model talk in that passage, so no change: {copy}");
+        // The transcript itself, and the raw recognition behind it, never change.
+        assert!(!cleaned.transcript.contains("Grok"));
         fs::remove_dir_all(meetings.store.root()).unwrap();
     }
 

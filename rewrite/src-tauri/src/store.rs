@@ -954,6 +954,40 @@ impl Store {
         ))
     }
 
+    /// The user's enabled Vocabulary as cleanup reads it, for dictation and a
+    /// meeting's Clean copy alike: every entry as a cleanup term, and scoped
+    /// entries (other than hints) also as explicit confirmations for the
+    /// structured stage. Nothing here is derived from history.
+    pub fn cleanup_vocabulary(
+        &self,
+    ) -> Result<(Vec<crate::cleanup::Vocabulary>, Vec<crate::structured_clean::VocabularyEntry>), String> {
+        let mut vocabulary = Vec::new();
+        let mut confirmed = Vec::new();
+        for entry in self.get_vocabulary()?.into_iter().filter(|entry| entry.enabled) {
+            if let Some(scope) = entry.scope.as_deref().map(str::trim)
+                .filter(|scope| !scope.is_empty() && entry.kind != crate::domain::VocabularyKind::Hint)
+            {
+                confirmed.push(crate::structured_clean::VocabularyEntry {
+                    id: Some(entry.id.clone()),
+                    canonical: entry.written.clone(),
+                    aliases: vec![entry.heard.clone()],
+                    scope: scope.to_owned(),
+                    status: crate::structured_clean::VocabularyStatus::Confirmed,
+                    provenance: crate::structured_clean::VocabularyProvenance::ExplicitUserConfirmation,
+                });
+            }
+            vocabulary.push(crate::cleanup::Vocabulary {
+                kind: entry.kind,
+                aliases: entry.aliases,
+                heard: entry.heard,
+                written: entry.written,
+                enabled: true,
+                context: entry.context,
+            });
+        }
+        Ok((vocabulary, confirmed))
+    }
+
     /// Speech integration hook, called after ASR on the full raw utterance.
     /// Do not retrieve per chunk: an unscoped occurrence elsewhere must abstain.
     pub fn learned_cleanup_vocabulary_for(
@@ -2368,6 +2402,27 @@ mod tests {
             .unwrap();
         let entries = store.learn_correction(&record.id, "grock", "Grok").unwrap();
         assert_eq!(entries[0].scope, None);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cleanup_vocabulary_lists_enabled_terms_and_confirms_scoped_ones() {
+        let (directory, store) = temp_store("cleanup-vocabulary");
+        let entry = |heard: &str, written: &str, scope: Option<&str>, kind, enabled| VocabularyEntry {
+            kind, aliases: Vec::new(), context: Vec::new(), id: String::new(),
+            heard: heard.into(), written: written.into(), enabled, scope: scope.map(str::to_owned),
+        };
+        use crate::domain::VocabularyKind::{Hint, Replace};
+        store.save_vocabulary(&[
+            entry("grock", "Grok", Some("AI model discussion"), Replace, true),
+            entry("sono jot", "SonoJot", None, Replace, true),
+            entry("Kubectl", "Kubectl", None, Hint, true),
+            entry("old", "Old", Some("anything"), Replace, false),
+        ]).unwrap();
+        let (vocabulary, confirmed) = store.cleanup_vocabulary().unwrap();
+        assert_eq!(vocabulary.iter().map(|v| v.written.as_str()).collect::<Vec<_>>(), ["Grok", "SonoJot", "Kubectl"]);
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!((confirmed[0].canonical.as_str(), confirmed[0].scope.as_str()), ("Grok", "AI model discussion"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

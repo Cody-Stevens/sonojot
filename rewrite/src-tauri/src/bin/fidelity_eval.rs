@@ -1200,6 +1200,12 @@ fn evaluate(
             row["asr"]["recognition_completeness"] = json!(result.completeness);
             row["asr"]["warnings"] = json!(result.warnings);
             row["asr"]["segments"] = json!(result.segments);
+            // Trust layer inputs: per-word confidence and timed words.
+            let times: Vec<(f32, f32)> = result.raw_words.iter().filter_map(|w| w.time).collect();
+            row["asr"]["trust"] = json!({"text_words": result.text.split_whitespace().count(),
+                "raw_words": result.raw_words.len(), "timed_words": times.len(),
+                "times_monotonic": times.windows(2).all(|p| p[1].0 + 0.05 >= p[0].0),
+                "confidence_words": result.word_confidence.len()});
             row["raw_text"] = json!(result.text);
             if result.completeness == RecognitionCompleteness::Incomplete {
                 row["status"] = json!("incomplete_recognition");
@@ -1293,7 +1299,12 @@ fn evaluate(
                 )
             } else {
                 row["written_form"] = json!(args.written_form.as_str());
-                let segments: Vec<&str> = case.segments.iter().map(String::as_str).collect();
+                // Audio rows use the recognizer's own pieces, as live dictation does.
+                let pieces: Vec<String> = if case.segments.is_empty() {
+                    row["asr"]["segments"].as_array().map(|all| all.iter()
+                        .filter_map(|s| s["text"].as_str().map(str::to_owned)).collect()).unwrap_or_default()
+                } else { case.segments.clone() };
+                let segments: Vec<&str> = pieces.iter().map(String::as_str).collect();
                 let run = |text: &str| cleanup::run_dictation_interruptible_with_written_form_mode(
                     &args.root, text, selected_mode, &case.vocabulary, &case.confirmed_vocabulary,
                     model, policy, &cancel, &stop, args.written_form,

@@ -3639,26 +3639,39 @@ pub fn run_dictation_interruptible_with_written_form_mode(
     run_with_delete_policy(root, original, mode, vocabulary, confirmed, model, policy, cancel, stop_cleanup, written_form, true, true)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn run_with_delete_policy(
-    root: &Path, original: &str, mode: Mode, vocabulary: &[Vocabulary],
-    confirmed: &[crate::structured_clean::VocabularyEntry], model: &str, policy: CleanupPolicy,
-    cancel: &AtomicBool, stop_cleanup: &AtomicBool,
-    written_form: crate::punctuation::WrittenFormMode, allow_delete: bool,
-    punctuation_model: bool,
-) -> ResultText {
-    let rules_policy = if model == smart::MODEL_ID { CleanupPolicy::conservative() } else { policy };
+/// The cleanup every transcript gets, shared by dictation and a meeting's
+/// Clean copy: local rules with vocabulary, then punctuation and house style,
+/// written forms in Clean mode, and word deletion only when `allow_delete`.
+/// Dictation layers its optional cleanup model on top
+/// (`run_with_delete_policy`); meetings stop here. Callers lower the capital
+/// each separately decoded recognizer piece starts with before this
+/// (`punctuation::lower_segment_start_capitals`).
+pub(crate) struct Transcript<'a> {
+    pub root: &'a Path,
+    pub text: &'a str,
+    pub mode: Mode,
+    pub vocabulary: &'a [Vocabulary],
+    pub confirmed: &'a [crate::structured_clean::VocabularyEntry],
+    pub policy: CleanupPolicy,
+    pub written_form: crate::punctuation::WrittenFormMode,
+    pub allow_delete: bool,
+    pub punctuation_model: bool,
+    pub cancel: &'a AtomicBool,
+    pub stop_cleanup: &'a AtomicBool,
+}
+
+pub(crate) fn clean_transcript(t: &Transcript<'_>) -> ResultText {
     let mut prepared = run_interruptible_with_policy(
-        root, original, mode, vocabulary, confirmed, "local-rules", rules_policy,
-        cancel, stop_cleanup,
+        t.root, t.text, t.mode, t.vocabulary, t.confirmed, "local-rules", t.policy,
+        t.cancel, t.stop_cleanup,
     );
-    if mode == Mode::Original || prepared.text.trim().is_empty()
-        || cancel.load(Ordering::Acquire) || stop_cleanup.load(Ordering::Acquire)
+    if t.mode == Mode::Original || prepared.text.trim().is_empty()
+        || t.cancel.load(Ordering::Acquire) || t.stop_cleanup.load(Ordering::Acquire)
     {
         return prepared;
     }
-    let mut protected = vocabulary.to_vec();
-    protected.extend(confirmed.iter().filter(|entry| {
+    let mut protected = t.vocabulary.to_vec();
+    protected.extend(t.confirmed.iter().filter(|entry| {
         entry.status == crate::structured_clean::VocabularyStatus::Confirmed
             && entry.provenance == crate::structured_clean::VocabularyProvenance::ExplicitUserConfirmation
     }).flat_map(|entry| std::iter::once(&entry.canonical).chain(entry.aliases.iter()))
@@ -3669,21 +3682,45 @@ pub(crate) fn run_with_delete_policy(
         enabled: true, context: Vec::new(),
     }));
     let punctuation = crate::punctuation::run_cleanup(
-        root, &prepared.text, &protected, cancel,
-        if mode == Mode::Clean { written_form } else { crate::punctuation::WrittenFormMode::Off },
-        allow_delete && mode == Mode::Clean, punctuation_model,
+        t.root, &prepared.text, &protected, t.cancel,
+        if t.mode == Mode::Clean { t.written_form } else { crate::punctuation::WrittenFormMode::Off },
+        t.allow_delete && t.mode == Mode::Clean, t.punctuation_model,
     );
     prepared.text = punctuation.text;
     prepared.punctuation_stage = Some(punctuation.stage.into());
     prepared.punctuation_ms = Some(punctuation.elapsed_ms);
     prepared.publication_stage = Some(punctuation.stage.into());
-    let control = WorkControl { budget: None, cancel, stop_cleanup: Some(stop_cleanup) };
+    let control = WorkControl { budget: None, cancel: t.cancel, stop_cleanup: Some(t.stop_cleanup) };
     if let Err(error) = control.check() {
         prepared.status = cleanup_error_status(&error).into();
+    }
+    prepared
+}
+
+/// Dictation: the shared transcript cleanup, then the selected optional
+/// cleanup model.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_with_delete_policy(
+    root: &Path, original: &str, mode: Mode, vocabulary: &[Vocabulary],
+    confirmed: &[crate::structured_clean::VocabularyEntry], model: &str, policy: CleanupPolicy,
+    cancel: &AtomicBool, stop_cleanup: &AtomicBool,
+    written_form: crate::punctuation::WrittenFormMode, allow_delete: bool,
+    punctuation_model: bool,
+) -> ResultText {
+    let rules_policy = if model == smart::MODEL_ID { CleanupPolicy::conservative() } else { policy };
+    let mut prepared = clean_transcript(&Transcript {
+        root, text: original, mode, vocabulary, confirmed, policy: rules_policy, written_form,
+        allow_delete, punctuation_model, cancel, stop_cleanup,
+    });
+    if mode == Mode::Original || prepared.text.trim().is_empty()
+        || cancel.load(Ordering::Acquire) || stop_cleanup.load(Ordering::Acquire)
+        || prepared.punctuation_stage.is_none()
+    {
         return prepared;
     }
+    let control = WorkControl { budget: None, cancel, stop_cleanup: Some(stop_cleanup) };
     if !(DictationPolicy { mode, model }).uses_model() {
-        prepared.status = punctuation.stage.into();
+        if let Some(stage) = prepared.punctuation_stage.clone() { prepared.status = stage; }
         return prepared;
     }
     prepared.pre_model_text = Some(prepared.text.clone());

@@ -1532,7 +1532,7 @@ impl Engine {
             vad_origin: 0,
             level: None,
             originals: None,
-            pieces: crate::meeting_pieces::dictation_piece_seconds().map(|s| crate::meeting_pieces::Pieces::new(gpu_piece_seconds(s))),
+            pieces: None,
             completeness: RecognitionCompleteness::Complete,
             warnings: Vec::new(),
             #[cfg(feature = "fidelity-eval")]
