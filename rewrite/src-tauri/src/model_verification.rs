@@ -14,7 +14,9 @@ use std::{
 
 pub(crate) const CACHE_FILE: &str = ".sonojot-verification-v1.json";
 const MAX_ENTRIES: usize = 512;
-const MAX_ROOTS: usize = 8;
+// Each test uses its own temporary root. Under a full parallel `cargo test`, a ninth root
+// would clear every other test's receipts between two of its checks, so tests keep more.
+const MAX_ROOTS: usize = if cfg!(test) { 4096 } else { 8 };
 const MAX_CACHE_BYTES: u64 = 512 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

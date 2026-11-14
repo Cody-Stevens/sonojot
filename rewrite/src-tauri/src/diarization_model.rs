@@ -226,13 +226,21 @@ mod tests {
         fs::create_dir_all(&shared).unwrap();
         fs::write(shared.join(name), b"abc").unwrap();
         assert_eq!(mac_runtime_library(&root, Check::Blocking, &pins), shared.join(name));
-        fs::write(shared.join(name), b"bad").unwrap();
+        // Receipts are keyed by size, modified time and file identity. A same-size rewrite
+        // inside one file-time tick keeps the stamp, so each simulated change gets its own
+        // modified time, as real damage or a repair would.
+        let rewrite = |bytes: &[u8], later: u64| {
+            fs::write(shared.join(name), bytes).unwrap();
+            fs::File::options().write(true).open(shared.join(name)).unwrap()
+                .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(later)).unwrap();
+        };
+        rewrite(b"bad", 10);
         let resolved = mac_runtime_library(&root, Check::Blocking, &pins);
         assert_eq!(resolved, legacy);
         assert_eq!(Check::Blocking.file(&root, &resolved, pins[0].bytes, pins[0].sha256), Status::Ready);
         assert_eq!(mac_runtime_library(&root, Check::Background, &pins), legacy);
         // Repairing the shared copy restores preference for it.
-        fs::write(shared.join(name), b"abc").unwrap();
+        rewrite(b"abc", 20);
         assert_eq!(mac_runtime_library(&root, Check::Blocking, &pins), shared.join(name));
         fs::remove_dir_all(root).unwrap();
     }

@@ -646,8 +646,8 @@ mod tests {
 
     #[test]
     fn selection_prefers_the_newest_verified_package_and_preserves_legacy_v1_manifest() {
-        // One root for every step: the verifier keeps at most eight roots per
-        // process, and parallel tests must not evict each other's receipts.
+        // One root for every step, so the Background check below reads the
+        // receipt the Blocking check just stored.
         let root = std::env::temp_dir().join(format!("punct-select-{}", uuid::Uuid::new_v4()));
         assert_eq!(selected_package_with_runtime(&root, Check::Blocking, Status::Ready), None);
         write_fixture(&root, Package::V3);

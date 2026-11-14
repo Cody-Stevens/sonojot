@@ -223,9 +223,16 @@ mod tests {
             assert!(
                 wait_for_worker(&mut child, &cancel, started + Duration::from_millis(100)).is_err()
             );
+            let waited = started.elapsed();
             child.terminate();
+            // Under a full parallel test run the kill can take longer than
+            // terminate's own poll to be observed; the wait above is what is timed.
+            let gone = Instant::now() + Duration::from_secs(15);
+            while child.try_wait().unwrap().is_none() && Instant::now() < gone {
+                std::thread::sleep(Duration::from_millis(20));
+            }
             assert!(child.try_wait().unwrap().is_some());
-            assert!(started.elapsed() < Duration::from_secs(3));
+            assert!(waited < Duration::from_secs(3));
         }
     }
 
