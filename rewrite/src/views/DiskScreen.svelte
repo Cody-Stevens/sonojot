@@ -1,6 +1,14 @@
 ﻿<script lang="ts">
   import { onMount } from "svelte";
   import ModelDownload from "../components/ModelDownload.svelte";
+  import ModelUpdateNotice from "../components/ModelUpdateNotice.svelte";
+  import { modelUpdates } from "../lib/model-updates.svelte";
+  import {
+    updateFor,
+    updateLabel,
+    updateRunning,
+    updateStatus,
+  } from "../lib/model-updates";
   import { speechChoice } from "../lib/speech-choice.svelte";
   import { PUNCTUATION_MODEL, activePunctuation } from "../lib/punctuation";
   import SettingRow from "../components/SettingRow.svelte";
@@ -140,6 +148,7 @@
     bind:value={query}
   />
 </div>
+<ModelUpdateNotice place="page" />
 <section class="stock paper-card quiet-settings disk-list">
   {#if library.error}<p role="status">{library.error}</p>
     <button class="button" onclick={() => library.refresh()}>Try again</button
@@ -149,6 +158,7 @@
     </p>{/if}
   {#each rows as model (model.id)}
     {@const plan = modelStorage.removal(model)}
+    {@const update = tab === "installed" ? updateFor(modelUpdates.list, model.id) : undefined}
     <div
       class="disk-entry"
       class:selected={selected === model.id}
@@ -165,7 +175,9 @@
               ? "Built in"
               : checking(model)
                 ? "Checking…"
-                : formatBytes(model.diskBytes)
+                : update && !update.automatic
+                  ? `${formatBytes(model.diskBytes)} · Update available`
+                  : formatBytes(model.diskBytes)
             : modelUnavailableReason(model) ||
               (model.deprecated
                 ? "Replaced by a newer package"
@@ -174,6 +186,20 @@
       >
       {#if selected === model.id}<div class="disk-detail">
           <p class="field-help">{model.guidance}</p>
+          {#if update}<div class="actions update-row">
+              <span class="field-help" role="status">{updateStatus(update)}</span
+              >{#if update.state === "available" && !update.automatic}<button
+                  class="button"
+                  onclick={() => modelUpdates.start(update.id)}
+                  >{updateLabel(update)}</button
+                >{:else if update.state === "failed"}<button
+                  class="button"
+                  onclick={() => modelUpdates.start(update.id)}>Try again</button
+                >{:else if updateRunning(update) && ["queued", "downloading"].includes(update.state)}<button
+                  class="button"
+                  onclick={() => modelUpdates.cancel(update.id)}>Cancel</button
+                >{/if}
+            </div>{/if}
           {#if tab === "installed"}
             {#if model.removable}<div class="actions">
                 <button
@@ -333,5 +359,13 @@
   }
   .disk-list {
     padding-block: 4px;
+  }
+  .update-row {
+    align-items: center;
+    margin-bottom: 9px;
+  }
+  .update-row .field-help {
+    flex: 1;
+    margin: 0;
   }
 </style>

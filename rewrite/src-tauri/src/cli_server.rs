@@ -6,7 +6,7 @@
 
 use crate::{
     ai_commands, app::Runtime, cli_protocol::{Request, Response, MAX_MESSAGE_BYTES, PROTOCOL_VERSION},
-    commands, download_consent, media_support, model_manager, permissions, setup_commands,
+    commands, download_consent, media_support, model_manager, model_updates, permissions, setup_commands,
     system_audio_commands, updater,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -94,6 +94,9 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("get_model_library", ""),
     ("start_model_install", "id"),
     ("cancel_model_install", "id"),
+    ("get_model_updates", ""),
+    ("start_model_update", "id?"),
+    ("cancel_model_update", "id"),
     ("remove_model", "id, confirmed"),
     ("get_download_requirements", "ids"),
     ("acknowledge_download_terms", "acknowledgments"),
@@ -301,6 +304,9 @@ async fn dispatch(app: AppHandle, command: &str, args: Value) -> Result<Value, S
         "get_model_library" => out(model_manager::get_model_library(s()).await),
         "start_model_install" => out(model_manager::start_model_install(s(), arg(a, "id")?).await),
         "cancel_model_install" => out(model_manager::cancel_model_install(s(), arg(a, "id")?).await),
+        "get_model_updates" => out(model_updates::get_model_updates(s()).await),
+        "start_model_update" => out(model_updates::start_model_update(s(), arg(a, "id")?).await),
+        "cancel_model_update" => out(model_updates::cancel_model_update(s(), arg(a, "id")?).await),
         "remove_model" => out(model_manager::remove_model(s(), arg(a, "id")?, arg(a, "confirmed")?).await),
         "get_download_requirements" => out(download_consent::get_download_requirements(s(), arg(a, "ids")?).await),
         "acknowledge_download_terms" => out(download_consent::acknowledge_download_terms(h(), s(), arg(a, "acknowledgments")?).await),

@@ -54,6 +54,19 @@ pub struct OptionalModel {
     pub repo: &'static str,
     pub revision: &'static str,
     pub files: &'static [PinnedFile],
+    /// Earlier releases of this same model. Their verified files keep working
+    /// (the model stays installed and selected) while the update to `files`
+    /// is offered; see `model_updates`. Newest first.
+    pub previous: &'static [Release],
+    /// One plain sentence on what the current release improves over the last.
+    pub update_note: &'static str,
+}
+
+/// One published version of a model: its pinned revision and files.
+#[derive(Clone, Copy)]
+pub struct Release {
+    pub revision: &'static str,
+    pub files: &'static [PinnedFile],
 }
 
 const PARAKEET: OptionalModel = OptionalModel {
@@ -62,6 +75,8 @@ const PARAKEET: OptionalModel = OptionalModel {
     description: "English · NVIDIA Parakeet TDT 0.6B v2",
     repo: "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
     revision: "1ab9323565ddb038682214b292f588070a538ce2",
+    previous: &[],
+    update_note: "",
     files: &[
         PinnedFile {
             relative: "encoder.int8.onnx",
@@ -93,14 +108,25 @@ const PARAKEET: OptionalModel = OptionalModel {
 /// Export and measurements: docs/research/ParakeetFineTuneDesktop.md.
 pub const PARAKEET_FT2_ID: &str = "parakeet-tdt-0.6b-v2-sonojot-ft2";
 
-const PARAKEET_FT2: OptionalModel = OptionalModel {
-    id: PARAKEET_FT2_ID,
-    name: "SonoJot Parakeet",
-    description: "English · SonoJot's fine-tune of NVIDIA Parakeet TDT 0.6B v2",
-    // Published November 12, 2026 under CC BY 4.0 (model card and NOTICE in
-    // rewrite/evaluation/parakeet-ft-desktop-2026-11/). Pinned to the commit
-    // that added the int8 files; the fp16 GPU build in `fp16/` is not wired.
-    repo: "SonoJot/sonojot-parakeet-v1",
+/// The decoder, joiner and tokens shared by every ft2 int8 release.
+const PARAKEET_FT2_DECODER: PinnedFile = PinnedFile {
+    relative: "decoder.int8.onnx",
+    bytes: 7_257_753,
+    sha256: "eb10992246617a09f8752a1b4b0a951fd99499740ca8ef9eeffe83adb0fc3940",
+};
+const PARAKEET_FT2_JOINER: PinnedFile = PinnedFile {
+    relative: "joiner.int8.onnx",
+    bytes: 1_739_080,
+    sha256: "fcd749d846047b8ac98b41eaf0044b678e41503523e3ea9df039f863c1a1014f",
+};
+const PARAKEET_TOKENS: PinnedFile = PinnedFile {
+    relative: "tokens.txt",
+    bytes: 9_384,
+    sha256: "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+};
+
+/// The first int8 release (November 12, 2026): every encoder layer in int8.
+const PARAKEET_FT2_FIRST: Release = Release {
     revision: "ff2638d470935675096725da78c4ad691fbde46a",
     files: &[
         PinnedFile {
@@ -108,23 +134,39 @@ const PARAKEET_FT2: OptionalModel = OptionalModel {
             bytes: 652_184_374,
             sha256: "623cb6020e8151afc86b1d0c02e17266e77c74de9bfcafaf99eb4cdbe988fbf5",
         },
-        PinnedFile {
-            relative: "decoder.int8.onnx",
-            bytes: 7_257_753,
-            sha256: "eb10992246617a09f8752a1b4b0a951fd99499740ca8ef9eeffe83adb0fc3940",
-        },
-        PinnedFile {
-            relative: "joiner.int8.onnx",
-            bytes: 1_739_080,
-            sha256: "fcd749d846047b8ac98b41eaf0044b678e41503523e3ea9df039f863c1a1014f",
-        },
-        PinnedFile {
-            relative: "tokens.txt",
-            bytes: 9_384,
-            sha256: "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
-        },
+        PARAKEET_FT2_DECODER,
+        PARAKEET_FT2_JOINER,
+        PARAKEET_TOKENS,
     ],
 };
+
+const PARAKEET_FT2: OptionalModel = OptionalModel {
+    id: PARAKEET_FT2_ID,
+    name: "SonoJot Parakeet",
+    description: "English · SonoJot's fine-tune of NVIDIA Parakeet TDT 0.6B v2",
+    // Published under CC BY 4.0 (model card and NOTICE in
+    // rewrite/evaluation/parakeet-ft-desktop-2026-11/). The November 15
+    // revision keeps the encoder's 24 depthwise convolutions in full precision
+    // (+0.6 MB, same speed), which recovers most of what int8 cost on meetings
+    // (docs/research/ParakeetFineTuneDesktop.md). Decoder, joiner and tokens
+    // are unchanged, so an update downloads only the encoder.
+    repo: "SonoJot/sonojot-parakeet-v1",
+    revision: PARAKEET_FT2_REVISION,
+    previous: &[PARAKEET_FT2_FIRST],
+    update_note: "Makes fewer mistakes in meetings, at the same size and speed.",
+    files: &[
+        PinnedFile {
+            relative: "encoder.int8.onnx",
+            bytes: 652_808_550,
+            sha256: "6ee0399477f54dcd2ef84e32a66e62d43b5ed9c3e326847ce59d29a8e0063ed7",
+        },
+        PARAKEET_FT2_DECODER,
+        PARAKEET_FT2_JOINER,
+        PARAKEET_TOKENS,
+    ],
+};
+/// Hugging Face commit holding the depthwise-full-precision encoder.
+const PARAKEET_FT2_REVISION: &str = "f6c3de766e2667c59ccad189c1d7469a07738340";
 
 /// Developer-only source for models whose weights are not published yet:
 /// a folder holding `<model id>/<file>`. Files still have to match the pinned
@@ -230,6 +272,8 @@ const QWEN: OptionalModel = OptionalModel {
     description: "Multilingual · Qwen3-ASR 1.7B",
     repo: "thieunv/sherpa-onnx-qwen3-asr-1.7B-int8",
     revision: "69eb686fd94a4a865bb5340a3d6ac0d7f1fec0d5",
+    previous: &[],
+    update_note: "",
     files: &[
         PinnedFile {
             relative: "conv_frontend.onnx",
@@ -528,10 +572,51 @@ pub fn model_ready(root: &Path, id: &str) -> bool {
     model_status(root, id, crate::model_verification::Check::Blocking).ready()
 }
 
+/// Ready when either the current release or an earlier release of the same
+/// model verifies: an installed older version keeps working, unchanged, until
+/// its update has been downloaded, verified, loaded and swapped in.
 pub(crate) fn model_status(root: &Path, id: &str, check: crate::model_verification::Check) -> crate::model_verification::Status {
     use crate::model_verification::Status;
     let Some(model) = find(id) else { return Status::Missing };
-    Status::all([runtime_status(root, check), check.files(root, &model_dir(root, id), model.files)])
+    let files = match installed_release(root, model, check) {
+        InstalledRelease::Current | InstalledRelease::Previous(_) => Status::Ready,
+        InstalledRelease::Checking => Status::Checking,
+        InstalledRelease::Missing => Status::Missing,
+    };
+    Status::all([runtime_status(root, check), files])
+}
+
+/// Which release of `model` the files in its folder are.
+#[derive(Clone, Copy)]
+pub(crate) enum InstalledRelease {
+    Current,
+    Previous(&'static Release),
+    Checking,
+    Missing,
+}
+
+pub(crate) fn installed_release(
+    root: &Path,
+    model: &'static OptionalModel,
+    check: crate::model_verification::Check,
+) -> InstalledRelease {
+    use crate::model_verification::Status;
+    let dir = model_dir(root, model.id);
+    let mut pending = match check.files(root, &dir, model.files) {
+        Status::Ready => return InstalledRelease::Current,
+        Status::Checking => true,
+        Status::Missing => false,
+    };
+    for release in model.previous {
+        match check.files(root, &dir, release.files) {
+            // An older release only counts once the current one is ruled out,
+            // so a half-verified new install never reads as outdated.
+            Status::Ready if !pending => return InstalledRelease::Previous(release),
+            Status::Ready | Status::Checking => pending = true,
+            Status::Missing => {}
+        }
+    }
+    if pending { InstalledRelease::Checking } else { InstalledRelease::Missing }
 }
 
 pub(crate) fn file_matches(path: &Path, file: &PinnedFile) -> Result<bool, String> {
@@ -573,7 +658,7 @@ pub async fn uninstall_asr_model(
     .map_err(|e| e.to_string())?
 }
 
-fn refresh_snapshot(app: &AppHandle, runtime: &Runtime) -> Result<(), String> {
+pub(crate) fn refresh_snapshot(app: &AppHandle, runtime: &Runtime) -> Result<(), String> {
     runtime.engine.refresh_models();
     let models = crate::app::model_catalog(&runtime.models_root);
     {
@@ -859,6 +944,137 @@ pub(crate) fn download_with_cancel_progress(
         return Err(format!(
             "The downloaded {what} file did not match its pinned checksum. Nothing was installed."
         ));
+    }
+    Ok(())
+}
+
+/// Like `download_with_cancel_progress`, but keeps what arrived in `dest` and
+/// continues from there with an HTTP range request next time, so a model
+/// update on a slow or interrupted connection does not start over. The whole
+/// file is hashed once complete; a mismatch deletes it.
+pub(crate) fn download_resumable(
+    url: &str,
+    dest: &Path,
+    expected_bytes: u64,
+    expected_sha256: &str,
+    what: &str,
+    cancel: &AtomicBool,
+    progress: &dyn Fn(u64, u64),
+) -> Result<(), String> {
+    use std::io::{Read, Write};
+    if cancel.load(Ordering::Acquire) {
+        return Err("Install cancelled.".into());
+    }
+    if let Some(copied) = copy_local_source(url, dest, expected_bytes, expected_sha256, cancel, progress) {
+        return copied;
+    }
+    let mut have = fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+    if have > expected_bytes {
+        let _ = fs::remove_file(dest);
+        have = 0;
+    }
+    if have < expected_bytes {
+        let hosts = HostClass::HuggingFace;
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(concat!("SonoJot/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(DOWNLOAD_LIMIT)
+            .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                let allowed = attempt.url().scheme() == "https"
+                    && attempt.url().host_str().is_some_and(|host| allowed_host(host, hosts));
+                if allowed && attempt.previous().len() < 8 { attempt.follow() } else { attempt.stop() }
+            }))
+            .build()
+            .map_err(|e| format!("Cannot prepare the download: {e}"))?;
+        let mut request = client.get(url).header(reqwest::header::ACCEPT, "application/octet-stream");
+        if have > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={have}-"));
+        }
+        let mut response = request
+            .send()
+            .map_err(|e| format!("The {what} download could not start: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("The {what} download was refused: {e}"))?;
+        if response.status().is_redirection() {
+            return Err("The download was redirected to a host SonoJot does not trust. Nothing was installed.".into());
+        }
+        // A server that ignores the range sends the whole file: start over.
+        let resumed = have > 0
+            && response.status() == reqwest::StatusCode::PARTIAL_CONTENT
+            && response
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| {
+                    value.starts_with(&format!("bytes {have}-"))
+                        && value.ends_with(&format!("/{expected_bytes}"))
+                });
+        if !resumed {
+            have = 0;
+        }
+        if let Some(length) = response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            if length != expected_bytes - have {
+                return Err("The server offered an unexpected download size. Nothing was installed.".into());
+            }
+        }
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(resumed)
+            .truncate(!resumed)
+            .open(dest)
+            .map_err(|e| format!("Cannot stage the download: {e}"))?;
+        let mut out = std::io::BufWriter::new(file);
+        let deadline = Instant::now() + DOWNLOAD_LIMIT;
+        let mut buffer = vec![0u8; 256 * 1024];
+        progress(have, expected_bytes);
+        loop {
+            if cancel.load(Ordering::Acquire) {
+                let _ = out.flush();
+                return Err("Install cancelled.".into());
+            }
+            if Instant::now() >= deadline {
+                let _ = out.flush();
+                return Err(format!("The {what} download exceeded the time limit. Check the connection and try again."));
+            }
+            let read = match response.read(&mut buffer) {
+                Ok(read) => read,
+                Err(e) => {
+                    // Keep what arrived for the next attempt.
+                    let _ = out.flush();
+                    return Err(format!("The {what} download was interrupted: {e}"));
+                }
+            };
+            if read == 0 {
+                break;
+            }
+            have += read as u64;
+            if have > expected_bytes {
+                drop(out);
+                let _ = fs::remove_file(dest);
+                return Err(format!("The {what} download was larger than the pinned file."));
+            }
+            out.write_all(&buffer[..read]).map_err(|e| format!("Cannot save the download: {e}"))?;
+            progress(have, expected_bytes);
+        }
+        out.flush().map_err(|e| format!("Cannot save the download: {e}"))?;
+        drop(out);
+        if have != expected_bytes {
+            return Err(format!("The download is incomplete ({have} of {expected_bytes} bytes). Try again."));
+        }
+    }
+    if cancel.load(Ordering::Acquire) {
+        return Err("Install cancelled.".into());
+    }
+    let hash = sha256_file(dest, expected_bytes)?;
+    if !hash.eq_ignore_ascii_case(expected_sha256) {
+        let _ = fs::remove_file(dest);
+        return Err(format!("The downloaded {what} file did not match its pinned checksum. Nothing was installed."));
     }
     Ok(())
 }

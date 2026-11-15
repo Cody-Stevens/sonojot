@@ -38,6 +38,7 @@ mod meeting_speech;
 mod meeting_trash;
 pub mod meetings;
 mod model_manager;
+mod model_updates;
 mod model_licenses;
 mod legal_links;
 mod model_verification;
@@ -270,6 +271,9 @@ pub fn run() {
             legal_links::open_legal_link,
             model_manager::start_model_install,
             model_manager::cancel_model_install,
+            model_updates::get_model_updates,
+            model_updates::start_model_update,
+            model_updates::cancel_model_update,
             model_manager::remove_model,
             commands::get_snapshot,
             commands::save_settings,
@@ -405,6 +409,7 @@ pub fn run() {
             platform::observe_app_activations();
             meeting_ai::start_automatic_titles(&runtime, app.handle());
             updater::start_scheduler(&runtime, app.handle());
+            model_updates::start(&runtime, app.handle());
             let verification_runtime = Arc::downgrade(&runtime);
             let verification_app = app.handle().clone();
             model_verification::on_completion(move || {

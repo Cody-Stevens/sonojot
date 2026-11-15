@@ -5954,17 +5954,17 @@ The MPL-2.0 terms are included in the license texts below. Recipients retain the
 - Review: Pinned converter README contains only license metadata, without a detailed attribution/NOTICE or exact NVIDIA base revision. The vendor card captured here is current-only.
 - Text: [licenses/downloads/standard/cc-by-4.0.txt](#text-9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411) (SHA-256 `9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411`)
 
-### SonoJot Parakeet (fine-tuned Parakeet TDT 0.6B v2) huggingface.co/SonoJot/sonojot-parakeet-v1@ff2638d470935675096725da78c4ad691fbde46a
+### SonoJot Parakeet (fine-tuned Parakeet TDT 0.6B v2) huggingface.co/SonoJot/sonojot-parakeet-v1@f6c3de766e2667c59ccad189c1d7469a07738340
 
 - Inventory ID: `parakeet-tdt-0.6b-v2-sonojot-ft2`
 - License: `CC-BY-4.0`
 - Source: rewrite/src-tauri/src/optional_asr.rs
 - Source: docs/research/ParakeetFineTuneDesktop.md
-- Source: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/README.md
-- Source: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/NOTICE.md
+- Source: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/f6c3de766e2667c59ccad189c1d7469a07738340/README.md
+- Source: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/f6c3de766e2667c59ccad189c1d7469a07738340/NOTICE.md
 - Source: https://creativecommons.org/licenses/by/4.0/legalcode.txt
 - Source: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2/resolve/ae9ad07059c7c739ffaf932226a8fe64ae2620b0/README.md
-- License details: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/ff2638d470935675096725da78c4ad691fbde46a/LICENSE
+- License details: https://huggingface.co/SonoJot/sonojot-parakeet-v1/blob/f6c3de766e2667c59ccad189c1d7469a07738340/LICENSE
 - Distribution: SonoJot's own Hugging Face repository SonoJot/sonojot-parakeet-v1, pinned commit; the app downloads the int8 files.
 - Attribution: Modified from NVIDIA Parakeet TDT 0.6B v2 (CC BY 4.0) by Cody Stevens Studio LLC for SonoJot; NVIDIA does not endorse this modification. Training corpora and labelling models are credited in the model's NOTICE.md.
 - Conditions: Credit NVIDIA, link CC BY 4.0, state that the weights were modified, retain the NOTICE. No ShareAlike obligation or noncommercial restriction.

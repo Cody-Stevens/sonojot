@@ -575,8 +575,8 @@ test("unrelated checks do not delay a ready profile", async () => {
   assert.deepEqual(fixture.calls, ["apply:balanced", "complete"]);
 });
 
-test("every first-run profile includes v3 after speech before committing setup", async () => {
-  assert.equal(PUNCTUATION_MODEL, "sonojot-punct-v3");
+test("every first-run profile includes the offered punctuation package after speech before committing setup", async () => {
+  assert.equal(PUNCTUATION_MODEL, "sonojot-punct-v4");
   for (const profile of ["accurate", "balanced", "light"] as const) {
     assert.equal(profileIncludesPunctuation(null, profile), true);
     const fixture = operationFixture();
@@ -773,7 +773,7 @@ test("earlier v1 and v2 answers and installs do not suppress the one-time v3 rec
         ];
         assert.equal(
           punctuationRecommendation(settings, models)?.id,
-          "sonojot-punct-v3",
+          PUNCTUATION_MODEL,
         );
         models[2].state = "installed";
         assert.equal(punctuationRecommendation(settings, models), undefined);
@@ -830,12 +830,12 @@ test("punctuation library pages identify each package", () => {
   );
   assert.equal(
     punctuationModelPage(PUNCTUATION_MODEL),
-    "https://huggingface.co/SonoJot/sonojot-punct-v3",
+    "https://huggingface.co/SonoJot/sonojot-punct-v4",
   );
   // Unknown IDs never build a link; they fall back to the current package.
   assert.equal(
     punctuationModelPage("../sonojot-punct-v1"),
-    "https://huggingface.co/SonoJot/sonojot-punct-v3",
+    "https://huggingface.co/SonoJot/sonojot-punct-v4",
   );
 });
 

@@ -216,7 +216,7 @@ fn size_cache() -> &'static Mutex<SizeCache> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn invalidate_sizes() {
+pub(crate) fn invalidate_sizes() {
     if let Ok(mut cache) = size_cache().lock() {
         cache.clear();
     }
@@ -588,7 +588,11 @@ fn optional_asr_entries(models_root: &Path, settings: &Settings) -> Vec<ModelEnt
             installable: obtainable || ready,
             removable: ready,
             used_by: used_by(settings, model.id),
-            revision: model.revision.into(),
+            // The release on disk: an older one stays until its update swaps in.
+            revision: match crate::optional_asr::installed_release(models_root, model, Check::Background) {
+                crate::optional_asr::InstalledRelease::Previous(release) => release.revision.into(),
+                _ => model.revision.into(),
+            },
             quantization: "int8".into(),
             context_tokens: None, supported: true, stage: None,
         });

@@ -178,6 +178,16 @@ impl Package {
         }
     }
 
+    /// One plain sentence on what this package improves over the one before.
+    pub(crate) fn update_note(self) -> &'static str {
+        match self {
+            Self::V1 | Self::V4 => "",
+            Self::V2 => "Writes numbers, money and dates in Clean dictation.",
+            Self::V3 => "More accurate sentence breaks and commas.",
+            Self::P4 => "Capitalises names and acronyms, and is a smaller download.",
+        }
+    }
+
     pub(crate) fn page_url(self) -> &'static str {
         match self {
             Self::V1 => "https://huggingface.co/SonoJot/sonojot-punct-v1",

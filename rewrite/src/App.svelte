@@ -29,6 +29,7 @@
   import BrandMark from "./brand/BrandMark.svelte";
   import { paperScroll } from "./lib/paper-scroll";
   import ErrorBanner from "./components/ErrorBanner.svelte";
+  import ModelUpdateNotice from "./components/ModelUpdateNotice.svelte";
   import Rail from "./components/Rail.svelte";
   import Sheet from "./components/quiet/Sheet.svelte";
   import StageHeader from "./components/quiet/StageHeader.svelte";
@@ -469,6 +470,8 @@
                           }}><Icon name="close" size={18} /></button
                         >
                       </div>{/if}
+                    {#if app.native && app.ready && route.stage !== "disk"}<ModelUpdateNotice
+                      />{/if}
                     {#if !app.native}<div class="preview-notice">
                         <strong>Browser preview</strong><span
                           data-text-surface="flat"

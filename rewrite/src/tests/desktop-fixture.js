@@ -129,6 +129,7 @@ export async function installDesktopFixture(page, options = {}) {
     // authorized unless a spec sets notDetermined or denied.
     let microphonePermission = options.microphonePermission ?? "authorized";
     let microphoneAssistantOpen = false;
+    const modelUpdates = structuredClone(options.modelUpdates ?? []);
     // Mock-only: the user switches SonoJot on under Accessibility.
     window.__testGrantAccessibility = () => {
       options.permissionGranted = true;
@@ -1484,6 +1485,16 @@ export async function installDesktopFixture(page, options = {}) {
             return null;
           case "get_model_library":
             return clone(library);
+          case "get_model_updates":
+            return clone(modelUpdates);
+          case "start_model_update":
+            for (const update of modelUpdates)
+              if (!args.id || update.id === args.id) update.state = "queued";
+            return clone(modelUpdates);
+          case "cancel_model_update":
+            for (const update of modelUpdates)
+              if (update.id === args.id) update.state = "available";
+            return clone(modelUpdates);
           case "start_model_install": {
             if (modelInstallError?.id === args.id) {
               const message = modelInstallError.message;

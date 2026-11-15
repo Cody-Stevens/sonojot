@@ -8,11 +8,12 @@ import type { Settings } from "./protocol";
 import type { SetupProfile } from "./setup-profiles";
 
 /** The newest package: first-run Setup installs it and existing users are offered it. */
-export const PUNCTUATION_MODEL = "sonojot-punct-v3";
-/** Verified packages in the order the app prefers them. */
+export const PUNCTUATION_MODEL = "sonojot-punct-v4";
+/** Verified packages in the order the app prefers them (Package::NEWEST_FIRST). */
 export const PUNCTUATION_PACKAGES = [
-  "sonojot-cleanup-v4",
   PUNCTUATION_MODEL,
+  "sonojot-cleanup-v4",
+  "sonojot-punct-v3",
   "sonojot-punct-v2",
   "sonojot-punct-v1",
 ] as const;
@@ -22,7 +23,7 @@ export const PUNCTUATION_HELP =
 export const PUNCTUATION_SWITCH_HELP =
   "Adds punctuation, sentence breaks and capitals. In Clean, also writes numbers and symbols and removes fillers, repeats and restarts.";
 export const PUNCTUATION_UPGRADE_REASON =
-  "More accurate sentence breaks and commas, with written numbers, money and dates.";
+  "Capitalises names and acronyms, keeps written numbers, money and dates, and is a smaller download.";
 
 /** "v4" for sonojot-cleanup-v4, "v3" for sonojot-punct-v3. */
 export function punctuationVersion(id: string): string {

@@ -15,6 +15,7 @@ import {
 } from "./setup-profiles";
 import { accelerationSchema } from "./acceleration";
 import { modelKindSchema, modelLibrarySchema } from "./model-library";
+import { modelUpdatesSchema } from "./model-updates";
 import {
   aiSettingsSchema,
   aiModelSchema,
@@ -440,6 +441,9 @@ export const commandSchemas = {
   start_model_install: modelLibrarySchema,
   queue_onboarding_download: modelLibrarySchema,
   cancel_model_install: modelLibrarySchema,
+  get_model_updates: modelUpdatesSchema,
+  start_model_update: modelUpdatesSchema,
+  cancel_model_update: modelUpdatesSchema,
   remove_model: modelLibrarySchema,
   delete_dictation: snapshotSchema,
   delete_all_dictations: z.object({
@@ -580,6 +584,10 @@ export interface CommandArguments {
   start_model_install: { id: string };
   queue_onboarding_download: { id: string };
   cancel_model_install: { id: string };
+  get_model_updates: undefined;
+  /** No id: every update that asks first. */
+  start_model_update: { id: string | null };
+  cancel_model_update: { id: string };
   remove_model: { id: string; confirmed: boolean };
   delete_dictation: { id: string; confirmed: boolean };
   delete_all_dictations: { confirmed: boolean };
