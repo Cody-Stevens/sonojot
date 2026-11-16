@@ -39,6 +39,10 @@ export type TrustView = {
   voice: number | null;
   message: TrustNotice | null;
   announce: TrustNotice | null;
+  /** The chip sits at the text: the panel leaves out the full dictation. */
+  nearText: boolean;
+  /** A dictation or meeting is recording: nothing plays by itself. */
+  busy: boolean;
 };
 
 export type TrustOption =
@@ -84,6 +88,25 @@ export function describe(mark: TrustMark, index: number, total: number) {
     ? ` Could be ${mark.alternatives.map((a) => `${a.text}, ${a.label.toLowerCase()}`).join(" or ")}.`
     : "";
   return `${where}: ${mark.heard}.${could} Up and down to choose, Enter to replace, Escape to close, P to play.`;
+}
+
+/**
+ * Whether opening a popover or panel plays the mark's audio once by itself:
+ * only with "Play the audio: On hover" (the default), never while a dictation
+ * or meeting records or a spoken fix is listening.
+ */
+export function autoplays(
+  view: Pick<TrustView, "playOn" | "busy" | "voice">,
+  mark: Pick<TrustMark, "hasAudio">,
+): boolean {
+  return (
+    mark.hasAudio && view.playOn === "hover" && !view.busy && view.voice == null
+  );
+}
+
+/** Whether the fallback panel repeats the whole dictation. */
+export function showsFullText(view: Pick<TrustView, "nearText">): boolean {
+  return !view.nearText;
 }
 
 export function voiceHint(key: string, hold: boolean) {

@@ -449,6 +449,14 @@ impl Control {
 /// Set by the dictation key while a doubtful-word popover is open.
 static VOICE_FIX_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// True while a dictation or a meeting is capturing (the doubtful-word
+/// panel then never plays audio by itself).
+pub(crate) fn capture_busy(app: &AppHandle) -> bool {
+    let Some(runtime) = app.try_state::<Arc<Runtime>>() else { return false };
+    let busy = runtime.snapshot.lock().map(|snapshot| tab_capture(&snapshot)).unwrap_or(false);
+    busy
+}
+
 /// The screen tab's after-paste line ("Pasted · 2 to check").
 pub(crate) fn set_delivery_notice(app: &AppHandle, text: &str) {
     let Some(runtime) = app.try_state::<Arc<Runtime>>() else { return };

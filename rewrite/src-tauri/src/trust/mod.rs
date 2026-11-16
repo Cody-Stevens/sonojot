@@ -17,6 +17,8 @@
 pub mod decision;
 pub mod evidence;
 pub mod locator;
+#[cfg(target_os = "macos")]
+mod mac_anchor;
 mod overlay;
 pub mod session;
 #[cfg(windows)]
@@ -95,6 +97,8 @@ pub enum UiEvent {
     Keep { mark: u32 },
     Next { from: Option<u32>, back: bool },
     Dismiss,
+    /// The pointer is on the chip: it stays a little longer.
+    ChipHover,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -137,7 +141,8 @@ fn shared() -> Option<std::sync::MutexGuard<'static, Shared>> {
 
 /// Metadata-only log line: an event code and numbers, never text.
 fn log(code: &str, value: u64) {
-    crate::recognition_diagnostics::event("trust", code, std::process::id(), 0, 0, value);
+    // The diagnostics label check takes letters, digits, dots and dashes.
+    crate::recognition_diagnostics::event("trust", &code.replace('_', "-"), std::process::id(), 0, 0, value);
 }
 
 pub fn init(app: &AppHandle, settings: &TrustSettings) {
@@ -318,6 +323,8 @@ struct Active {
     hold: bool,
     target: Target,
     finished_at: Option<Instant>,
+    /// When the fallback chip appeared or was last hovered.
+    chip_since: Instant,
     seq: u64,
 }
 
@@ -479,6 +486,7 @@ impl Worker {
             hold: p.hold,
             target: p.target,
             finished_at: None,
+            chip_since: Instant::now(),
             seq: 1,
         });
         notice(&self.app, &format!("Pasted · {n} to check"));
@@ -522,6 +530,12 @@ impl Worker {
             _ => {}
         }
         a.frame = Some(frame);
+        // A chip floats over the host app: it goes by itself after a short while.
+        let held = a.popover.is_some() || a.voice.is_some() || a.keyboard;
+        if !a.capability.inline() && a.session.visibility == Visibility::Shown && session::chip_due(a.chip_since, Instant::now(), held) {
+            a.session.dismiss(Instant::now());
+            log("chip_timeout", a.session.open_count() as u64);
+        }
         if a.session.finished() {
             a.finished_at = Some(Instant::now());
             notice(&self.app, "All checked");
@@ -562,7 +576,8 @@ impl Worker {
             }
         }
         let Some(monitor) = a.overlay.as_mut().and_then(|o| o.place(&self.app, anchor)) else { return };
-        let view = build_view(a, frame, &monitor, &self.settings);
+        let busy = crate::app::capture_busy(&self.app);
+        let view = build_view(a, frame, &monitor, &self.settings, busy);
         let json = serde_json::to_string(&view).unwrap_or_default();
         if json != self.last_view {
             self.last_view = json;
@@ -604,11 +619,26 @@ impl Worker {
             UiEvent::Opened { mark, via } => {
                 a.popover = Some(mark);
                 log(if via == "hover" { "open_hover" } else if via == "key" { "open_key" } else { "open_click" }, 0);
+                // A panel opened from the chip takes the keyboard, so its keys
+                // (K, 1-3, Escape, arrows) reach it instead of the host app.
+                // Closing or choosing hands focus back to the field.
+                if via == "click" && !a.capability.inline() && !a.keyboard {
+                    a.keyboard = true;
+                    self.render();
+                    if let Some(o) = self.active.as_mut().and_then(|a| a.overlay.as_mut()) {
+                        o.take_focus();
+                    }
+                    return;
+                }
                 self.render();
             }
             UiEvent::Closed { refocus } => {
                 a.popover = None;
                 a.voice = None;
+                // Closing the panel clears the chip; the tray item brings it back.
+                if !a.capability.inline() {
+                    a.session.dismiss(Instant::now());
+                }
                 if a.keyboard {
                     a.keyboard = false;
                     if let Some(o) = &mut a.overlay {
@@ -628,6 +658,9 @@ impl Worker {
             }
             UiEvent::Choose { mark, text } => self.choose(mark, &text),
             UiEvent::Next { from, back } => self.next_mark(from, back),
+            UiEvent::ChipHover => {
+                a.chip_since = Instant::now();
+            }
             UiEvent::Dismiss => {
                 a.session.dismiss(Instant::now());
                 a.popover = None;
@@ -756,6 +789,7 @@ impl Worker {
             let n = a.session.open_count();
             a.announce = Some((format!("Marks back for the last dictation. {n} to check."), a.seq));
         }
+        a.chip_since = Instant::now();
         let open: Vec<u32> = a.session.open().map(|m| m.id).collect();
         if open.is_empty() {
             return;
@@ -913,13 +947,18 @@ pub(crate) struct View {
     voice: Option<u32>,
     message: Option<Notice>,
     announce: Option<Notice>,
+    /// The chip sits at the text: the panel shows the one-line context and
+    /// the audio, not the whole dictation.
+    near_text: bool,
+    /// A dictation or meeting is recording: nothing plays by itself.
+    busy: bool,
 }
 
 fn utf16(text: &str, byte: usize) -> usize {
     text[..byte.min(text.len())].encode_utf16().count()
 }
 
-fn build_view(a: &Active, frame: &Frame, m: &overlay::Monitor, settings: &TrustSettings) -> View {
+fn build_view(a: &Active, frame: &Frame, m: &overlay::Monitor, settings: &TrustSettings, busy: bool) -> View {
     let css = |r: &locator::Rect| RectF {
         x: (r.x - m.x) as f64 / m.scale,
         y: (r.y - m.y) as f64 / m.scale,
@@ -982,6 +1021,8 @@ fn build_view(a: &Active, frame: &Frame, m: &overlay::Monitor, settings: &TrustS
         voice: a.voice,
         message: notice(&a.message),
         announce: notice(&a.announce),
+        near_text: !inline && a.tracked.near_text(frame),
+        busy,
     }
 }
 
@@ -1026,20 +1067,50 @@ fn host_dark(field: Option<locator::Rect>) -> bool {
     }
 }
 
-/// Platforms without a locator: a chip near the top right of the screen,
-/// choices copied to the clipboard.
+/// A display in points (top-left origin on the main display) and its scale.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+struct Display {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    scale: f64,
+}
+
+/// A point-space caret or pointer as a thin rectangle in the physical pixels
+/// windows are placed in: `point * scale` of the display that holds it.
+#[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+fn physical_rect(x: f64, y: f64, h: f64, displays: &[Display]) -> Option<locator::Rect> {
+    let d = displays.iter().find(|d| x >= d.x && y >= d.y && x < d.x + d.w && y < d.y + d.h)?;
+    Some(locator::Rect { x: (x * d.scale).round() as i32, y: (y * d.scale).round() as i32, w: d.scale.ceil() as i32, h: (h * d.scale).round().max(1.0) as i32 })
+}
+
+/// Platforms without a word locator (macOS, Linux): a chip at the caret when
+/// the app exposes it (macOS Accessibility), else beside the pointer; choices
+/// are copied to paste. The place is found once, right after the paste.
 #[cfg(not(windows))]
 struct ChipOnly;
 
 #[cfg(not(windows))]
 impl Locator for ChipOnly {
-    fn attach(&mut self, _: &Request) -> Result<Box<dyn Tracked>, String> {
-        Ok(Box::new(ChipTracked))
+    fn attach(&mut self, request: &Request) -> Result<Box<dyn Tracked>, String> {
+        #[cfg(target_os = "macos")]
+        let found = mac_anchor::anchor();
+        #[cfg(not(target_os = "macos"))]
+        let found = crate::hyprland::cursor_physical().map(|(x, y)| (locator::Rect { x, y, w: 1, h: 24 }, false));
+        let (anchor, near) = found.unwrap_or((locator::Rect { x: 0, y: 0, w: 1, h: 1 }, false));
+        Ok(Box::new(ChipTracked { anchor, near, process: request.target.process }))
     }
 }
 
 #[cfg(not(windows))]
-struct ChipTracked;
+struct ChipTracked {
+    anchor: locator::Rect,
+    near: bool,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    process: u32,
+}
 
 #[cfg(not(windows))]
 impl Tracked for ChipTracked {
@@ -1047,13 +1118,21 @@ impl Tracked for ChipTracked {
         Capability::FallbackReadOnly
     }
     fn poll(&mut self) -> Frame {
-        Frame { focus: Focus::InField, marks: Vec::new(), field: None, anchor: Some(locator::Rect { x: 0, y: 0, w: 1, h: 1 }), text_gone: false }
+        Frame { focus: Focus::InField, marks: Vec::new(), field: None, anchor: Some(self.anchor), text_gone: false }
     }
     fn replace(&mut self, _: usize, _: &str) -> Result<(), String> {
         Err("unsupported".into())
     }
     fn refocus(&mut self) -> bool {
+        // The panel took the keyboard: give the app the user dictated into its turn back.
+        #[cfg(target_os = "macos")]
+        if self.process != 0 {
+            return crate::mac_paste::activate(self.process as i32);
+        }
         false
+    }
+    fn near_text(&self, _: &Frame) -> bool {
+        self.near
     }
 }
 
@@ -1179,6 +1258,19 @@ mod tests {
         assert_eq!(spans[0].edge, Edge::After);
         let first = Mark { kind: MarkKind::Gap, start: 0, end: 0, heard: String::new(), alternatives: vec![], audio: None, score: 1.0 };
         assert_eq!(spans_for(text, &[first])[0].edge, Edge::Before);
+    }
+
+    #[test]
+    fn caret_points_map_to_the_physical_pixels_of_their_display() {
+        let displays = [
+            Display { x: 0.0, y: 0.0, w: 1512.0, h: 982.0, scale: 2.0 },
+            Display { x: 1512.0, y: -200.0, w: 1920.0, h: 1080.0, scale: 1.0 },
+        ];
+        let r = physical_rect(100.0, 50.0, 18.0, &displays).unwrap();
+        assert_eq!((r.x, r.y, r.h), (200, 100, 36), "Retina doubles");
+        let r = physical_rect(1600.0, -100.0, 18.0, &displays).unwrap();
+        assert_eq!((r.x, r.y, r.h), (1600, -100, 18), "second display at its own scale");
+        assert!(physical_rect(5000.0, 10.0, 18.0, &displays).is_none(), "off every display");
     }
 
     #[test]

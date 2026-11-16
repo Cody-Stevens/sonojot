@@ -53,6 +53,10 @@ impl Overlay {
             .skip_taskbar(true)
             .focused(false)
             .focusable(false)
+            // macOS: the overlay is never the key window, so without this the
+            // first click on the chip, the close button or a choice only
+            // activates SonoJot and never reaches the page.
+            .accept_first_mouse(true)
             .visible(false);
         let window = crate::windows::build_quiet(app, builder).map_err(|e| e.to_string())?;
         let overlay = Self {

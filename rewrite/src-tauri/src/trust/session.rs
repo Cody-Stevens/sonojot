@@ -64,6 +64,16 @@ impl End {
 pub const AWAY_LIMIT: Duration = Duration::from_secs(10 * 60);
 /// Dismissed marks can be brought back for this long.
 pub const DISMISSED_LIMIT: Duration = Duration::from_secs(30 * 60);
+/// The fallback chip hides itself after this long untouched. Marks drawn on
+/// the words follow the field instead; a chip floats over the host app, so
+/// it must not stay. "Check doubtful words" brings it back.
+pub const CHIP_LIMIT: Duration = Duration::from_secs(12);
+
+/// True when an untouched chip shown (or last hovered) at `since` should go.
+/// An open panel, a voice fix or the keyboard flow holds it.
+pub fn chip_due(since: Instant, now: Instant, held: bool) -> bool {
+    !held && now.saturating_duration_since(since) >= CHIP_LIMIT
+}
 
 pub struct Session {
     pub id: u64,
@@ -316,6 +326,15 @@ mod tests {
         assert!(s.expired(t0 + AWAY_LIMIT));
         s.edited(1);
         assert_eq!(s.get(1).unwrap().status, Status::Edited);
+    }
+
+    #[test]
+    fn the_chip_goes_after_a_short_while_unless_held() {
+        let t0 = Instant::now();
+        assert!(!chip_due(t0, t0 + Duration::from_secs(5), false));
+        assert!(chip_due(t0, t0 + CHIP_LIMIT, false));
+        assert!(!chip_due(t0, t0 + Duration::from_secs(600), true), "an open panel keeps it");
+        assert!(CHIP_LIMIT <= Duration::from_secs(20), "never lingers");
     }
 
     #[test]

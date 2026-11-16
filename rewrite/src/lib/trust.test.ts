@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  autoplays,
   decodePcm,
   describe,
   optionsFor,
   placeChip,
   placePopover,
   segments,
+  showsFullText,
   type TrustMark,
 } from "./trust";
 
@@ -101,4 +103,32 @@ test("pcm decodes signed 16-bit little endian", () => {
   const bytes = String.fromCharCode(0x00, 0x40, 0x00, 0xc0);
   const samples = decodePcm(btoa(bytes));
   assert.deepEqual(Array.from(samples), [0.5, -0.5]);
+});
+
+test("opening plays the audio once only when allowed", () => {
+  const view = { playOn: "hover" as const, busy: false, voice: null };
+  assert.equal(autoplays(view, gap), true);
+  assert.equal(autoplays({ ...view, playOn: "click" }, gap), false, "On click setting");
+  assert.equal(autoplays({ ...view, busy: true }, gap), false, "never while recording");
+  assert.equal(autoplays({ ...view, voice: 2 }, gap), false, "not over a spoken fix");
+  assert.equal(autoplays(view, { hasAudio: false }), false, "nothing to play");
+});
+
+test("the panel repeats the dictation only away from the text", () => {
+  assert.equal(showsFullText({ nearText: true }), false);
+  assert.equal(showsFullText({ nearText: false }), true);
+});
+
+test("a gap sits between its word and the comma, as an empty run", () => {
+  const text = "broad strokes, style";
+  const at = text.indexOf(",");
+  const parts = segments(text, [{ ...gap, from: at, to: at }]);
+  assert.deepEqual(
+    parts.map((p) => [p.text, p.mark?.kind ?? null]),
+    [
+      ["broad strokes", null],
+      ["", "gap"],
+      [", style", null],
+    ],
+  );
 });

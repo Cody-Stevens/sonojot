@@ -147,6 +147,12 @@ pub trait Tracked {
     fn replace(&mut self, index: usize, text: &str) -> Result<(), String>;
     /// Give keyboard focus back to the field (after a keyboard popover).
     fn refocus(&mut self) -> bool;
+    /// Whether the chip anchor sits at the text (the caret or the end of the
+    /// paste) rather than standing in for it (the whole field, the pointer).
+    /// The panel then leaves out the full dictation: the text is right there.
+    fn near_text(&self, frame: &Frame) -> bool {
+        frame.anchor.is_some() && frame.anchor != frame.field
+    }
 }
 
 pub trait Locator {

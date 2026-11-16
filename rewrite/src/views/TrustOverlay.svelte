@@ -10,6 +10,7 @@
   import symbol from "../brand/marks/sonojot-symbol-compact-pine.svg";
   import symbolLight from "../brand/marks/sonojot-symbol-compact-white.svg";
   import {
+    autoplays,
     decodePcm,
     describe,
     heading,
@@ -18,6 +19,7 @@
     placePanel,
     placePopover,
     segments,
+    showsFullText,
     voiceHint,
     type RectF,
     type TrustMark,
@@ -189,8 +191,7 @@
       popEl?.querySelector<HTMLElement>(".opt")?.focus();
       say(describe(mark, view.marks.indexOf(mark), view.marks.length));
     }
-    if (how === "hover" && view.playOn === "hover" && mark.hasAudio)
-      void play(mark.id);
+    if (how === "hover" && autoplays(view, mark)) void play(mark.id);
   }
 
   function close(refocus: boolean, quiet = false) {
@@ -226,7 +227,17 @@
     stop();
     if (option.keep) send({ type: "keep", mark: mark.id });
     else send({ type: "choose", mark: mark.id, text: option.text });
-    if (view?.mode === "chip") return;
+    if (view?.mode === "chip") {
+      // The last spot: the panel and chip go now, without waiting for the
+      // native side to drop the overlay. With more left, it moves on.
+      if (view.marks.length <= 1) {
+        panelOpen = false;
+        close(false, true);
+        panelPos = { x: -9999, y: -9999 };
+        view = { ...view, marks: [] };
+      }
+      return;
+    }
     openId = null;
     via = via === "key" ? "key" : null;
     if (via !== "key") {
@@ -274,9 +285,13 @@
         return;
       case "Escape":
         event.preventDefault();
-        if (view?.mode === "chip") closePanel(true);
-        else close(true);
-        say("Closed. The mark stays.");
+        if (view?.mode === "chip") {
+          closePanel(true);
+          say("Closed.");
+        } else {
+          close(true);
+          say("Closed. The mark stays.");
+        }
         return;
       case "Enter": {
         event.preventDefault();
@@ -312,18 +327,24 @@
     send({ type: "opened", mark: mark.id, via });
     await tick();
     layout();
+    // The panel holds the keyboard either way, so K, 1-3 and Escape work.
+    panelEl?.querySelector<HTMLElement>(".opt")?.focus();
     if (fromKeyboard) {
-      panelEl?.querySelector<HTMLElement>(".opt")?.focus();
       say(
         `Your last dictation. ${describe(mark, view.marks.indexOf(mark), view.marks.length)}`,
       );
     }
+    if (autoplays(view, mark) && playing !== mark.id) void play(mark.id);
   }
 
+  // Closing the panel also clears the chip: the native side hides it and the
+  // tray item "Check doubtful words" brings it back.
   function closePanel(refocus: boolean) {
+    const wasOpen = openId !== null;
     panelOpen = false;
     close(refocus);
     panelPos = { x: -9999, y: -9999 };
+    if (wasOpen && view) view = { ...view, marks: [] };
   }
 
   $effect(() => {
@@ -390,6 +411,9 @@
     const c = await clip(id);
     if (!c || openId !== id) return;
     context ??= new AudioContext({ sampleRate: 16000 });
+    // Opened without a click (keyboard, auto-play): wake a suspended context.
+    if (context.state === "suspended") await context.resume().catch(() => {});
+    if (openId !== id) return;
     const buffer = context.createBuffer(1, c.samples.length, 16000);
     buffer.copyToChannel(c.samples as Float32Array<ArrayBuffer>, 0);
     source = context.createBufferSource();
@@ -711,7 +735,8 @@
       class="chip sj"
       aria-label="Words to check in your last dictation"
       style={`left:${chipPos.x}px;top:${chipPos.y}px`}
-      onclick={() => (panelOpen ? closePanel(false) : void openPanel(null))}
+      onmouseenter={() => send({ type: "chipHover" })}
+      onclick={() => (panelOpen ? closePanel(true) : void openPanel(null))}
     >
       <img class="sym" src={view.hostDark ? symbolLight : symbol} alt="" />{view
         .marks.length} to check
@@ -732,30 +757,40 @@
         <div class="head sj-flat">
           <span>Your last dictation · {view.marks.length} to check</span>
           <span class="corner"
-            ><button
+            >{#if view.marks.length > 1}<button
+                class="icon"
+                aria-label="Next doubtful word"
+                title="Next doubtful word"
+                onclick={() => next(false)}>›</button
+              >{/if}<button
               class="icon"
               aria-label="Close"
               title="Close"
-              onclick={() => closePanel(via === "key")}>×</button
+              onclick={() => closePanel(true)}>×</button
             ></span
           >
         </div>
-        <div class="fbtext">
-          {#each segments(view.text, view.marks) as part, i (i)}
-            {#if part.mark}
-              {@const m = part.mark}
-              <button
-                class={m.kind === "gap" ? "g-on" : "w-on"}
-                class:w-sel={m.id === openId}
-                aria-label={m.kind === "gap"
-                  ? `Possible missing word after ${m.heard}`
-                  : m.heard}
-                onclick={() => void openPanel(m.id)}
-                >{m.kind === "gap" ? " " : part.text}</button
-              >
-            {:else}{part.text}{/if}
-          {/each}
-        </div>
+        {#if showsFullText(view)}
+          <div class="fbtext">
+            {#each segments(view.text, view.marks) as part, i (i)}
+              {#if part.mark}
+                {@const m = part.mark}
+                {#if m.kind === "gap"}<button
+                    class="g-on"
+                    class:g-sel={m.id === openId}
+                    aria-label={`Possible missing word after ${m.heard}`}
+                    onclick={() => void openPanel(m.id)}
+                    ><span class="g-caret" aria-hidden="true"></span></button
+                  >{:else}<button
+                    class="w-on"
+                    class:w-sel={m.id === openId}
+                    aria-label={m.heard}
+                    onclick={() => void openPanel(m.id)}>{part.text}</button
+                  >{/if}
+              {:else}{part.text}{/if}
+            {/each}
+          </div>
+        {/if}
         <div class="head sj-flat sub">
           <span
             >{heading(open).lead}
@@ -1302,13 +1337,45 @@
     outline-offset: 1px;
     border-radius: 2px;
   }
-  .g-on {
+  /* A missing-word spot in the panel text: the same ochre insertion caret as
+     on the host's words, a thin upright with a small wedge at the baseline,
+     narrow enough to sit between a word and its comma without touching.
+     The selected spot gets the mark fill, never an empty outlined box. */
+  .fbtext .g-on {
     display: inline-block;
-    width: 12px;
-    height: 1em;
-    vertical-align: -2px;
-    background: linear-gradient(var(--mk-edge), var(--mk-edge)) center / 2px
-      100% no-repeat;
+    position: relative;
+    width: 9px;
+    height: 1.15em;
+    margin: 0 1px;
+    vertical-align: -0.22em;
+    border-radius: 2px;
+  }
+  .g-caret {
+    position: absolute;
+    left: 50%;
+    top: 0.08em;
+    bottom: 0.2em;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--mk-edge);
+    border-radius: 1px;
+  }
+  .g-caret::after {
+    content: "";
+    position: absolute;
+    left: -3px;
+    bottom: -0.22em;
+    border: 4px solid transparent;
+    border-top-width: 0;
+    border-bottom-color: var(--mk-edge);
+  }
+  .fbtext .g-on.g-sel,
+  .fbtext .g-on:hover {
+    background: var(--mk-fill);
+  }
+  .fbtext .g-on:focus-visible {
+    outline: 2px solid var(--sj-focus);
+    outline-offset: 1px;
   }
   .how {
     font-size: 12px;
