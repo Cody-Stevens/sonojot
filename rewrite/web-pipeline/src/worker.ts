@@ -8,8 +8,10 @@ import { splitForRecognition, SAMPLE_RATE } from "./audio.ts";
 import { ALL_FILES, PARAKEET, PUNCTUATION, type ModelFile, type ModelUrl } from "./models.ts";
 import type { Device, LoadReport, ProgressEvent, Request, Response, TranscribeJob, TranscribeResult, WorkerConfig } from "./protocol.ts";
 import { clearModelCache, ModelStore, type DownloadProgress } from "./store.ts";
+import { isHardwareAdapter, type AdapterLike } from "./gpu.ts";
 import { hasCasing, loadPunctuationPackage, lowerSegmentStartCapitals, postprocess } from "./text/index.ts";
 import type { PunctuationPackage } from "./text/contract.ts";
+import { punctuationRunner } from "./text/runner.ts";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -139,7 +141,7 @@ async function loadEngine(loading: Loading): Promise<Engine> {
   signal.throwIfAborted();
   const models = requireStore();
   const wanted = config?.device ?? "auto";
-  const gpu = wanted === "wasm" ? Promise.resolve(false) : hasWebGpu();
+  const gpu = wanted === "wasm" ? Promise.resolve(false) : hasWebGpu(wanted);
   await models.sweep().catch(() => 0);
   const withPunctuation = config?.punctuation !== false;
   const files = withPunctuation ? ALL_FILES : Object.values(PARAKEET.files);
@@ -254,24 +256,12 @@ async function loadEngine(loading: Loading): Promise<Engine> {
 
 function loadPunctuation(tokenizer: Uint8Array, punctConfig: Uint8Array, session: () => ort.InferenceSession): PunctuationPackage {
   const text = new TextDecoder();
-  const pkg = loadPunctuationPackage(JSON.parse(text.decode(punctConfig)), JSON.parse(text.decode(tokenizer)), {
-    async run({ inputIds, caseHints }: { inputIds: number[]; caseHints?: number[] }) {
-      const ids = BigInt64Array.from(inputIds, (id) => BigInt(id));
-      const mask = new BigInt64Array(ids.length).fill(1n);
-      const feeds: Record<string, ort.Tensor> = {
-        input_ids: new ort.Tensor("int64", ids, [1, ids.length]),
-        attention_mask: new ort.Tensor("int64", mask, [1, ids.length]),
-      };
-      if (caseHints) feeds.case_hints = new ort.Tensor("int64", BigInt64Array.from(caseHints, (h) => BigInt(h)), [1, ids.length]);
-      const out = await session().run(feeds);
-      return {
-        logits: out.logits!.data as Float32Array,
-        spanLogits: out.span_logits?.data as Float32Array | undefined,
-        caseLogits: out.case_logits?.data as Float32Array | undefined,
-      };
-    },
-  });
-  return pkg;
+  return loadPunctuationPackage(
+    JSON.parse(text.decode(punctConfig)),
+    JSON.parse(text.decode(tokenizer)),
+    punctuationRunner(ort, session),
+    PUNCTUATION.manifest,
+  );
 }
 
 async function createEncoder(bytes: Uint8Array, webgpu: boolean, wanted: WorkerConfig["device"]): Promise<{ session: ort.InferenceSession; device: Device }> {
@@ -287,11 +277,13 @@ async function createEncoder(bytes: Uint8Array, webgpu: boolean, wanted: WorkerC
   return { session, device: "wasm" };
 }
 
-async function hasWebGpu(): Promise<boolean> {
-  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+/** An explicit "webgpu" takes any adapter; "auto" only a hardware one (see isHardwareAdapter). */
+async function hasWebGpu(wanted: WorkerConfig["device"]): Promise<boolean> {
+  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<AdapterLike | null> } }).gpu;
   if (!gpu) return false;
   try {
-    return (await gpu.requestAdapter()) != null;
+    const adapter = await gpu.requestAdapter();
+    return wanted === "webgpu" ? adapter != null : isHardwareAdapter(adapter);
   } catch {
     return false;
   }

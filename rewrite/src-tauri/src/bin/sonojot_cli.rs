@@ -590,11 +590,12 @@ fn meetings(client: &Client, words: &[&str]) -> Outcome {
                 "txt" | "text" => "text",
                 "html" | "htm" => "html",
                 "pdf" => "pdf",
+                "rtf" => "rtf",
                 "wav" | "audio" => "wav",
                 "json" => "json",
                 "srt" => "srt",
                 "vtt" => "vtt",
-                other => return Err(Failure::Usage(format!("Unknown export format `{other}`. Use md, txt, html, pdf, wav, json, srt or vtt."))),
+                other => return Err(Failure::Usage(format!("Unknown export format `{other}`. Use md, txt, rtf, html, pdf, wav, json, srt or vtt."))),
             };
             if o.latest_attempt && !matches!(format, "json" | "srt" | "vtt") {
                 return Err(Failure::Usage("--latest-attempt supports JSON, SRT or VTT.".into()));

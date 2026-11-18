@@ -11,6 +11,7 @@
     <main class="sheet">
       <h1>SonoJot in the browser</h1>
       <p class="help">Speech recognition, punctuation and cleanup run on this computer. Audio never leaves the page.</p>
+      <p id="browser" class="help"></p>
 
       <section class="row">
         <button id="preload" type="button">Download models</button>
@@ -31,6 +32,7 @@
       </section>
       <div class="progress" hidden><div class="bar"></div></div>
       <p id="status" class="help" aria-live="polite">Models are not loaded.</p>
+      <p id="load" class="help"></p>
 
       <section class="row">
         <button id="record" type="button">Record</button>

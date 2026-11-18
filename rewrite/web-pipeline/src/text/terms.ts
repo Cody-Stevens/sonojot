@@ -1,4 +1,4 @@
-import table from "./data/terms.json";
+import table from "./data/terms.json" with { type: "json" };
 import { applyEdits, isAlpha, isUpper, splitWords, wordBounds } from "./shared.ts";
 import type { Edit, Range } from "./shared.ts";
 import { protectedRanges } from "./wf-protection.ts";

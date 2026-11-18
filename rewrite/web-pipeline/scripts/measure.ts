@@ -152,7 +152,12 @@ async function open(profile: string): Promise<BrowserContext> {
   return chromium.launchPersistentContext(profile, {
     channel: browserName === "chrome" ? "chrome" : undefined,
     headless,
-    args: ["--enable-unsafe-webgpu", "--enable-features=WebGPU"],
+    // On Linux, Chrome's WebGPU falls back to SwiftShader (the CPU) unless Vulkan is on, and Vulkan
+    // needs a visible window (--headed). Chrome reads only the last --enable-features flag.
+    args:
+      process.platform === "linux"
+        ? ["--enable-unsafe-webgpu", "--enable-features=WebGPU,Vulkan", "--ignore-gpu-blocklist"]
+        : ["--enable-unsafe-webgpu", "--enable-features=WebGPU"],
   });
 }
 
@@ -303,14 +308,18 @@ async function resumeCheck(profile: string) {
 
 async function browserInfo(page: Page) {
   return page.evaluate(async () => {
-    const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+    type Adapter = { isFallbackAdapter?: boolean; info?: { vendor?: string; architecture?: string; isFallbackAdapter?: boolean } };
+    const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<Adapter | null> } }).gpu;
     let webgpu = false;
+    let adapter = "";
     try {
-      webgpu = !!gpu && (await gpu.requestAdapter()) != null;
+      const found = gpu ? await gpu.requestAdapter() : null;
+      webgpu = found != null;
+      if (found) adapter = `${found.info?.vendor ?? "?"} ${found.info?.architecture ?? ""}${(found.info?.isFallbackAdapter ?? found.isFallbackAdapter) ? " (software)" : ""}`;
     } catch {
       webgpu = false;
     }
-    return { crossOriginIsolated: self.crossOriginIsolated, webgpu, cores: navigator.hardwareConcurrency, userAgent: navigator.userAgent };
+    return { crossOriginIsolated: self.crossOriginIsolated, webgpu, adapter, cores: navigator.hardwareConcurrency, userAgent: navigator.userAgent };
   });
 }
 
@@ -380,7 +389,7 @@ function summary(name: string, run: Session): string {
     (ok.memory.afterLoad
       ? `; Chrome private memory ${(ok.memory.peakDuringLoad / 1e9).toFixed(2)} GB peak while loading, ${(ok.memory.afterLoad / 1e9).toFixed(2)} GB loaded, ${(ok.memory.afterRun / 1e9).toFixed(2)} GB after`
       : "") +
-    `; isolated=${ok.info.crossOriginIsolated} webgpu=${ok.info.webgpu}` +
+    `; isolated=${ok.info.crossOriginIsolated} webgpu=${ok.info.webgpu}${ok.info.adapter ? ` (${ok.info.adapter})` : ""}` +
     (ok.errors.length ? `; errors: ${ok.errors.slice(0, 3).join(" | ")}` : "")
   );
 }

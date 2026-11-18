@@ -21,6 +21,20 @@ export interface PunctuationOutput {
   spanLogits?: Float32Array;
   /** Present when the package has a casing label: [tokens x 3] lower, Capitalised, UPPER. */
   caseLogits?: Float32Array;
+  /** Present when the package has a delete head (punct-v4): [tokens x 2] KEEP, DELETE. */
+  deleteLogits?: Float32Array;
+}
+
+/**
+ * The release values the desktop installer writes into a package's manifest.json
+ * (punctuation_model.rs `release_thresholds`). The browser does not download the
+ * manifest; `src/models.ts` pins these next to the model files.
+ */
+export interface PackageManifest {
+  /** Clean mode deletes a word when P(DELETE) reaches this (punct-v4). */
+  delete_threshold?: number;
+  /** Casing thresholds; they take precedence over punct-config.json's copy, as on the desktop. */
+  case_thresholds?: { raise: number; upper: number; lower_positional: number; lower: number };
 }
 
 /** Runs the ONNX graph. Implementations feed `input_ids` and `attention_mask` (int64). */
@@ -35,6 +49,8 @@ export interface PunctuationPackage {
   /** Parsed tokenizer.json. */
   tokenizer: unknown;
   runner: PunctuationRunner;
+  /** Installer manifest values; required for a package with a delete head. */
+  manifest?: PackageManifest;
 }
 
 export interface PostprocessOptions {

@@ -2085,16 +2085,22 @@ fn editable_punctuation(ch: char) -> bool {
     matches!(ch, '.' | ',' | '?' | '!' | ';' | ':' | '…') || is_dash(ch)
 }
 
-fn render_gap(gap: &str, prediction: Option<Mark>, terminal: bool) -> String {
-    // Unknown symbols are literal content, not punctuation evidence to erase.
-    if gap.chars().any(|ch| {
+/// A gap with anything but whitespace, editable punctuation, quotes and
+/// brackets ("%", a backtick, an emoji, a combining accent) is literal content.
+fn literal_gap(gap: &str) -> bool {
+    gap.chars().any(|ch| {
         !ch.is_whitespace()
             && !editable_punctuation(ch)
             && !matches!(
                 ch,
                 '"' | '\'' | '“' | '”' | '‘' | '’' | '(' | ')' | '[' | ']' | '{' | '}'
             )
-    }) {
+    })
+}
+
+fn render_gap(gap: &str, prediction: Option<Mark>, terminal: bool) -> String {
+    // Unknown symbols are literal content, not punctuation evidence to erase.
+    if literal_gap(gap) {
         return gap.into();
     }
     let dash = gap.chars().any(is_dash);

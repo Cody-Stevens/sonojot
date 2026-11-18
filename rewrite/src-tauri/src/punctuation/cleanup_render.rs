@@ -192,19 +192,44 @@ pub(super) fn render_clean(
             &doc.text[word.end..]
         };
         let last = k + 1 == indices.len();
-        if !last && indices[k + 1] == i + 1 && !gap.chars().any(char::is_whitespace) {
+        let previous = (i > 0).then(|| &doc.text[words[i - 1].end..word.start]);
+        // Literal content after a deleted word: the pieces standing on their own
+        // and the piece glued to this word stay; the deleted word's own piece
+        // ("%" after a deleted "20") went with it.
+        if let Some(previous) = previous.filter(|g| literal_gap(g) && !(k > 0 && indices[k - 1] == i - 1)) {
+            let (_, free, glued) = literal_pieces(previous, false);
+            for piece in free {
+                out += piece;
+                out.push(' ');
+            }
+            out += glued;
+        }
+        let literal = literal_gap(gap);
+        let spaced = gap.chars().any(char::is_whitespace);
+        // A gap inside a protected span (`keep as spoken`) is never edited,
+        // as rebuilt_gap leaves it on the rules path.
+        let inside_span = i + 1 < words.len()
+            && doc.preserved.iter().any(|&(start, stop)| start <= word.end && stop > word.end && stop >= words[i + 1].start);
+        if !last && indices[k + 1] == i + 1 && (literal || inside_span || !spaced) {
+            // Glued words stay together, and literal content between two kept
+            // words is written as it was, as render_gap leaves it on the rules path.
             out += &w;
             out += gap;
-            cap = false;
+            cap = (literal || inside_span) && spaced && gap.contains(['.', '?', '!']);
             keep_case = false;
             continue;
         }
         // An opening quote, bracket or leading apostrophe ("'cause") before
         // this word stays in front of it.
-        if i > 0 {
-            out += &gap_sides(&doc.text[words[i - 1].end..word.start]).2;
+        if let Some(previous) = previous.filter(|g| !literal_gap(g)) {
+            out += &gap_sides(previous).2;
         }
-        let (before, after, _) = gap_sides(gap);
+        let (before, after, free) = if literal {
+            literal_sides(gap, i + 1 == words.len())
+        } else {
+            let (before, after, _) = gap_sides(gap);
+            (before, after, Vec::new())
+        };
         out += &w;
         // An abbreviation keeps its own period whatever the label says, as
         // rebuilt_gap keeps it on the rules path ("e.g. apples", "etc. for").
@@ -222,6 +247,10 @@ pub(super) fn render_clean(
                 labels[i].text()
             };
             out += &after;
+            for piece in free {
+                out.push(' ');
+                out += piece;
+            }
         }
         if !last {
             out.push(' ');
@@ -264,6 +293,35 @@ fn gap_sides(gap: &str) -> (String, String, String) {
     (before, after, opening)
 }
 
+/// A literal gap's pieces between whitespace: the piece glued to the word
+/// before it, the pieces standing on their own, and the piece glued to the
+/// word after it (none at the end of the text).
+fn literal_pieces(gap: &str, end: bool) -> (&str, Vec<&str>, &str) {
+    let mut pieces: Vec<&str> = gap.split(char::is_whitespace).filter(|p| !p.is_empty()).collect();
+    let before = if !gap.starts_with(char::is_whitespace) && !pieces.is_empty() { pieces.remove(0) } else { "" };
+    let after = if !end && !gap.ends_with(char::is_whitespace) { pieces.pop().unwrap_or("") } else { "" };
+    (before, pieces, after)
+}
+
+/// A literal gap after a kept word whose next word is deleted (or after the
+/// last word): the piece glued to the kept word stays, split around its
+/// editable punctuation as render_gap splits it, and the pieces standing on
+/// their own follow. The piece glued to the deleted word goes with it.
+fn literal_sides(gap: &str, end: bool) -> (String, String, Vec<&str>) {
+    let (glued, free, _) = literal_pieces(gap, end);
+    let (mut before, mut after, mut saw_mark) = (String::new(), String::new(), false);
+    for ch in glued.chars() {
+        if editable_punctuation(ch) {
+            saw_mark = true;
+        } else if saw_mark {
+            after.push(ch);
+        } else {
+            before.push(ch);
+        }
+    }
+    (before, after, free)
+}
+
 #[cfg(test)]
 mod cleanup_v4_parity {
     use super::*;
@@ -300,6 +358,76 @@ mod cleanup_v4_parity {
             equal += 1;
         }
         assert_eq!(equal, rows.len());
+    }
+}
+
+#[cfg(test)]
+mod literal_gaps {
+    use super::*;
+
+    /// Render with no model punctuation, deleting the words listed by index.
+    fn render(text: &str, deleted: &[usize]) -> String {
+        render_with(text, deleted, false)
+    }
+
+    /// `unprotect` clears literal protection first, to reach a deleted word
+    /// that has a piece glued to it.
+    fn render_with(text: &str, deleted: &[usize], unprotect: bool) -> String {
+        let cancel = AtomicBool::new(false);
+        let mut doc = Document::new(text, &[], &cancel).unwrap();
+        if unprotect {
+            for word in &mut doc.words {
+                word.protected = false;
+            }
+        }
+        let marks = vec![Mark::None; doc.words.len()];
+        let delete: Vec<bool> = (0..doc.words.len()).map(|i| deleted.contains(&i)).collect();
+        render_clean(&doc, &marks, &delete).unwrap().0
+    }
+
+    #[test]
+    fn keeps_literal_content_between_kept_words() {
+        assert_eq!(render("which is 20% of it", &[]), "Which is 20% of it.");
+        assert_eq!(render("hello \u{1F600} world", &[]), "Hello \u{1F600} world.");
+        assert_eq!(render("keep `ten dollars` as spoken", &[]), "Keep `ten dollars` as spoken.");
+        assert_eq!(render("keep cafe\u{301} unchanged", &[]), "Keep cafe\u{301} unchanged.");
+        assert_eq!(render("The word is `do not delete um`.", &[]), "The word is `do not delete um`.");
+    }
+
+    #[test]
+    fn model_punctuation_stays_out_of_a_protected_span() {
+        let cancel = AtomicBool::new(false);
+        let doc = Document::new("The word is `do not delete um`.", &[], &cancel).unwrap();
+        let mut marks = vec![Mark::None; doc.words.len()];
+        marks[5] = Mark::Comma; // "delete,"
+        let delete = vec![false; doc.words.len()];
+        assert_eq!(render_clean(&doc, &marks, &delete).unwrap().0, "The word is `do not delete um`.");
+    }
+
+    #[test]
+    fn a_word_with_a_glued_piece_is_a_protected_literal() {
+        // "20%" is a literal, so the renderer keeps it even when the model marks it.
+        assert_eq!(render("it is um 20% no 30% of it", &[2, 3, 4]), "It is 20% 30% of it.");
+    }
+
+    #[test]
+    fn a_piece_glued_to_a_deleted_word_goes_with_it() {
+        // Without protection: "um", "20" and "no" go, and "20"'s "%" with them.
+        assert_eq!(render_with("it is um 20% no 30% of it", &[2, 3, 4], true), "It is 30% of it.");
+        // The kept word's own piece stays when the word after it goes.
+        assert_eq!(render("it costs 20% um", &[3]), "It costs 20%.");
+    }
+
+    #[test]
+    fn a_free_standing_piece_stays_unless_both_neighbours_go() {
+        assert_eq!(render("hello um \u{1F600} world", &[1]), "Hello \u{1F600} world.");
+        assert_eq!(render("hello \u{1F600} um world", &[1]), "Hello \u{1F600} world.");
+        assert_eq!(render("hello um \u{1F600} uh world", &[1, 2]), "Hello world.");
+    }
+
+    #[test]
+    fn gaps_without_literal_content_render_as_before() {
+        assert_eq!(render("um I need the \"blue\" folder", &[0]), "I need the \"blue\" folder.");
     }
 }
 

@@ -275,7 +275,8 @@ pub fn render_export(detail: &MeetingDetail, format: &str) -> Result<String, Str
             transcript_text(&detail.transcript, true)
         )),
         "html" => render_html(detail),
-        _ => Err("Choose text, markdown, html, or pdf export.".into()),
+        "rtf" => Ok(render_rtf(detail)),
+        _ => Err("Choose text, markdown, rich text, html, or pdf export.".into()),
     }
 }
 
@@ -373,6 +374,139 @@ main{{max-width:860px;margin:36px auto;padding:44px 52px 60px;background:#f9f7ef
         notes = notes_html(&detail.notes),
         transcript = transcript_html(&detail.transcript)
     ))
+}
+
+/// Rich text for word processors: Word, Pages, TextEdit, LibreOffice and
+/// Google Docs keep the headings, bold runs, lists and speaker labels.
+fn render_rtf(detail: &MeetingDetail) -> String {
+    let mut out = String::from(concat!(
+        r"{\rtf1\ansi\ansicpg1252\deff0\uc1{\fonttbl{\f0\froman\fcharset0 Georgia;}}",
+        r"{\colortbl;\red91\green96\blue82;}\viewkind4\f0\fs22",
+        "\n"
+    ));
+    let runs = |out: &mut String, runs: &[NoteRun]| {
+        for run in runs {
+            if run.bold {
+                out.push_str(r"{\b ");
+                out.push_str(&escape_rtf(&run.text));
+                out.push('}');
+            } else {
+                out.push_str(&escape_rtf(&run.text));
+            }
+        }
+    };
+    out.push_str(r"\pard\sa120\b\fs40 ");
+    out.push_str(&escape_rtf(&detail.title));
+    out.push_str("\\b0\\fs22\\par\n");
+    out.push_str(r"\pard\sa240\cf1\fs20 ");
+    out.push_str(&escape_rtf(&format!(
+        "{} \u{b7} {:.0} min",
+        detail.created_at,
+        detail.duration_seconds / 60.0
+    )));
+    out.push_str("\\cf0\\fs22\\par\n");
+    out.push_str("\\pard\\sb240\\sa120\\keepn\\b\\fs30 Notes\\b0\\fs22\\par\n");
+    out.push_str(r"\pard\sa120\cf1\fs18 ");
+    out.push_str(&escape_rtf(NOTES_NOTICE));
+    out.push_str("\\cf0\\fs22\\par\n");
+    for block in note_blocks(&detail.notes) {
+        match block {
+            NoteBlock::Paragraph { heading, depth, runs: items } => {
+                let size = match heading {
+                    0 => 22,
+                    1 => 30,
+                    2 => 26,
+                    _ => 24,
+                };
+                let indent = depth * 360;
+                if heading > 0 {
+                    out.push_str(&format!("\\pard\\sb180\\sa80\\keepn\\li{indent}\\b\\fs{size} "));
+                } else {
+                    out.push_str(&format!("\\pard\\sa100\\li{indent}\\fs{size} "));
+                }
+                runs(&mut out, &items);
+                out.push_str("\\b0\\fs22\\par\n");
+            }
+            NoteBlock::Table(rows) => {
+                let columns = rows.iter().map(Vec::len).max().unwrap_or(0).max(1);
+                let width = 9600 / columns;
+                for row in rows {
+                    out.push_str(r"\trowd\trgaph108");
+                    for column in 1..=columns {
+                        out.push_str(r"\clbrdrt\brdrs\clbrdrl\brdrs\clbrdrb\brdrs\clbrdrr\brdrs");
+                        out.push_str(&format!("\\cellx{}", width * column));
+                    }
+                    out.push_str(r"\pard\intbl ");
+                    for column in 0..columns {
+                        if let Some(cell) = row.get(column) {
+                            runs(&mut out, cell);
+                        }
+                        out.push_str(r"\cell ");
+                    }
+                    out.push_str("\\row\n");
+                }
+                out.push_str("\\pard\\sa100\\par\n");
+            }
+        }
+    }
+    out.push_str("\\pard\\sb360\\sa120\\keepn\\b\\fs30 Transcript\\b0\\fs22\\par\n");
+    match parse_transcript(&detail.transcript) {
+        Some(blocks) => {
+            for block in blocks {
+                if block.speaker != "Transcript" || block.timecode.is_some() {
+                    out.push_str(r"\pard\sb200\sa40\keepn ");
+                    if block.speaker != "Transcript" {
+                        out.push_str(r"{\b ");
+                        out.push_str(&escape_rtf(&block.speaker));
+                        out.push('}');
+                    }
+                    if let Some(time) = &block.timecode {
+                        out.push_str(r"{\cf1\fs18   ");
+                        out.push_str(&escape_rtf(time));
+                        out.push('}');
+                    }
+                    out.push_str("\\par\n");
+                }
+                out.push_str(r"\pard\sa120 ");
+                out.push_str(&escape_rtf(&block.text));
+                out.push_str("\\par\n");
+            }
+        }
+        None => {
+            for paragraph in detail.transcript.split("\n\n").filter(|p| !p.trim().is_empty()) {
+                out.push_str(r"\pard\sa120 ");
+                out.push_str(&escape_rtf(paragraph.trim()));
+                out.push_str("\\par\n");
+            }
+        }
+    }
+    out.push('}');
+    out
+}
+
+/// RTF is 7-bit: escape its control characters and write every other
+/// character as a signed UTF-16 `\uN?` code unit.
+fn escape_rtf(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' | '{' | '}' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            '\n' => out.push_str(r"\line "),
+            '\t' => out.push_str(r"\tab "),
+            c if c.is_control() => {}
+            c if c.is_ascii() => out.push(c),
+            c => {
+                let mut units = [0u16; 2];
+                for unit in c.encode_utf16(&mut units) {
+                    out.push_str(&format!("\\u{}?", *unit as i16));
+                }
+            }
+        }
+    }
+    out
 }
 
 #[derive(Default)]
@@ -805,6 +939,33 @@ mod tests {
             audio_outages: Vec::new(), missing_seconds: 0.0,
             cleaned_transcript: None, transcription_stopped_at_seconds: None,
         }
+    }
+
+    #[test]
+    fn rich_text_export_keeps_structure_and_escapes_text() {
+        let mut detail = sample("[0:00] Dana: Ship {it} \\ now \u{2014} caf\u{e9} \u{1f600}.\n\n[0:30] Other speakers: Agreed.");
+        detail.notes = "## Decision\n\n- **Friday** release\n\n| A | B |\n|---|---|\n| 1 | 2 |".into();
+        let rtf = render_export(&detail, "rtf").unwrap();
+        assert!(rtf.starts_with(r"{\rtf1\ansi"));
+        assert!(rtf.is_ascii());
+        assert!(rtf.contains(r"{\b Dana}"));
+        assert!(rtf.contains(r"Ship \{it\} \\ now \u8212? caf\u233? \u-10179?\u-8704?."));
+        assert!(rtf.contains(r"{\b Friday} release"));
+        assert!(rtf.contains(r"\cell") && rtf.contains(r"\row"));
+        let mut depth = 0i32;
+        let mut chars = rtf.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => {
+                    chars.next();
+                }
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            assert!(depth >= 0);
+        }
+        assert_eq!(depth, 0);
     }
 
     #[test]

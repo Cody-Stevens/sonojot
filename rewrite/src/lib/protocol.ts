@@ -696,7 +696,7 @@ export interface CommandArguments {
   export_meeting: {
     id: string;
     path: string;
-    format: "markdown" | "text" | "html" | "pdf";
+    format: "markdown" | "text" | "html" | "pdf" | "rtf";
     transcriptVersion?: "cleaned" | "recognized";
   };
   export_meeting_audio: { id: string; path: string };

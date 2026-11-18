@@ -137,7 +137,9 @@ export function createMeetingSession() {
   ] as const;
   type DetailTab = (typeof detailTabs)[number]["id"];
   let tab = $state<DetailTab>("transcript");
-  let exportFormat = $state<"markdown" | "text" | "html" | "pdf">("markdown");
+  let exportFormat = $state<"markdown" | "text" | "html" | "pdf" | "rtf">(
+    "markdown",
+  );
   let refreshRunning = false;
   let refreshPending = false;
   let destroyed = false;
@@ -798,11 +800,11 @@ export function createMeetingSession() {
       "Meeting deleted.",
     );
   }
-  async function exportFile(): Promise<void> {
+  /** Exports the open meeting; rich text is the one-click default. */
+  async function exportFile(format = exportFormat): Promise<void> {
     const detail = selected;
     if (!detail) return;
     await app.perform("meeting-export", async () => {
-      const format = exportFormat;
       const transcriptVersion = showCleaned ? "cleaned" : "recognized";
       const extension =
         format === "markdown" ? "md" : format === "text" ? "txt" : format;
@@ -881,19 +883,23 @@ export function createMeetingSession() {
     }
     return !!detail;
   }
-  async function exportMarkdown(row: MeetingSummary): Promise<void> {
+  /** One-click export from the meeting list: rich text, like the meeting menu. */
+  async function exportRichText(row: MeetingSummary): Promise<void> {
     if (dirty || app.busy("meeting-export")) return;
     await app.perform("meeting-export", async () => {
       const detail =
         selected?.id === row.id
           ? selected
           : await call("get_meeting", { id: row.id });
-      const path = await chooseExport(`${safeFilename(detail.title)}.md`, "md");
+      const path = await chooseExport(
+        `${safeFilename(detail.title)}.rtf`,
+        "rtf",
+      );
       if (path) {
         await call("export_meeting", {
           id: detail.id,
           path,
-          format: "markdown",
+          format: "rtf",
           transcriptVersion:
             detail.cleanedTranscript === null ? "recognized" : "cleaned",
         });
@@ -951,7 +957,7 @@ export function createMeetingSession() {
     searchLine: (id: string) =>
       searchMatches.find((match) => match.id === id)?.line ?? "",
     join,
-    exportMarkdown,
+    exportRichText,
     discardRecording,
     get meetings() {
       return meetings;

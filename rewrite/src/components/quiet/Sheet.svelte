@@ -7,11 +7,14 @@
     children,
     onclose,
     anchor = null,
+    align = "end",
   }: {
     title: string;
     children: Snippet;
     onclose: () => void;
     anchor?: HTMLElement | null;
+    /** Line the sheet up with the anchor's right edge (end) or left edge (start). */
+    align?: "start" | "end";
   } = $props();
   const id = $props.id();
   let dialog: HTMLDialogElement;
@@ -27,7 +30,7 @@
         12,
         Math.min(
           window.innerWidth - dialog.offsetWidth - 12,
-          rect.right - dialog.offsetWidth,
+          align === "start" ? rect.left : rect.right - dialog.offsetWidth,
         ),
       );
       top = Math.max(

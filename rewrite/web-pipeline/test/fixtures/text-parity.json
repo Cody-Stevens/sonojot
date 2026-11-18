@@ -1,5 +1,5 @@
 {
-  "policy": "conservative-v1; local-rules; sonojot-punct-v3; written-form model for Clean, off for Format",
+  "policy": "conservative-v1; local-rules; sonojot-punct-v4; written-form model for Clean, off for Format",
   "inputs": 206,
   "rows": [
     {
@@ -7,7 +7,7 @@
       "source": "cleanup-v4/synthetic.json",
       "input": "Um I I need the blue no the green folder.",
       "mode": "clean",
-      "expected": "I I need the blue, no the green folder.",
+      "expected": "I need the green folder.",
       "rulesExpected": "I I need the blue no the green folder."
     },
     {
@@ -15,7 +15,7 @@
       "source": "cleanup-v4/synthetic.json",
       "input": "Um I I need the blue no the green folder.",
       "mode": "format",
-      "expected": "Um, I I need the blue, no the green folder.",
+      "expected": "Um, I I need the blue, no, the green folder.",
       "rulesExpected": "Um I I need the blue no the green folder."
     },
     {
@@ -39,7 +39,7 @@
       "source": "cleanup-v4/synthetic.json",
       "input": "Use version four point two or sorry four point three.",
       "mode": "clean",
-      "expected": "Use version 4.2 or, sorry, 4.3.",
+      "expected": "Use version 4.3.",
       "rulesExpected": "Use version four point two or sorry four point three."
     },
     {
@@ -47,7 +47,7 @@
       "source": "cleanup-v4/synthetic.json",
       "input": "Use version four point two or sorry four point three.",
       "mode": "format",
-      "expected": "Use version four point two or, sorry, four point three.",
+      "expected": "Use version four point two, or, sorry, four point three.",
       "rulesExpected": "Use version four point two or sorry four point three."
     },
     {
@@ -119,7 +119,7 @@
       "source": "cleanup-v4/synthetic.json",
       "input": "It looks normal separately and the. Anyway the invoices are ready.",
       "mode": "clean",
-      "expected": "It looks normal separately, and the, anyway, the invoices are ready.",
+      "expected": "It looks normal separately, and anyway, the invoices are ready.",
       "rulesExpected": "It looks normal separately and the. Anyway the invoices are ready."
     },
     {
@@ -167,7 +167,7 @@
       "source": "cleanup-v4/synthetic.json",
       "input": "Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow.",
       "mode": "clean",
-      "expected": "I I need the blue, no the green folder. Send $25 at 9:30 PM. Use version 4.2 or, sorry, 4.3. Well, you know, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I I need the blue, no the green folder. Send $25 at 9:30 PM. Use version 4.2 or, sorry, 4.3. Well, you know, I think we should leave. The model is Claude Opus 4.7; pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I I need the blue, no the green folder. Send $25 at 9:30 PM. Use version 4.2 or, sorry, 4.3. Well, you know, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I I need the blue, no the green folder. Send $25 at 9:30 PM. Use version 4.2 or, sorry, 4.3. Well, you know, I think we should leave. The model is Claude Opus 4.7; pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow.",
+      "expected": "I need the green folder. Send $25 at 9:30 PM. Use version 4.3. Well, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I need the green folder. Send $25 at 9:30 PM. Use version 4.3. Well, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I need the green folder. Send $25 at 9:30 PM. Use version 4.3. Well, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I need the green folder. Send $25 at 9:30 PM. Use version 4.3. Well, you know, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow.",
       "rulesExpected": "I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Please send it tomorrow."
     },
     {
@@ -175,7 +175,7 @@
       "source": "cleanup-v4/synthetic.json",
       "input": "Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow.",
       "mode": "format",
-      "expected": "Um, I I need the blue, no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or, sorry, four point three. Well, you know, I think we should leave. The model is Claude Opus four point seven; pay four point two million dollars. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Uh, uh, please send it tomorrow. Um, I I need the blue, no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or, sorry, four point three. Well, you know, I think we should leave. The model is Claude Opus four point seven; pay four point two million dollars. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Uh, uh, please send it tomorrow. Um, I I need the blue, no, the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or, sorry, four point three. Well, you know, I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Uh, uh, please send it tomorrow. Um, I I need the blue, no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or, sorry, four point three. Well, you know, I think we should leave. The model is Claude Opus four point seven; pay four point two million dollars. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Uh, uh, please send it tomorrow.",
+      "expected": "Um, I I need the blue, no, the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or, sorry, four point three. Well, you know, I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Uh uh, please send it tomorrow. Um, I I need the blue, no, the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or, sorry, four point three. Well, you know, I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Uh uh, please send it tomorrow. Um, I I need the blue, no, the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or, sorry, four point three. Well, you know, I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Uh, uh, please send it tomorrow. Um, I I need the blue, no, the green folder. Send twenty five dollars at nine thirty pm. Use version four point two, or, sorry, four point three. Well, you know, I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to back and forth between the two models. It looks normal separately, and the, anyway, the invoices are ready. Keep kind of and sort of together. Uh uh, please send it tomorrow.",
       "rulesExpected": "Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow. Um I I need the blue no the green folder. Send twenty five dollars at nine thirty pm. Use version four point two or sorry four point three. Well you know I think we should leave. The model is Claude Opus four point seven. Pay four point two million dollars. Switch to. Back and forth between the two models. It looks normal separately and the. Anyway the invoices are ready. Keep kind of and sort of together. Uh uh please send it tomorrow."
     },
     {
@@ -351,7 +351,7 @@
       "source": "round2-review-pack/regression_additions.jsonl",
       "input": "Send it to iris at beacon dot net, then call me.",
       "mode": "format",
-      "expected": "Send it to iris at beacon dot net, then call me.",
+      "expected": "Send it to Iris at beacon dot net, then call me.",
       "rulesExpected": "Send it to iris at beacon dot net, then call me."
     },
     {
@@ -599,7 +599,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "dear support team I received the replacement lamp yesterday but the switch still does not work I tried a different socket and had the same result please let me know how to return it for a refund kind regards Priya Shah",
       "mode": "clean",
-      "expected": "Dear, support team. I received the replacement lamp yesterday, but the switch still does not work. I tried a different socket and had the same result. Please let me know how to return it for a refund. Kind regards, Priya Shah.",
+      "expected": "Dear, support team, I received the replacement lamp yesterday, but the switch still does not work. I tried a different socket and had the same result. Please let me know how to return it for a refund. Kind regards, Priya Shah.",
       "rulesExpected": "Dear support team I received the replacement lamp yesterday but the switch still does not work I tried a different socket and had the same result please let me know how to return it for a refund kind regards Priya Shah."
     },
     {
@@ -607,7 +607,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "dear support team I received the replacement lamp yesterday but the switch still does not work I tried a different socket and had the same result please let me know how to return it for a refund kind regards Priya Shah",
       "mode": "format",
-      "expected": "Dear, support team. I received the replacement lamp yesterday, but the switch still does not work. I tried a different socket and had the same result. Please let me know how to return it for a refund. Kind regards, Priya Shah.",
+      "expected": "Dear, support team, I received the replacement lamp yesterday, but the switch still does not work. I tried a different socket and had the same result. Please let me know how to return it for a refund. Kind regards, Priya Shah.",
       "rulesExpected": "Dear support team I received the replacement lamp yesterday but the switch still does not work I tried a different socket and had the same result please let me know how to return it for a refund kind regards Priya Shah."
     },
     {
@@ -615,7 +615,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "hello Jordan. the workshop room is booked for Tuesday afternoon we can arrive at one to set up the projector and chairs new paragraph please ask the speakers to send their slides before lunch on Monday best Elena",
       "mode": "clean",
-      "expected": "Hello, Jordan. The workshop room is booked for Tuesday afternoon. We can arrive at one to set up the projector and chairs new paragraph. Please ask the speakers to send their slides before lunch on Monday best, Elena.",
+      "expected": "Hello, Jordan. The workshop room is booked for Tuesday afternoon. We can arrive at one to set up the projector and chairs new paragraph. Please ask the speakers to send their slides before lunch on Monday. Best, Elena.",
       "rulesExpected": "Hello Jordan. The workshop room is booked for Tuesday afternoon we can arrive at one to set up the projector and chairs new paragraph please ask the speakers to send their slides before lunch on Monday best Elena."
     },
     {
@@ -623,7 +623,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "hello Jordan. the workshop room is booked for Tuesday afternoon we can arrive at one to set up the projector and chairs new paragraph please ask the speakers to send their slides before lunch on Monday best Elena",
       "mode": "format",
-      "expected": "Hello, Jordan. The workshop room is booked for Tuesday afternoon. We can arrive at one to set up the projector and chairs new paragraph. Please ask the speakers to send their slides before lunch on Monday best, Elena.",
+      "expected": "Hello, Jordan. The workshop room is booked for Tuesday afternoon. We can arrive at one to set up the projector and chairs new paragraph. Please ask the speakers to send their slides before lunch on Monday. Best, Elena.",
       "rulesExpected": "Hello Jordan. The workshop room is booked for Tuesday afternoon we can arrive at one to set up the projector and chairs new paragraph please ask the speakers to send their slides before lunch on Monday best Elena."
     },
     {
@@ -647,7 +647,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "dear Ms Chen uh we would like to renew the community garden booking for the spring the volunteers can meet on Saturday mornings and we will bring our own tools please send the updated agreement when it is ready sincerely Lewis Grant",
       "mode": "clean",
-      "expected": "Dear, Ms. Chen, we would like to renew the community garden booking for the spring. The volunteers can meet on Saturday mornings, and we will bring our own tools. Please send the updated agreement when it is ready. Sincerely, Lewis Grant.",
+      "expected": "Dear, Ms. Chen, we would like to renew the community Garden booking for the spring. The volunteers can meet on Saturday mornings, and we will bring our own tools. Please send the updated agreement when it is ready. Sincerely Lewis Grant.",
       "rulesExpected": "Dear Ms Chen we would like to renew the community garden booking for the spring the volunteers can meet on Saturday mornings and we will bring our own tools please send the updated agreement when it is ready sincerely Lewis Grant."
     },
     {
@@ -655,7 +655,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "dear Ms Chen uh we would like to renew the community garden booking for the spring the volunteers can meet on Saturday mornings and we will bring our own tools please send the updated agreement when it is ready sincerely Lewis Grant",
       "mode": "format",
-      "expected": "Dear, Ms. Chen, uh, we would like to renew the community garden booking for the spring. The volunteers can meet on Saturday mornings, and we will bring our own tools. Please send the updated agreement when it is ready. Sincerely, Lewis Grant.",
+      "expected": "Dear, Ms. Chen, uh, we would like to renew the community Garden booking for the spring. The volunteers can meet on Saturday mornings, and we will bring our own tools. Please send the updated agreement when it is ready. Sincerely Lewis Grant.",
       "rulesExpected": "Dear Ms Chen uh we would like to renew the community garden booking for the spring the volunteers can meet on Saturday mornings and we will bring our own tools please send the updated agreement when it is ready sincerely Lewis Grant."
     },
     {
@@ -679,7 +679,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "shopping for the weekend bullet point two cartons of oat milk for breakfast next bullet a bag of green apples for the picnic next bullet paper napkins and compostable plates next bullet coffee beans for the office",
       "mode": "clean",
-      "expected": "Shopping for the weekend. Bullet 0.2 cartons of oat milk for breakfast. Next bullet a bag of green apples for the picnic. Next bullet paper napkins and compostable plates. Next bullet coffee beans for the office.",
+      "expected": "Shopping for the weekend bullet point two cartons of oat milk for breakfast. Next bullet, a bag of green apples for the picnic. Next bullet paper napkins and compostable plates. Next bullet coffee beans for the office.",
       "rulesExpected": "Shopping for the weekend bullet point two cartons of oat milk for breakfast next bullet a bag of green apples for the picnic next bullet paper napkins and compostable plates next bullet coffee beans for the office."
     },
     {
@@ -687,7 +687,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "shopping for the weekend bullet point two cartons of oat milk for breakfast next bullet a bag of green apples for the picnic next bullet paper napkins and compostable plates next bullet coffee beans for the office",
       "mode": "format",
-      "expected": "Shopping for the weekend. Bullet point two cartons of oat milk for breakfast. Next bullet a bag of green apples for the picnic. Next bullet paper napkins and compostable plates. Next bullet coffee beans for the office.",
+      "expected": "Shopping for the weekend bullet point two cartons of oat milk for breakfast. Next bullet, a bag of green apples for the picnic. Next bullet paper napkins and compostable plates. Next bullet coffee beans for the office.",
       "rulesExpected": "Shopping for the weekend bullet point two cartons of oat milk for breakfast next bullet a bag of green apples for the picnic next bullet paper napkins and compostable plates next bullet coffee beans for the office."
     },
     {
@@ -695,7 +695,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "packing list number one waterproof jackets for both children number two spare socks and walking shoes number three the small first aid kit from the cupboard number four phone chargers and the paper map of the coast",
       "mode": "clean",
-      "expected": "Packing list. Number one waterproof jackets for both children. Number two spare socks and walking shoes. Number three. The small first aid kit from the cupboard. Number four phone chargers and the paper map of the coast.",
+      "expected": "Packing list number one waterproof jackets for both children, number two spare socks and walking shoes. Number three, the small first aid kit from the cupboard, number four phone chargers and the paper map of the coast.",
       "rulesExpected": "Packing list number one waterproof jackets for both children number two spare socks and walking shoes number three the small first aid kit from the cupboard number four phone chargers and the paper map of the coast."
     },
     {
@@ -703,7 +703,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "packing list number one waterproof jackets for both children number two spare socks and walking shoes number three the small first aid kit from the cupboard number four phone chargers and the paper map of the coast",
       "mode": "format",
-      "expected": "Packing list. Number one waterproof jackets for both children. Number two spare socks and walking shoes. Number three. The small first aid kit from the cupboard. Number four phone chargers and the paper map of the coast.",
+      "expected": "Packing list number one waterproof jackets for both children, number two spare socks and walking shoes. Number three, the small first aid kit from the cupboard, number four phone chargers and the paper map of the coast.",
       "rulesExpected": "Packing list number one waterproof jackets for both children number two spare socks and walking shoes number three the small first aid kit from the cupboard number four phone chargers and the paper map of the coast."
     },
     {
@@ -727,7 +727,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "supplies for the repair visit bullet point a roll of masking tape for the door frame next bullet the long screwdriver with the red handle next bullet three spare hinges from the workshop next bullet a clean cloth for the counter",
       "mode": "clean",
-      "expected": "Supplies for the repair visit bullet point, a roll of masking tape for the door frame. Next bullet the long screwdriver with the red handle. Next bullet, three spare hinges from the workshop. Next bullet, a clean cloth for the counter.",
+      "expected": "Supplies for the repair visit Bullet point, A roll of masking tape for the door frame. Next bullet, the long screwdriver with the red handle. Next bullet, three spare hinges from the workshop. Next bullet, a clean cloth for the counter.",
       "rulesExpected": "Supplies for the repair visit bullet point a roll of masking tape for the door frame next bullet the long screwdriver with the red handle next bullet three spare hinges from the workshop next bullet a clean cloth for the counter."
     },
     {
@@ -735,7 +735,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "supplies for the repair visit bullet point a roll of masking tape for the door frame next bullet the long screwdriver with the red handle next bullet three spare hinges from the workshop next bullet a clean cloth for the counter",
       "mode": "format",
-      "expected": "Supplies for the repair visit bullet point, a roll of masking tape for the door frame. Next bullet the long screwdriver with the red handle. Next bullet, three spare hinges from the workshop. Next bullet, a clean cloth for the counter.",
+      "expected": "Supplies for the repair visit Bullet point, A roll of masking tape for the door frame. Next bullet, the long screwdriver with the red handle. Next bullet, three spare hinges from the workshop. Next bullet, a clean cloth for the counter.",
       "rulesExpected": "Supplies for the repair visit bullet point a roll of masking tape for the door frame next bullet the long screwdriver with the red handle next bullet three spare hinges from the workshop next bullet a clean cloth for the counter."
     },
     {
@@ -759,7 +759,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "lunch options for the visitors. vegetable soup with fresh bread chicken wraps with salad baked potatoes with beans and cheese and fruit bowls with plain yogurt for anyone who wants something lighter",
       "mode": "clean",
-      "expected": "Lunch options for the visitors, vegetable soup with fresh bread, chicken wraps with salad, baked potatoes with beans and cheese, and fruit bowls with plain yogurt for anyone who wants something lighter.",
+      "expected": "Lunch options for the visitors. Vegetable soup with fresh bread, chicken wraps with salad, baked potatoes with beans and cheese and fruit bowls with plain yogurt for anyone who wants something lighter.",
       "rulesExpected": "Lunch options for the visitors. Vegetable soup with fresh bread chicken wraps with salad baked potatoes with beans and cheese and fruit bowls with plain yogurt for anyone who wants something lighter."
     },
     {
@@ -767,7 +767,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "lunch options for the visitors. vegetable soup with fresh bread chicken wraps with salad baked potatoes with beans and cheese and fruit bowls with plain yogurt for anyone who wants something lighter",
       "mode": "format",
-      "expected": "Lunch options for the visitors, vegetable soup with fresh bread, chicken wraps with salad, baked potatoes with beans and cheese, and fruit bowls with plain yogurt for anyone who wants something lighter.",
+      "expected": "Lunch options for the visitors. Vegetable soup with fresh bread, chicken wraps with salad, baked potatoes with beans and cheese and fruit bowls with plain yogurt for anyone who wants something lighter.",
       "rulesExpected": "Lunch options for the visitors. Vegetable soup with fresh bread chicken wraps with salad baked potatoes with beans and cheese and fruit bowls with plain yogurt for anyone who wants something lighter."
     },
     {
@@ -775,7 +775,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "project update new line progress the kitchen cabinets arrived this morning the electrician finished the sockets new paragraph blockers the floor tiles are still at the depot new paragraph next actions Sam will call the supplier and confirm a delivery time",
       "mode": "clean",
-      "expected": "Project update new line progress. The kitchen cabinets arrived this morning. The electrician finished the sockets. New paragraph blockers. The floor tiles are still at the depot. New paragraph next actions. Sam will call the supplier and confirm a delivery time.",
+      "expected": "Project update new line progress. The kitchen cabinets arrived this morning. The electrician finished the sockets. New paragraph blockers. The floor tiles are still at the depot new paragraph next actions. Sam will call the supplier and confirm a delivery time.",
       "rulesExpected": "Project update new line progress the kitchen cabinets arrived this morning the electrician finished the sockets new paragraph blockers the floor tiles are still at the depot new paragraph next actions Sam will call the supplier and confirm a delivery time."
     },
     {
@@ -783,7 +783,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "project update new line progress the kitchen cabinets arrived this morning the electrician finished the sockets new paragraph blockers the floor tiles are still at the depot new paragraph next actions Sam will call the supplier and confirm a delivery time",
       "mode": "format",
-      "expected": "Project update new line progress. The kitchen cabinets arrived this morning. The electrician finished the sockets. New paragraph blockers. The floor tiles are still at the depot. New paragraph next actions. Sam will call the supplier and confirm a delivery time.",
+      "expected": "Project update new line progress. The kitchen cabinets arrived this morning. The electrician finished the sockets. New paragraph blockers. The floor tiles are still at the depot new paragraph next actions. Sam will call the supplier and confirm a delivery time.",
       "rulesExpected": "Project update new line progress the kitchen cabinets arrived this morning the electrician finished the sockets new paragraph blockers the floor tiles are still at the depot new paragraph next actions Sam will call the supplier and confirm a delivery time."
     },
     {
@@ -823,7 +823,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "event planning new paragraph venue the library room is available on Sunday the main hall is already booked new paragraph volunteers two people can help with setup and one can stay for cleanup new paragraph decisions use the library room and limit attendance to thirty",
       "mode": "clean",
-      "expected": "Event planning new paragraph venue. The library room is available on Sunday. The main hall is already booked. New paragraph volunteers. Two people can help with setup and one can stay for cleanup. New paragraph decisions. Use the library room and limit attendance to 30.",
+      "expected": "Event Planning New Paragraph Venue. The library room is available on Sunday. The main hall is already booked. New Paragraph volunteers. Two people can help with setup and one can stay for cleanup. New paragraph decisions. Use the library room and limit attendance to 30.",
       "rulesExpected": "Event planning new paragraph venue the library room is available on Sunday the main hall is already booked new paragraph volunteers two people can help with setup and one can stay for cleanup new paragraph decisions use the library room and limit attendance to thirty."
     },
     {
@@ -831,7 +831,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "event planning new paragraph venue the library room is available on Sunday the main hall is already booked new paragraph volunteers two people can help with setup and one can stay for cleanup new paragraph decisions use the library room and limit attendance to thirty",
       "mode": "format",
-      "expected": "Event planning new paragraph venue. The library room is available on Sunday. The main hall is already booked. New paragraph volunteers. Two people can help with setup and one can stay for cleanup. New paragraph decisions. Use the library room and limit attendance to thirty.",
+      "expected": "Event Planning New Paragraph Venue. The library room is available on Sunday. The main hall is already booked. New Paragraph volunteers. Two people can help with setup and one can stay for cleanup. New paragraph decisions. Use the library room and limit attendance to thirty.",
       "rulesExpected": "Event planning new paragraph venue the library room is available on Sunday the main hall is already booked new paragraph volunteers two people can help with setup and one can stay for cleanup new paragraph decisions use the library room and limit attendance to thirty."
     },
     {
@@ -855,7 +855,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "book club discussion characters the narrator seemed unreliable from the beginning setting the empty hotel made everyone uneasy reactions. several people liked the ending but Theo thought it was rushed next meeting we will choose a shorter book",
       "mode": "clean",
-      "expected": "Book club discussion characters. The narrator seemed unreliable from the beginning setting. The empty hotel made everyone uneasy reactions. Several people liked the ending, but Theo thought it was rushed next meeting. We will choose a shorter book.",
+      "expected": "Book Club Discussion characters. The narrator seemed unreliable from the beginning setting the empty hotel made everyone uneasy reactions. Several people liked the ending, but Theo thought it was rushed. Next meeting, we will choose a shorter book.",
       "rulesExpected": "Book club discussion characters the narrator seemed unreliable from the beginning setting the empty hotel made everyone uneasy reactions. Several people liked the ending but Theo thought it was rushed next meeting we will choose a shorter book."
     },
     {
@@ -863,7 +863,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "book club discussion characters the narrator seemed unreliable from the beginning setting the empty hotel made everyone uneasy reactions. several people liked the ending but Theo thought it was rushed next meeting we will choose a shorter book",
       "mode": "format",
-      "expected": "Book club discussion characters. The narrator seemed unreliable from the beginning setting. The empty hotel made everyone uneasy reactions. Several people liked the ending, but Theo thought it was rushed next meeting. We will choose a shorter book.",
+      "expected": "Book Club Discussion characters. The narrator seemed unreliable from the beginning setting the empty hotel made everyone uneasy reactions. Several people liked the ending, but Theo thought it was rushed. Next meeting, we will choose a shorter book.",
       "rulesExpected": "Book club discussion characters the narrator seemed unreliable from the beginning setting the empty hotel made everyone uneasy reactions. Several people liked the ending but Theo thought it was rushed next meeting we will choose a shorter book."
     },
     {
@@ -871,7 +871,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "to reset the router first unplug the power cable and wait thirty seconds then plug it back in and wait until the green light stops flashing finally reconnect your laptop and open a website to check the connection",
       "mode": "clean",
-      "expected": "To reset the router. First, unplug the power cable and wait 30 seconds, then plug it back in and wait until the green light stops flashing. Finally, reconnect your laptop and open a website to check the connection.",
+      "expected": "To reset the router first, unplug the power cable and wait 30 seconds, then plug it back in and wait until the green light stops flashing. Finally, reconnect your laptop and open a website to check the connection.",
       "rulesExpected": "To reset the router first unplug the power cable and wait thirty seconds then plug it back in and wait until the green light stops flashing finally reconnect your laptop and open a website to check the connection."
     },
     {
@@ -879,7 +879,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "to reset the router first unplug the power cable and wait thirty seconds then plug it back in and wait until the green light stops flashing finally reconnect your laptop and open a website to check the connection",
       "mode": "format",
-      "expected": "To reset the router. First, unplug the power cable and wait thirty seconds, then plug it back in and wait until the green light stops flashing. Finally, reconnect your laptop and open a website to check the connection.",
+      "expected": "To reset the router first, unplug the power cable and wait thirty seconds, then plug it back in and wait until the green light stops flashing. Finally, reconnect your laptop and open a website to check the connection.",
       "rulesExpected": "To reset the router first unplug the power cable and wait thirty seconds then plug it back in and wait until the green light stops flashing finally reconnect your laptop and open a website to check the connection."
     },
     {
@@ -887,7 +887,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "number one open the booking page and choose the date of your visit number two enter the names of everyone in your group number three check the total before pressing confirm number four save the receipt to your phone",
       "mode": "clean",
-      "expected": "Number one, open the booking page and choose the date of your visit. Number two, enter the names of everyone in your group. Number three. Check the total before pressing confirm. Number four. Save the receipt to your phone.",
+      "expected": "Number one open the booking page and choose the date of your visit. Number two enter the names of everyone in your group. Number three. Check the total before pressing confirm. Number four. Save the receipt to your phone.",
       "rulesExpected": "Number one open the booking page and choose the date of your visit number two enter the names of everyone in your group number three check the total before pressing confirm number four save the receipt to your phone."
     },
     {
@@ -895,7 +895,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "number one open the booking page and choose the date of your visit number two enter the names of everyone in your group number three check the total before pressing confirm number four save the receipt to your phone",
       "mode": "format",
-      "expected": "Number one, open the booking page and choose the date of your visit. Number two, enter the names of everyone in your group. Number three. Check the total before pressing confirm. Number four. Save the receipt to your phone.",
+      "expected": "Number one open the booking page and choose the date of your visit. Number two enter the names of everyone in your group. Number three. Check the total before pressing confirm. Number four. Save the receipt to your phone.",
       "rulesExpected": "Number one open the booking page and choose the date of your visit number two enter the names of everyone in your group number three check the total before pressing confirm number four save the receipt to your phone."
     },
     {
@@ -903,7 +903,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "for the seedlings um fill each pot with damp compost and make a small hole in the middle next place one seed in each hole and cover it gently then set the pots by the window and water them every morning",
       "mode": "clean",
-      "expected": "For the seedlings, fill each pot with damp compost and make a small hole in the middle. Next. Place one seed in each hole and cover it gently, then set the pots by the window and water them every morning.",
+      "expected": "For the seedlings, fill each pot with damp compost and make a small hole in the middle next, place one seed in each hole and cover it gently, then set the pots by the window and water them every morning.",
       "rulesExpected": "For the seedlings fill each pot with damp compost and make a small hole in the middle next place one seed in each hole and cover it gently then set the pots by the window and water them every morning."
     },
     {
@@ -911,7 +911,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "for the seedlings um fill each pot with damp compost and make a small hole in the middle next place one seed in each hole and cover it gently then set the pots by the window and water them every morning",
       "mode": "format",
-      "expected": "For the seedlings, um, fill each pot with damp compost and make a small hole in the middle. Next. Place one seed in each hole and cover it gently, then set the pots by the window and water them every morning.",
+      "expected": "For the seedlings, um, fill each pot with damp compost and make a small hole in the middle next, place one seed in each hole and cover it gently, then set the pots by the window and water them every morning.",
       "rulesExpected": "For the seedlings um fill each pot with damp compost and make a small hole in the middle next place one seed in each hole and cover it gently then set the pots by the window and water them every morning."
     },
     {
@@ -935,7 +935,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "number one switch off the printer and open the rear cover number two gently pull out the trapped sheet without tearing it number three close the cover and turn the printer back on number four print a test page before restarting the full job",
       "mode": "clean",
-      "expected": "Number one switch off the printer and open the rear cover. Number two. Gently pull out the trapped sheet without tearing it. Number three, close the cover and turn the printer back on number four. Print a test page before restarting the full job.",
+      "expected": "Number one switch off the printer and open the rear cover. Number two gently pull out the trapped sheet without tearing it. Number three close the cover and turn the printer back on number four. Print a test page before restarting the full job.",
       "rulesExpected": "Number one switch off the printer and open the rear cover number two gently pull out the trapped sheet without tearing it number three close the cover and turn the printer back on number four print a test page before restarting the full job."
     },
     {
@@ -943,7 +943,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "number one switch off the printer and open the rear cover number two gently pull out the trapped sheet without tearing it number three close the cover and turn the printer back on number four print a test page before restarting the full job",
       "mode": "format",
-      "expected": "Number one switch off the printer and open the rear cover. Number two. Gently pull out the trapped sheet without tearing it. Number three, close the cover and turn the printer back on number four. Print a test page before restarting the full job.",
+      "expected": "Number one switch off the printer and open the rear cover. Number two gently pull out the trapped sheet without tearing it. Number three close the cover and turn the printer back on number four. Print a test page before restarting the full job.",
       "rulesExpected": "Number one switch off the printer and open the rear cover number two gently pull out the trapped sheet without tearing it number three close the cover and turn the printer back on number four print a test page before restarting the full job."
     },
     {
@@ -967,7 +967,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "we reached the harbour just after sunrise the fishing boats were already moving out beyond the wall and a few people were setting up stalls along the quay I bought a cup of coffee and sat on the steps while the town slowly woke up new paragraph later we walked inland to the old railway path the air was cooler under the trees and we could hear water running somewhere below us by the time we returned the market was crowded and the quiet morning felt a long way away",
       "mode": "clean",
-      "expected": "We reached the harbour just after sunrise. The fishing boats were already moving out beyond the wall, and a few people were setting up stalls along the quay. I bought a cup of coffee and sat on the steps while the town slowly woke up. New paragraph. Later, we walked inland to the old railway path. The air was cooler under the trees, and we could hear water running somewhere below us by the time we returned. The market was crowded and the quiet morning felt a long way away.",
+      "expected": "We reached the harbour just after sunrise. The fishing boats were already moving out beyond the wall, and a few people were setting up stalls along the quay. I bought a cup of coffee and sat on the steps while the town slowly woke up. New paragraph. Later, we walked inland to the old railway path. The air was cooler under the trees, and we could hear water running somewhere below us by the time we returned. The market was crowded, and the quiet morning felt a long way away.",
       "rulesExpected": "We reached the harbour just after sunrise the fishing boats were already moving out beyond the wall and a few people were setting up stalls along the quay I bought a cup of coffee and sat on the steps while the town slowly woke up new paragraph later we walked inland to the old railway path the air was cooler under the trees and we could hear water running somewhere below us by the time we returned the market was crowded and the quiet morning felt a long way away."
     },
     {
@@ -975,7 +975,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "we reached the harbour just after sunrise the fishing boats were already moving out beyond the wall and a few people were setting up stalls along the quay I bought a cup of coffee and sat on the steps while the town slowly woke up new paragraph later we walked inland to the old railway path the air was cooler under the trees and we could hear water running somewhere below us by the time we returned the market was crowded and the quiet morning felt a long way away",
       "mode": "format",
-      "expected": "We reached the harbour just after sunrise. The fishing boats were already moving out beyond the wall, and a few people were setting up stalls along the quay. I bought a cup of coffee and sat on the steps while the town slowly woke up. New paragraph. Later, we walked inland to the old railway path. The air was cooler under the trees, and we could hear water running somewhere below us by the time we returned. The market was crowded and the quiet morning felt a long way away.",
+      "expected": "We reached the harbour just after sunrise. The fishing boats were already moving out beyond the wall, and a few people were setting up stalls along the quay. I bought a cup of coffee and sat on the steps while the town slowly woke up. New paragraph. Later, we walked inland to the old railway path. The air was cooler under the trees, and we could hear water running somewhere below us by the time we returned. The market was crowded, and the quiet morning felt a long way away.",
       "rulesExpected": "We reached the harbour just after sunrise the fishing boats were already moving out beyond the wall and a few people were setting up stalls along the quay I bought a cup of coffee and sat on the steps while the town slowly woke up new paragraph later we walked inland to the old railway path the air was cooler under the trees and we could hear water running somewhere below us by the time we returned the market was crowded and the quiet morning felt a long way away."
     },
     {
@@ -1015,7 +1015,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "our street was closed to traffic for the afternoon and at first everyone seemed unsure what to do with the space the children started drawing on the road while their parents stood near the kerb talking after a while someone brought out a table and a neighbour arrived with a tray of sandwiches new paragraph the weather turned cold before evening but nobody wanted to go inside I realised that I had spoken to people whose faces I knew well but whose names I had never learned before that day",
       "mode": "clean",
-      "expected": "Our street was closed to traffic for the afternoon, and at first everyone seemed unsure what to do with the space. The children started drawing on the road while their parents stood near the kerb talking. After a while, someone brought out a table, and a neighbour arrived with a tray of sandwiches. New paragraph. The weather turned cold before evening, but nobody wanted to go inside. I realised that I had spoken to people whose faces I knew well, but whose names I had never learned before that day.",
+      "expected": "Our street was closed to traffic for the afternoon, and at first everyone seemed unsure what to do with the space. The children started drawing on the road while their parents stood near the kerb talking. After a while, someone brought out a table and a neighbour arrived with a tray of sandwiches. New paragraph. The weather turned cold before evening, but nobody wanted to go inside. I realised that I had spoken to people whose faces I knew well, but whose names I had never learned before that day.",
       "rulesExpected": "Our street was closed to traffic for the afternoon and at first everyone seemed unsure what to do with the space the children started drawing on the road while their parents stood near the kerb talking after a while someone brought out a table and a neighbour arrived with a tray of sandwiches new paragraph the weather turned cold before evening but nobody wanted to go inside I realised that I had spoken to people whose faces I knew well but whose names I had never learned before that day."
     },
     {
@@ -1023,7 +1023,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "our street was closed to traffic for the afternoon and at first everyone seemed unsure what to do with the space the children started drawing on the road while their parents stood near the kerb talking after a while someone brought out a table and a neighbour arrived with a tray of sandwiches new paragraph the weather turned cold before evening but nobody wanted to go inside I realised that I had spoken to people whose faces I knew well but whose names I had never learned before that day",
       "mode": "format",
-      "expected": "Our street was closed to traffic for the afternoon, and at first everyone seemed unsure what to do with the space. The children started drawing on the road while their parents stood near the kerb talking. After a while, someone brought out a table, and a neighbour arrived with a tray of sandwiches. New paragraph. The weather turned cold before evening, but nobody wanted to go inside. I realised that I had spoken to people whose faces I knew well, but whose names I had never learned before that day.",
+      "expected": "Our street was closed to traffic for the afternoon, and at first everyone seemed unsure what to do with the space. The children started drawing on the road while their parents stood near the kerb talking. After a while, someone brought out a table and a neighbour arrived with a tray of sandwiches. New paragraph. The weather turned cold before evening, but nobody wanted to go inside. I realised that I had spoken to people whose faces I knew well, but whose names I had never learned before that day.",
       "rulesExpected": "Our street was closed to traffic for the afternoon and at first everyone seemed unsure what to do with the space the children started drawing on the road while their parents stood near the kerb talking after a while someone brought out a table and a neighbour arrived with a tray of sandwiches new paragraph the weather turned cold before evening but nobody wanted to go inside I realised that I had spoken to people whose faces I knew well but whose names I had never learned before that day."
     },
     {
@@ -1031,7 +1031,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "learning to swim as an adult has been slower than I expected the movements make sense when the instructor explains them but in the water I seem to forget everything at once uh last week I managed a full length without stopping and felt proud for the rest of the day new paragraph the best part of the lessons has been meeting people who are starting from the same place we laugh about the mistakes and notice each other's progress it makes the early morning journey to the pool much easier",
       "mode": "clean",
-      "expected": "Learning to swim as an adult has been slower than I expected. The movements make sense when the instructor explains them, but in the water, I seem to forget everything at once last week, I managed a full length without stopping and felt proud for the rest of the day. New paragraph, the best part of the lessons has been meeting people who are starting from the same place. We laugh about the mistakes and notice each other's progress. It makes the early morning journey to the pool much easier.",
+      "expected": "Learning to swim as an adult has been slower than I expected. The movements make sense when the instructor explains them, but in the water, I seem to forget everything at once last week, I managed a full length without stopping and felt proud for the rest of the day new paragraph. The best part of the lessons has been meeting people who are starting from the same place. We laugh about the mistakes and notice each other's progress. It makes the early morning journey to the pool much easier.",
       "rulesExpected": "Learning to swim as an adult has been slower than I expected the movements make sense when the instructor explains them but in the water I seem to forget everything at once last week I managed a full length without stopping and felt proud for the rest of the day new paragraph the best part of the lessons has been meeting people who are starting from the same place we laugh about the mistakes and notice each other's progress it makes the early morning journey to the pool much easier."
     },
     {
@@ -1039,7 +1039,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "learning to swim as an adult has been slower than I expected the movements make sense when the instructor explains them but in the water I seem to forget everything at once uh last week I managed a full length without stopping and felt proud for the rest of the day new paragraph the best part of the lessons has been meeting people who are starting from the same place we laugh about the mistakes and notice each other's progress it makes the early morning journey to the pool much easier",
       "mode": "format",
-      "expected": "Learning to swim as an adult has been slower than I expected. The movements make sense when the instructor explains them, but in the water I seem to forget everything at once. Uh, last week, I managed a full length without stopping and felt proud for the rest of the day. New paragraph, the best part of the lessons has been meeting people who are starting from the same place. We laugh about the mistakes and notice each other's progress. It makes the early morning journey to the pool much easier.",
+      "expected": "Learning to swim as an adult has been slower than I expected. The movements make sense when the instructor explains them, but in the water, I seem to forget everything at once. Uh, last week I managed a full length without stopping and felt proud for the rest of the day new paragraph. The best part of the lessons has been meeting people who are starting from the same place. We laugh about the mistakes and notice each other's progress. It makes the early morning journey to the pool much easier.",
       "rulesExpected": "Learning to swim as an adult has been slower than I expected the movements make sense when the instructor explains them but in the water I seem to forget everything at once uh last week I managed a full length without stopping and felt proud for the rest of the day new paragraph the best part of the lessons has been meeting people who are starting from the same place we laugh about the mistakes and notice each other's progress it makes the early morning journey to the pool much easier."
     },
     {
@@ -1047,7 +1047,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "the museum was much smaller than the guidebook suggested. we went through the main rooms in less than an hour but stayed longer in the room of ordinary household objects there was a kettle like the one my aunt used and a tin full of buttons that reminded me of her sewing cupboard new paragraph on the train home I kept thinking about that room the famous paintings were impressive but those familiar objects had brought back details I had not remembered for years including the sound of the cupboard door",
       "mode": "clean",
-      "expected": "The museum was much smaller than the guidebook suggested. We went through the main rooms in less than an hour but stayed longer in the room of ordinary household objects. There was a kettle like the one my aunt used and a tin full of buttons that reminded me of her sewing cupboard. New paragraph on the train home. I kept thinking about that room. The famous paintings were impressive, but those familiar objects had brought back details I had not remembered for years, including the sound of the cupboard door.",
+      "expected": "The museum was much smaller than the guidebook suggested. We went through the main rooms in less than an hour but stayed longer in the room of ordinary household objects. There was a kettle like the one my aunt used and a tin full of buttons that reminded me of her sewing cupboard new paragraph on the train home. I kept thinking about that room. The famous paintings were impressive, but those familiar objects had brought back details I had not remembered for years, including the sound of the cupboard door.",
       "rulesExpected": "The museum was much smaller than the guidebook suggested. We went through the main rooms in less than an hour but stayed longer in the room of ordinary household objects there was a kettle like the one my aunt used and a tin full of buttons that reminded me of her sewing cupboard new paragraph on the train home I kept thinking about that room the famous paintings were impressive but those familiar objects had brought back details I had not remembered for years including the sound of the cupboard door."
     },
     {
@@ -1055,7 +1055,7 @@
       "source": "fixtures/smart-layout-2026.jsonl",
       "input": "the museum was much smaller than the guidebook suggested. we went through the main rooms in less than an hour but stayed longer in the room of ordinary household objects there was a kettle like the one my aunt used and a tin full of buttons that reminded me of her sewing cupboard new paragraph on the train home I kept thinking about that room the famous paintings were impressive but those familiar objects had brought back details I had not remembered for years including the sound of the cupboard door",
       "mode": "format",
-      "expected": "The museum was much smaller than the guidebook suggested. We went through the main rooms in less than an hour but stayed longer in the room of ordinary household objects. There was a kettle like the one my aunt used and a tin full of buttons that reminded me of her sewing cupboard. New paragraph on the train home. I kept thinking about that room. The famous paintings were impressive, but those familiar objects had brought back details I had not remembered for years, including the sound of the cupboard door.",
+      "expected": "The museum was much smaller than the guidebook suggested. We went through the main rooms in less than an hour but stayed longer in the room of ordinary household objects. There was a kettle like the one my aunt used and a tin full of buttons that reminded me of her sewing cupboard new paragraph on the train home. I kept thinking about that room. The famous paintings were impressive, but those familiar objects had brought back details I had not remembered for years, including the sound of the cupboard door.",
       "rulesExpected": "The museum was much smaller than the guidebook suggested. We went through the main rooms in less than an hour but stayed longer in the room of ordinary household objects there was a kettle like the one my aunt used and a tin full of buttons that reminded me of her sewing cupboard new paragraph on the train home I kept thinking about that room the famous paintings were impressive but those familiar objects had brought back details I had not remembered for years including the sound of the cupboard door."
     },
     {
@@ -1335,7 +1335,7 @@
       "source": "new synthetic",
       "input": "I I think this is fine",
       "mode": "clean",
-      "expected": "I I think this is fine.",
+      "expected": "I think this is fine.",
       "rulesExpected": "I I think this is fine."
     },
     {
@@ -1383,7 +1383,7 @@
       "source": "new synthetic",
       "input": "UM is a unit",
       "mode": "clean",
-      "expected": "UM is a unit.",
+      "expected": "UM, is a unit.",
       "rulesExpected": "UM is a unit."
     },
     {
@@ -1391,7 +1391,7 @@
       "source": "new synthetic",
       "input": "UM is a unit",
       "mode": "format",
-      "expected": "UM is a unit.",
+      "expected": "UM, is a unit.",
       "rulesExpected": "UM is a unit."
     },
     {
@@ -1439,7 +1439,7 @@
       "source": "new synthetic",
       "input": "teh file was recieved becuase thier copy was seperate",
       "mode": "format",
-      "expected": "Teh file was recieved, becuase thier copy was seperate.",
+      "expected": "Teh file was recieved becuase thier copy was seperate.",
       "rulesExpected": "Teh file was recieved becuase thier copy was seperate."
     },
     {
@@ -1511,7 +1511,7 @@
       "source": "new synthetic",
       "input": "we need negative ten, actually, twelve degrees",
       "mode": "clean",
-      "expected": "We need negative 10, actually, 12 degrees.",
+      "expected": "We need negative 12 degrees.",
       "rulesExpected": "We need negative ten, actually, twelve degrees."
     },
     {
@@ -1815,7 +1815,7 @@
       "source": "new synthetic",
       "input": "the code is one two three four",
       "mode": "clean",
-      "expected": "The code is one two, three four.",
+      "expected": "The code is one two three four.",
       "rulesExpected": "The code is one two three four."
     },
     {
@@ -1823,7 +1823,7 @@
       "source": "new synthetic",
       "input": "the code is one two three four",
       "mode": "format",
-      "expected": "The code is one two, three four.",
+      "expected": "The code is one two three four.",
       "rulesExpected": "The code is one two three four."
     },
     {
@@ -1911,7 +1911,7 @@
       "source": "new synthetic",
       "input": "on February twenty ninth twenty twenty four we left",
       "mode": "clean",
-      "expected": "On February 29, 2024 we left.",
+      "expected": "On February 29, 2024, we left.",
       "rulesExpected": "On February twenty ninth twenty twenty four we left."
     },
     {
@@ -1919,7 +1919,7 @@
       "source": "new synthetic",
       "input": "on February twenty ninth twenty twenty four we left",
       "mode": "format",
-      "expected": "On February twenty ninth, twenty twenty four we left.",
+      "expected": "On February twenty ninth, twenty twenty four, we left.",
       "rulesExpected": "On February twenty ninth twenty twenty four we left."
     },
     {
@@ -1927,7 +1927,7 @@
       "source": "new synthetic",
       "input": "on February twenty ninth twenty twenty three we left",
       "mode": "clean",
-      "expected": "On February 20 ninth, twenty twenty three we left.",
+      "expected": "On February 20 ninth, twenty twenty three, we left.",
       "rulesExpected": "On February twenty ninth twenty twenty three we left."
     },
     {
@@ -1935,7 +1935,7 @@
       "source": "new synthetic",
       "input": "on February twenty ninth twenty twenty three we left",
       "mode": "format",
-      "expected": "On February twenty ninth, twenty twenty three we left.",
+      "expected": "On February twenty ninth, twenty twenty three, we left.",
       "rulesExpected": "On February twenty ninth twenty twenty three we left."
     },
     {
@@ -1959,7 +1959,7 @@
       "source": "new synthetic",
       "input": "on the twenty first of March twenty twenty five we leave",
       "mode": "clean",
-      "expected": "On the 21st of March, 2025 we leave.",
+      "expected": "On the 21st of March, 2025, we leave.",
       "rulesExpected": "On the twenty first of March twenty twenty five we leave."
     },
     {
@@ -1967,7 +1967,7 @@
       "source": "new synthetic",
       "input": "on the twenty first of March twenty twenty five we leave",
       "mode": "format",
-      "expected": "On the twenty first of March, twenty twenty five we leave.",
+      "expected": "On the twenty first of March, twenty twenty five, we leave.",
       "rulesExpected": "On the twenty first of March twenty twenty five we leave."
     },
     {
@@ -2055,7 +2055,7 @@
       "source": "new synthetic",
       "input": "arrive at zero fifteen",
       "mode": "clean",
-      "expected": "Arrive at 0:15.",
+      "expected": "Arrive at zero fifteen.",
       "rulesExpected": "Arrive at zero fifteen."
     },
     {
@@ -2071,7 +2071,7 @@
       "source": "new synthetic",
       "input": "arrive at twenty three fifty nine",
       "mode": "clean",
-      "expected": "Arrive at 2359.",
+      "expected": "Arrive at twenty three fifty nine.",
       "rulesExpected": "Arrive at twenty three fifty nine."
     },
     {
@@ -2367,7 +2367,7 @@
       "source": "new synthetic",
       "input": "visit today dot net slash tomorrow",
       "mode": "format",
-      "expected": "Visit today dot net, slash tomorrow.",
+      "expected": "Visit today dot net slash tomorrow.",
       "rulesExpected": "Visit today dot net slash tomorrow."
     },
     {
@@ -2495,7 +2495,7 @@
       "source": "new synthetic",
       "input": "visit example dot com slash docs",
       "mode": "format",
-      "expected": "Visit example dot com, slash docs.",
+      "expected": "Visit example dot com slash docs.",
       "rulesExpected": "Visit example dot com slash docs."
     },
     {
@@ -2511,7 +2511,7 @@
       "source": "new synthetic",
       "input": "visit https colon slash slash example dot org slash api question mark page equals digit two",
       "mode": "format",
-      "expected": "Visit https colon slash slash example dot org slash api. Question mark page equals digit two.",
+      "expected": "Visit https colon slash slash example dot org slash api question mark page equals digit two.",
       "rulesExpected": "Visit https colon slash slash example dot org slash api question mark page equals digit two."
     },
     {
@@ -2967,7 +2967,7 @@
       "source": "new synthetic",
       "input": "Dr. Smith arrived. Then we left",
       "mode": "clean",
-      "expected": "Dr smith arrived, then we left.",
+      "expected": "Dr. Smith arrived. Then we left.",
       "rulesExpected": "Dr. Smith arrived. Then we left."
     },
     {
@@ -2975,7 +2975,7 @@
       "source": "new synthetic",
       "input": "Dr. Smith arrived. Then we left",
       "mode": "format",
-      "expected": "Dr smith arrived, then we left.",
+      "expected": "Dr. Smith arrived. Then we left.",
       "rulesExpected": "Dr. Smith arrived. Then we left."
     },
     {
@@ -2983,7 +2983,7 @@
       "source": "new synthetic",
       "input": "save 1,234.56 and 2.50 today",
       "mode": "clean",
-      "expected": "Save 1,234.56, and 2.50 today.",
+      "expected": "Save 1,234.56 and 2.50 today.",
       "rulesExpected": "Save 1,234.56 and 2.50 today."
     },
     {
@@ -2991,7 +2991,7 @@
       "source": "new synthetic",
       "input": "save 1,234.56 and 2.50 today",
       "mode": "format",
-      "expected": "Save 1,234.56, and 2.50 today.",
+      "expected": "Save 1,234.56 and 2.50 today.",
       "rulesExpected": "Save 1,234.56 and 2.50 today."
     },
     {
@@ -3071,7 +3071,7 @@
       "source": "new synthetic",
       "input": "um so i think we should meet at three thirty p.m. on march fifth and uh spend about twenty five dollars",
       "mode": "format",
-      "expected": "Um, so I think we should meet at three thirty p.m. on march fifth and, uh, spend about twenty five dollars.",
+      "expected": "Um, so I think we should meet at three thirty p.m. on March fifth and, uh, spend about twenty five dollars.",
       "rulesExpected": "Um so I think we should meet at three thirty p.m. on march fifth and uh spend about twenty five dollars."
     },
     {
@@ -3087,7 +3087,7 @@
       "source": "new synthetic",
       "input": "try Qwen three thirty b a three b and Whisper large v three",
       "mode": "format",
-      "expected": "Try Qwen three thirty b a three b and Whisper large v three.",
+      "expected": "Try Qwen three thirty b a three B and Whisper large v three.",
       "rulesExpected": "Try Qwen three thirty b a three b and Whisper large v three."
     },
     {
@@ -3207,7 +3207,7 @@
       "source": "new synthetic 119-word window boundary",
       "input": "um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to",
       "mode": "clean",
-      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to.",
+      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to.",
       "rulesExpected": "We need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to."
     },
     {
@@ -3223,7 +3223,7 @@
       "source": "new synthetic 120-word window boundary",
       "input": "um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the",
       "mode": "clean",
-      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the.",
+      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the.",
       "rulesExpected": "We need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the."
     },
     {
@@ -3255,7 +3255,7 @@
       "source": "new synthetic 180-word window boundary",
       "input": "um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five",
       "mode": "clean",
-      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before nine thirty tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send twenty five.",
+      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send twenty five.",
       "rulesExpected": "We need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five."
     },
     {
@@ -3271,7 +3271,7 @@
       "source": "new synthetic 241-word window boundary",
       "input": "um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send",
       "mode": "clean",
-      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send.",
+      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send.",
       "rulesExpected": "We need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send."
     },
     {
@@ -3287,7 +3287,7 @@
       "source": "new synthetic 330-word window boundary",
       "input": "um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning um we need to review the next report and send twenty five dollars to the",
       "mode": "clean",
-      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow, morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the.",
+      "expected": "We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the office before 9:30 tomorrow morning. We need to review the next report and send $25 to the.",
       "rulesExpected": "We need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the office before nine thirty tomorrow morning we need to review the next report and send twenty five dollars to the."
     },
     {

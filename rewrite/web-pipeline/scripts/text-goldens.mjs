@@ -2,7 +2,14 @@
  * Build (repository root):
  * (set CARGO_TARGET_DIR first to keep the build out of the source tree)
  * cargo build --manifest-path rewrite/src-tauri/Cargo.toml --features fidelity-eval --bin fidelity_eval --bin punctuation_probe --example text_tokenizer_goldens -j 6
- * Copy the built executables into .scratch/bin before running this script.
+ * Copy the built executables (fidelity_eval, examples/text_tokenizer_goldens) into .scratch/bin before
+ * running this script, or set SONOJOT_RUST_BIN to a folder that holds them.
+ * SONOJOT_PUNCT_MODEL_DIR is the punctuation package the browser ships (src/models.ts PUNCTUATION), as
+ * the desktop installs it: v4 also needs the installer's manifest.json (delete and case thresholds), or the
+ * desktop falls back to rules and this script stops at the first row;
+ * SONOJOT_MODELS_ROOT is the desktop models root (default %LOCALAPPDATA%/SonoJot/models/rewrite; any
+ * folder that holds the pinned ONNX Runtime in optional/sherpa-runtime works for these text-only rows).
+ * SONOJOT_MODELS_ROOT is required where LOCALAPPDATA is not set.
  * The exact evaluator commands and outputs are retained in a unique .scratch subfolder.
  */
 import fs from "node:fs";
@@ -12,8 +19,13 @@ import { syntheticInputs } from "./text-inputs.mjs";
 
 const pkg = path.resolve(import.meta.dirname, "..");
 const scratch = path.join(pkg, ".scratch");
-const modelRoot = process.env.SONOJOT_MODELS_ROOT ?? path.join(process.env.LOCALAPPDATA, "SonoJot/models/rewrite");
-const modelDir = process.env.SONOJOT_PUNCT_MODEL_DIR ?? path.join(modelRoot, "punctuation/sonojot-punct-v3");
+const binDir = process.env.SONOJOT_RUST_BIN ?? path.join(scratch, "bin");
+const modelRoot =
+  process.env.SONOJOT_MODELS_ROOT ??
+  (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "SonoJot/models/rewrite") : undefined);
+if (!modelRoot) throw new Error("Set SONOJOT_MODELS_ROOT");
+const modelDir = process.env.SONOJOT_PUNCT_MODEL_DIR ?? path.join(modelRoot, "punctuation/sonojot-punct-v4");
+const packageId = path.basename(path.resolve(modelDir));
 fs.mkdirSync(scratch, { recursive: true });
 const temp = fs.mkdtempSync(path.join(scratch, "text-goldens-"));
 const inputs = syntheticInputs();
@@ -26,7 +38,7 @@ const writeLines = (name, values) => {
 const readLines = (file) => fs.readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean).map(JSON.parse);
 const commands = [];
 function run(binary, args, label) {
-  const command = path.join(scratch, "bin", binary + ".exe");
+  const command = path.join(binDir, binary + (process.platform === "win32" ? ".exe" : ""));
   commands.push({ command, args });
   fs.writeFileSync(path.join(temp, "commands.json"), JSON.stringify(commands, null, 2));
   console.log(`${label}: ${rows.length} synthetic mode rows`);
@@ -153,7 +165,7 @@ run(
 const spanResults = new Map(readLines(spanOutput).map((row) => [row.id, row]));
 const writtenFormCases = spanCases.map((row) => ({ ...row, expected: spanResults.get(row.id).rendered }));
 const fixtures = {
-  policy: "conservative-v1; local-rules; sonojot-punct-v3; written-form model for Clean, off for Format",
+  policy: `conservative-v1; local-rules; ${packageId}; written-form model for Clean, off for Format`,
   inputs: inputs.length,
   rows: cases,
   tokenizerCases,

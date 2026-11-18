@@ -29,13 +29,13 @@ nemo128.onnx feature extractor
   From onnx-asr 0.12.0, Copyright (c) 2025 Ilya Stupakov, MIT License:
   https://github.com/istupakov/onnx-asr
 
-SonoJot Punctuation v3
+SonoJot Punctuation v4 (8-bit weights)
   Published by SonoJot (Cody Stevens Studio LLC). Licensed under Creative Commons
   Attribution-ShareAlike 4.0 International (CC BY-SA 4.0):
   https://creativecommons.org/licenses/by-sa/4.0/
   Model card, base models and training-data attribution:
-  https://huggingface.co/SonoJot/sonojot-punct-v3
-  (revision e023ae245a00bac1785bb6a022b16d181e346e48)
+  https://huggingface.co/SonoJot/sonojot-punct-v4
+  (revision 2c242cbb72f54cf698d6aabfad5d84cacccef91f)
 
 Runtime libraries bundled by an application that uses this package:
   onnxruntime-web, Copyright Microsoft Corporation, MIT License.

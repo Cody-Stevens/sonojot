@@ -208,7 +208,7 @@
             match={session.searchLine(meeting.id)}
             {meeting}
             onopen={() => void open(meeting.id)}
-            onexport={() => void session.exportMarkdown(meeting)}
+            onexport={() => void session.exportRichText(meeting)}
           />{/each}
       </section>{/each}
     {#if !session.loaded}<p role="status">

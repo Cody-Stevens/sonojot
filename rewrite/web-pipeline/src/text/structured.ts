@@ -1,4 +1,4 @@
-import words from "./data/words.json";
+import words from "./data/words.json" with { type: "json" };
 import { applyEdits, asciiLower, quoteRanges, wordBounds } from "./shared.ts";
 import type { Range, Edit } from "./shared.ts";
 interface Token {

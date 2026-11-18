@@ -2,7 +2,7 @@
 // SHA-256 values before it is cached or loaded, whatever host serves it.
 
 export interface ModelFile {
-  /** Model folder on the host, e.g. "sonojot-punct-v3". */
+  /** Model folder on the host, e.g. "sonojot-punct-v4". */
   model: string;
   /** File name inside that folder. */
   name: string;
@@ -80,7 +80,23 @@ export const PUNCTUATION = {
       sha256: "250ff56bfa7c7070a1b9a42401fa0dd82eff50cfa52c62036f0550fa5a360c43",
     },
   },
-} as const satisfies { id: string; repo: string; revision: string; files: Record<string, ModelFile> };
+  /**
+   * What the desktop installer writes into this package's manifest.json, which the browser
+   * does not download: the delete threshold Clean uses and the casing thresholds. Source of
+   * truth: P4_DELETE_THRESHOLD and P4_CASE_THRESHOLDS in rewrite/src-tauri/src/punctuation_model.rs;
+   * test/models.test.ts fails when these drift from it. Update them with the model.
+   */
+  manifest: {
+    delete_threshold: 0.955,
+    case_thresholds: { raise: 0.8, upper: 0.7, lower_positional: 0.8, lower: 0.98 },
+  },
+} as const satisfies {
+  id: string;
+  repo: string;
+  revision: string;
+  files: Record<string, ModelFile>;
+  manifest: { delete_threshold: number; case_thresholds: { raise: number; upper: number; lower_positional: number; lower: number } };
+};
 
 export const ALL_FILES: readonly ModelFile[] = [
   ...Object.values(PARAKEET.files),

@@ -21,7 +21,14 @@
     | "back"
     | "folder"
     | "check"
-    | "delete";
+    | "delete"
+    | "edit"
+    | "share"
+    | "cloud-check"
+    | "cloud-up"
+    | "cloud-down"
+    | "cloud-alert"
+    | "cloud-off";
   let { name, size = 24 }: { name: IconName; size?: number } = $props();
   const paths: Record<IconName, string> = {
     people:
@@ -55,6 +62,14 @@
     check: "m4 12 5 5L20 6",
     delete:
       "M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-1 13a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1L6 7",
+    edit: "M4 20h4L19 9l-4-4L4 16v4Zm9-13 4 4",
+    share:
+      "M12 15V3M8 7l4-4 4 4M8 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2",
+    "cloud-check": "M7 19h10.5a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.5 9.6 4.75 4.75 0 0 0 7 19ZM9.5 14.5l1.8 1.8 3.4-3.6",
+    "cloud-up": "M7 19h10.5a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.5 9.6 4.75 4.75 0 0 0 7 19ZM12 17v-5.5m-2.3 2.3 2.3-2.3 2.3 2.3",
+    "cloud-down": "M7 19h10.5a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.5 9.6 4.75 4.75 0 0 0 7 19ZM12 11v5.5m-2.3-2.3 2.3 2.3 2.3-2.3",
+    "cloud-alert": "M7 19h10.5a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.5 9.6 4.75 4.75 0 0 0 7 19ZM12 11v3m0 2.6v.01",
+    "cloud-off": "M7 19h10.5a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.5 9.6 4.75 4.75 0 0 0 7 19ZM3 3l18 18",
   };
 </script>
 

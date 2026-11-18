@@ -1601,6 +1601,13 @@ pub async fn sync_command(
     args: Option<Value>,
 ) -> Result<Value, String> {
     crate::flavor::require_sync()?;
+    if operation == "meeting_prioritize" {
+        // Skips the gate on purpose: a running pass reads this before each pull.
+        let id = args.as_ref().and_then(|a| a["id"].as_str()).ok_or("Choose a meeting.")?;
+        crate::meeting_sync::prioritize(id)?;
+        wake();
+        return Ok(json!({"prioritized":true}));
+    }
     let runtime = app.state::<Arc<Runtime>>();
     let service = app.state::<SyncService>();
     let _guard = service.gate.lock().await;

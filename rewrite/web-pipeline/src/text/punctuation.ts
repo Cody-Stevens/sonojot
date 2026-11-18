@@ -1,5 +1,5 @@
-import lowercase from "./data/lowercase.json";
-import { capitalize, isAlpha, isNumeric, isUpper, SPACE, trimSpace, wordBounds } from "./shared.ts";
+import lowercase from "./data/lowercase.json" with { type: "json" };
+import { capitalize, isNumeric, isUpper, SPACE, trimSpace, wordBounds } from "./shared.ts";
 import type { Range } from "./shared.ts";
 import { capitalRun, modelCase, sentenceStartForm } from "./casing.ts";
 import type { Casing } from "./casing.ts";
@@ -131,9 +131,12 @@ function literalSpans(text: string): Range[] {
     }
   return spans;
 }
+// Rust punctuation.rs::literal_gap: anything but whitespace, editable punctuation,
+// quotes and brackets ("%", a backtick, an emoji, a combining accent) is literal content.
+export const literalGap = (gap: string): boolean => /[^\p{White_Space}.,?!;:…\-–—"'“”‘’()[\]{}]/u.test(gap);
 // Rust punctuation.rs::render_gap.
 export function renderGap(gap: string, prediction: Mark | undefined, terminal: boolean): string {
-  if (/[^\p{White_Space}.,?!;:…\-–—"'“”‘’()[\]{}]/u.test(gap)) return gap;
+  if (literalGap(gap)) return gap;
   const dash = /[-–—]/.test(gap),
     ellipsis = gap.includes("..") || gap.includes("…");
   if (dash) prediction = terminal ? "." : ",";

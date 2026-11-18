@@ -1,26 +1,58 @@
 {
   "name": "@sonojot/transcribe",
   "version": "0.1.0",
-  "private": true,
   "description": "SonoJot's speech-to-text pipeline in the browser: speech recognition, punctuation and conservative cleanup, all on the user's device.",
   "license": "Apache-2.0",
+  "author": "Cody Stevens Studio LLC",
+  "homepage": "https://github.com/Cody-Stevens/sonojot/tree/main/rewrite/web-pipeline#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cody-Stevens/sonojot.git",
+    "directory": "rewrite/web-pipeline"
+  },
+  "keywords": [
+    "speech-to-text",
+    "transcription",
+    "dictation",
+    "parakeet",
+    "onnxruntime-web",
+    "webgpu"
+  ],
   "type": "module",
   "sideEffects": false,
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./language": "./src/language.ts",
-    "./text": "./src/text/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./language": {
+      "types": "./dist/language.d.ts",
+      "default": "./dist/language.js"
+    },
+    "./text": {
+      "types": "./dist/text/index.d.ts",
+      "default": "./dist/text/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "src",
+    "dist",
     "README.md",
-    "NOTICE"
+    "NOTICE",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.host.json",
     "test": "tsx --test test/*.test.ts",
+    "build": "node scripts/build-package.mjs",
+    "prepack": "npm run build",
     "demo": "vite --host 127.0.0.1 --port 5317 --strictPort",
     "build:demo": "vite build",
+    "preview:demo": "vite preview --host 127.0.0.1 --port 5317 --strictPort",
     "measure": "tsx scripts/measure.ts"
   },
   "dependencies": {

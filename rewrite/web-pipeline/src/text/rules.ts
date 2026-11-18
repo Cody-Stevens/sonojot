@@ -1,4 +1,4 @@
-import data from "./data/words.json";
+import data from "./data/words.json" with { type: "json" };
 import type { CleanupMode } from "./contract.ts";
 import { applyEdits, asciiLower, capitalize, isAlpha, isUpper, SPACE, wordBounds } from "./shared.ts";
 import type { Edit, Range } from "./shared.ts";

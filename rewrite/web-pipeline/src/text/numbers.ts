@@ -1,4 +1,4 @@
-import data from "./data/words.json";
+import data from "./data/words.json" with { type: "json" };
 import { tokens } from "./wf-shared.ts";
 import type { Class } from "./wf-shared.ts";
 export const { SMALL, TENS, ORDINALS, MONTHS, AMP_NAMES } = data;

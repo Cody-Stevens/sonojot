@@ -56,21 +56,20 @@ test("passage assignment changes one passage, supports new and existing names, a
 }) => {
   const errors = await open(page);
   await openMeeting(page);
-  await page
-    .getByRole("button", {
-      name: "Rachel will prepare the Kubernetes migration.",
-      exact: true,
-    })
-    .click();
-  await page
-    .getByRole("button", { name: "Assign passage…", exact: true })
-    .click();
-  const sheet = page.getByRole("dialog", { name: "Assign this passage" });
-  await sheet.getByRole("button", { name: "New name…", exact: true }).click();
-  await sheet.getByRole("textbox", { name: "New speaker name" }).fill("Rachel");
+  const label = (text) =>
+    page
+      .locator(".transcript-passage")
+      .filter({ hasText: text })
+      .locator(".speaker-label");
+  const sheet = page.getByRole("dialog", { name: /^Rename “/ });
+  await label("Rachel will prepare").click();
+  await expect(
+    sheet.getByRole("button", { name: "All 2 passages" }),
+  ).toBeVisible();
+  await sheet.getByRole("textbox", { name: "Speaker name" }).fill("Rachel");
   await shot(page, "01-assign-passage.png");
   await sheet
-    .getByRole("button", { name: "Assign passage", exact: true })
+    .getByRole("button", { name: "Only this one", exact: true })
     .click();
   await expect(sheet).toBeHidden();
   expect((await calls(page, "reassign_meeting_passage"))[0].args).toEqual({
@@ -85,31 +84,19 @@ test("passage assignment changes one passage, supports new and existing names, a
   await expect(
     page.locator(".passage-who").filter({ hasText: "Speaker 2" }),
   ).toHaveCount(1);
-  await page
-    .getByRole("button", {
-      name: "Rachel will prepare the Kubernetes migration.",
-      exact: true,
-    })
-    .click();
-  await page
+  await label("Rachel will prepare").click();
+  await sheet
     .getByRole("textbox", { name: "Speaker name", exact: true })
     .fill("Rachel Green");
-  await page.getByRole("button", { name: "Rename everywhere" }).click();
+  await sheet.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(
     page.locator(".passage-who").filter({ hasText: "Rachel Green" }),
   ).toHaveCount(1);
-  await page
-    .getByRole("button", { name: "Keep the backup.", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Assign passage…", exact: true })
-    .click();
+  await label("Keep the backup.").click();
   await sheet
     .getByRole("button", { name: "Rachel Green", exact: true })
     .click();
-  await sheet
-    .getByRole("button", { name: "Assign passage", exact: true })
-    .click();
+  await sheet.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(sheet).toBeHidden();
   await shot(page, "02-reassigned-transcript.png");
   await page.getByRole("button", { name: "Meeting options" }).click();

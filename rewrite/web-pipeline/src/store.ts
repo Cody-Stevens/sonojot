@@ -59,6 +59,8 @@ export class ModelStore {
   #cache?: Promise<Cache | undefined>;
   /** Ledger writes are read-modify-write; run them one at a time. */
   #ledgerQueue: Promise<unknown> = Promise.resolve();
+  /** Files this store returned that Cache Storage refused; their finished download stays in OPFS. */
+  readonly #outsideCache = new Set<string>();
 
   constructor(options: StoreOptions) {
     this.#options = options;
@@ -69,8 +71,8 @@ export class ModelStore {
    * against the pinned SHA-256 before they are cached or returned. Cached files are
    * checked by size only: they were verified when stored, under a key that is their
    * hash, and Cache Storage can only be written by this origin's own scripts, which
-   * could change the code that verifies just as easily. Hashing the 678 MB again
-   * would add 0.4 s to every start on the Ryzen 9 9900X used for the measurements
+   * could change the code that verifies just as easily. Hashing the 556 MB again
+   * would add about 0.3 s to every start on the Ryzen 9 9900X used for the measurements
    * (more on a slower laptop) and would only catch on-disk corruption that keeps
    * the size intact, which onnxruntime would most likely reject when parsing anyway.
    *
@@ -86,6 +88,7 @@ export class ModelStore {
       const bytes = new Uint8Array(await hit.arrayBuffer());
       if (bytes.byteLength === file.bytes) {
         onProgress?.({ file, loaded: file.bytes, total: file.bytes, cached: true, resumedFrom: 0, fetched: 0 });
+        this.#outsideCache.delete(file.sha256);
         return bytes;
       }
       await cache!.delete(key);
@@ -99,10 +102,14 @@ export class ModelStore {
         try {
           // A finished partial is put from its file, so the bytes are not copied out of the worker again.
           await cache.put(key, new Response((await sink.finish()) ?? bytes, { headers: { "content-type": "application/octet-stream" } }));
+          this.#outsideCache.delete(file.sha256);
           await this.touch([file]);
         } catch {
-          // Quota exceeded or storage blocked: keep working without the cache. A finished
-          // partial stays, so the next start verifies it instead of downloading it again.
+          // Quota exceeded or storage blocked (Chrome's incognito refuses the speech model):
+          // keep working without the cache. A finished partial stays, so the next start
+          // verifies it instead of downloading it again. It is not entered in the ledger,
+          // which lists cached files only and would make the sweep delete the partial.
+          this.#outsideCache.add(file.sha256);
           kept = true;
         }
       } else kept = true;
@@ -174,9 +181,11 @@ export class ModelStore {
       if (removed || adopted) await writeLedger(cache, ledger);
     }
     // Partial downloads age by their last write. One whose file is already cached is left over
-    // from a tab that closed after another finished the same file, and goes too.
+    // from a tab that closed after another finished the same file, and goes too, but only
+    // when the cache really holds it: an older version also entered files the cache refused.
     for (const partial of await listPartials()) {
-      if (partial.lastModified < cutoff || ledger[partial.sha256]) {
+      const cached = !!ledger[partial.sha256] && !!(await cache?.match(keyFor(partial)));
+      if (partial.lastModified < cutoff || cached) {
         if (await removePartial(partial.sha256)) removed++;
       }
     }
@@ -200,13 +209,14 @@ export class ModelStore {
     };
   }
 
-  /** Record that these files were just used, in one ledger write. */
+  /** Record that these files were just used, in one ledger write. Files kept outside the cache are skipped. */
   touch(files: readonly ModelFile[]): Promise<void> {
+    const cached = files.filter((file) => !this.#outsideCache.has(file.sha256));
     const run = this.#ledgerQueue.then(async () => {
       const cache = await this.#open();
-      if (!cache) return;
+      if (!cache || !cached.length) return;
       const ledger = await readLedger(cache);
-      for (const file of files) ledger[file.sha256] = { lastUsed: this.#now(), bytes: file.bytes, name: `${file.model}/${file.name}` };
+      for (const file of cached) ledger[file.sha256] = { lastUsed: this.#now(), bytes: file.bytes, name: `${file.model}/${file.name}` };
       await writeLedger(cache, ledger);
     });
     this.#ledgerQueue = run.catch(() => undefined);

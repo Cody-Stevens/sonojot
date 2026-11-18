@@ -16,14 +16,17 @@ test("meeting audio stays opt-in and a per-meeting choice is explicit", async ({
     "/?page=meetings",
   );
   await openMeeting(page, "Design review");
-  await expect(page.getByLabel("Upload audio for this meeting")).toHaveValue(
-    "default",
-  );
-  await expect(page.getByLabel("Meeting sync")).toContainText("Default (off)");
-  await page.getByLabel("Upload audio for this meeting").selectOption("on");
-  await expect(page.getByLabel("Upload audio for this meeting")).toHaveValue(
-    "on",
-  );
+  await page.getByRole("button", { name: "Sync: Synced" }).click();
+  const upload = page.getByRole("group", {
+    name: "Upload recording for this meeting",
+  });
+  await expect(
+    upload.getByRole("button", { name: "Default (off)" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await upload.getByRole("button", { name: "On", exact: true }).click();
+  await expect(
+    upload.getByRole("button", { name: "On", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await page.screenshot({ path: "artifacts/meeting-sync.png", fullPage: true });
 });
 test("meeting sync retains conflict choices and explains a deletion", async ({
@@ -51,15 +54,12 @@ test("meeting sync retains conflict choices and explains a deletion", async ({
     "/?page=meetings",
   );
   await openMeeting(page, "Design review");
-  await page.getByText("Edited on two devices (1)", { exact: true }).click();
+  await page.getByRole("button", { name: "Sync: Needs a choice" }).click();
   await expect(page.getByText("Other synthetic wording.")).toBeVisible();
   await page.getByRole("button", { name: "Use the other version" }).click();
   await expect(
     page.getByText("Edited on two devices (1)", { exact: true }),
   ).toHaveCount(0);
-  await page
-    .getByText("Meeting details changed on two devices", { exact: true })
-    .click();
   await page.getByRole("button", { name: "Use this value" }).click();
   await expect(
     page.getByText("Meeting details changed on two devices", { exact: true }),

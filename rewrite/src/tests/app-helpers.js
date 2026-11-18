@@ -188,9 +188,12 @@ export async function openSaveCopy(page) {
   await (
     await openMeetingMenu(page)
   )
-    .getByRole("button", { name: "Other formats…", exact: true })
+    .getByRole("button", { name: "Export other formats…", exact: true })
     .click();
-  return page.getByRole("dialog", { name: "Other formats", exact: true });
+  return page.getByRole("dialog", {
+    name: "Export other formats",
+    exact: true,
+  });
 }
 
 export const meetingActivity = (page) =>

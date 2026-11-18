@@ -12,14 +12,14 @@ await transcriber.preload(); // optional: download while the user is still recor
 const { raw, text, language } = await transcriber.transcribe(recordingBlob, { language: "en" });
 ```
 
-`raw` is what the speech model heard. `text` is what SonoJot would publish: punctuated, with fillers, repeats and restarts removed, and numbers, money, dates and times written as figures (`cleanup: "format"` keeps every word and only adds punctuation; `"original"` returns the raw text).
+`raw` is what the speech model heard. `text` is what SonoJot would publish: punctuated, with fillers, repeats and restarts removed (the rules catch the obvious ones, and the punctuation model's delete head the rest, as in SonoJot's dictation), and numbers, money, dates and times written as figures (`cleanup: "format"` keeps every word and only adds punctuation; `"original"` returns the raw text).
 
 ## What runs
 
 | Stage | Model | Download | License |
 | --- | --- | ---: | --- |
 | Speech recognition | SonoJot Parakeet v1 (SonoJot's fine-tune of NVIDIA Parakeet TDT 0.6B v2), encoder weights in 4-bit | 375 MB | CC BY 4.0 |
-| Punctuation, written form and casing | SonoJot Punctuation v4, 8-bit weights | 181 MB | CC BY-SA 4.0 |
+| Punctuation, written form, casing and deleting fillers | SonoJot Punctuation v4, 8-bit weights | 181 MB | CC BY-SA 4.0 |
 | Cleanup rules | ported from the desktop app | in the package | Apache-2.0 |
 
 Recognition uses WebGPU when the browser has it and WebAssembly otherwise. Punctuation runs on WebAssembly. Everything runs in a Web Worker, so the page stays responsive. Only English is supported; any other `language` rejects with `UnsupportedLanguageError`, so an app can say so instead of showing a wrong transcript.
@@ -35,6 +35,7 @@ While a file downloads, the worker writes its bytes to the Origin Private File S
 - Partial files count toward `maxAgeDays` from their last write and are removed by `clearModelCache()`. `cacheInfo()` lists them in `partialFiles` (`name`, `bytes` received, `total`, `lastUsed`) and `partialBytes`, next to the existing `files` and `bytes`.
 - Progress events for a resumed file start at the stored offset, and `resumedFrom` says how many bytes were kept, so a host can show "Resuming" when it is above 0. `LoadReport.downloadedBytes` counts the bytes fetched by this load; `resumedFiles` and `resumedBytes` count what was reused.
 - Two tabs never write the same partial: the OPFS access handle is exclusive, so a tab that finds a file in use downloads it into memory instead, as before.
+- If Cache Storage refuses a finished file (Chrome's incognito refuses the speech model), it stays in OPFS and the next start verifies and uses it without downloading it again. `cacheInfo()` then lists it in `partialFiles` with `bytes` equal to `total`, not in `files`.
 - Where OPFS is unavailable or fails (Firefox private windows, a full disk, Playwright's WebKit build for Windows), downloads go to memory and an interrupted file starts again from the beginning. A failed write moves the download to memory without failing it.
 
 During a download the worker holds only the chunk in flight. The whole file is read back from OPFS once, after the download, for hashing and loading.
@@ -68,7 +69,7 @@ During a download the worker holds only the chunk in flight. The whole file is r
 - Recording needs `Permissions-Policy: microphone=(self)`.
 - Optional: `Cross-Origin-Opener-Policy: same-origin` with `Cross-Origin-Embedder-Policy: require-corp` lets WebAssembly use several threads, which speeds up the WebAssembly path.
 
-The package ships TypeScript source. `src` type-checks with `lib: ["ES2022", "DOM", "DOM.Iterable"]` (checked with TypeScript 5.9 and 7), so a host does not need the `WebWorker` lib; `npm run check` covers that through `tsconfig.host.json`.
+The package ships JavaScript with type declarations (`dist/`), compiled from `src/` when it is packed, so a host needs no TypeScript settings of its own and no `WebWorker` lib. `@sonojot/transcribe/language` and `@sonojot/transcribe/text` also load in plain Node. A host that vendors the source instead imports `src/index.ts`; `src` type-checks with `lib: ["ES2022", "DOM", "DOM.Iterable"]` (checked with TypeScript 5.9 and 7), which `npm run check` covers through `tsconfig.host.json`.
 
 With Vite, add `worker: { format: "es" }` and `optimizeDeps: { exclude: ["onnxruntime-web"] }` to the config so the worker and onnxruntime-web's files are bundled from your origin.
 
@@ -96,15 +97,19 @@ Without `wasmPaths` the export condition breaks the default setup, since onnxrun
 
 ## Speed
 
-Measured in Chrome 157 on Windows, on a Ryzen 9 9900X with an RTX 5070, with the models served from a local folder:
+Measured on a Ryzen 9 9900X with an RTX 5070. In Chrome 157 on Linux, with the current 556 MB set: the first load from Hugging Face took 34.7 s including verifying and loading; cached starts took 3.2 s (WebGPU) and 2.9 s (WebAssembly); recognition ran at 0.0079 of real time on WebGPU and 0.387 on single-threaded WebAssembly. Earlier, in Chrome 157 on Windows with the models served from a local folder and the 678 MB set that had Punctuation v3:
 
-- First run, models from a local server: 5 to 8 s to download, verify, cache and load the models (measured with the earlier 678 MB set; the current set is 556 MB), depending on machine load.
+- First run, models from a local server: 5 to 8 s to download, verify, cache and load the models, depending on machine load.
 - Later starts, from the cache: 3.0 to 3.3 s when the machine was lightly loaded, 4.6 to 4.8 s while other jobs kept its CPU about 90% busy. With the browser held to half a CPU core, as a stand-in for a slower laptop, starts took 13 to 17 s (21 to 24 s with the CPU also busy). Expect a laptop to fall between these. Most of the time is onnxruntime building the speech model's session (about 60%) and the punctuation model and tokenizer (about 40%), all on one thread.
 - Recognition on WebGPU runs at about 0.01 of real time (a 60 s note in under a second); single-threaded WebAssembly at about 0.4.
 
 ## Browsers
 
-Chrome 157 (WebGPU and WebAssembly), Playwright's Firefox 155 (WebGPU in a visible window, WebAssembly) and Playwright's WebKit 26.6 on Windows (WebAssembly) load the models, cancel downloads, and produce the same transcripts as Chrome. Chrome and Firefox continue interrupted downloads with `Range` requests, also after the browser was closed and reopened; Playwright's WebKit lacks OPFS access handles and restarts them from the beginning. Playwright's WebKit build for Windows is not Safari: it has no WebGPU and no Web Audio, so it was tested with WAV files, which the package reads itself when Web Audio is missing. Safari itself is untested.
+- Chrome 157 on Windows and Linux: WebGPU and WebAssembly. On Linux, WebGPU needs a hardware adapter (Chrome with Vulkan); with only a software adapter such as SwiftShader the package uses WebAssembly.
+- Safari 27.2 on macOS 27.2 (Apple silicon): WebGPU and WebAssembly, with the same transcripts as Chrome on both devices (3 clips). Recognition ran at 0.099 of real time on WebGPU and 0.355 on WebAssembly. Interrupted downloads continue from OPFS with `Range` requests, and starts from the cache work after quitting Safari.
+- Playwright's Firefox 155 (WebGPU in a visible window, WebAssembly) and Playwright's WebKit 26.6 on Windows (WebAssembly) load the models, cancel downloads, and produce the same transcripts as Chrome.
+
+Chrome, Firefox and Safari continue interrupted downloads with `Range` requests, also after the browser was closed and reopened. Playwright's WebKit build for Windows is not Safari: it lacks OPFS access handles and restarts interrupted downloads from the beginning, and it has no WebGPU and no Web Audio, so it was tested with WAV files, which the package reads itself when Web Audio is missing.
 
 ## Develop
 
@@ -115,6 +120,20 @@ npm test                      # unit tests; model tests run when SONOJOT_MODEL_D
 SONOJOT_MODEL_DIR=/path/to/models npm run demo
 ```
 
-`SONOJOT_MODEL_DIR` is a folder laid out like the model host (`sonojot-parakeet-v1-web-q4/…`, `sonojot-punct-v3/…`). The demo records from the microphone or opens a file and shows both texts and timings. The Parakeet reference test also needs `SONOJOT_TEST_WAV` (a 16 kHz 16-bit WAV file) and, to compare the text, `SONOJOT_TEST_TEXT`.
+`SONOJOT_MODEL_DIR` is a folder laid out like the model host (`sonojot-parakeet-v1-web-q4/…`, `sonojot-punct-v4/…`). The demo records from the microphone or opens a file and shows both texts and timings. The Parakeet reference test also needs `SONOJOT_TEST_WAV` (a 16 kHz 16-bit WAV file) and, to compare the text, `SONOJOT_TEST_TEXT`. The punctuation parity tests read `SONOJOT_PUNCT_MODEL_DIR`, a Punctuation v4 folder; their goldens (`test/fixtures/text-parity.json`) come from the desktop's Rust pipeline with the same package (`scripts/text-goldens.mjs`). The Node harness (`scripts/text-runtime.ts`) runs the model through the same feeds as the browser worker (`src/text/runner.ts`).
 
 `scripts/measure.ts` drives the built demo (`npm run build:demo`) in Chrome, Firefox or WebKit through Playwright: cold and cached starts, transcription speed, and a cancellation check. Its options are listed at the top of the file.
+
+### Try it by hand
+
+`npm run build:demo`, then `SONOJOT_MODEL_DIR=/path/to/models npm run preview:demo` serves the built demo on `http://localhost:5317/` under the strict CSP from `vite.config.ts`. Add `?models=hf` to download from Hugging Face instead of the local folder. The microphone needs a secure context, so open it as `localhost` (from another computer, forward the port over SSH). The page shows what the browser supports, download progress (and "Resuming" for an interrupted download), where each load's files came from and how long it took, the device, both texts and the timings. Reload during a download to test resuming; "Stored models" lists unfinished downloads.
+
+## Publish
+
+`npm pack` and `npm publish` run `npm run build` first, which compiles `src/` to `dist/`; the tarball holds `dist/`, this README, `NOTICE` and `LICENSE`. Check it with `npm pack --dry-run`, then publish from this folder with `npm publish` (the `@sonojot` organization must exist and the publisher must be a member; `publishConfig.access` is `public`). Every pipeline change gets a new version; see the checklist in the repository's `docs/WebPipeline.md`.
+
+## Changes
+
+### 0.1.0
+
+First release. SonoJot Parakeet v1 (4-bit browser build) for speech recognition on WebGPU or WebAssembly, SonoJot Punctuation v4 for punctuation, written form and casing, and the desktop's conservative cleanup rules. In Clean, Punctuation v4's delete head removes fillers, repeats and restarts and the text is rebuilt from the kept words, exactly as SonoJot's desktop dictation does; symbols between words such as `%`, emoji and backticks are kept as written, and text in backticks is not punctuated or rewritten. Format and Original keep every word. Pinned and verified model downloads from Hugging Face, cached by hash, with resumable downloads, cancellation and per-step load timings.

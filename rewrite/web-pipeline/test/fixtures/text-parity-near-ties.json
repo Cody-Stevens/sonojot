@@ -1,0 +1,15 @@
+{
+  "runtime": "onnxruntime-node 1.31.1, 4 threads",
+  "rows": [
+    {
+      "id": "text-003-format",
+      "actual": "Use version four point two or, sorry, four point three.",
+      "reason": "Comma after \"two\": onnxruntime-node 1.31.1 scores no mark 3.769 and comma 3.673; onnxruntime 1.28.0 (the desktop ships 1.28.2) scores 3.657 and 3.684 on the same tokens, and onnxruntime-web 1.31.1 on WebAssembly 3.659 and 3.725. A runtime near tie, not a porting difference."
+    },
+    {
+      "id": "text-011-clean",
+      "actual": "I need the green folder. Send $25 at 9:30 PM. Use version 4.3. Well, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I need the green folder. Send $25 at 9:30 PM. Use version 4.3. Well, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I need the green folder. Send $25 at 9:30 PM. Use version 4.3. Well, you know, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow. I need the green folder. Send $25 at 9:30 PM. Use version 4.3. Well, you know, I think we should leave. The model is Claude Opus 4.7. Pay $4.2 million. Switch to back and forth between the two models. It looks normal separately, and anyway, the invoices are ready. Keep kind of and sort of together. Please send it tomorrow.",
+      "reason": "Third \"you know\": P(DELETE) for \"know\" is 0.95285 in onnxruntime-node 1.31.1 and 0.95116 in onnxruntime-web 1.31.1, under the 0.955 threshold, and 0.95895 in onnxruntime 1.28.0 (the desktop ships 1.28.2) on the same tokens, so the desktop deletes the pair and the browser keeps it. A runtime near tie, not a porting difference."
+    }
+  ]
+}

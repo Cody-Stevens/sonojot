@@ -37,10 +37,6 @@
                 style:--speaker-index={i}
               ></i>{/each}</span
           >{/if}
-        {#if meeting.autoNamed}<span class="quiet-tag">AUTO-NAMED</span>{/if}
-        {#if meeting.missingSeconds}<span class="quiet-tag amber"
-            >MISSING {Math.round(meeting.missingSeconds)} S</span
-          >{/if}
       </small>{#if match}<small class="search-match" data-text-surface="flat"
           >{match}</small
         >{/if}</span
@@ -53,7 +49,8 @@
         app.dirty ||
         meetingBusy(meeting.status) ||
         app.busy("meeting-export")}
-      onclick={onexport}>Export .md</button
+      title="Export as rich text (.rtf)"
+      onclick={onexport}>Export</button
     >
   </div>
 </article>

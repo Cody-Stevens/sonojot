@@ -56,7 +56,7 @@ async function capture(page, file) {
   await page.screenshot({ path: fileURLToPath(new URL(file, folder)) });
 }
 
-test("meeting slips search titles and expose Markdown export on hover or focus", async ({
+test("meeting slips search titles and expose rich text export on hover or focus", async ({
   page,
 }) => {
   await open(page);
@@ -66,15 +66,16 @@ test("meeting slips search titles and expose Markdown export on hover or focus",
   await first.getByRole("button", { name: /Design review/ }).focus();
   await expect(first.locator(".slip-actions")).toHaveCSS("opacity", "1");
   await capture(page, "01-meetings-fog.png");
-  await first.getByRole("button", { name: "Export .md" }).click();
+  await first.getByRole("button", { name: "Export", exact: true }).click();
   expect((await calls(page, "export_meeting"))[0].args).toMatchObject({
     id: "meeting-one",
-    format: "markdown",
+    format: "rtf",
     transcriptVersion: "recognized",
   });
   await page.getByLabel("Search meetings").fill("Client");
   await expect(page.locator(".meeting-slip")).toHaveCount(1);
-  await expect(page.locator(".meeting-slip")).toContainText("MISSING 14 S");
+  await expect(page.locator(".meeting-slip")).not.toContainText("MISSING");
+  await expect(page.locator(".meeting-slip")).not.toContainText("AUTO-NAMED");
   await page.getByLabel("Search meetings").fill("not a title");
   await expect(page.getByText("No matching meetings.")).toBeVisible();
 });
@@ -236,11 +237,15 @@ test("speaker renames use the command, survive labels off/on, and keep timecodes
   );
   await meeting(page);
   await page
-    .getByRole("button", { name: "The deadline is Friday.", exact: true })
+    .getByRole("button", { name: "Rename speaker Speaker 1" })
+    .first()
     .click();
-  await page.getByLabel("Speaker name", { exact: true }).fill("dana");
+  const speakerSheet = page.getByRole("dialog", { name: "Rename “Speaker 1”" });
+  await speakerSheet.getByLabel("Speaker name", { exact: true }).fill("dana");
   await capture(page, "05-transcript-rename-slate.png");
-  await page.getByRole("button", { name: "Rename everywhere" }).click();
+  await speakerSheet
+    .getByRole("button", { name: /^(All \d+ passages|Rename)$/ })
+    .click();
   expect((await calls(page, "rename_meeting_speaker"))[0].args).toEqual({
     id: "meeting-one",
     from: "Speaker 1",
@@ -346,7 +351,7 @@ test("finalizing blocks audio actions, then a missed completion event recovers t
   await expect(
     page.getByRole("button", { name: "Transcribe recording", exact: true }),
   ).toBeDisabled();
-  await menu(page, "Other formats…");
+  await menu(page, "Export other formats…");
   const wav = page.getByRole("button", {
     name: "Save recording (.wav)",
     exact: true,
@@ -488,9 +493,9 @@ test("import passes a single speaker preference and audio export stays independe
   await page
     .getByRole("textbox", { name: "Edit Speaker 1 passage" })
     .fill("Unsaved edit.");
-  await menu(page, "Other formats…");
+  await menu(page, "Export other formats…");
   const dialog = page.getByRole("dialog", {
-    name: "Other formats",
+    name: "Export other formats",
     exact: true,
   });
   await expect(

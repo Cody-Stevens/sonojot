@@ -429,6 +429,39 @@ test("a write failure (quota) moves the download to memory without failing it", 
   assert.equal(cache.entries.size, 2);
 });
 
+test("a file the cache refuses stays in OPFS, out of the ledger, and is reused without fetching", async () => {
+  const { ModelStore } = await import("../src/store.ts");
+  const file = fileFor(BODY);
+  // Chrome's incognito refuses the speech model in Cache Storage but keeps OPFS.
+  cache.put = async () => {
+    throw new DOMException("full", "QuotaExceededError");
+  };
+  const host = rangeHost(BODY);
+  const store = new ModelStore({ url: () => "https://host/x", fetch: host.fetcher, now: () => now });
+  assert.deepEqual(await store.get(file), BODY);
+  await store.touch([file]); // the worker touches every file it loaded
+  const info = await store.info();
+  assert.deepEqual(info.files, [], "not listed as cached");
+  assert.deepEqual(info.partialFiles?.map((p) => p.bytes), [BODY.byteLength], "listed once, as the finished download");
+  assert.equal(await store.sweep(), 0, "the sweep keeps the only copy");
+  const next = new ModelStore({ url: () => "https://host/x", fetch: host.fetcher, now: () => now });
+  assert.deepEqual(await next.get(file), BODY);
+  assert.equal(host.calls.length, 1, "the next start verifies the kept file instead of downloading it");
+});
+
+test("a ledger entry for a file the cache does not hold does not make the sweep delete its partial", async () => {
+  const { ModelStore } = await import("../src/store.ts");
+  const file = fileFor(BODY);
+  const dir = await opfs!.getDirectoryHandle("sonojot-transcribe-v1-partial", { create: true });
+  await dir.getFileHandle(file.sha256, { create: true });
+  dir.files.get(file.sha256)!.bytes = BODY.slice();
+  // Left by an earlier version, which entered refused files in the ledger.
+  const ledger = { [file.sha256]: { lastUsed: 0, bytes: BODY.byteLength, name: "m/a.onnx" } };
+  await cache.put(new URL("/__sonojot-transcribe__/ledger.json", "https://app.example/").href, new Response(JSON.stringify(ledger)));
+  assert.equal(await new ModelStore({ url: () => "https://host/x", now: () => now }).sweep(), 0);
+  assert.equal(partials().size, 1);
+});
+
 test("without OPFS, downloads work in memory and an abort starts again from zero", async () => {
   const { ModelStore } = await import("../src/store.ts");
   opfs = undefined;

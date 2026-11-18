@@ -1,4 +1,4 @@
-import lexicon from "./data/models.json";
+import lexicon from "./data/models.json" with { type: "json" };
 import { integer, value } from "./numbers.ts";
 import { splitWords } from "./shared.ts";
 import { tokens } from "./wf-shared.ts";

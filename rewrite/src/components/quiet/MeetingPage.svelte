@@ -9,8 +9,13 @@
   import ErrorBanner from "../ErrorBanner.svelte";
   import ProcessingBand from "./ProcessingBand.svelte";
   import MeetingMenu from "./MeetingMenu.svelte";
-  import MeetingSync from "./MeetingSync.svelte";
   import Sheet from "./Sheet.svelte";
+  import Icon from "../Icon.svelte";
+  import { sync } from "../../lib/sync.svelte";
+  import {
+    meetingSyncStatus,
+    syncGlyph,
+  } from "../../lib/meeting-sync-status.svelte";
   import { parseTranscript } from "../../lib/meeting-transcript";
   import { scrollEdges } from "../../lib/scroll-edges";
   let {
@@ -20,21 +25,42 @@
     session: MeetingSession;
     onerroraction?: (action: ErrorAction) => void;
   } = $props();
-  let menu = $state<"menu" | "formats" | "notes" | "transcribe" | null>(null);
+  let menu = $state<
+    "menu" | "formats" | "notes" | "transcribe" | "sync" | null
+  >(null);
   let anchor = $state<HTMLButtonElement | null>(null);
+  let syncButton = $state<HTMLButtonElement | null>(null);
+  let menuAnchor = $state<HTMLElement | null>(null);
   let editingNotes = $state(false);
   let passage = $state<string | null>(null);
-  let speaker = $state("");
-  let assigning = $state<{ clock: string; from: string } | null>(null);
-  let chosenSpeaker = $state("");
-  let newSpeaker = $state("");
-  const speakers = $derived([
-    ...new Set(
-      parseTranscript(session.selected?.transcript ?? "")
-        .filter((block) => block.timecode && block.speaker !== "Transcript")
-        .map((block) => block.speaker),
-    ),
-  ]);
+  // The speaker label being renamed: every passage, or only the one clicked.
+  let naming = $state<{
+    from: string;
+    clock: string | null;
+    anchor: HTMLElement;
+  } | null>(null);
+  let speakerName = $state("");
+  const speakerPassages = $derived(
+    parseTranscript(session.selected?.transcript ?? "")
+      .filter((block) => block.timecode && block.speaker !== "Transcript")
+      .reduce(
+        (counts, block) =>
+          counts.set(block.speaker, (counts.get(block.speaker) ?? 0) + 1),
+        new Map<string, number>(),
+      ),
+  );
+  const speakers = $derived([...speakerPassages.keys()]);
+  const meetingSync = meetingSyncStatus(
+    () => session.selected?.id ?? "",
+    () => session.refresh(),
+  );
+  const syncShown = $derived(
+    app.snapshot.capabilities.sync && !!sync.status?.unlocked,
+  );
+  const glyph = $derived(
+    syncGlyph(meetingSync.status, meetingSync.busy === "meeting_download"),
+  );
+  const prioritized = $derived(meetingSync.busy === "meeting_prioritize");
   const detail = $derived(session.selected);
   const meetingId = $derived(session.selected?.id);
   const locked = $derived(
@@ -49,14 +75,61 @@
     if (id) {
       editingNotes = false;
       passage = null;
-      assigning = null;
+      naming = null;
     }
   });
-  async function openPassage(id: string, name: string) {
+  async function openPassage(id: string) {
     passage = id;
-    speaker = name;
     await tick();
     document.getElementById(`passage-${id}`)?.focus();
+  }
+  async function startRename() {
+    session.renameOpen = true;
+    await tick();
+    const input = document.getElementById("meeting-title");
+    if (input instanceof HTMLInputElement) {
+      input.focus();
+      input.select();
+    }
+  }
+  function cancelRename() {
+    if (detail) session.title = detail.title;
+    session.renameOpen = false;
+  }
+  const canSave = $derived(
+    app.native &&
+      !locked &&
+      !!session.title.trim() &&
+      !session.transcriptConflict,
+  );
+  async function save() {
+    await session.saveChanges();
+    if (!app.error) {
+      editingNotes = false;
+      passage = null;
+    }
+  }
+  function openSpeaker(event: MouseEvent, from: string, clock: string | null) {
+    naming = { from, clock, anchor: event.currentTarget as HTMLElement };
+    speakerName = from;
+  }
+  async function applySpeaker(scope: "all" | "one") {
+    if (!naming) return;
+    const to = speakerName.trim();
+    const done =
+      scope === "one" && naming.clock
+        ? await session.reassignPassage(naming.clock, naming.from, to)
+        : await session.renameSpeaker(naming.from, to);
+    if (done) naming = null;
+  }
+  function syncClick() {
+    // A meeting still downloading jumps the queue; otherwise show its sync options.
+    if (meetingSync.status?.direction === "download" && glyph?.icon === "cloud-down")
+      void meetingSync.act("meeting_prioritize");
+    else {
+      menuAnchor = syncButton;
+      menu = "sync";
+    }
   }
 </script>
 
@@ -76,42 +149,59 @@
         bind:value={session.title}
         maxlength="200"
         disabled={session.writing}
-      />{:else}<h1 data-text-surface="emboss">{detail.title}</h1>{/if}
-    {#if session.renameOpen}<button
-        class="button small"
+        onkeydown={(event) => {
+          if (event.key === "Escape" && session.renameOpen) {
+            event.preventDefault();
+            cancelRename();
+          } else if (event.key === "Enter" && session.dirty && canSave) {
+            event.preventDefault();
+            void save();
+          }
+        }}
+      />{#if session.renameOpen}<button
+          class="button small"
+          onclick={cancelRename}>Cancel</button
+        >{/if}{:else}<div class="title-line">
+        <h1 data-text-surface="emboss">{detail.title}</h1><button
+          class="icon-button rename-title"
+          aria-label="Rename meeting"
+          title="Rename"
+          disabled={session.writing || session.recording}
+          onclick={startRename}><Icon name="edit" size={17} /></button
+        >
+      </div>{/if}
+    <div class="heading-actions">
+      {#if syncShown && glyph}<button
+          class="icon-button sync-glyph"
+          class:attention={glyph.attention}
+          bind:this={syncButton}
+          aria-label={`Sync: ${glyph.label}`}
+          title={glyph.icon === "cloud-down"
+            ? prioritized
+              ? "Downloading this meeting first"
+              : "Downloading · select to download this meeting first"
+            : glyph.label}
+          onclick={syncClick}><Icon name={glyph.icon} size={20} /></button
+        >{/if}
+      <button
+        class="button small share-button"
+        bind:this={anchor}
+        aria-label="Meeting options"
+        title="Export and options"
         onclick={() => {
-          session.title = detail.title;
-          session.renameOpen = false;
-        }}>Cancel rename</button
-      >{/if}
-    <button
-      class="button"
-      disabled={!app.native ||
-        session.dirty ||
-        locked ||
-        app.busy("meeting-export")}
-      onclick={() => session.exportMarkdown(detail)}>Export .md</button
-    >
-    <button
-      class="button small"
-      bind:this={anchor}
-      aria-label="Meeting options"
-      onclick={() => (menu = "menu")}>⋯</button
-    >
+          menuAnchor = anchor;
+          menu = "menu";
+        }}><Icon name="share" size={19} /></button
+      >
+    </div>
   </header>
   <div class="meeting-meta" data-text-surface="flat">
     <span>{session.date(detail.createdAt)}</span><span
       >· {duration(detail.durationSeconds)}</span
-    ><span>· {session.sourceName(detail.source)}</span
     >{#if detail.speakerCount}<span>· {detail.speakerCount} speakers</span
-      >{/if}{#if session.meetings.find((row) => row.id === detail.id)?.autoNamed}<span
-        class="quiet-tag">AUTO-NAMED</span
-      >{/if}{#if detail.missingSeconds}<span class="quiet-tag amber"
-        >MISSING {Math.round(detail.missingSeconds)} S</span
       >{/if}
   </div>
   {#if session.processing}<ProcessingBand {session} />{/if}
-  {#if app.snapshot.capabilities.sync}<MeetingSync id={detail.id} disabled={session.dirty || locked} onchanged={async()=>{await session.refresh();}} />{/if}
   {#if (detail.error || session.meetingError) && (!session.statusKey || session.statusKey !== session.hiddenStatus)}<ErrorBanner
       error={session.meetingError || detail.error}
       onaction={onerroraction}
@@ -119,7 +209,7 @@
         ? () => (session.hiddenStatus = session.statusKey)
         : undefined}
     />{/if}
-  {#if session.audioNotice}<p
+  {#if session.audioNotice && !session.structured}<p
       class="field-help"
       aria-label="Missing audio notice"
     >
@@ -165,17 +255,8 @@
     </div>
     {#if session.dirty}<button
         class="button"
-        disabled={!app.native ||
-          locked ||
-          !session.title.trim() ||
-          session.transcriptConflict}
-        onclick={async () => {
-          await session.saveChanges();
-          if (!app.error) {
-            editingNotes = false;
-            passage = null;
-          }
-        }}>Save changes</button
+        disabled={!canSave}
+        onclick={save}>Save changes</button
       >{/if}
   </div>
   {#if session.transcriptConflict}<div class="notice" role="alert">
@@ -296,9 +377,15 @@
           {:else}{@const block = entry.block}
             <div class="transcript-passage" class:chosen={passage === block.id}>
               <div class="passage-who">
-                <span
-                  >{block.speaker === "Transcript" ? "" : block.speaker}</span
-                >{#if block.timecode}<time>{block.timecode}</time>{/if}
+                {#if block.speaker !== "Transcript"}<button
+                    class="speaker-label"
+                    aria-label={`Rename speaker ${block.speaker}`}
+                    title="Rename speaker"
+                    disabled={locked}
+                    onclick={(event) =>
+                      openSpeaker(event, block.speaker, block.timecode ?? null)}
+                    >{block.speaker}</button
+                  >{/if}{#if block.timecode}<time>{block.timecode}</time>{/if}
               </div>
               <div class="passage-body">
                 {#if passage === block.id}<textarea
@@ -313,48 +400,13 @@
                         session.transcriptBlocks,
                       );
                     }}></textarea>
-                  {#if block.speaker !== "Transcript"}<div class="speaker-edit">
-                      {#if block.timecode}<button
-                          class="button small"
-                          disabled={session.processingBlocked || locked}
-                          onclick={() => {
-                            if (!block.timecode) return;
-                            assigning = {
-                              clock: block.timecode,
-                              from: block.speaker,
-                            };
-                            chosenSpeaker = block.speaker;
-                            newSpeaker = "";
-                          }}>Assign passage…</button
-                        >{/if}
-                      <label for="speaker-name">Speaker name</label><input
-                        id="speaker-name"
-                        bind:value={speaker}
-                        maxlength="48"
-                        disabled={locked}
-                      /><button
-                        class="button small"
-                        disabled={session.processingBlocked ||
-                          !speaker.trim() ||
-                          speaker === block.speaker}
-                        onclick={async () => {
-                          if (
-                            await session.renameSpeaker(block.speaker, speaker)
-                          )
-                            passage = null;
-                        }}>Rename everywhere</button
-                      >
-                    </div>
-                    {#if session.dirty}<small class="field-help"
-                        >Save text edits before changing a speaker.</small
-                      >{/if}{/if}
                   <button class="text-action" onclick={() => (passage = null)}
                     >Close passage</button
                   >
                 {:else}<button
                     class="passage-text"
                     disabled={locked}
-                    onclick={() => void openPassage(block.id, block.speaker)}
+                    onclick={() => void openPassage(block.id)}
                     >{block.text}</button
                   >{/if}
               </div>
@@ -376,59 +428,58 @@
   </section>
   {#if menu}<MeetingMenu
       {session}
-      {anchor}
+      {meetingSync}
+      anchor={menuAnchor}
       initial={menu}
       onclose={() => (menu = null)}
     />{/if}
-  {#if assigning}<Sheet
-      title="Assign this passage"
-      onclose={() => (assigning = null)}
+  {#if naming}{@const from = naming.from}{@const count =
+      speakerPassages.get(from) ?? 1}{@const name = speakerName.trim()}<Sheet
+      title={`Rename “${from}”`}
+      anchor={naming.anchor}
+      align="start"
+      onclose={() => (naming = null)}
     >
-      <p class="field-help">{assigning.clock} · {assigning.from}</p>
-      {#each speakers as name}<button
-          class="quiet-option"
-          aria-pressed={chosenSpeaker === name}
+      <label class="speaker-picker-name"
+        >Name<input
+          aria-label="Speaker name"
+          maxlength="48"
+          bind:value={speakerName}
           disabled={locked}
-          onclick={() => (chosenSpeaker = name)}
-          ><span class="choice-dot" aria-hidden="true"></span>{name}</button
-        >{/each}
-      <button
-        class="quiet-option"
-        aria-pressed={chosenSpeaker === ""}
-        disabled={locked}
-        onclick={() => (chosenSpeaker = "")}
-        ><span class="choice-dot" aria-hidden="true"></span>New name…</button
+          onkeydown={(event) => {
+            if (event.key === "Enter" && name && name !== from && count === 1) {
+              event.preventDefault();
+              void applySpeaker("all");
+            }
+          }}
+        /></label
       >
-      {#if !chosenSpeaker}<label class="speaker-picker-name"
-          >Speaker name<input
-            aria-label="New speaker name"
-            maxlength="48"
-            bind:value={newSpeaker}
-          /></label
-        >{/if}
+      {#if speakers.length > 1}<div
+          class="speaker-choices"
+          role="group"
+          aria-label="Existing speakers"
+        >
+          {#each speakers.filter((other) => other !== from) as other}<button
+              class="button small quiet"
+              aria-pressed={name === other}
+              onclick={() => (speakerName = other)}>{other}</button
+            >{/each}
+        </div>{/if}
+      {#if session.dirty}<p class="field-help">
+          Save your text edits before changing a speaker.
+        </p>{/if}
       {#if app.error}<p role="alert">{app.error}</p>{/if}
       <div class="sheet-actions">
-        <button class="button" onclick={() => (assigning = null)}>Cancel</button
-        >
+        {#if count > 1 && naming.clock}<button
+            class="button"
+            disabled={locked || session.processingBlocked || !name || name === from}
+            onclick={() => void applySpeaker("one")}>Only this one</button
+          >{/if}
         <button
-          class="button"
-          disabled={locked ||
-            session.processingBlocked ||
-            !(chosenSpeaker || newSpeaker.trim()) ||
-            (chosenSpeaker || newSpeaker.trim()) === assigning.from}
-          onclick={async () => {
-            if (
-              assigning &&
-              (await session.reassignPassage(
-                assigning.clock,
-                assigning.from,
-                chosenSpeaker || newSpeaker.trim(),
-              ))
-            ) {
-              assigning = null;
-              passage = null;
-            }
-          }}>Assign passage</button
+          class="button primary"
+          disabled={locked || session.processingBlocked || !name || name === from}
+          onclick={() => void applySpeaker("all")}
+          >{count > 1 ? `All ${count} passages` : "Rename"}</button
         >
       </div>
     </Sheet>{/if}
@@ -438,7 +489,18 @@
   .speaker-picker-name {
     display: grid;
     gap: 9px;
-    margin-top: 18px;
+    margin-top: 6px;
+    min-width: 340px;
+  }
+  .speaker-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-top: 14px;
+  }
+  .speaker-choices button[aria-pressed="true"] {
+    background-color: var(--dye);
+    color: var(--dye-ink);
   }
   .sheet-actions {
     display: flex;
@@ -451,11 +513,43 @@
     align-items: center;
     gap: 14px;
   }
-  .meeting-heading h1 {
+  .title-line {
     flex: 1;
+    min-width: 0;
+  }
+  .meeting-heading h1 {
+    display: inline;
     font-size: 27px;
     margin: 0;
     overflow-wrap: anywhere;
+  }
+  .rename-title {
+    display: inline-grid;
+    vertical-align: 0.12em;
+    margin-left: 10px;
+    padding: 4px;
+    color: var(--soft-ink);
+  }
+  .rename-title:hover:not(:disabled) {
+    color: var(--ink);
+  }
+  .heading-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+  }
+  .share-button {
+    display: grid;
+    place-items: center;
+    padding: 7px 10px;
+  }
+  .sync-glyph {
+    padding: 6px;
+    color: var(--soft-ink);
+  }
+  .sync-glyph.attention {
+    color: var(--warning-ink);
   }
   .meeting-title {
     flex: 1;
@@ -566,6 +660,33 @@
     color: var(--dye);
     font-size: 15px;
   }
+  .speaker-label {
+    display: block;
+    max-width: 100%;
+    margin: -3px -6px;
+    padding: 3px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    box-shadow: none;
+    color: var(--dye);
+    font: inherit;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  .speaker-label:is(:hover, :focus-visible):not(:disabled) {
+    background-color: var(--card);
+    background-image: var(--paper-image);
+    background-size: var(--paper-tile-size);
+    background-position: top left;
+    background-blend-mode: multiply;
+    box-shadow: var(--raise-sm);
+  }
+  .speaker-label:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
   .passage-who time {
     display: block;
     font-size: 12px;
@@ -586,18 +707,6 @@
     padding: 0;
     line-height: 1.65;
     white-space: pre-wrap;
-  }
-  .speaker-edit {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 9px;
-    font-size: 13px;
-    margin: 8px 0;
-  }
-  .speaker-edit input {
-    width: 140px;
-    font-size: 15px;
   }
   .transcript-gap {
     border-block: 1px dashed var(--line);

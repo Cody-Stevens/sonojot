@@ -1035,6 +1035,8 @@ export async function installDesktopFixture(page, options = {}) {
             if (args.operation === "meeting_preferences") {Object.assign(audioPreferences,args.args);return clone(audioPreferences);}
             if (args.operation === "meeting_audio") {meetingSync.audioOverride=args.args.enabled;meetingSync.audioEnabled=args.args.enabled??audioPreferences.audioDefault;return {saved:true};}
             if (args.operation === "meeting_resolve") {meetingSync.conflicts=[];return {resolved:true};}
+            if (args.operation === "meeting_prioritize") return {prioritized:true};
+            if (args.operation === "meeting_download") return {downloaded:true};
             if (args.operation === "meeting_field_resolve") {delete meetingSync.fieldConflicts[args.args.field];return {resolved:true};}
             if (args.operation === "meeting_delete_resolve") {meetingSync.deleteConflict=false;meetingSync.status=args.args.keep?"localOnly":"deleted";return {resolved:true};}
             // Automatic relay: the waiting computer only polls pair_wait.

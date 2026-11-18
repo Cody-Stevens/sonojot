@@ -64,7 +64,7 @@ export const mixedCase = (lower: string) => FORMS.get(lower);
 export const sentenceStartForm = (word: string) => FORMS.get(word.toLowerCase().replaceAll("’", "'"));
 
 // Rust casing.rs::function_word. Keep in step with rewrite/src-tauri/src/punctuation_function_words.txt.
-import functionWords from "./data/function-words.json";
+import functionWords from "./data/function-words.json" with { type: "json" };
 const FUNCTION = new Set<string>(functionWords);
 export const functionWord = (lower: string) => FUNCTION.has(lower.replaceAll("’", "'"));
 

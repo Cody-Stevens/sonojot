@@ -13,6 +13,20 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 const STATE: &str = "meeting-sync-state.json";
+/// The meeting a person asked to download first. Kept outside the sync gate
+/// so a click can reorder a pass that is already running.
+static PRIORITY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub(crate) fn prioritize(id: &str) -> Result<(), String> {
+    crate::store::validate_id(id)?;
+    *PRIORITY.lock().map_err(|_| "Sync is unavailable.")? = Some(id.to_owned());
+    Ok(())
+}
+
+fn prioritized_key(m: &State) -> Option<String> {
+    let id = PRIORITY.lock().ok()?.clone()?;
+    m.meetings.get(&id).map(|track| track.key.clone())
+}
 fn encode_document(value: &Value) -> Result<zeroize::Zeroizing<Vec<u8>>, String> {
     use std::io::Write;
     let plain =
@@ -1352,7 +1366,13 @@ async fn synchronize_inner(
     m.epoch = ring.epoch;
     m.ring_rev = ring_rev;
     save(store, &m)?;
-    for key in m.pending_pulls.clone() {
+    let mut queue: Vec<String> = m.pending_pulls.iter().cloned().collect();
+    while !queue.is_empty() {
+        // A meeting the person clicked moves to the front, even mid-pass.
+        let first = prioritized_key(&m)
+            .and_then(|key| queue.iter().position(|queued| *queued == key))
+            .unwrap_or(0);
+        let key = queue.remove(first);
         if !meeting_ready(&m, &key) {
             continue;
         }
@@ -1817,8 +1837,13 @@ pub async fn action(
             } else {
                 "pending"
             };
+            let direction = match (status, t) {
+                ("pending", Some(t)) if m.pending_pulls.contains(&t.key) => Some("download"),
+                ("pending", _) => Some("upload"),
+                _ => None,
+            };
             Ok(
-                json!({"status":status,"audioOverride":local.audio_override,"audioEnabled":local.audio_override.unwrap_or(audio::preferences(store)?.audio_default),"audioAvailable":local.layers.head.audio.is_some(),"conflicts":conflicts,"fieldConflicts":t.map(|t|&t.conflicts),"deleteConflict":t.is_some_and(|t|t.delete_conflict)}),
+                json!({"status":status,"direction":direction,"audioOverride":local.audio_override,"audioEnabled":local.audio_override.unwrap_or(audio::preferences(store)?.audio_default),"audioAvailable":local.layers.head.audio.is_some(),"conflicts":conflicts,"fieldConflicts":t.map(|t|&t.conflicts),"deleteConflict":t.is_some_and(|t|t.delete_conflict)}),
             )
         }
         "meeting_audio" => {

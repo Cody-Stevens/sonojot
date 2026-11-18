@@ -8,6 +8,9 @@
   import Sheet from "./Sheet.svelte";
   import Toggle from "../Toggle.svelte";
   import MeetingAudioExport from "../MeetingAudioExport.svelte";
+  import MeetingSync from "./MeetingSync.svelte";
+  import { sync } from "../../lib/sync.svelte";
+  import type { MeetingSyncStatus } from "../../lib/meeting-sync-status.svelte";
   import RemoteModelBadge from "../RemoteModelBadge.svelte";
   import { app } from "../../lib/app.svelte";
   import { meetingBusy } from "../../lib/meeting-display";
@@ -15,17 +18,27 @@
   let {
     session,
     anchor,
+    meetingSync,
     initial = "menu",
     onclose,
   }: {
     session: MeetingSession;
     anchor: HTMLElement | null;
-    initial?: "menu" | "formats" | "notes" | "transcribe";
+    meetingSync: MeetingSyncStatus;
+    initial?: "menu" | "formats" | "notes" | "transcribe" | "sync";
     onclose: () => void;
   } = $props();
   let pane = $state<
-    "menu" | "formats" | "notes" | "transcribe" | "join" | "versions"
+    "menu" | "formats" | "notes" | "transcribe" | "join" | "versions" | "sync"
   >(untrack(() => initial));
+  const exportBlocked = $derived(
+    !app.native ||
+      session.dirty ||
+      session.recording ||
+      session.processing ||
+      session.writing ||
+      app.busy("meeting-export"),
+  );
   let joins = $state<string[]>(
     untrack(() => (session.selected ? [session.selected.id] : [])),
   );
@@ -33,11 +46,12 @@
   const title = $derived(
     {
       menu: "Meeting",
-      formats: "Other formats",
+      formats: "Export other formats",
       notes: "Write notes",
       transcribe: "Transcribe again",
       join: "Join in this order",
       versions: "Transcript version",
+      sync: "Sync",
     }[pane],
   );
   function change(next: typeof pane) {
@@ -59,15 +73,20 @@
     {#if pane === "menu"}
       <button
         class="quiet-option"
-        disabled={session.writing || session.processing || session.recording}
+        disabled={exportBlocked}
         onclick={() => {
-          session.renameOpen = true;
           close();
-        }}>Rename</button
+          void session.exportFile("rtf");
+        }}>Export as rich text</button
       >
       <button class="quiet-option" onclick={() => change("formats")}
-        >Other formats…</button
+        >Export other formats…</button
       >
+      <div class="menu-gap" aria-hidden="true"></div>
+      {#if app.snapshot.capabilities.sync && sync.status?.unlocked}<button
+          class="quiet-option"
+          onclick={() => change("sync")}>Sync…</button
+        >{/if}
       {#if session.tab === "transcript"}<button
           class="quiet-option"
           onclick={() => change("versions")}>Transcript version…</button
@@ -150,9 +169,9 @@
         bind:value={session.exportFormat}
         ><option value="markdown">Markdown (.md)</option><option value="text"
           >Plain text (.txt)</option
-        ><option value="html">Web page (.html)</option><option value="pdf"
-          >PDF (.pdf)</option
-        ></select
+        ><option value="rtf">Rich text (.rtf)</option><option value="html"
+          >Web page (.html)</option
+        ><option value="pdf">PDF (.pdf)</option></select
       >
       <p class="field-help">
         Includes the {session.showCleaned ? "cleaned" : "edited"} transcript and saved
@@ -160,13 +179,8 @@
       </p>
       <button
         class="button"
-        disabled={!app.native ||
-          session.dirty ||
-          session.recording ||
-          session.processing ||
-          session.writing ||
-          app.busy("meeting-export")}
-        onclick={session.exportFile}>Export</button
+        disabled={exportBlocked}
+        onclick={() => session.exportFile()}>Export</button
       >
       {#if session.dirty}<p class="field-help">
           Save your changes before exporting the document.
@@ -178,6 +192,15 @@
         status={detail.status}
         hasAudio={detail.hasAudio}
         disabled={detail.status === "finalizing"}
+      />
+    {:else if pane === "sync"}
+      <MeetingSync
+        {meetingSync}
+        hasAudio={detail.hasAudio}
+        disabled={session.dirty ||
+          session.recording ||
+          session.processing ||
+          session.writing}
       />
     {:else if pane === "notes"}
       <label class="field-label" for="note-preset">Style</label><select
@@ -344,5 +367,8 @@
   .quiet-option {
     font-size: 16px;
     min-height: 43px;
+  }
+  .menu-gap {
+    height: 14px;
   }
 </style>

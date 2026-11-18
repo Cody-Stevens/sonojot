@@ -3,3 +3,4 @@ demo-build/
 .scratch/
 test-results/
 playwright-report/
+dist/

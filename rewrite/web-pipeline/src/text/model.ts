@@ -1,5 +1,5 @@
 import { Tokenizer } from "@huggingface/tokenizers";
-import type { PunctuationPackage, PunctuationRunner } from "./contract.ts";
+import type { PackageManifest, PunctuationPackage, PunctuationRunner } from "./contract.ts";
 import { check } from "./shared.ts";
 import { Document, recognizerCue } from "./punctuation.ts";
 import type { Mark } from "./punctuation.ts";
@@ -16,8 +16,10 @@ export interface Config {
   padId: number;
   wordPrefix: string;
   exceptions: Set<string>;
-  /** Casing label and hint input (punct-v4); thresholds come from punct-config.json. */
+  /** Casing label and hint input (punct-v4); thresholds from the manifest, else punct-config.json. */
   caseThresholds?: CaseThresholds;
+  /** Delete head (punct-v4): Clean deletes a word when P(DELETE) reaches this; from the manifest. */
+  deleteThreshold?: number;
 }
 interface Loaded {
   config: Config;
@@ -50,7 +52,7 @@ function positive(v: unknown): number {
   return v;
 }
 // Rust punctuation.rs::Config::parse / ConfigFile::parse_span_labels.
-export function parseConfig(value: unknown): Config {
+export function parseConfig(value: unknown, manifest?: unknown): Config {
   const c = record(value),
     names = ordered(c.labels),
     meaning = record(c.label_meaning);
@@ -124,6 +126,27 @@ export function parseConfig(value: unknown): Config {
       throw new Error("Invalid casing head");
     caseThresholds = c.case_thresholds;
   }
+  // Rust punctuation.rs::Engine::load reads both from manifest.json once the graph has the
+  // head (delete_logits, case_logits); a delete head without a threshold is a config failure.
+  const m = manifest === undefined ? {} : record(manifest);
+  if (m.case_thresholds !== undefined) {
+    if (!caseThresholds || !validThresholds(m.case_thresholds)) throw new Error("Invalid casing thresholds");
+    caseThresholds = m.case_thresholds;
+  }
+  let deleteThreshold: number | undefined;
+  if ("delete_output" in c || "delete_labels" in c) {
+    const t = m.delete_threshold;
+    if (
+      c.delete_output !== "delete_logits" ||
+      JSON.stringify(c.delete_labels) !== JSON.stringify(["KEEP", "DELETE"]) ||
+      typeof t !== "number" ||
+      !Number.isFinite(t) ||
+      t <= 0 ||
+      t > 1
+    )
+      throw new Error("Invalid delete head");
+    deleteThreshold = t;
+  }
   return {
     labels,
     spanLabels,
@@ -135,6 +158,7 @@ export function parseConfig(value: unknown): Config {
     wordPrefix: " ",
     exceptions: new Set(exceptions),
     caseThresholds,
+    deleteThreshold,
   };
 }
 /** Rust punctuation.rs::casing_package_selected: the package reads casing and piece starts itself. */
@@ -144,11 +168,13 @@ export function loadPunctuationPackage(
   configJson: unknown,
   tokenizerJson: unknown,
   runner: PunctuationRunner,
+  manifest?: PackageManifest,
 ): PunctuationPackage {
   const pkg: PunctuationPackage = {
     config: typeof configJson === "string" ? JSON.parse(configJson) : configJson,
     tokenizer: typeof tokenizerJson === "string" ? JSON.parse(tokenizerJson) : tokenizerJson,
     runner,
+    ...(manifest ? { manifest } : {}),
   };
   initialize(pkg);
   return pkg;
@@ -157,7 +183,7 @@ export function loadPunctuationPackage(
 function initialize(pkg: PunctuationPackage): Loaded {
   const prior = loaded.get(pkg);
   if (prior) return prior;
-  const config = parseConfig(pkg.config),
+  const config = parseConfig(pkg.config, pkg.manifest),
     raw = record(pkg.tokenizer);
   const tokenizer = new Tokenizer({ ...raw, truncation: null, padding: null }, {});
   for (const id of [config.clsId, config.sepId, config.padId])
@@ -240,12 +266,20 @@ export async function predict(
   pkg: PunctuationPackage,
   signal?: AbortSignal,
   bounds: readonly boolean[] = [],
-): Promise<{ labels: Mark[]; spans?: BioLabel[]; cases?: [number, number, number][]; caseThresholds?: CaseThresholds }> {
+): Promise<{
+  labels: Mark[];
+  spans?: BioLabel[];
+  cases?: [number, number, number][];
+  caseThresholds?: CaseThresholds;
+  /** Per word, whether the delete head reached the threshold (packages with a delete head). */
+  deletes?: boolean[];
+}> {
   const { config } = initialize(pkg),
     windows = encodeWindows(document, pkg, bounds),
     labels: Mark[] = [],
     spans: BioLabel[] | undefined = config.spanLabels ? [] : undefined,
     cases: [number, number, number][] | undefined = config.caseThresholds ? [] : undefined,
+    deletes: boolean[] | undefined = config.deleteThreshold !== undefined ? [] : undefined,
     best: number[] = [];
   for (const w of windows) {
     check(signal);
@@ -258,6 +292,7 @@ export async function predict(
     const caseLogits = out.caseLogits;
     if (cases && (!caseLogits || caseLogits.length !== w.inputIds.length * 3 || caseLogits.some((x) => !Number.isFinite(x))))
       throw new Error("Invalid casing output");
+    const del = deletes ? deleteDecisions(out.deleteLogits, w.inputIds.length, w.positions, config.deleteThreshold!) : undefined;
     for (let i = 0; i < marks.length; i++) {
       const distance = Math.min(i, marks.length - 1 - i),
         at = w.start + i;
@@ -266,8 +301,24 @@ export async function predict(
         labels[at] = marks[i]!;
         if (spans && span) spans[at] = span[i]!;
         if (cases && caseLogits) cases[at] = softmax3(caseLogits.subarray(w.positions[i]! * 3, w.positions[i]! * 3 + 3));
+        if (deletes && del) deletes[at] = del[i]!;
       }
     }
   }
-  return { labels, spans, cases, caseThresholds: config.caseThresholds };
+  return { labels, spans, cases, caseThresholds: config.caseThresholds, ...(deletes ? { deletes } : {}) };
+}
+// Rust punctuation.rs::Engine::predict, the delete head: P(DELETE) from a two-way softmax at
+// each word's last subword, compared with the threshold. Rust computes in f32; so does this.
+export function deleteDecisions(logits: Float32Array | undefined, tokens: number, positions: number[], threshold: number): boolean[] {
+  if (!logits || logits.length !== tokens * 2 || logits.some((x) => !Number.isFinite(x))) throw new Error("Invalid delete output");
+  const f = Math.fround,
+    t = f(threshold);
+  return positions.map((p) => {
+    const keep = logits[p * 2]!,
+      del = logits[p * 2 + 1]!,
+      max = Math.max(keep, del);
+    const ek = f(Math.exp(f(keep - max))),
+      ed = f(Math.exp(f(del - max)));
+    return f(1 - f(ek / f(ek + ed))) >= t;
+  });
 }
