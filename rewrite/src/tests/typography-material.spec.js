@@ -9,7 +9,7 @@ for (const theme of ["fog", "slate"]) {
     async ({ browser }, testInfo) => {
       for (const deviceScaleFactor of [1, 1.25, 1.5, 2]) {
         const context = await browser.newContext({
-          viewport: { width: 1220, height: 860 },
+          viewport: { width: 1060, height: 760 },
           deviceScaleFactor,
           reducedMotion: "reduce",
         });
@@ -71,6 +71,7 @@ for (const theme of ["fog", "slate"]) {
 test("grain remains registered to the stationary app stock during scrolling", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1220, height: 500 });
   await page.goto("/?page=appearance");
   const title = page.locator(".page-heading h1");
   await expect(title).toHaveAttribute("data-grain-ready", "");

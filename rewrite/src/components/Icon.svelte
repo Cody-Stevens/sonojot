@@ -28,7 +28,9 @@
     | "cloud-up"
     | "cloud-down"
     | "cloud-alert"
-    | "cloud-off";
+    | "cloud-off"
+    | "chevron-right"
+    | "chevron-down";
   let { name, size = 24 }: { name: IconName; size?: number } = $props();
   const paths: Record<IconName, string> = {
     people:
@@ -70,6 +72,8 @@
     "cloud-down": "M7 19h10.5a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.5 9.6 4.75 4.75 0 0 0 7 19ZM12 11v5.5m-2.3-2.3 2.3 2.3 2.3-2.3",
     "cloud-alert": "M7 19h10.5a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.5 9.6 4.75 4.75 0 0 0 7 19ZM12 11v3m0 2.6v.01",
     "cloud-off": "M7 19h10.5a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.5 9.6 4.75 4.75 0 0 0 7 19ZM3 3l18 18",
+    "chevron-right": "m9 6 6 6-6 6",
+    "chevron-down": "m6 9 6 6 6-6",
   };
 </script>
 

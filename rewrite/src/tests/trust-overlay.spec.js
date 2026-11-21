@@ -1,17 +1,11 @@
-// The doubtful-words chip and panel with a fake native side: views arrive as
+// The inline doubtful-words overlay with a fake native side: views arrive as
 // "trust-view" events, everything the page reports is recorded, and audio
 // playback is counted instead of heard. Made-up text only.
 import { expect, test } from "@playwright/test";
 
-const text = "Send the draft with broad strokes, style and colour notes.";
-const gapAt = text.indexOf(",");
-
 function view(patch = {}) {
   return {
     session: 1,
-    mode: "chip",
-    canReplace: false,
-    retype: false,
     scale: 1,
     area: { x: 0, y: 0, w: 1220, h: 860 },
     hostDark: false,
@@ -20,25 +14,28 @@ function view(patch = {}) {
     playOn: "hover",
     dictationKey: "Ctrl+Space",
     hold: false,
-    text,
     marks: [
       {
         id: 1,
+        kind: "word",
+        heard: "Castrel",
+        alternatives: [{ text: "Kestrel", label: "Your words" }],
+        hasAudio: true,
+        rects: [{ x: 240, y: 200, w: 68, h: 22 }],
+      },
+      {
+        id: 2,
         kind: "gap",
         heard: "strokes",
         alternatives: [],
         hasAudio: true,
-        rects: [],
-        from: gapAt,
-        to: gapAt,
+        rects: [{ x: 380, y: 200, w: 14, h: 22 }],
       },
     ],
-    chip: { x: 400, y: 500, w: 1, h: 18 },
     focus: null,
     voice: null,
     message: null,
     announce: null,
-    nearText: false,
     busy: false,
     ...patch,
   };
@@ -112,121 +109,124 @@ async function open(page, patch) {
   await page.goto("/index.html?view=trust");
   await page.waitForFunction(() => window.sent.some((e) => e.type === "ready"));
   await page.evaluate((v) => window.emitView(v), view(patch));
-  await expect(page.locator(".chip")).toBeVisible();
+  await expect(page.locator(".mk").first()).toBeVisible();
 }
 
 const sentTypes = (page) => page.evaluate(() => window.sent.map((e) => e.type));
 
-test("the chip opens the panel, which takes the keyboard and plays once", async ({ page }) => {
+test("no fallback chip or panel ever renders", async ({ page }) => {
   await open(page);
-  await page.locator(".chip").click();
-  await expect(page.locator(".fbp")).toBeVisible();
-  expect(await sentTypes(page)).toContain("opened");
-  await expect(page.locator(".fbp .opt").first()).toBeFocused();
-  await expect.poll(() => page.evaluate(() => window.played)).toBe(1);
-  await page.screenshot({ path: "../artifacts/trust-chip-fix/panel-far.png" });
+  await expect(page.locator(".chip")).toHaveCount(0);
+  await expect(page.locator(".fbp")).toHaveCount(0);
 });
 
-test("no audio plays by itself while recording or with On click", async ({ page }) => {
+test("clicking a mark opens the card, explains it, and plays audio once", async ({
+  page,
+}) => {
+  await open(page);
+  await page.locator(".mk").first().click();
+  await expect(page.locator(".pop")).toBeVisible();
+  await expect(page.locator(".pop")).toContainText("Unsure about");
+  await expect(page.locator(".pop")).toContainText("Castrel");
+  expect(await sentTypes(page)).toContain("opened");
+  await expect.poll(() => page.evaluate(() => window.played)).toBe(1);
+  // Pointer mode shows symbols rather than keyboard keycaps so users don't type into their host app.
+  await expect(page.locator(".pop .opt .n").first()).toHaveText("→");
+  await expect(page.locator(".pop .opt.keep .n")).toHaveText("✓");
+  // Clicking the waveform stops playback while playing, then replays on next click.
+  await page.locator(".wave-btn").click();
+  await page.locator(".wave-btn").click();
+  await expect.poll(() => page.evaluate(() => window.played)).toBe(2);
+});
+
+test("no audio plays by itself while recording or with On click", async ({
+  page,
+}) => {
   await open(page, { busy: true });
-  await page.locator(".chip").click();
-  await expect(page.locator(".fbp")).toBeVisible();
-  await page.waitForTimeout(300);
+  await page.locator(".mk").first().click();
+  await expect(page.locator(".pop")).toBeVisible();
+  await page.waitForTimeout(250);
   expect(await page.evaluate(() => window.played)).toBe(0);
-  await page.locator(".fbp .play").click();
+  await page.locator(".pop .play").click();
   await expect.poll(() => page.evaluate(() => window.played)).toBe(1);
 });
 
 test("On click plays nothing on open", async ({ page }) => {
   await open(page, { playOn: "click" });
-  await page.locator(".chip").click();
-  await expect(page.locator(".fbp")).toBeVisible();
-  await page.waitForTimeout(300);
+  await page.locator(".mk").first().click();
+  await expect(page.locator(".pop")).toBeVisible();
+  await page.waitForTimeout(250);
   expect(await page.evaluate(() => window.played)).toBe(0);
 });
 
-test("K records Nothing missing and clears the panel and chip", async ({ page }) => {
+test("a mark without alternatives has no stray divider and guides voice or typing", async ({
+  page,
+}) => {
   await open(page);
-  await page.locator(".chip").click();
-  await expect(page.locator(".fbp .opt").first()).toBeFocused();
+  await page.locator(".gapmk").click();
+  await expect(page.locator(".pop")).toBeVisible();
+  await expect(page.locator(".pop")).toContainText(
+    "Possible missing word after",
+  );
+  await expect(page.locator(".pop .sep")).toHaveCount(0);
+  await expect(page.locator(".pop .foot")).toContainText("type over it");
+});
+
+test("Keep all dismisses every remaining mark in one click", async ({
+  page,
+}) => {
+  await open(page);
+  await page.locator(".mk").first().click();
+  await page.getByRole("button", { name: "Keep all" }).click();
+  await expect(page.locator(".pop")).toHaveCount(0);
+  expect(await sentTypes(page)).toContain("keepAll");
+});
+
+test("keyboard focus shows 1/K shortcuts and handles K and Escape", async ({
+  page,
+}) => {
+  await open(page, { focus: { text: "1", seq: 1 } });
+  await expect(page.locator(".pop")).toBeVisible();
+  await expect(page.locator(".pop .opt").first()).toBeFocused();
+  await expect(page.locator(".pop .opt .n").first()).toHaveText("1");
+  await expect(page.locator(".pop .opt.keep .n")).toHaveText("K");
   await page.keyboard.press("k");
-  await expect(page.locator(".fbp")).toHaveCount(0);
-  await expect(page.locator(".chip")).toHaveCount(0);
-  const keep = await page.evaluate(() => window.sent.find((e) => e.type === "keep"));
+  const keep = await page.evaluate(() =>
+    window.sent.find((e) => e.type === "keep"),
+  );
   expect(keep).toEqual({ type: "keep", mark: 1 });
-});
 
-test("clicking Nothing missing does the same", async ({ page }) => {
-  await open(page);
-  await page.locator(".chip").click();
-  await page.getByRole("option", { name: "Nothing missing" }).click();
-  await expect(page.locator(".fbp")).toHaveCount(0);
-  await expect(page.locator(".chip")).toHaveCount(0);
-  expect(await sentTypes(page)).toContain("keep");
-});
-
-test("the close button and Escape close the panel and clear the chip", async ({ page }) => {
-  await open(page);
-  await page.locator(".chip").click();
-  await page.getByRole("button", { name: "Close" }).click();
-  await expect(page.locator(".fbp")).toHaveCount(0);
-  await expect(page.locator(".chip")).toHaveCount(0);
-  const closed = await page.evaluate(() => window.sent.find((e) => e.type === "closed"));
-  expect(closed).toEqual({ type: "closed", refocus: true });
-
-  await page.evaluate((v) => window.emitView(v), view({ session: 2 }));
-  await page.locator(".chip").click();
-  await expect(page.locator(".fbp .opt").first()).toBeFocused();
+  await page.evaluate(
+    (v) => window.emitView(v),
+    view({ focus: { text: "2", seq: 2 } }),
+  );
+  await expect(page.locator(".pop")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.locator(".fbp")).toHaveCount(0);
-  await expect(page.locator(".chip")).toHaveCount(0);
+  await expect(page.locator(".pop")).toHaveCount(0);
+  const closed = await page.evaluate(() =>
+    window.sent.find((e) => e.type === "closed"),
+  );
+  expect(closed).toEqual({ type: "closed", refocus: true });
 });
 
-test("hovering the chip keeps it a little longer", async ({ page }) => {
+test("strip mode can always be closed after clicking a mark", async ({
+  page,
+}) => {
+  await open(page, { popoverStyle: "strip" });
+  await page.locator(".mk").first().click();
+  await expect(page.locator(".pop.strip")).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.locator(".pop.strip")).toHaveCount(0);
+});
+
+test("popover closes quietly when its mark scrolls out of view", async ({
+  page,
+}) => {
   await open(page);
-  await page.locator(".chip").hover();
-  expect(await sentTypes(page)).toContain("chipHover");
-});
-
-test("next to the text the panel shows the context line, not the dictation", async ({ page }) => {
-  await open(page, { nearText: true });
-  await page.locator(".chip").click();
-  await expect(page.locator(".fbp")).toBeVisible();
-  await expect(page.locator(".fbtext")).toHaveCount(0);
-  await expect(page.locator(".fbp")).toContainText("Something may be missing after");
-  await expect(page.locator(".fbp")).toContainText("“strokes”");
-  await page.screenshot({ path: "../artifacts/trust-chip-fix/panel-near.png" });
-});
-
-test("a missing-word spot is a caret between the word and its comma, not a box", async ({ page }) => {
-  await open(page);
-  await page.locator(".chip").click();
-  const gap = page.getByRole("button", { name: "Possible missing word after strokes" });
-  await expect(gap).toBeVisible();
-  const style = await gap.evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return { outline: cs.outlineStyle, border: cs.borderTopStyle, width: el.getBoundingClientRect().width };
-  });
-  expect(style.outline).toBe("none");
-  expect(style.border).toBe("none");
-  expect(style.width).toBeLessThanOrEqual(12);
-  const caret = await gap.locator(".g-caret").evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    return { w: r.width, h: r.height, bg: getComputedStyle(el).backgroundColor };
-  });
-  expect(caret.w).toBeGreaterThan(1);
-  expect(caret.h).toBeGreaterThan(8);
-  expect(caret.bg).not.toBe("rgba(0, 0, 0, 0)");
-  // The comma starts after the marker: measure the text node right after it.
-  const overlap = await gap.evaluate((el) => {
-    let node = el.nextSibling;
-    while (node && !(node.nodeType === Node.TEXT_NODE && node.textContent.length))
-      node = node.nextSibling;
-    const range = document.createRange();
-    range.setStart(node, 0);
-    range.setEnd(node, 1);
-    return range.getBoundingClientRect().left - el.getBoundingClientRect().right;
-  });
-  expect(overlap).toBeGreaterThanOrEqual(0);
-  await page.locator(".fbtext").screenshot({ path: "../artifacts/trust-chip-fix/gap-marker.png" });
+  await page.locator(".mk").first().click();
+  await expect(page.locator(".pop")).toBeVisible();
+  const scrolled = view();
+  scrolled.marks[0].rects = [];
+  await page.evaluate((v) => window.emitView(v), scrolled);
+  await expect(page.locator(".pop")).toHaveCount(0);
 });

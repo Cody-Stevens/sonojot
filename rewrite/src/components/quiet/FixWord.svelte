@@ -4,27 +4,41 @@
   import Toggle from "../Toggle.svelte";
   import { app } from "../../lib/app.svelte";
   import { call } from "../../lib/api";
-  import { hasPhrase, replaceWord } from "../../lib/dictation-history";
+  import {
+    hasPhrase,
+    nearbyContextWords,
+    replaceWordAt,
+  } from "../../lib/dictation-history";
   import type { DictationRecord } from "../../lib/protocol";
   let {
     record,
     phrase = "",
+    phraseOffset = null,
     onchanged,
     onclose,
   }: {
     record: DictationRecord;
     phrase?: string;
+    phraseOffset?: number | null;
     onchanged: (record: DictationRecord) => void;
     onclose: () => void;
   } = $props();
   let heard = $state(untrack(() => phrase));
   let written = $state("");
   let always = $state(true);
+  let nearInput = $state("");
   let saved = $state(false);
   let failure = $state("");
-  const corrected = $derived(replaceWord(record.published, heard, written));
+  const corrected = $derived(
+    replaceWordAt(record.published, heard, written, phraseOffset),
+  );
   const inRaw = $derived(hasPhrase(record.raw, heard));
-  const dirty = $derived(!!written.trim() || heard !== phrase);
+  const suggestedNear = $derived(
+    heard.trim() ? nearbyContextWords(record.published, heard) : [],
+  );
+  const dirty = $derived(
+    !!written.trim() || heard !== phrase || !!nearInput.trim(),
+  );
   const valid = $derived(
     !!written.trim() &&
       (always ? inRaw : corrected !== null && corrected !== record.published),
@@ -70,12 +84,24 @@
       saved = true;
     }
     if (always) {
+      const context = nearInput
+        .split(/[,\s]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const args = context.length
+        ? {
+            id: record.id,
+            heard: heard.trim(),
+            written: written.trim(),
+            context,
+          }
+        : {
+            id: record.id,
+            heard: heard.trim(),
+            written: written.trim(),
+          };
       const result = await app.perform("history-learn", () =>
-        call("learn_correction", {
-          id: record.id,
-          heard: heard.trim(),
-          written: written.trim(),
-        }),
+        call("learn_correction", args),
       );
       if (!result) {
         failure = `${saved ? "The dictation was corrected, but the word could not be saved. " : ""}${app.error}`;
@@ -127,6 +153,18 @@
     {#if always && heard.trim() && !inRaw}<p class="field-help">
         To reuse this word, choose a phrase in the As heard version.
       </p>{/if}
+    {#if always && heard.trim() && inRaw}
+      <label class="near-field"
+        >Only near (optional, for common words)<input
+          bind:value={nearInput}
+          maxlength="160"
+          disabled={busy || saved}
+          placeholder={suggestedNear.length
+            ? `e.g. ${suggestedNear.join(", ")}`
+            : "Comma-separated nearby words"}
+        /></label
+      >
+    {/if}
     <div class="word-footer">
       <Toggle
         label="Always, in every dictation"
@@ -168,5 +206,11 @@
   }
   .word-footer .button {
     margin-left: auto;
+  }
+  .near-field {
+    display: block;
+    margin-top: 14px;
+    font-size: 14px;
+    color: var(--soft-ink);
   }
 </style>

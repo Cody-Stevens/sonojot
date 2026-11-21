@@ -819,6 +819,23 @@ pub struct MoonshineStream<'a> {
     pending_audio_seconds: f64,
 }
 impl Stream<'_> {
+    /// Optional display-only work. Disabled for files, meetings, replay and
+    /// capture backlogs; unsupported backends do nothing.
+    pub(crate) fn allow_preview(&mut self, allowed: bool) {
+        match self {
+            Stream::Remote(stream) => stream.allow_preview(allowed),
+            Stream::Sherpa(stream) => stream.allow_preview(allowed),
+            _ => {}
+        }
+    }
+
+    pub(crate) fn preview_text(&mut self) -> String {
+        match self {
+            Stream::Remote(stream) => stream.preview_text().to_owned(),
+            Stream::Sherpa(stream) => stream.preview_text(),
+            _ => String::new(),
+        }
+    }
     /// File and meeting recognition: level the speech detector's copy of the
     /// audio so quiet speech is not discarded (see `detector_level`).
     pub(crate) fn assist_quiet_speech(&mut self) -> Result<(), String> {
@@ -906,7 +923,7 @@ impl Stream<'_> {
     /// End of the newest recognized segment on the stream's own audio
     /// timeline (seconds of input from the first sample). Text from `update`
     /// covers audio up to here; a live preview shows only what comes after.
-    /// Metal reports none: the Mac has no live-preview model yet.
+    /// Metal reports none; its models do not use the Parakeet preview.
     pub(crate) fn committed_seconds(&self) -> Option<f32> {
         match self {
             Stream::Remote(stream) => stream.committed_seconds(),

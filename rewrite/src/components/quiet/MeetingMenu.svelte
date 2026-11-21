@@ -6,6 +6,7 @@
   } from "../../lib/notes-instructions";
   import { untrack } from "svelte";
   import Sheet from "./Sheet.svelte";
+  import SegmentedControl from "./SegmentedControl.svelte";
   import Toggle from "../Toggle.svelte";
   import MeetingAudioExport from "../MeetingAudioExport.svelte";
   import MeetingSync from "./MeetingSync.svelte";
@@ -132,28 +133,28 @@
     {:else if pane === "versions"}
       <div class="version-field">
         <span>Version</span>
-        <div class="segments" role="group" aria-label="Transcript version">
-          <button
-            aria-pressed={!session.showRaw && !session.showCleaned}
-            onclick={() => {
-              session.switchTranscript(false);
-              close();
-            }}>Edited</button
-          ><button
-            aria-pressed={!session.showRaw && session.showCleaned}
-            disabled={detail.cleanedTranscript === null}
-            onclick={() => {
-              session.switchTranscript(true);
-              close();
-            }}>Cleaned</button
-          ><button
-            aria-pressed={session.showRaw}
-            onclick={() => {
-              void session.viewRaw();
-              close();
-            }}>As heard</button
-          >
-        </div>
+        <SegmentedControl
+          label="Transcript version"
+          options={[
+            { value: "edited" as const, label: "Edited" },
+            {
+              value: "cleaned" as const,
+              label: "Cleaned",
+              disabled: detail.cleanedTranscript === null,
+            },
+            { value: "raw" as const, label: "As heard" },
+          ]}
+          value={session.showRaw
+            ? "raw"
+            : session.showCleaned
+              ? "cleaned"
+              : "edited"}
+          onchange={(next) => {
+            if (next === "raw") void session.viewRaw();
+            else session.switchTranscript(next === "cleaned");
+            close();
+          }}
+        />
       </div>
       {#if detail.cleanedTranscript === null}<button
           class="quiet-option"
@@ -333,9 +334,6 @@
     display: block;
     margin-bottom: 8px;
   }
-  .segments {
-    font-size: 14px;
-  }
   .speaker-toggle {
     display: flex;
     align-items: center;
@@ -359,10 +357,6 @@
     width: 20px;
     height: 20px;
     margin: 0;
-  }
-  .segments button {
-    font-size: 14px;
-    padding: 9px 8px;
   }
   .quiet-option {
     font-size: 16px;

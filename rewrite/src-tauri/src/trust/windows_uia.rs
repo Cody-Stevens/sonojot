@@ -1,12 +1,15 @@
-//! Windows locator: UI Automation text ranges for most apps, Win32 Edit
-//! messages for classic edit controls (Notepad), and a retype path for
-//! terminals. Proven in the November 13 spike; see FEASIBILITY.md.
+//! Windows locator: UI Automation text ranges for most apps, and Win32 Edit
+//! messages for classic edit controls (Notepad). Apps without trustworthy word
+//! positions (password fields, elevated windows, terminals, opaque canvases)
+//! return `Nothing` quietly.
 //!
-//! Privacy: this module asks the app for (1) the location of the exact text
-//! SonoJot pasted, by search, (2) the text of each marked word, to notice
-//! edits, and (3) rectangles. It never reads the rest of the field.
+//! Privacy: UIA asks the app only for the pasted words' ranges (via search),
+//! their immediate 1-character boundaries, and their screen rectangles.
+//! Classic Edit controls read the field text transiently to follow manual edits
+//! and drop the buffer immediately; nothing is ever kept or logged.
 
-use super::locator::{Capability, Edge, Focus, Frame, Locator, Place, Rect, Request, Span, Target, Tracked};
+use super::locator::{Capability, Edge, Focus, Frame, Inert, Locator, Place, Rect, Request, Span, Target, Tracked};
+use super::track::{char_range_to_utf16, utf16_to_char_offset, WordTracker};
 use std::time::{Duration, Instant};
 use windows::core::{Interface, BOOL, BSTR};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
@@ -121,31 +124,6 @@ fn to_rect(r: RECT) -> Rect {
     Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top }
 }
 
-/// The GUI caret of a window's thread, in screen pixels.
-fn gui_caret(window: usize) -> Option<Rect> {
-    use windows_sys::Win32::Foundation::POINT as SPOINT;
-    use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
-    unsafe {
-        let thread = wm::GetWindowThreadProcessId(sys(window), std::ptr::null_mut());
-        let mut info = wm::GUITHREADINFO { cbSize: std::mem::size_of::<wm::GUITHREADINFO>() as u32, ..std::mem::zeroed() };
-        if wm::GetGUIThreadInfo(thread, &mut info) == 0 || info.hwndCaret.is_null() {
-            return None;
-        }
-        let mut p = SPOINT { x: info.rcCaret.left, y: info.rcCaret.top };
-        if ClientToScreen(info.hwndCaret, &mut p) == 0 {
-            return None;
-        }
-        Some(Rect { x: p.x, y: p.y, w: (info.rcCaret.right - info.rcCaret.left).max(1), h: (info.rcCaret.bottom - info.rcCaret.top).max(8) })
-    }
-}
-
-fn window_rect(window: usize) -> Option<Rect> {
-    unsafe {
-        let mut r = std::mem::zeroed();
-        (wm::GetWindowRect(sys(window), &mut r) != 0).then(|| Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top })
-    }
-}
-
 fn modifiers_down() -> bool {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT};
     [VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN].iter().any(|k| unsafe { GetAsyncKeyState(*k as i32) } as u16 & 0x8000 != 0)
@@ -214,7 +192,7 @@ impl Locator for UiaLocator {
             return Err("target_window_gone".into());
         }
         if elevated_or_inaccessible(target.process) {
-            return Ok(Box::new(Inert(Capability::Nothing)));
+            return Ok(Box::new(Inert));
         }
         let focused_class = class_name(target.focused);
         if focused_class.eq_ignore_ascii_case("Edit") {
@@ -222,21 +200,21 @@ impl Locator for UiaLocator {
                 return Ok(Box::new(edit));
             }
         }
-        let terminal = is_terminal(&class_name(root_of(target.window))) || is_terminal(&focused_class);
+        if is_terminal(&class_name(root_of(target.window))) || is_terminal(&focused_class) {
+            return Ok(Box::new(Inert));
+        }
         let Some(automation) = self.automation.clone() else {
-            return Ok(Box::new(Chip::new(target, Capability::FallbackReadOnly)));
+            return Ok(Box::new(Inert));
         };
         // Chromium and Electron build their accessibility tree on the first
         // query; ask again for up to a second before giving up on positions.
         let deadline = Instant::now() + Duration::from_millis(1200);
         loop {
-            match UiaField::attach(&automation, request, &target, terminal) {
+            match UiaField::attach(&automation, request, &target) {
                 Ok(field) => return Ok(Box::new(field)),
-                Err(AttachError::Password) => return Ok(Box::new(Inert(Capability::Nothing))),
+                Err(AttachError::Password) | Err(AttachError::NoText) => return Ok(Box::new(Inert)),
                 Err(AttachError::Retry(_)) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(150)),
-                Err(AttachError::Retry(_)) | Err(AttachError::NoText) => {
-                    return Ok(Box::new(Chip::new(target, Capability::FallbackReadOnly)));
-                }
+                Err(AttachError::Retry(_)) => return Ok(Box::new(Inert)),
             }
         }
     }
@@ -248,61 +226,15 @@ enum AttachError {
     Retry(&'static str),
 }
 
-/// Nothing to show (password, elevated) or nothing to track.
-struct Inert(Capability);
-
-impl Tracked for Inert {
-    fn capability(&self) -> Capability {
-        self.0
-    }
-    fn poll(&mut self) -> Frame {
-        Frame { focus: Focus::Gone, marks: Vec::new(), field: None, anchor: None, text_gone: true }
-    }
-    fn replace(&mut self, _: usize, _: &str) -> Result<(), String> {
-        Err("unsupported".into())
-    }
-    fn refocus(&mut self) -> bool {
-        false
-    }
-}
-
-/// An app SonoJot cannot read positions from: a chip by the caret or window.
-struct Chip {
-    target: Target,
-    capability: Capability,
-}
-
-impl Chip {
-    fn new(target: Target, capability: Capability) -> Self {
-        Self { target, capability }
-    }
-}
-
-impl Tracked for Chip {
-    fn capability(&self) -> Capability {
-        self.capability
-    }
-    fn poll(&mut self) -> Frame {
-        if !window_alive(self.target.window) {
-            return Frame { focus: Focus::Gone, marks: Vec::new(), field: None, anchor: None, text_gone: true };
-        }
-        let fg = foreground();
-        let focus = if fg == self.target.window || super::overlay_owns(fg) { Focus::InField } else { Focus::Away };
-        let field = window_rect(self.target.window);
-        Frame { focus, marks: Vec::new(), field, anchor: gui_caret(self.target.window).or(field), text_gone: false }
-    }
-    fn replace(&mut self, _: usize, _: &str) -> Result<(), String> {
-        Err("This app does not let SonoJot change its text.".into())
-    }
-    fn refocus(&mut self) -> bool {
-        bring_back(self.target.window)
-    }
-}
-
 struct Located {
     span: Span,
     word: String,
+    /// Immediate same-line neighbour phrases from the pasted text, for
+    /// relocating the word after edits elsewhere without reading the document.
+    left_phrase: String,
+    right_phrase: String,
     range: Option<IUIAutomationTextRange>,
+    resolved: bool,
 }
 
 struct UiaField {
@@ -312,11 +244,6 @@ struct UiaField {
     element: IUIAutomationElement,
     pattern: IUIAutomationTextPattern,
     marks: Vec<Located>,
-    /// The end of the pasted text, for the caret-at-end check.
-    end: Option<IUIAutomationTextRange>,
-    capability: Capability,
-    terminal: bool,
-    /// Pasted text from each mark's start to the end, for retyping.
     text: String,
 }
 
@@ -327,8 +254,27 @@ fn text_pattern_of(element: &IUIAutomationElement) -> Option<IUIAutomationTextPa
     unsafe { element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId).ok() }
 }
 
+/// Immediate same-line context phrases `(left + word, word + right)` around `span`.
+fn context_phrases(text: &str, span: &Span) -> (String, String) {
+    let line_start = text[..span.start].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = text[span.end..].find('\n').map_or(text.len(), |i| span.end + i);
+    let left_start = text[line_start..span.start]
+        .trim_end()
+        .rfind(' ')
+        .map_or(line_start, |i| line_start + i + 1);
+    let right_end = {
+        let tail = &text[span.end..line_end];
+        let trimmed = tail.trim_start_matches(' ');
+        let skipped = tail.len() - trimmed.len();
+        trimmed.find(' ').map_or(line_end, |i| span.end + skipped + i)
+    };
+    let left = if left_start < span.start { text[left_start..span.end].to_owned() } else { String::new() };
+    let right = if right_end > span.end { text[span.start..right_end].to_owned() } else { String::new() };
+    (left, right)
+}
+
 impl UiaField {
-    fn attach(automation: &IUIAutomation, request: &Request, target: &Target, terminal: bool) -> Result<Self, AttachError> {
+    fn attach(automation: &IUIAutomation, request: &Request, target: &Target) -> Result<Self, AttachError> {
         unsafe {
             let element = automation
                 .GetFocusedElement()
@@ -363,57 +309,49 @@ impl UiaField {
             let mut found_any = false;
             for span in request.spans {
                 let word = text[span.start..span.end].to_owned();
+                let (left_phrase, right_phrase) = context_phrases(text, span);
                 let range = find_word(&search, text, span).or_else(|| find_word(&document, text, span));
                 found_any |= range.is_some();
-                marks.push(Located { span: span.clone(), word, range });
+                marks.push(Located { span: span.clone(), word, left_phrase, right_phrase, range, resolved: false });
             }
             if !found_any && !request.spans.is_empty() {
                 return Err(AttachError::Retry("text_not_found"));
             }
-            // The last line of the paste gives the end anchor for retyping.
-            let last_line = text.trim_end().rsplit('\n').next().unwrap_or("").trim();
-            let end = (!last_line.is_empty())
-                .then(|| search.FindText(&BSTR::from(last_line), true, false).ok())
-                .flatten();
-            let mut field = UiaField {
+            let field = UiaField {
                 automation: automation.clone(),
                 target: target.clone(),
                 element,
                 pattern,
                 marks,
-                end,
-                capability: Capability::Inline,
-                terminal,
                 text: text.to_owned(),
             };
-            field.capability = field.classify();
+            if !field.positions_trustworthy() {
+                return Err(AttachError::NoText);
+            }
             Ok(field)
         }
     }
 
     /// Inline only when every visible mark passes the mismatch check.
-    fn classify(&self) -> Capability {
-        if self.terminal {
-            return Capability::FallbackRetype;
-        }
+    fn positions_trustworthy(&self) -> bool {
         let field = self.field_rect();
         let mut visible = 0;
         for m in &self.marks {
-            let Some(range) = &m.range else { return Capability::FallbackReplace };
+            let Some(range) = &m.range else { return false };
             let rects = rects_of(range);
             if rects.is_empty() {
+                continue;
+            }
+            if field.is_some_and(|f| !rects.iter().all(|r| f.contains_rect(r, 4))) {
                 continue;
             }
             visible += 1;
             let hit = self.hit_matches(range, &rects[0]);
             if !super::locator::trustworthy(&rects, field.as_ref(), hit) {
-                return Capability::FallbackReplace;
+                return false;
             }
         }
-        if visible == 0 && !self.marks.is_empty() {
-            return Capability::FallbackReplace;
-        }
-        Capability::Inline
+        visible > 0 || self.marks.is_empty()
     }
 
     /// The insertion point at the left edge of a word's first rectangle must
@@ -452,19 +390,26 @@ impl UiaField {
             return Focus::Away;
         }
         unsafe {
-            match self.automation.GetFocusedElement() {
-                Ok(focused) => match self.automation.CompareElements(&focused, &self.element) {
-                    Ok(same) if same.as_bool() => Focus::InField,
-                    _ => Focus::Away,
-                },
-                Err(_) => Focus::Away,
+            let Ok(focused) = self.automation.GetFocusedElement() else {
+                return Focus::Away;
+            };
+            if self.automation.CompareElements(&focused, &self.element).is_ok_and(|same| same.as_bool()) {
+                return Focus::InField;
             }
+            // In rich/contenteditable editors, focus may sit on a child node
+            // inside the editing host element.
+            if let Ok(walker) = self.automation.ControlViewWalker() {
+                let mut cur = focused;
+                for _ in 0..4 {
+                    let Ok(parent) = walker.GetParentElement(&cur) else { break };
+                    if self.automation.CompareElements(&parent, &self.element).is_ok_and(|same| same.as_bool()) {
+                        return Focus::InField;
+                    }
+                    cur = parent;
+                }
+            }
+            Focus::Away
         }
-    }
-
-    fn caret_at_end(&self) -> bool {
-        let (Some(end), Some(caret)) = (&self.end, caret_range(&self.pattern)) else { return false };
-        unsafe { caret.CompareEndpoints(TextPatternRangeEndpoint_Start, end, TextPatternRangeEndpoint_End).ok() == Some(0) }
     }
 }
 
@@ -478,6 +423,46 @@ fn caret_range(pattern: &IUIAutomationTextPattern) -> Option<IUIAutomationTextRa
         }
         let selection = pattern.GetSelection().ok()?;
         (selection.Length().ok()? > 0).then(|| selection.GetElement(0).ok()).flatten()
+    }
+}
+
+/// True when `range` holds `word` and is not embedded inside a longer word.
+/// Reads only `word` plus at most one neighbouring character on each side.
+fn matches_word_with_boundaries(range: &IUIAutomationTextRange, word: &str) -> bool {
+    let char_len = word.chars().count() as i32;
+    let Some(actual) = text_of(range, char_len + 4) else {
+        return false;
+    };
+    if actual != word {
+        return false;
+    }
+    unsafe {
+        let Ok(expanded) = range.Clone() else { return true };
+        let moved_left = expanded.MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -1).unwrap_or(0);
+        let moved_right = expanded.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, 1).unwrap_or(0);
+        let Some(wide) = text_of(&expanded, char_len + 8) else { return true };
+        let chars: Vec<char> = wide.chars().collect();
+        let word_starts_alnum = word.chars().next().is_some_and(char::is_alphanumeric);
+        let word_ends_alnum = word.chars().last().is_some_and(char::is_alphanumeric);
+        if moved_left < 0 && word_starts_alnum && chars.first().is_some_and(|c| c.is_alphanumeric()) {
+            return false;
+        }
+        if moved_right > 0 && word_ends_alnum && chars.last().is_some_and(|c| c.is_alphanumeric()) {
+            return false;
+        }
+        true
+    }
+}
+
+/// Find `word` inside a matched `phrase` range.
+fn find_word_in_phrase(scope: &IUIAutomationTextRange, phrase: &str, word: &str, at_end: bool) -> Option<IUIAutomationTextRange> {
+    if phrase.len() <= word.len() {
+        return None;
+    }
+    unsafe {
+        let outer = scope.FindText(&BSTR::from(phrase), true, false).ok()?;
+        let found = outer.FindText(&BSTR::from(word), at_end, false).ok()?;
+        matches_word_with_boundaries(&found, word).then_some(found)
     }
 }
 
@@ -497,77 +482,123 @@ fn find_word(search: &IUIAutomationTextRange, text: &str, span: &Span) -> Option
             scope.MoveEndpointByRange(TextPatternRangeEndpoint_Start, &hit, TextPatternRangeEndpoint_End).ok()?;
         }
         let found = scope.FindText(&BSTR::from(word), false, false).ok()?;
-        (text_of(&found, word.len() as i32 + 4)?.trim() == word).then_some(found)
+        matches_word_with_boundaries(&found, word).then_some(found)
     }
+}
+
+/// Find a marked word again after the user edited elsewhere in the field. A UIA
+/// range in Chromium and many editors is a fixed offset, so typing or pasting
+/// before the word leaves the range over other text even though the word is
+/// untouched. Try (1) the unique phrase, (2) immediate left/right neighbour
+/// phrases, (3) nearby search around the old range, and (4) a unique match in
+/// the document (for large pastes even when neighbours changed). FindText
+/// locates text without reading the rest of the field.
+fn relocate(pattern: &IUIAutomationTextPattern, text: &str, mark: &Located) -> Option<IUIAutomationTextRange> {
+    unsafe {
+        let document = pattern.DocumentRange().ok()?;
+        // Only use the unique needle when it carries neighbour context; a bare
+        // word needle is handled below with uniqueness/proximity guards.
+        let (na, nb) = super::locator::needle(text, mark.span.start, mark.span.end);
+        if nb - na > mark.word.len() {
+            if let Some(found) = find_word(&document, text, &mark.span) {
+                return Some(found);
+            }
+        }
+        if let Some(found) = find_word_in_phrase(&document, &mark.left_phrase, &mark.word, true) {
+            return Some(found);
+        }
+        if let Some(found) = find_word_in_phrase(&document, &mark.right_phrase, &mark.word, false) {
+            return Some(found);
+        }
+        if let Some(old) = mark.range.as_ref().and_then(|r| r.Clone().ok()) {
+            let reach = mark.word.chars().count() as i32 + 128;
+            let _ = old.MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -reach);
+            let _ = old.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, reach);
+            if let Ok(found) = old.FindText(&BSTR::from(mark.word.as_str()), false, false) {
+                if matches_word_with_boundaries(&found, &mark.word) {
+                    return Some(found);
+                }
+            }
+        }
+        // Large paste before a unique word whose neighbours were also edited:
+        // accept only when the word occurs once in the entire field.
+        let fwd = document.FindText(&BSTR::from(mark.word.as_str()), false, false).ok()?;
+        let bwd = document.FindText(&BSTR::from(mark.word.as_str()), true, false).ok()?;
+        if fwd.CompareEndpoints(TextPatternRangeEndpoint_Start, &bwd, TextPatternRangeEndpoint_Start).ok() == Some(0)
+            && matches_word_with_boundaries(&fwd, &mark.word)
+        {
+            return Some(fwd);
+        }
+        None
+    }
+}
+
+/// The mark's range if it still holds the word, after relocating it if needed.
+fn current(pattern: &IUIAutomationTextPattern, text: &str, mark: &mut Located) -> Option<IUIAutomationTextRange> {
+    let range = mark.range.as_ref()?;
+    if matches_word_with_boundaries(range, &mark.word) {
+        return Some(range.clone());
+    }
+    let found = relocate(pattern, text, mark)?;
+    mark.range = Some(found.clone());
+    Some(found)
 }
 
 impl Tracked for UiaField {
     fn capability(&self) -> Capability {
-        self.capability
+        Capability::Inline
     }
 
     fn poll(&mut self) -> Frame {
         let focus = self.focus();
         if focus == Focus::Gone {
-            return Frame { focus, marks: Vec::new(), field: None, anchor: None, text_gone: true };
+            return Frame { focus, marks: Vec::new(), retyped: Vec::new(), field: None, text_gone: true };
+        }
+        if focus == Focus::Away {
+            return Frame { focus, marks: Vec::new(), retyped: Vec::new(), field: None, text_gone: false };
         }
         let field = self.field_rect();
-        let mut changed = 0;
+        let mut open_total = 0usize;
+        let mut changed = 0usize;
+        let (pattern, text) = (&self.pattern, &self.text);
         let marks: Vec<Place> = self
             .marks
-            .iter()
+            .iter_mut()
             .map(|m| {
-                let Some(range) = &m.range else { return Place::Hidden };
-                let now = text_of(range, m.word.len() as i32 + 4).unwrap_or_default();
-                if now.trim() != m.word {
+                if m.resolved {
+                    return Place::Hidden;
+                }
+                open_total += 1;
+                if m.range.is_none() {
                     changed += 1;
                     return Place::Changed;
                 }
-                if !self.capability.inline() {
-                    return Place::Hidden;
-                }
-                let rects: Vec<Rect> = rects_of(range).into_iter().filter(|r| field.is_none_or(|f| f.contains_rect(r, 2))).collect();
+                let Some(range) = current(pattern, text, m) else {
+                    m.range = None;
+                    changed += 1;
+                    return Place::Changed;
+                };
+                let rects: Vec<Rect> = rects_of(&range).into_iter().filter(|r| field.is_none_or(|f| f.contains_rect(r, 2))).collect();
                 if rects.is_empty() { Place::Hidden } else { Place::Visible(rects) }
             })
             .collect();
-        let text_gone = !self.marks.is_empty() && changed == self.marks.len();
-        let anchor = self
-            .end
-            .as_ref()
-            .and_then(|r| rects_of(r).last().copied())
-            .map(|r| Rect { x: r.right(), y: r.y, w: 1, h: r.h })
-            .filter(|r| field.is_none_or(|f| f.contains_rect(r, 4)))
-            .or_else(|| gui_caret(self.target.window))
-            .or(field);
-        Frame { focus, marks, field, anchor, text_gone }
+        let text_gone = open_total > 0 && changed == open_total;
+        Frame { focus, marks, retyped: Vec::new(), field, text_gone }
     }
 
     fn replace(&mut self, index: usize, with: &str) -> Result<(), String> {
-        let Some(m) = self.marks.get(index) else { return Err("unknown_mark".into()) };
-        let (span, word) = (m.span.clone(), m.word.clone());
-        let range = m.range.clone().ok_or("The word is no longer where SonoJot pasted it.")?;
-        if text_of(&range, word.len() as i32 + 4).unwrap_or_default().trim() != word {
-            return Err("The word changed since it was pasted.".into());
+        let (pattern, text) = (&self.pattern, &self.text);
+        let Some(m) = self.marks.get_mut(index) else { return Err("unknown_mark".into()) };
+        if m.range.is_none() {
+            return Err("The word is no longer where SonoJot pasted it.".into());
         }
+        let range = current(pattern, text, m).ok_or("The word changed since it was pasted.")?;
+        let span = m.span.clone();
         if !self.refocus() {
             return Err("The app is not in front.".into());
         }
         wait_for_modifiers()?;
         let edge = span.edge;
-        if self.terminal {
-            // Delete back and retype the tail, only while the caret is at the end.
-            if !self.caret_at_end() {
-                return Err("Move the cursor back to the end of the dictation first.".into());
-            }
-            let (from, keep) = match edge {
-                Edge::Word => (span.start, span.end),
-                Edge::After => (span.end, span.end),
-                Edge::Before => (span.start, span.start),
-            };
-            let tail = &self.text[from..];
-            let new_tail = format!("{with}{}", &self.text[keep..]);
-            return type_text(&new_tail, tail.chars().count());
-        }
         unsafe {
             let caret = caret_range(&self.pattern).and_then(|c| c.Clone().ok());
             let target = range.Clone().map_err(|e| e.to_string())?;
@@ -586,7 +617,30 @@ impl Tracked for UiaField {
                 let _ = caret.Select();
             }
         }
+        // Keep internal text and remaining span offsets aligned after our edit.
+        let (rep_start, rep_end) = match edge {
+            Edge::Word => (span.start, span.end),
+            Edge::After => (span.end, span.end),
+            Edge::Before => (span.start, span.start),
+        };
+        if rep_end <= self.text.len() && self.text.is_char_boundary(rep_start) && self.text.is_char_boundary(rep_end) {
+            self.text.replace_range(rep_start..rep_end, with);
+            let delta = with.len() as isize - (rep_end - rep_start) as isize;
+            for (i, other) in self.marks.iter_mut().enumerate() {
+                if i != index && other.span.start >= rep_end {
+                    other.span.start = (other.span.start as isize + delta) as usize;
+                    other.span.end = (other.span.end as isize + delta) as usize;
+                }
+            }
+        }
+        self.marks[index].resolved = true;
         Ok(())
+    }
+
+    fn resolve(&mut self, index: usize) {
+        if let Some(m) = self.marks.get_mut(index) {
+            m.resolved = true;
+        }
     }
 
     fn refocus(&mut self) -> bool {
@@ -601,19 +655,13 @@ impl Tracked for UiaField {
 }
 
 /// A classic Win32 Edit control (Notepad on Windows 10). It has no UIA text
-/// pattern, but answers position messages. SonoJot never reads its text:
-/// the paste ends at the caret, so offsets follow from the pasted length,
-/// and edits are noticed from the text length and caret alone.
+/// pattern, but answers position and text messages. Text is read transiently
+/// (up to 256K UTF-16 units) so marks follow arbitrary manual edits accurately
+/// and dropped immediately; nothing is stored or logged.
 struct EditField {
     target: Target,
     edit: usize,
-    /// UTF-16 offsets of each span, and of the whole paste.
-    spans: Vec<(usize, usize)>,
-    edges: Vec<Edge>,
-    start: usize,
-    end: usize,
-    length: usize,
-    changed: Vec<bool>,
+    tracker: WordTracker,
 }
 
 const EM_GETSEL: u32 = 0x00B0;
@@ -622,43 +670,38 @@ const EM_LINEFROMCHAR: u32 = 0x00C9;
 const EM_LINEINDEX: u32 = 0x00BB;
 const EM_REPLACESEL: u32 = 0x00C2;
 const EM_POSFROMCHAR: u32 = 0x00D6;
+const WM_GETTEXT: u32 = 0x000D;
 const WM_GETTEXTLENGTH: u32 = 0x000E;
+const MAX_EDIT_UTF16: usize = 262_144;
 
 fn send(window: usize, msg: u32, w: usize, l: isize) -> isize {
     unsafe { wm::SendMessageW(sys(window), msg, w, l) }
 }
 
-fn utf16_len(s: &str) -> usize {
-    s.encode_utf16().count()
+fn read_edit_chars(edit: usize) -> Option<Vec<char>> {
+    let len = send(edit, WM_GETTEXTLENGTH, 0, 0).max(0) as usize;
+    if len > MAX_EDIT_UTF16 {
+        return None;
+    }
+    let mut buf = vec![0u16; len + 1];
+    let copied = send(edit, WM_GETTEXT, buf.len(), buf.as_mut_ptr() as isize).max(0) as usize;
+    let slice = &buf[..copied.min(len)];
+    Some(String::from_utf16_lossy(slice).chars().collect())
 }
 
 impl EditField {
     fn attach(request: &Request, target: &Target) -> Option<Self> {
         let edit = target.focused;
-        let length = send(edit, WM_GETTEXTLENGTH, 0, 0).max(0) as usize;
+        let text = read_edit_chars(edit)?;
         let mut sel_start = 0u32;
         let mut sel_end = 0u32;
         send(edit, EM_GETSEL, &mut sel_start as *mut u32 as usize, &mut sel_end as *mut u32 as isize);
-        // Edit controls store line breaks as CR LF.
+        let caret = utf16_to_char_offset(&text, sel_end as usize);
+        // Edit controls store line breaks as CR LF, while pasted text uses LF.
         let stored = request.text.replace("\r\n", "\n").replace('\n', "\r\n");
-        let pasted = utf16_len(&stored);
-        let end = sel_end as usize;
-        if sel_start != sel_end || end < pasted || end > length {
-            return None;
-        }
-        let start = end - pasted;
-        // Structure check without reading: the line count must agree.
-        let lines = |i: usize| send(edit, EM_LINEFROMCHAR, i, 0);
-        if lines(end) - lines(start) != stored.matches('\n').count() as isize {
-            return None;
-        }
-        let offset = |byte: usize| {
-            let before = &request.text[..byte];
-            utf16_len(&before.replace("\r\n", "\n").replace('\n', "\r\n"))
-        };
-        let spans = request.spans.iter().map(|s| (start + offset(s.start), start + offset(s.end))).collect::<Vec<_>>();
-        let edges = request.spans.iter().map(|s| s.edge).collect();
-        Some(Self { target: target.clone(), edit, changed: vec![false; spans.len()], spans, edges, start, end, length })
+        let spans = map_crlf_spans(request.text, request.spans);
+        let tracker = WordTracker::attach(&text, &stored, &spans, caret)?;
+        Some(Self { target: target.clone(), edit, tracker })
     }
 
     fn client_to_screen(&self, x: i32, y: i32) -> (i32, i32) {
@@ -712,39 +755,12 @@ impl EditField {
         let (sx, sy) = self.client_to_screen(x0, y0);
         vec![Rect { x: sx, y: sy, w: (right - x0).max(1), h }]
     }
+}
 
-    /// Follow typing elsewhere: text inserted before the paste shifts it, after
-    /// it changes nothing, inside it marks the words it touched as changed.
-    fn follow(&mut self) {
-        let length = send(self.edit, WM_GETTEXTLENGTH, 0, 0).max(0) as usize;
-        if length == self.length {
-            return;
-        }
-        let delta = length as isize - self.length as isize;
-        self.length = length;
-        let mut caret = 0u32;
-        send(self.edit, EM_GETSEL, 0, &mut caret as *mut u32 as isize);
-        let at = (caret as isize - delta.max(0)).max(0) as usize;
-        let shift = |v: &mut usize| *v = (*v as isize + delta).max(0) as usize;
-        if at <= self.start {
-            shift(&mut self.start);
-            shift(&mut self.end);
-            for s in &mut self.spans {
-                shift(&mut s.0);
-                shift(&mut s.1);
-            }
-        } else if at < self.end {
-            for (i, s) in self.spans.iter_mut().enumerate() {
-                if at <= s.1 && at + delta.unsigned_abs() >= s.0 {
-                    self.changed[i] = true;
-                } else if at <= s.0 {
-                    shift(&mut s.0);
-                    shift(&mut s.1);
-                }
-            }
-            shift(&mut self.end);
-        }
-    }
+/// Adjust LF-based byte spans into CRLF-normalized byte spans.
+fn map_crlf_spans(text: &str, spans: &[Span]) -> Vec<Span> {
+    let map = |byte: usize| text[..byte].replace("\r\n", "\n").replace('\n', "\r\n").len();
+    spans.iter().map(|s| Span { start: map(s.start), end: map(s.end), edge: s.edge }).collect()
 }
 
 impl Tracked for EditField {
@@ -754,9 +770,8 @@ impl Tracked for EditField {
 
     fn poll(&mut self) -> Frame {
         if !window_alive(self.edit) {
-            return Frame { focus: Focus::Gone, marks: Vec::new(), field: None, anchor: None, text_gone: true };
+            return Frame { focus: Focus::Gone, marks: Vec::new(), retyped: Vec::new(), field: None, text_gone: true };
         }
-        self.follow();
         let fg = foreground();
         let focused_here = unsafe {
             let thread = wm::GetWindowThreadProcessId(sys(self.edit), std::ptr::null_mut());
@@ -764,34 +779,45 @@ impl Tracked for EditField {
             wm::GetGUIThreadInfo(thread, &mut info) != 0 && info.hwndFocus as usize == self.edit
         };
         let focus = if super::overlay_owns(fg) || (fg == self.target.window && focused_here) { Focus::InField } else { Focus::Away };
+        if focus == Focus::Away {
+            return Frame { focus, marks: Vec::new(), retyped: Vec::new(), field: None, text_gone: false };
+        }
+        let Some(text) = read_edit_chars(self.edit) else {
+            return Frame { focus: Focus::Gone, marks: Vec::new(), retyped: Vec::new(), field: None, text_gone: true };
+        };
+        self.tracker.follow(&text);
         let field = self.client();
-        let gone = self.length < self.end;
         let marks = self
-            .spans
+            .tracker
+            .marks
             .iter()
-            .zip(&self.changed)
-            .map(|(&(a, b), changed)| {
-                if *changed || gone {
-                    return Place::Changed;
+            .map(|m| {
+                if m.resolved {
+                    return Place::Hidden;
                 }
-                let rects: Vec<Rect> = self.rects(a, b).into_iter().filter(|r| field.is_none_or(|f| f.contains_rect(r, 2))).collect();
+                let Some(at) = m.at else { return Place::Changed };
+                let (a, len) = char_range_to_utf16(&text, at, at + m.word.len());
+                let rects: Vec<Rect> = self.rects(a, a + len).into_iter().filter(|r| field.is_none_or(|f| f.contains_rect(r, 2))).collect();
                 if rects.is_empty() { Place::Hidden } else { Place::Visible(rects) }
             })
             .collect();
-        Frame { focus, marks, field, anchor: gui_caret(self.edit).or(field), text_gone: gone }
+        let retyped: Vec<Option<String>> = self.tracker.marks.iter().map(|m| m.retyped.clone()).collect();
+        let text_gone = text.is_empty() || self.tracker.all_unresolved_gone();
+        Frame { focus, marks, retyped, field, text_gone }
     }
 
     fn replace(&mut self, index: usize, with: &str) -> Result<(), String> {
-        self.follow();
-        let &(a, b) = self.spans.get(index).ok_or("unknown_mark")?;
-        if self.changed[index] {
-            return Err("The word changed since it was pasted.".into());
-        }
-        let (a, b) = match self.edges[index] {
-            Edge::Word => (a, b),
-            Edge::After => (b, b),
-            Edge::Before => (a, a),
+        let text = read_edit_chars(self.edit).ok_or("The field can no longer be read.")?;
+        self.tracker.follow(&text);
+        let mark = self.tracker.marks.get(index).ok_or("unknown_mark")?;
+        let at = mark.at.ok_or("The word changed since it was pasted.")?;
+        let (char_start, char_end) = match mark.edge {
+            Edge::Word => (at, at + mark.word.len()),
+            Edge::After => (at + mark.word.len(), at + mark.word.len()),
+            Edge::Before => (at, at),
         };
+        let (a, len) = char_range_to_utf16(&text, char_start, char_end);
+        let b = a + len;
         let mut caret = 0u32;
         send(self.edit, EM_GETSEL, 0, &mut caret as *mut u32 as isize);
         let wide: Vec<u16> = with.encode_utf16().chain(std::iter::once(0)).collect();
@@ -801,17 +827,12 @@ impl Tracked for EditField {
         let delta = (wide.len() - 1) as isize - (b - a) as isize;
         let caret = if caret as usize >= b { (caret as isize + delta) as usize } else { caret as usize };
         send(self.edit, EM_SETSEL, caret, caret as isize);
-        self.length = (self.length as isize + delta) as usize;
-        self.end = (self.end as isize + delta) as usize;
-        for (i, s) in self.spans.iter_mut().enumerate() {
-            if i != index && s.0 >= b {
-                s.0 = (s.0 as isize + delta) as usize;
-                s.1 = (s.1 as isize + delta) as usize;
-            }
-        }
-        let s = &mut self.spans[index];
-        s.1 = (s.1 as isize + delta) as usize;
+        self.tracker.resolve(index);
         Ok(())
+    }
+
+    fn resolve(&mut self, index: usize) {
+        self.tracker.resolve(index);
     }
 
     fn refocus(&mut self) -> bool {

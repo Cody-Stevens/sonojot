@@ -69,6 +69,12 @@ export class AppState {
       this.apply(await call("restart_to_update"));
     });
   }
+  /** For installs that can't update in the app. */
+  async openDownloadPage(): Promise<void> {
+    await this.perform("update-open", async () => {
+      await call("open_download_page");
+    });
+  }
   async dismissUpdateNotice(): Promise<void> {
     await this.perform("update-notice", async () => {
       this.apply(await call("dismiss_update_notice"));

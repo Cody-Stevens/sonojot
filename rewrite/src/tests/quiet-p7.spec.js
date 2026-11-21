@@ -178,14 +178,16 @@ test("Notes defaults persist No notes and custom instructions with a draft guard
     settings: { meetingNotesPreset: "summary" },
   });
   await page.getByRole("button", { name: "Notes", exact: true }).click();
-  const style = page.getByLabel("Style", { exact: true });
-  await expect(style).toHaveValue("summary");
-  await style.selectOption("");
+  const style = page.getByRole("button", { name: "Style", exact: true });
+  await expect(style).toContainText("Summary");
+  await style.click();
+  await page.getByRole("option", { name: "No notes", exact: true }).click();
   await expect
     .poll(async () => (await settings(page)).meetingNotesPreset)
     .toBeNull();
   await shot(page, "04-no-notes.png");
-  await style.selectOption("custom");
+  await style.click();
+  await page.getByRole("option", { name: "Custom", exact: true }).click();
   await page
     .getByLabel("Instructions", { exact: true })
     .fill("List decisions, owners and open questions.");
@@ -248,7 +250,7 @@ test("meeting search finds notes and published text and displays the matching li
       transcript,
     },
   });
-  const search = page.getByRole("textbox", { name: "Search meetings" });
+  const search = page.getByRole("searchbox", { name: "Search meetings" });
   await search.fill("Northwind");
   await expect(page.locator(".meeting-slip")).toHaveCount(1);
   await expect(page.locator(".search-match")).toHaveText(

@@ -355,6 +355,36 @@ test("permission states are distinct and only fixable ones offer an action", () 
   assert.match(systemAudioState("ready", "windows").detail, /needs no permission/);
 });
 
+test("Linux names its own requirement and never mentions macOS or Windows", () => {
+  const texts = [
+    ...sources.flatMap((source) => [
+      meetingStartPrompt(acknowledged(source), "unsupported", "linux")?.detail,
+      tabMeetingWarning(source, "unsupported", "linux")?.text,
+    ]),
+    recordingSystemNotice("unsupported", "linux")?.text,
+    ...statuses.map((status) => systemAudioState(status, "linux").detail),
+  ].filter((text): text is string => Boolean(text));
+  for (const text of texts) assert.doesNotMatch(text, /macOS|Windows/);
+  assert.ok(
+    meetingStartPrompt(acknowledged("microphone"), "unsupported", "linux")
+      ?.detail.includes(copy.systemUnsupportedLinux),
+  );
+  assert.equal(
+    tabMeetingWarning("system", "unsupported", "linux")?.text,
+    copy.systemUnsupportedLinux,
+  );
+  assert.equal(
+    recordingSystemNotice("unsupported", "linux")?.text,
+    copy.recordingUnsupportedLinux,
+  );
+  assert.equal(
+    systemAudioState("ready", "linux").detail,
+    "Meetings record the other people on your calls.",
+  );
+  // A Mac before 14.2 keeps its version requirement.
+  assert.equal(recordingSystemNotice("unsupported", "macos")?.text, copy.recordingUnsupported);
+});
+
 test("legacy snapshots default to an unsupported, never ready, system audio status", () => {
   const { systemAudioStatus: _status, ...capabilities } =
     previewSnapshot.capabilities;

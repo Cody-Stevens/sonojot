@@ -142,7 +142,7 @@ test("a successful import clears its file and speaker before the sheet reopens",
     path: "C:/fixture.wav",
     speaker: "Rachel",
   });
-  await page.getByRole("button", { name: "All meetings" }).click();
+  await page.getByRole("button", { name: "Back to Meetings" }).click();
   await page.getByRole("button", { name: "Import…", exact: true }).click();
   sheet = page.getByRole("dialog", { name: "Import a recording" });
   await expect(
@@ -163,7 +163,8 @@ test("Custom notes stays a draft and uses the same character limit as manual not
     "/?page=meetings",
   );
   await page.getByRole("button", { name: "Notes", exact: true }).click();
-  await page.getByLabel("Style", { exact: true }).selectOption("custom");
+  await page.getByRole("button", { name: "Style", exact: true }).click();
+  await page.getByRole("option", { name: "Custom", exact: true }).click();
   expect((await settings(page)).meetingNotesPreset).toBe("summary");
   const instructions = page.getByLabel("Instructions", { exact: true });
   const save = page.getByRole("button", { name: "Save instructions" });
@@ -247,7 +248,7 @@ test("a per-meeting speech choice never changes the stage chip or another meetin
     .poll(async () => (await calls(page, "transcribe_meeting")).length)
     .toBe(1);
   await page.evaluate(() => window.__testCompleteTranscription());
-  await page.getByRole("button", { name: "All meetings" }).click();
+  await page.getByRole("button", { name: "Back to Meetings" }).click();
   await expect(chip).toHaveText(original);
   await openMeeting(page, /Client call/);
   await menu(page, "Transcribe again…");
@@ -322,15 +323,18 @@ test("suggestions keep written arrows without reparsing them as separators", asy
     },
     "/?page=vocabulary",
   );
-  await page.getByRole("button", { name: "Suggested", exact: true }).click();
+  await page.getByRole("button", { name: /^Review\b/ }).click();
   await page.getByRole("button", { name: "Review recent dictations" }).click();
-  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page
+    .locator(".review-row", { hasText: "x->y" })
+    .getByRole("button", { name: "Keep", exact: true })
+    .click();
   expect(
-    (await calls(page, "save_vocabulary")).at(-1).args.entries.at(-1),
+    (await calls(page, "confirm_learned_word")).at(-1).args,
   ).toMatchObject({
     heard: "ex to why",
     written: "x->y",
-    aliases: ["ex to why"],
+    kind: "replace",
   });
 });
 

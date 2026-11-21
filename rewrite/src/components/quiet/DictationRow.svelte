@@ -63,27 +63,35 @@
     display: flex;
     align-items: center;
     width: 100%;
+    min-height: 54px;
     gap: 18px;
-    padding: 16px 22px;
+    padding: 14px 18px;
     border: 0;
     background: transparent;
     color: var(--ink);
     text-align: left;
-    border-radius: 6px;
+    border-radius: 0;
     font-size: 16px;
+    transition: background-color var(--motion-control) linear;
   }
   .row-open:hover,
   .dictation-row:focus-within .row-open {
-    background: color-mix(in srgb, var(--dye) 7%, transparent);
+    background-color: var(--well);
+  }
+  .row-open:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
   }
   time {
-    width: 64px;
-    flex: 0 0 64px;
+    width: 68px;
+    flex: 0 0 68px;
     font-size: 13px;
+    font-variant-numeric: tabular-nums;
     color: var(--soft-ink);
   }
   .row-text {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -106,8 +114,6 @@
     transform: translateY(-50%);
     pointer-events: none;
   }
-  /* The row's padding already clears the text; the actions sit on the row's
-     own paper rather than a flat patch. */
   .row-tools :global(.quiet-row-actions) {
     padding: 4px;
   }
@@ -119,11 +125,22 @@
   .dictation-row:focus-within .target-app {
     display: none;
   }
+  @media (max-width: 760px) {
+    time {
+      width: 56px;
+      flex-basis: 56px;
+    }
+  }
   @media (hover: none) {
     .row-tools {
       position: static;
       transform: none;
       padding: 0 18px 9px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .row-open {
+      transition: none;
     }
   }
 </style>

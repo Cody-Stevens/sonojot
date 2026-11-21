@@ -10,8 +10,10 @@
   import type { ModelsTarget } from "../lib/model-library";
   import type { ErrorAction } from "../lib/errors";
   import type { RouteTarget } from "../lib/route.svelte";
+  import PageHeader from "../components/quiet/PageHeader.svelte";
+  import PipelineBand from "../components/quiet/PipelineBand.svelte";
+  import SearchBar from "../components/quiet/SearchBar.svelte";
   import Chip from "../components/quiet/Chip.svelte";
-  import Well from "../components/quiet/Well.svelte";
   import MeetingSlip from "../components/quiet/MeetingSlip.svelte";
   import MeetingPage from "../components/quiet/MeetingPage.svelte";
   import RecordingBand from "../components/quiet/RecordingBand.svelte";
@@ -33,9 +35,13 @@
     dropping = $state(false);
   let importPath = $state("");
   let list = $state<HTMLDivElement>();
+  let lastOpenedId = $state<string | null>(null);
+  let returnMeetingId = $state<string | null>(null);
+  let savedListScroll = 0;
   const recording = $derived(
     app.snapshot.meetingRecording || session.recording,
   );
+  const detailOpen = $derived(!!session.selected && !session.recording);
   const listedMeetings = $derived(
     session.filtered.filter(
       (meeting) =>
@@ -60,6 +66,37 @@
       ? ai.data.model
       : session.modelName(app.snapshot.settings.notesModel),
   );
+  // Reset scroll position and focus Back when entering a meeting detail or switching IDs,
+  // and restore the parent list scroll + meeting row focus when returning Back.
+  $effect(() => {
+    const id = detailOpen ? (session.selected?.id ?? null) : null;
+    if (id && id !== lastOpenedId) {
+      lastOpenedId = id;
+      returnMeetingId = id;
+      void tick().then(() => {
+        document.querySelector<HTMLElement>(".page-content")?.scrollTo({
+          top: 0,
+        });
+        document
+          .querySelector<HTMLButtonElement>(
+            '.meeting-heading button[aria-label="Back to Meetings"]',
+          )
+          ?.focus({ preventScroll: true });
+      });
+    } else if (!id && lastOpenedId) {
+      const targetId = returnMeetingId ?? lastOpenedId;
+      const targetScroll = savedListScroll;
+      lastOpenedId = null;
+      void tick().then(() => {
+        const scroller = document.querySelector<HTMLElement>(".page-content");
+        scroller?.scrollTo({ top: targetScroll });
+        const row = list?.querySelector<HTMLElement>(
+          `[data-meeting-id="${CSS.escape(targetId)}"]`,
+        );
+        row?.focus({ preventScroll: true });
+      });
+    }
+  });
   onMount(() => {
     void ai.refresh();
     let disposed = false,
@@ -89,11 +126,10 @@
     };
   });
   async function open(id: string) {
+    savedListScroll =
+      document.querySelector<HTMLElement>(".page-content")?.scrollTop ?? 0;
+    returnMeetingId = id;
     await session.select(id);
-    await tick();
-    document
-      .querySelector<HTMLButtonElement>('[aria-label="All meetings"]')
-      ?.focus({ preventScroll: true });
   }
   function keyboard(event: KeyboardEvent) {
     if (
@@ -122,23 +158,11 @@
 </script>
 
 <svelte:window onkeydown={keyboard} />
-{#if recording}<RecordingBand
-    {session}
-    onsources={() => (sources = true)}
-  />{/if}
-{#if session.selected && !session.recording}<MeetingPage
-    {session}
-    {onerroraction}
-  />
-{:else}
-  {#if !recording}<section
-      class="stock paper-card meetings-band"
-      aria-label="Meetings status"
-    >
-      <div class="idle-head">
-        <span class="idle-dot"></span>
-        <h1 data-text-surface="emboss">Not recording</h1>
-        <span class="spacer"></span><button
+{#if !detailOpen}
+  <PageHeader title="Meetings">
+    {#snippet actions()}
+      {#if !recording}
+        <button
           class="button danger record-button"
           disabled={!app.native ||
             session.dictating ||
@@ -146,72 +170,103 @@
             app.busy("meeting-record") ||
             app.busy("settings")}
           onclick={session.start}>● Record meeting</button
-        ><button
+        >
+        <button
           class="button"
           disabled={!app.native ||
             session.dictating ||
             app.busy("meeting-import")}
           onclick={() => (importing = true)}>Import…</button
         >
-      </div>
-      <div class="meeting-chips" role="group" aria-label="Meeting settings">
-        <Chip
-          label="Sources, speech and speakers"
-          onclick={() => void onnavigate({ tab: "meetings", stage: "speech" })}
-          ><span
-            >{session.source === "both"
-              ? "Mic + system"
-              : session.source === "microphone"
-                ? "Mic"
-                : "System"}</span
-          ><span>·</span><span>{speech}</span><span
-            >· {app.snapshot.settings.meetingSpeakerLabels
-              ? "Speakers"
-              : "No speakers"}</span
-          ></Chip
-        ><span class="arrow" aria-hidden="true">→</span><Chip
-          label="Notes"
-          onclick={() => void onnavigate({ tab: "meetings", stage: "notes" })}
-          >{app.snapshot.settings.meetingNotesPreset === null
-            ? "No notes"
-            : `Notes · ${notes}`}</Chip
-        >
-      </div>
-      {#if session.dictating}<p class="field-help">
+      {/if}
+    {/snippet}
+  </PageHeader>
+{/if}
+{#if recording}
+  <RecordingBand {session} onsources={() => (sources = true)} />
+{/if}
+{#if detailOpen}
+  <MeetingPage {session} {onerroraction} />
+{:else}
+  {#if !recording}
+    <PipelineBand
+      label="Meetings status"
+      status={session.dictating ? "Dictation in progress" : ""}
+    >
+      {#snippet stages()}
+        <div class="stage-row" role="group" aria-label="Meeting settings">
+          <span class="stage-step">
+            <Chip
+              label="Sources, speech and speakers"
+              onclick={() =>
+                void onnavigate({ tab: "meetings", stage: "speech" })}
+              ><span
+                >{session.source === "both"
+                  ? "Mic + system"
+                  : session.source === "microphone"
+                    ? "Mic"
+                    : "System"}</span
+              ><span class="stage-dot">·</span><span>{speech}</span><span
+                class="stage-dot">·</span
+              ><span
+                >{app.snapshot.settings.meetingSpeakerLabels
+                  ? "Speakers"
+                  : "No speakers"}</span
+              ></Chip
+            >
+          </span>
+          <span class="stage-step">
+            <span class="stage-arrow" aria-hidden="true">→</span>
+            <Chip
+              label="Notes"
+              onclick={() =>
+                void onnavigate({ tab: "meetings", stage: "notes" })}
+              >{app.snapshot.settings.meetingNotesPreset === null
+                ? "No notes"
+                : `Notes · ${notes}`}</Chip
+            >
+          </span>
+        </div>
+      {/snippet}
+      {#if session.dictating}<p class="field-help band-note">
           Finish dictation before recording a meeting.
         </p>{/if}
-    </section>{/if}
-  <div class="meeting-search">
-    <Well
-      ><span aria-hidden="true">⌕</span><input
-        aria-label="Search meetings"
-        placeholder="Search titles, notes and transcripts"
-        bind:value={session.search}
-      />{#if session.search}<button
-          class="button small"
-          aria-label="Clear search"
-          onclick={() => (session.search = "")}>×</button
-        >{/if}</Well
-    >
+    </PipelineBand>
+  {/if}
+  <div class="list-toolbar">
+    <SearchBar
+      label="Search meetings"
+      placeholder="Search titles, notes and transcripts"
+      bind:value={session.search}
+    />
   </div>
   {#if app.snapshot.capabilities.sync}<MeetingSyncNotice />{/if}
-  {#if app.snapshot.capabilities.sync}<MeetingTrash onrestored={() => session.refresh(true)} />{/if}
-  {#if session.searching}<p role="status">
+  {#if session.searching}<p class="field-help" role="status">
       Searching meetings…
     </p>{:else if session.searchError}<p role="alert">
       {session.searchError}
     </p>{/if}
   <div bind:this={list} class="meeting-list">
-    {#each groups as group}<section aria-label={group.label}>
-        <h2 class="day-label" data-text-surface="flat">{group.label}</h2>
-        {#each group.rows as meeting (meeting.id)}<MeetingSlip
-            match={session.searchLine(meeting.id)}
-            {meeting}
-            onopen={() => void open(meeting.id)}
-            onexport={() => void session.exportRichText(meeting)}
-          />{/each}
-      </section>{/each}
-    {#if !session.loaded}<p role="status">
+    {#each groups as group (group.key)}
+      <section class="day-group" aria-label={group.label}>
+        <h2 class="day-heading" data-text-surface="flat">
+          {group.label}{#if group.date}<span>{group.date}</span>{/if}
+        </h2>
+        <div class="stock paper-card ui-card day-card notebook">
+          {#each group.rows as meeting (meeting.id)}
+            <div class="day-rule">
+              <MeetingSlip
+                match={session.searchLine(meeting.id)}
+                {meeting}
+                onopen={() => void open(meeting.id)}
+                onexport={() => void session.exportRichText(meeting)}
+              />
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/each}
+    {#if !session.loaded}<p class="field-help" role="status">
         Loading meetings…
       </p>{:else if !listedMeetings.length && !session.searching && !session.searchError}<p
         class="empty-list"
@@ -221,6 +276,9 @@
           : "Your recordings will appear here."}
       </p>{/if}
   </div>
+  {#if app.snapshot.capabilities.sync}
+    <MeetingTrash onrestored={() => session.refresh(true)} />
+  {/if}
 {/if}
 {#if sources}<MeetingSources
     {session}
@@ -237,54 +295,16 @@
   </div>{/if}
 
 <style>
-  .meetings-band {
-    padding: 25px 28px;
-    border-radius: 17px;
-    margin: 0 0 24px;
-  }
-  .idle-head {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-  .idle-head h1 {
-    font-size: 25px;
-    margin: 0;
-  }
-  .idle-dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--soft-ink);
-  }
-  .spacer {
-    flex: 1;
-  }
   .record-button {
     font-weight: 600;
   }
-  .meeting-chips {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin: 24px 0 0 23px;
-  }
-  .arrow {
-    color: var(--soft-ink);
-  }
-  .meeting-search {
-    margin: 22px 0;
-  }
-  .day-label {
-    font-size: 14px;
-    font-weight: 400;
-    color: var(--soft-ink);
-    margin: 25px 0 10px;
+  .band-note {
+    margin: 0;
   }
   .empty-list {
     color: var(--soft-ink);
-    padding: 24px 0;
+    padding: 40px 18px;
+    text-align: center;
   }
   .drop-catch {
     position: fixed;
@@ -292,22 +312,14 @@
     display: grid;
     place-items: center;
     z-index: 100;
-    background: var(--paper);
+    background-color: var(--card);
+    background-image: var(--paper-image);
+    background-size: var(--paper-tile-size);
+    background-blend-mode: multiply;
     border: 2px dashed var(--dye);
-    border-radius: 18px;
+    border-radius: var(--r-card);
     font-size: 24px;
     box-shadow: var(--raise);
     pointer-events: none;
-  }
-  @media (max-width: 760px) {
-    .idle-head {
-      flex-wrap: wrap;
-    }
-    .meeting-chips {
-      margin-left: 0;
-    }
-    .meetings-band {
-      padding: 22px;
-    }
   }
 </style>

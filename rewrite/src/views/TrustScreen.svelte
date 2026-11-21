@@ -2,6 +2,8 @@
   // Doubtful words: marks on the few words SonoJot doubts, where you pasted.
   // Kept in its own file so other Settings work does not collide with it.
   import { onMount, tick } from "svelte";
+  import SettingRow from "../components/SettingRow.svelte";
+  import SegmentedControl from "../components/quiet/SegmentedControl.svelte";
   import Toggle from "../components/Toggle.svelte";
   import { app } from "../lib/app.svelte";
   import { call } from "../lib/api";
@@ -85,117 +87,117 @@
     balanced: "Usually none to three marks in a 60-word dictation.",
     more: "Also closer calls. A few more marks.",
   } as const;
+  const sensitivityOptions = [
+    { value: "fewer" as const, label: "Fewer" },
+    { value: "balanced" as const, label: "Balanced" },
+    { value: "more" as const, label: "More" },
+  ];
+  const markOptions = [
+    { value: "band" as const, label: "Marker band" },
+    { value: "dots" as const, label: "Dotted underline" },
+  ];
+  const popoverOptions = [
+    { value: "card" as const, label: "Card" },
+    { value: "strip" as const, label: "One line" },
+  ];
+  const playOptions = [
+    { value: "hover" as const, label: "On hover" },
+    { value: "click" as const, label: "On click" },
+  ];
 </script>
 
 <section
-  class="stock paper-card quiet-panel trust-settings"
+  class="stock paper-card ui-card row-card trust-settings"
   aria-label="Doubtful words settings"
 >
-  <div class="stage-setting wide-label">
-    <span
-      >Mark doubtful words
-      <button
-        class="info"
-        type="button"
-        aria-label="About doubtful words"
-        title="After a paste, SonoJot marks the words it is unsure of in the app you pasted into. It reads back only the text it just pasted, and where it is on screen. Nothing leaves this computer."
-        >i</button
-      ></span
-    >
-    <div class="stage-control end">
-      <Toggle
-        label="Mark doubtful words"
-        checked={trust.enabled}
-        disabled={locked}
-        onchange={(enabled) => save({ enabled })}
-      />
-    </div>
-  </div>
+  <SettingRow label="Mark doubtful words" layout="action">
+    {#snippet info()}
+      <p>
+        After a paste, SonoJot highlights the few words it is unsure of right in
+        the app you pasted into. Hover or click a highlight to hear what you
+        said, pick a fix, or keep it.
+      </p>
+      <p>
+        Highlights stay on their words while you edit elsewhere and disappear
+        once resolved. When an app does not expose word positions, nothing pops
+        up. Nothing leaves this computer.
+      </p>
+    {/snippet}
+    <Toggle
+      label="Mark doubtful words"
+      checked={trust.enabled}
+      disabled={locked}
+      onchange={(enabled) => save({ enabled })}
+    />
+  </SettingRow>
   {#if trust.enabled}
-    <div class="stage-setting">
-      <span>How many</span>
-      <div class="stage-control">
-        <div class="segments" role="group" aria-label="How many marks">
-          {#each [{ value: "fewer", label: "Fewer" }, { value: "balanced", label: "Balanced" }, { value: "more", label: "More" }] as const as option}<button
-              disabled={locked}
-              aria-pressed={trust.sensitivity === option.value}
-              onclick={() => save({ sensitivity: option.value })}
-              >{option.label}</button
-            >{/each}
-        </div>
-        <small data-text-surface="flat">{howMany[trust.sensitivity]}</small>
-      </div>
-    </div>
-    <div class="stage-setting">
-      <span>Mark</span>
-      <div class="stage-control">
-        <div class="segments" role="group" aria-label="Mark style">
-          {#each [{ value: "band", label: "Marker band" }, { value: "dots", label: "Dotted underline" }] as const as option}<button
-              disabled={locked}
-              aria-pressed={trust.markStyle === option.value}
-              onclick={() => save({ markStyle: option.value })}
-              >{option.label}</button
-            >{/each}
-        </div>
-      </div>
-    </div>
-    <div class="stage-setting">
-      <span>Choices</span>
-      <div class="stage-control">
-        <div class="segments" role="group" aria-label="Choices style">
-          {#each [{ value: "card", label: "Card" }, { value: "strip", label: "One line" }] as const as option}<button
-              disabled={locked}
-              aria-pressed={trust.popoverStyle === option.value}
-              onclick={() => save({ popoverStyle: option.value })}
-              >{option.label}</button
-            >{/each}
-        </div>
-      </div>
-    </div>
-    <div class="stage-setting">
-      <span>Play the audio</span>
-      <div class="stage-control">
-        <div class="segments" role="group" aria-label="Play the audio">
-          {#each [{ value: "hover", label: "On hover" }, { value: "click", label: "On click" }] as const as option}<button
-              disabled={locked}
-              aria-pressed={trust.playOn === option.value}
-              onclick={() => save({ playOn: option.value })}
-              >{option.label}</button
-            >{/each}
-        </div>
-      </div>
-    </div>
-    <div class="stage-setting">
-      <span
-        >Next doubtful word
-        <button
-          class="info"
-          type="button"
-          aria-label="About the next-word shortcut"
-          title="Opens the first doubtful word of your last dictation, or brings its marks back. Arrow keys move between words and choices, Enter replaces, Escape closes. Also in the tray menu: Check doubtful words."
-          >i</button
-        ></span
-      >
-      <div class="stage-control">
-        <button
-          bind:this={keyButton}
-          class="key-well"
-          class:capturing
+    <SettingRow label="How many" layout="choice">
+      <div class="trust-choice">
+        <SegmentedControl
+          label="How many marks"
+          options={sensitivityOptions}
+          value={trust.sensitivity}
           disabled={locked}
-          aria-label="Change the next doubtful word shortcut"
-          onkeydown={capture}
-          onblur={() => (capturing = false)}
-          onclick={() => void listen()}
-          >{#if capturing}Press new keys…{:else if trust.nextShortcut}{#each trust.nextShortcut.split("+") as key}<kbd
-                >{key}</kbd
-              >{/each}{:else}None{/if}</button
-        >{#if capturing}<span class="field-help"
-            >{shortcutHelp} Backspace clears it.</span
-          >{/if}
+          onchange={(sensitivity) => save({ sensitivity })}
+        />
+        <small class="field-help" data-text-surface="flat"
+          >{howMany[trust.sensitivity]}</small
+        >
       </div>
-    </div>
-    <div class="stage-setting apps">
-      <span>On in these apps</span>
+    </SettingRow>
+    <SettingRow label="Mark" layout="choice">
+      <SegmentedControl
+        label="Mark style"
+        options={markOptions}
+        value={trust.markStyle}
+        disabled={locked}
+        onchange={(markStyle) => save({ markStyle })}
+      />
+    </SettingRow>
+    <SettingRow label="Choices" layout="choice">
+      <SegmentedControl
+        label="Choices style"
+        options={popoverOptions}
+        value={trust.popoverStyle}
+        disabled={locked}
+        onchange={(popoverStyle) => save({ popoverStyle })}
+      />
+    </SettingRow>
+    <SettingRow label="Play the audio" layout="choice">
+      <SegmentedControl
+        label="Play the audio"
+        options={playOptions}
+        value={trust.playOn}
+        disabled={locked}
+        onchange={(playOn) => save({ playOn })}
+      />
+    </SettingRow>
+    <SettingRow label="Next doubtful word" layout="choice">
+      {#snippet info()}
+        <p>
+          Jumps to the next doubtful word in your last dictation with the
+          keyboard. Arrow keys move between words and choices, Enter replaces, K
+          keeps, P plays the audio, Escape closes. Also in the tray menu: Check
+          doubtful words.
+        </p>
+      {/snippet}
+      <button
+        bind:this={keyButton}
+        class="key-well"
+        class:capturing
+        disabled={locked}
+        aria-label="Change the next doubtful word shortcut"
+        onkeydown={capture}
+        onblur={() => (capturing = false)}
+        onclick={() => void listen()}
+        >{#if capturing}Press new keys…{:else if trust.nextShortcut}{#each trust.nextShortcut.split("+") as key}<kbd
+              >{key}</kbd
+            >{/each}{:else}None{/if}</button
+      >{#if capturing}<span class="field-help"
+          >{shortcutHelp} Backspace clears it.</span
+        >{/if}
+    </SettingRow>
+    <SettingRow label="On in these apps" layout="choice">
       {#if apps.length}<div class="app-list">
           {#each apps as id (id)}<div class="app-row">
               <span>{appName(id)}</span><Toggle
@@ -205,36 +207,23 @@
                 onchange={(on) => setApp(id, on)}
               />
             </div>{/each}
-        </div>{:else}<small data-text-surface="flat"
+        </div>{:else}<small class="field-help" data-text-surface="flat"
           >Apps you dictate into appear here.</small
         >{/if}
-    </div>
+    </SettingRow>
   {/if}
 </section>
 
 <style>
-  .info {
-    width: 18px;
-    height: 18px;
-    margin-left: 6px;
-    border-radius: 50%;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--soft-ink);
-    font:
-      italic 600 11px/1 Stationery,
-      Georgia,
-      serif;
-    cursor: help;
-    vertical-align: 2px;
-  }
-  .apps {
-    align-items: start;
+  .trust-choice {
+    display: grid;
+    gap: 8px;
   }
   .app-list {
     display: grid;
-    gap: 6px;
-    min-width: 220px;
+    gap: 10px;
+    width: 100%;
+    max-width: 320px;
   }
   .app-row {
     display: flex;

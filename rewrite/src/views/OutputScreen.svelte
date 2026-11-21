@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import SettingRow from "../components/SettingRow.svelte";
+  import SegmentedControl from "../components/quiet/SegmentedControl.svelte";
   import Toggle from "../components/Toggle.svelte";
   import Sheet from "../components/quiet/Sheet.svelte";
   import MacPasteAccess from "../components/MacPasteAccess.svelte";
@@ -22,13 +24,18 @@
       app.busy("history-delete-all") ||
       app.busy("dictation-audio-delete"),
   );
-  const retention = $derived(
+  const retention = $derived<"nothing" | "text" | "audio">(
     settings.doNotSaveDictations
       ? "nothing"
       : settings.keepDictationAudio
         ? "audio"
         : "text",
   );
+  const retentionOptions = [
+    { value: "nothing" as const, label: "Nothing" },
+    { value: "text" as const, label: "Text" },
+    { value: "audio" as const, label: "Text and audio" },
+  ];
   async function refresh() {
     await Promise.all([
       app.perform("history-count", async () => {
@@ -88,83 +95,72 @@
 </script>
 
 <section
-  class="stock paper-card quiet-panel"
+  class="stock paper-card ui-card row-card"
   aria-label="Paste and history settings"
 >
-  <div class="stage-setting wide-label">
-    <span
-      >Paste where I was typing <small data-text-surface="flat"
-        >off: text waits on the clipboard</small
-      ></span
-    >
-    <div class="stage-control end">
-      <Toggle
-        label="Paste where I was typing"
-        checked={settings.autoPaste}
-        disabled={!app.native ||
-          !app.snapshot.capabilities.autoPaste ||
-          app.busy("settings")}
-        onchange={(autoPaste) => void app.saveSettings({ autoPaste })}
-      />
-    </div>
-  </div>
-  {#if !app.snapshot.capabilities.autoPaste}<p class="field-help">
+  <SettingRow
+    label="Paste where I was typing"
+    help="Off: text waits on the clipboard"
+    layout="action"
+  >
+    <Toggle
+      label="Paste where I was typing"
+      checked={settings.autoPaste}
+      disabled={!app.native ||
+        !app.snapshot.capabilities.autoPaste ||
+        app.busy("settings")}
+      onchange={(autoPaste) => void app.saveSettings({ autoPaste })}
+    />
+  </SettingRow>
+  {#if !app.snapshot.capabilities.autoPaste}<p class="field-help row-note">
       Automatic paste is unavailable in this environment.
     </p>{/if}
   {#if app.native && app.snapshot.capabilities.platform === "macos"}<MacPasteAccess
       variant="settings"
     />{/if}
-  <div class="stage-setting wide-label">
-    <span>Ring at the text cursor</span>
-    <div class="stage-control end">
-      <Toggle
-        label="Ring at the text cursor"
-        checked={settings.cursorIndicator}
-        disabled={!app.native || app.busy("settings")}
-        onchange={(cursorIndicator) =>
-          void app.saveSettings({ cursorIndicator })}
-      />
-    </div>
-  </div>
-  <div class="stage-setting">
-    <span>Keep</span>
-    <div class="stage-control">
-      <div class="segments" role="group" aria-label="Keep dictations">
-        {#each [{ value: "nothing", label: "Nothing" }, { value: "text", label: "Text" }, { value: "audio", label: "Text and audio" }] as option}<button
-            disabled={locked}
-            aria-pressed={retention === option.value}
-            onclick={() =>
-              void app.saveSettings({
-                doNotSaveDictations: option.value === "nothing",
-                keepDictationAudio: option.value === "audio",
-              })}>{option.label}</button
-          >{/each}
-      </div>
-      <small data-text-surface="flat"
-        >{count === null ? "Count unavailable" : `${count} kept`} · audio 30 days</small
-      >
-    </div>
-  </div>
-  {#if settings.doNotSaveDictations}<p class="field-help">
+  <SettingRow label="Ring at the text cursor" layout="action">
+    <Toggle
+      label="Ring at the text cursor"
+      checked={settings.cursorIndicator}
+      disabled={!app.native || app.busy("settings")}
+      onchange={(cursorIndicator) =>
+        void app.saveSettings({ cursorIndicator })}
+    />
+  </SettingRow>
+  <SettingRow
+    label="Keep"
+    help={`${count === null ? "Count unavailable" : `${count} kept`} · audio 30 days`}
+    layout="choice"
+  >
+    <SegmentedControl
+      label="Keep dictations"
+      options={retentionOptions}
+      value={retention}
+      disabled={locked}
+      onchange={(option) =>
+        void app.saveSettings({
+          doNotSaveDictations: option === "nothing",
+          keepDictationAudio: option === "audio",
+        })}
+    />
+  </SettingRow>
+  {#if settings.doNotSaveDictations}<p class="field-help row-note">
       New dictations are not saved. Existing text stays until you delete it.
       Copy last remains available until the next dictation or app exit.
     </p>{/if}
-  {#if active}<p class="field-help">
+  {#if active}<p class="field-help row-note">
       Finish the current dictation to change retention.
     </p>{/if}
-  <div class="stage-setting wide-label">
-    <span>Delete history or audio</span>
-    <div class="stage-control end">
-      <button
-        class="button small"
-        disabled={locked}
-        onclick={() => {
-          deleting = true;
-          void refresh();
-        }}>Delete…</button
-      >
-    </div>
-  </div>
+  <SettingRow label="Delete history or audio" layout="action">
+    <button
+      class="button small"
+      disabled={locked}
+      onclick={() => {
+        deleting = true;
+        void refresh();
+      }}>Delete…</button
+    >
+  </SettingRow>
 </section>
 {#if deleting}<Sheet
     title="Delete"
@@ -176,28 +172,35 @@
         deleting = false;
     }}
   >
-    <div class="stage-setting wide-label">
-      <span
-        >All dictations <small>{count ?? "—"} · words you added stay</small
-        ></span
-      ><button
+    <SettingRow
+      label="All dictations"
+      help={`${count ?? "—"} · words you added stay`}
+      layout="action"
+    >
+      <button
         class="button danger small"
         disabled={locked || !count || app.busy("history-count")}
         onclick={() => void removeAll()}>Delete dictations</button
       >
-    </div>
-    <div class="stage-setting wide-label">
-      <span
-        >All kept audio <small
-          >{audio
-            ? `${audio.count} recordings · ${formatBytes(audio.bytes)}`
-            : "Usage unavailable"}</small
-        ></span
-      ><button
+    </SettingRow>
+    <SettingRow
+      label="All kept audio"
+      help={audio
+        ? `${audio.count} recordings · ${formatBytes(audio.bytes)}`
+        : "Usage unavailable"}
+      layout="action"
+    >
+      <button
         class="button danger small"
         disabled={locked || !audio?.count}
         onclick={() => void removeAudio()}>Delete audio</button
       >
-    </div>
+    </SettingRow>
     {#if app.error}<p role="alert">{app.error}</p>{/if}
   </Sheet>{/if}
+
+<style>
+  .row-note {
+    margin: -6px 0 14px;
+  }
+</style>

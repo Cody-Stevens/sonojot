@@ -80,7 +80,7 @@ pub fn show_settings_page(app: &AppHandle, page: &str) -> Result<(), String> {
         .transparent(true)
         .background_color(Color(0, 0, 0, 0))
         .shadow(false)
-        .inner_size(1220.0, 860.0)
+        .inner_size(1060.0, 760.0)
         .min_inner_size(740.0, 540.0)
         .center()
         .build()
@@ -115,13 +115,13 @@ pub fn set_screen_tab(
         // The hidden window keeps a zero region and passthrough; the footprint
         // stays virtual so discovery works before the overlay exists.
         if let Some(window) = app.get_webview_window("overlay") {
-            // tao panics on a GTK window that was never shown; a hidden
-            // Linux window takes no input anyway.
-            if !cfg!(target_os = "linux") || window.is_visible().unwrap_or(false) {
-                window
-                    .set_ignore_cursor_events(true)
-                    .map_err(|e| e.to_string())?;
-            }
+            // On Linux the input shape alone decides where the tab takes input:
+            // tao's click-through toggle replaces that shape (and panics on a
+            // GTK window that was never shown).
+            #[cfg(not(target_os = "linux"))]
+            window
+                .set_ignore_cursor_events(true)
+                .map_err(|e| e.to_string())?;
             window.hide().map_err(|e| e.to_string())?;
             configure_tab_window(&window, false)?;
             apply_tab_region(&window, 0.0)?;
@@ -150,10 +150,16 @@ pub fn set_screen_tab(
     place_screen_tab(&window)?;
     let start = TAB_GEOMETRY.lock().map_err(|e| e.to_string())?.height;
     apply_tab_region(&window, start)?;
+    // On GTK, turning click-through off resets the input shape to the whole
+    // window, so the tab's transparent area would swallow clicks and drags
+    // meant for the windows under it. Linux keeps the shape instead.
+    #[cfg(not(target_os = "linux"))]
     window
         .set_ignore_cursor_events(false)
         .map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    apply_tab_region(&window, start)?;
     // Commit visibility only after native show succeeds. Otherwise a transient
     // failure would leave a hidden tab marked visible and disable all retries.
     {
@@ -344,7 +350,7 @@ fn poll_cursor(app: &AppHandle) -> Option<(i32, i32)> {
 
 /// Wayland clients cannot position their windows; on Hyprland the compositor
 /// moves them. Coordinates are Tauri's physical pixels.
-fn move_window(window: &tauri::WebviewWindow, x: i32, y: i32) -> Result<(), String> {
+pub(crate) fn move_window(window: &tauri::WebviewWindow, x: i32, y: i32) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     if crate::hyprland::active() {
         let scale = window.scale_factor().map_err(|e| e.to_string())?;
@@ -428,6 +434,11 @@ fn ensure_edge_watcher(app: &AppHandle) -> Result<(), String> {
             let mut monitors = Vec::new();
             let mut refreshed = None;
             let mut placement_failed = false;
+            // A bar that hides itself has just slid in or out (Hyprland only):
+            // place the tab again now, and once more after the slide settles.
+            let mut bar_epoch = 0u64;
+            let mut bar_settle: Option<Instant> = None;
+            let mut edge_pushed = false;
             tab_diagnostic("tab-edge-watcher-started", 0, EDGE_POLL.as_millis() as u64);
             loop {
                 std::thread::sleep(EDGE_POLL);
@@ -438,6 +449,20 @@ fn ensure_edge_watcher(app: &AppHandle) -> Result<(), String> {
                         tab_diagnostic("tab-edge-poll-resumed", gap.as_millis() as u64, 0);
                     }
                 }
+                #[cfg(target_os = "linux")]
+                {
+                    let epoch = crate::hyprland::bar_epoch();
+                    if epoch != bar_epoch {
+                        bar_epoch = epoch;
+                        refreshed = None;
+                        bar_settle = Some(now + Duration::from_millis(250));
+                    } else if bar_settle.is_some_and(|at| now >= at) {
+                        bar_settle = None;
+                        refreshed = None;
+                    }
+                }
+                #[cfg(not(target_os = "linux"))]
+                let _ = (&mut bar_epoch, &mut bar_settle);
                 if refreshed.is_none_or(|at| now.duration_since(at) >= MONITOR_POLL) {
                     refreshed = Some(now);
                     // Empty/error results deliberately invalidate the old hot zone.
@@ -463,7 +488,7 @@ fn ensure_edge_watcher(app: &AppHandle) -> Result<(), String> {
                     }
                 }
                 let cursor = poll_cursor(&app);
-                let (visible, temporary_since, revealed, saved, generation) = {
+                let (visible, temporary_since, revealed, saved, generation, height) = {
                     let Ok(geometry) = TAB_GEOMETRY.lock() else {
                         continue;
                     };
@@ -473,6 +498,7 @@ fn ensure_edge_watcher(app: &AppHandle) -> Result<(), String> {
                         revealed_rect(geometry.placement, geometry.height),
                         geometry.monitor.clone(),
                         TAB_GENERATION.load(Ordering::Acquire),
+                        geometry.height,
                     )
                 };
                 let footprint =
@@ -480,6 +506,23 @@ fn ensure_edge_watcher(app: &AppHandle) -> Result<(), String> {
                 let occupied = cursor
                     .zip(footprint)
                     .is_some_and(|(point, rect)| inside(rect, point));
+                // Linux: a desktop bar sits between the screen edge and the lip,
+                // so pushing against the edge opens a tab that shows its lip.
+                // Once per push: the pointer must leave the edge to fire again.
+                #[cfg(target_os = "linux")]
+                {
+                    let lip_only = visible && temporary_since.is_none() && height <= LIP_HEIGHT + 0.5;
+                    if occupied && !edge_pushed && lip_only {
+                        if let Some(runtime) = app.try_state::<Arc<Runtime>>() {
+                            if runtime.inner().expand_tab_from_edge(&app).is_err() {
+                                tab_diagnostic("tab-edge-expand-failed", 0, generation);
+                            }
+                        }
+                    }
+                    edge_pushed = occupied;
+                }
+                #[cfg(not(target_os = "linux"))]
+                let _ = (&mut edge_pushed, height);
                 if reveal.tick(visible, generation, footprint, occupied, now) {
                     tab_diagnostic(
                         "tab-edge-trigger",
@@ -524,7 +567,10 @@ fn create_screen_tab(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     )
     .title("SonoJot screen tab")
     .inner_size(TAB_WIDTH, TAB_WINDOW_HEIGHT)
-    .resizable(false)
+    // A fixed-size GTK window takes WebKit's natural 200 px height, so on
+    // Linux the tab stays resizable (the Hyprland rule pins its size) and its
+    // transparent area no longer covers the top of the windows beneath.
+    .resizable(cfg!(not(target_os = "linux")))
     .decorations(false)
     .transparent(true)
     .background_color(Color(0, 0, 0, 0))
@@ -651,9 +697,13 @@ pub async fn drag_screen_tab(window: tauri::WebviewWindow) -> Result<(), String>
     if window.label() != "overlay" {
         return Err("Drag the screen tab using its logo.".into());
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
-        return Err("Screen-tab monitor dragging is currently available on Windows.".into());
+        return drag_screen_tab_linux(&window).await;
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        return Err("Screen-tab monitor dragging is currently available on Windows and Linux.".into());
     }
     #[cfg(windows)]
     {
@@ -702,6 +752,66 @@ pub async fn drag_screen_tab(window: tauri::WebviewWindow) -> Result<(), String>
         let placed = place_screen_tab(&window);
         result.and(placed)
     }
+}
+
+/// The tab's pointer-up while a Linux drag runs: Wayland reports no global
+/// button state, so the WebView ends the drag it started.
+static TAB_DRAG_RELEASED: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+pub fn end_screen_tab_drag() {
+    TAB_DRAG_RELEASED.store(true, Ordering::Release);
+}
+
+/// Follow the pointer through Hyprland (layout coordinates) until the tab's
+/// pointer-up, then snap to the display under the pointer.
+#[cfg(target_os = "linux")]
+async fn drag_screen_tab_linux(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if !crate::hyprland::active() {
+        return Err("Screen-tab monitor dragging on Linux needs Hyprland.".into());
+    }
+    if TAB_DRAGGING.swap(true, Ordering::AcqRel) {
+        return Ok(());
+    }
+    struct DragGuard;
+    impl Drop for DragGuard {
+        fn drop(&mut self) {
+            TAB_DRAGGING.store(false, Ordering::Release);
+        }
+    }
+    let guard = DragGuard;
+    TAB_DRAG_RELEASED.store(false, Ordering::Release);
+    TAB_GENERATION.fetch_add(1, Ordering::AcqRel);
+    let title = window.title().map_err(|e| e.to_string())?;
+    let start = crate::hyprland::cursor_position().ok_or("Hyprland did not report the pointer.")?;
+    let origin = crate::hyprland::window_position(&title).ok_or("The screen tab is not on screen.")?;
+    let began = Instant::now();
+    tab_diagnostic("tab-drag-started", 0, 0);
+    let mut last = start;
+    while !TAB_DRAG_RELEASED.load(Ordering::Acquire) && began.elapsed() < Duration::from_secs(60) {
+        if !TAB_GEOMETRY.lock().map_err(|e| e.to_string())?.visible {
+            break;
+        }
+        if let Some(point) = crate::hyprland::cursor_position() {
+            if point != last {
+                last = point;
+                crate::hyprland::move_window(&title, origin.0 + point.0 - start.0, origin.1 + point.1 - start.1)?;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(16)).await;
+    }
+    tab_diagnostic(
+        "tab-drag-ended",
+        began.elapsed().as_millis() as u64,
+        u64::from(TAB_DRAG_RELEASED.load(Ordering::Acquire)),
+    );
+    {
+        let mut geometry = TAB_GEOMETRY.lock().map_err(|e| e.to_string())?;
+        geometry.monitor = None;
+        geometry.placement = None;
+    }
+    drop(guard);
+    place_screen_tab(window)
 }
 
 fn reveal_screen_tab(window: tauri::WebviewWindow, target: f64) {

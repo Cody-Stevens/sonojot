@@ -1,5 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Icon from "../components/Icon.svelte";
+  import SettingRow from "../components/SettingRow.svelte";
+  import SegmentedControl from "../components/quiet/SegmentedControl.svelte";
+  import Disclosure from "../components/quiet/Disclosure.svelte";
   import Sheet from "../components/quiet/Sheet.svelte";
   import LocalCleanupSheet from "../components/quiet/LocalCleanupSheet.svelte";
   import MemoryBar from "../components/quiet/MemoryBar.svelte";
@@ -81,6 +85,10 @@
     },
     { value: "clean", label: "Clean", after: "The meeting is at 3." },
   ];
+  const onlineCostText = $derived.by(() => {
+    const cost = textCost(online);
+    return cost === "Price unavailable" ? "Price unknown" : cost;
+  });
   onMount(() => {
     const release = library.acquire();
     void ai.refresh();
@@ -96,35 +104,38 @@
   });
 </script>
 
-<section class="stock paper-card quiet-panel" aria-label="Cleanup settings">
-  <div class="stage-setting">
-    <span>Level</span>
-    <div class="stage-control level-control">
-      <div class="segments" role="group" aria-label="Cleanup level">
-        {#each levels as level}<button
-            disabled={locked}
-            aria-pressed={settings.cleanupMode === level.value}
-            onclick={() => void app.saveSettings({ cleanupMode: level.value })}
-            >{level.label}</button
-          >{/each}
+<div class="cleanup-page" aria-label="Cleanup settings">
+  <section class="stock paper-card ui-card row-card">
+    <SettingRow label="Level" layout="choice">
+      <div class="level-control">
+        <SegmentedControl
+          label="Cleanup level"
+          options={levels}
+          value={settings.cleanupMode}
+          disabled={locked}
+          onchange={(cleanupMode) => void app.saveSettings({ cleanupMode })}
+        />
+        <div class="cleanup-example" aria-label="Cleanup example">
+          <span
+            >{#if settings.cleanupMode === "clean"}<s>um so</s> the <s>the</s> meeting
+              is at three{:else}um so the the meeting is at three{/if}</span
+          ><span aria-hidden="true">→</span><span
+            >{levels.find((level) => level.value === settings.cleanupMode)
+              ?.after}</span
+          >
+        </div>
       </div>
-      <div class="cleanup-example" aria-label="Cleanup example">
-        <span
-          >{#if settings.cleanupMode === "clean"}<s>um so</s> the <s>the</s> meeting
-            is at three{:else}um so the the meeting is at three{/if}</span
-        ><span aria-hidden="true">→</span><span
-          >{levels.find((level) => level.value === settings.cleanupMode)
-            ?.after}</span
-        >
-      </div>
-    </div>
-  </div>
-  {#if app.snapshot.capabilities.platform !== "linux"}<div
-      class="stage-setting"
-    >
-      <span class="label-with-info"
-        >Punctuation<InfoTip label="About Punctuation"
-          ><p>
+    </SettingRow>
+    {#if app.snapshot.capabilities.platform !== "linux"}
+      <SettingRow
+        label="Punctuation"
+        layout="action"
+        help={!settings.sonojotPunctuation
+          ? "Off · basic rules only"
+          : (punctuation?.name ?? "Basic rules until installed")}
+      >
+        {#snippet info()}
+          <p>
             Adds punctuation, capitals and sentence breaks on this computer,
             right after you stop. In Clean, SonoJot Cleanup v4 also removes
             fillers, repeated words and restarts.
@@ -132,29 +143,26 @@
           <p>
             It does not fix misheard words or grammar; that is what a
             proofreader does.
-          </p></InfoTip
-        ></span
-      >
-      <div class="stage-control punctuation-control">
-        <small
-          >{!settings.sonojotPunctuation
-            ? "Off · basic rules only"
-            : (punctuation?.name ?? "Basic rules until installed")}</small
-        >{#if !punctuation && settings.sonojotPunctuation}<button
+          </p>
+        {/snippet}
+        {#if !punctuation && settings.sonojotPunctuation}<button
             class="button small"
             aria-label="Install punctuation model"
             onclick={() => onmanage("punctuation")}>Install</button
-          >{/if}<Toggle
+          >{/if}
+        <Toggle
           label="Punctuation model"
           checked={settings.sonojotPunctuation}
           disabled={locked || settings.cleanupMode === "original"}
           onchange={(sonojotPunctuation) =>
             void app.saveSettings({ sonojotPunctuation })}
         />
-      </div>
-    </div>{/if}
-  <div class="stage-setting cleaner-setting">
-    <span class="label-with-info"
+      </SettingRow>
+    {/if}
+  </section>
+
+  <div class="section-heading">
+    <span class="label-tail"
       >Proofreader<InfoTip label="About Proofreader"
         ><p>
           An optional writing model that reads your words after punctuation. It
@@ -166,181 +174,194 @@
         </p></InfoTip
       ></span
     >
-    <div class="cleaners">
-      <button
-        class="quiet-option"
-        class:chosen={choice.kind === "off"}
-        aria-pressed={choice.kind === "off"}
-        disabled={locked}
-        onclick={() => void app.saveSettings(cleanupPatch({ kind: "off" }))}
-        ><span class="choice-dot" aria-hidden="true"></span><span
-          class="option-copy"
-          >None <small class="quiet-tag">RECOMMENDED</small><small
-            >Fastest · nothing extra to load</small
-          ></span
-        ><MemoryBar
-          bytes={0}
-          total={library.data?.hardware.totalRamBytes ?? null}
-        /></button
-      >
-      <button
-        class="quiet-option"
-        class:chosen={choice.kind === "local" || choice.kind === "sonojot"}
-        aria-pressed={choice.kind === "local" || choice.kind === "sonojot"}
-        disabled={locked}
-        aria-label="Choose a proofreader on this computer"
-        onclick={() => (sheet = "local")}
-        ><span class="choice-dot" aria-hidden="true"></span><span
-          class="option-copy"
-          >{choice.kind === "sonojot"
-            ? "SonoJot proofreader"
-            : (local?.name ?? "On this computer")}
-          <small class="quiet-tag amber"
-            >{choice.kind === "sonojot" || local?.id === SMART_CLEANUP_MODEL
-              ? "EXPERIMENT"
-              : "NOT RECOMMENDED"}</small
-          ><small
-            >This computer{local && choice.kind !== "sonojot"
-              ? ` · ${formatBytes(local.diskBytes)} ${installed(local) ? "on disk" : "download"}`
-              : ""}</small
-          ></span
-        ><MemoryBar
-          bytes={choice.kind === "sonojot"
-            ? null
-            : (local?.ramMaxBytes ?? null)}
-          total={library.data?.hardware.totalRamBytes ?? null}
-        /><span aria-hidden="true">›</span></button
-      >
-      <button
-        class="quiet-option"
-        class:chosen={choice.kind === "online"}
-        aria-pressed={choice.kind === "online"}
-        disabled={locked}
-        aria-label="Choose an online proofreader"
-        onclick={() => openRouter.open("cleanup", onlineId)}
-        ><span class="choice-dot" aria-hidden="true"></span><span
-          class="option-copy"
-          >{online?.name ?? onlineCleanupName(onlineId)}
-          {#if ai.data?.connected}<small class="quiet-tag">CONNECTED</small
-            >{/if}<small>Online · OpenRouter · {textCost(online)}</small></span
-        ><small class="online-memory">Online · no model in RAM</small><span
-          aria-hidden="true">›</span
-        ></button
-      >
-    </div>
   </div>
-  <button class="more-door" onclick={() => (sheet = "more")}
-    ><span>Advanced</span><small>Written form · shape by type</small
-    ><span aria-hidden="true">›</span></button
+  <section
+    class="stock paper-card ui-card option-card option-list"
+    role="group"
+    aria-label="Proofreader"
   >
-</section>
+    <button
+      class="quiet-option"
+      class:chosen={choice.kind === "off"}
+      aria-pressed={choice.kind === "off"}
+      disabled={locked}
+      onclick={() => void app.saveSettings(cleanupPatch({ kind: "off" }))}
+      ><span class="choice-dot" aria-hidden="true"></span><span
+        class="option-copy"
+        ><span class="option-title"
+          ><strong data-text-surface="emboss">None</strong><small
+            class="quiet-tag">RECOMMENDED</small
+          ></span
+        ><small>Fastest · nothing extra to load</small></span
+      ><MemoryBar
+        bytes={0}
+        total={library.data?.hardware.totalRamBytes ?? null}
+      /><span class="option-chevron spacer" aria-hidden="true"></span></button
+    >
+    <button
+      class="quiet-option"
+      class:chosen={choice.kind === "local" || choice.kind === "sonojot"}
+      aria-pressed={choice.kind === "local" || choice.kind === "sonojot"}
+      disabled={locked}
+      aria-label="Choose a proofreader on this computer"
+      onclick={() => (sheet = "local")}
+      ><span class="choice-dot" aria-hidden="true"></span><span
+        class="option-copy"
+        ><span class="option-title"
+          ><strong data-text-surface="emboss"
+            >{choice.kind === "sonojot"
+              ? "SonoJot proofreader"
+              : (local?.name ?? "On this computer")}</strong
+          >{#if choice.kind === "sonojot" || local?.id === SMART_CLEANUP_MODEL}<small
+              class="quiet-tag amber">Experiment</small
+            >{/if}</span
+        ><small
+          >This computer{local && choice.kind !== "sonojot"
+            ? ` · ${formatBytes(local.diskBytes)} ${installed(local) ? "on disk" : "download"}`
+            : ""}</small
+        ></span
+      ><MemoryBar
+        bytes={choice.kind === "sonojot"
+          ? null
+          : (local?.ramMaxBytes ?? null)}
+        total={library.data?.hardware.totalRamBytes ?? null}
+      /><span class="option-chevron" aria-hidden="true"
+        ><Icon name="chevron-right" size={15} /></span
+      ></button
+    >
+    <button
+      class="quiet-option"
+      class:chosen={choice.kind === "online"}
+      aria-pressed={choice.kind === "online"}
+      disabled={locked}
+      aria-label="Choose an online proofreader"
+      onclick={() => openRouter.open("cleanup", onlineId)}
+      ><span class="choice-dot" aria-hidden="true"></span><span
+        class="option-copy"
+        ><span class="option-title"
+          ><strong data-text-surface="emboss"
+            >{online?.name ?? onlineCleanupName(onlineId)}</strong
+          >{#if ai.data?.connected}<small class="quiet-tag">Connected</small
+            >{/if}</span
+        ><small>Online · OpenRouter</small></span
+      ><span class="option-meta">{onlineCostText}</span><span
+        class="option-chevron"
+        aria-hidden="true"><Icon name="chevron-right" size={15} /></span
+      ></button
+    >
+  </section>
+
+  <section class="stock paper-card ui-card row-card">
+    <button class="settings-link" onclick={() => (sheet = "more")}
+      ><strong data-text-surface="emboss">Advanced</strong><span
+        class="door-detail"
+        data-text-surface="flat">Written form · shape by type</span
+      ><span class="door-chevron" aria-hidden="true"
+        ><Icon name="chevron-right" size={15} /></span
+      ></button
+    >
+  </section>
+</div>
 
 {#if sheet === "local"}<LocalCleanupSheet onclose={() => (sheet = null)} />{/if}
 {#if sheet === "more"}<Sheet title="Advanced" onclose={() => (sheet = null)}>
     <p class="sheet-context" data-text-surface="flat">Cleanup</p>
-    <div class="stage-setting wide-label">
-      <span>Written form<small>three → 3 · gpt six → GPT-6</small></span><Toggle
+    <SettingRow
+      label="Written form"
+      help="three → 3 · gpt six → GPT-6"
+      layout="action"
+    >
+      <Toggle
         label="Written form"
         checked={settings.writtenForm}
         disabled={locked || settings.cleanupMode !== "clean"}
         onchange={(writtenForm) => void app.saveSettings({ writtenForm })}
       />
-    </div>
-    <div class="stage-setting wide-label">
-      <span
-        >Shape by type <small class="quiet-tag amber">EXPERIMENT</small><small
-          >{layoutUnavailable ?? "Emails, lists and steps"}</small
-        ></span
-      ><Toggle
+    </SettingRow>
+    <SettingRow
+      label="Shape by type"
+      help={layoutUnavailable ?? "Emails, lists and steps"}
+      layout="action"
+    >
+      {#snippet labelExtra()}<small class="quiet-tag amber">Experiment</small
+        >{/snippet}
+      <Toggle
         label="Shape by type"
         checked={settings.smartLayout}
         disabled={locked || !!layoutUnavailable}
         onchange={(smartLayout) => void app.saveSettings({ smartLayout })}
       />
-    </div>
-    {#if settings.smartLayout}<div class="stage-setting wide-label">
-        <span
-          >Use the app I'm in <small class="quiet-tag amber">EXPERIMENT</small
-          ><small>Outlook → email</small></span
-        ><Toggle
+    </SettingRow>
+    {#if settings.smartLayout}
+      <SettingRow
+        label="Use the app I'm in"
+        help="Outlook → email"
+        layout="action"
+      >
+        {#snippet labelExtra()}<small class="quiet-tag amber">Experiment</small
+          >{/snippet}
+        <Toggle
           label="Use the app I'm in"
           checked={settings.smartLayoutAppHint}
           disabled={locked || !!layoutUnavailable}
           onchange={(smartLayoutAppHint) =>
             void app.saveSettings({ smartLayoutAppHint })}
         />
-      </div>{/if}
-    {#if app.snapshot.capabilities.platform !== "linux"}<details
-        class="license spaced"
-      >
-        <summary>Punctuation details</summary><PunctuationDetails
-          id={punctuation?.id ?? PUNCTUATION_MODEL}
-          inline
-        />
-      </details>{/if}
+      </SettingRow>
+    {/if}
+    {#if app.snapshot.capabilities.platform !== "linux"}
+      <div class="sheet-fold">
+        <Disclosure title="Punctuation details">
+          <PunctuationDetails id={punctuation?.id ?? PUNCTUATION_MODEL} inline />
+        </Disclosure>
+      </div>
+    {/if}
   </Sheet>{/if}
 
 <style>
   .level-control {
-    display: block;
-  }
-  .level-control :global(.segments) {
-    width: fit-content;
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+    width: 100%;
   }
   .cleanup-example {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px 10px;
     font-size: 15px;
-    margin: 16px 0 4px;
+    line-height: 1.45;
   }
   .cleanup-example > span:first-child {
     color: var(--soft-ink);
   }
-  .cleaner-setting {
-    align-items: start;
-  }
-  .cleaner-setting > span {
-    padding-top: 14px;
-  }
-  .cleaners {
-    min-width: 0;
-  }
-  .punctuation-control {
-    justify-content: flex-end;
-  }
-  .punctuation-control small {
-    flex: 1;
-  }
-  .online-memory {
-    width: 155px;
-    flex: 0 0 155px;
-    font-size: 13px;
-  }
-  .more-door {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    padding: 20px 0;
-    color: var(--ink);
-    border: 0;
-    border-top: 1px solid var(--line);
-    background: transparent;
-    text-align: left;
-    font-size: 18px;
-  }
-  .more-door small {
-    flex: 1;
+  .section-heading {
+    margin: 22px 0 8px 18px;
+    font-size: 15px;
+    font-weight: 600;
     color: var(--soft-ink);
+  }
+  .label-tail {
+    white-space: nowrap;
+  }
+  .option-chevron {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    color: var(--soft-ink);
+    flex: 0 0 16px;
+  }
+  .option-chevron.spacer {
+    visibility: hidden;
   }
   .sheet-context {
-    margin-top: -8px;
+    margin: -8px 0 8px;
+    font-size: 14px;
     color: var(--soft-ink);
   }
-  .wide-label > span > small:not(.quiet-tag) {
-    display: block;
+  .sheet-fold {
+    border-top: 1px solid var(--line);
     margin-top: 4px;
   }
 </style>

@@ -5208,7 +5208,7 @@ dependencies = [
 
 [[package]]
 name = "sonojot"
-version = "0.28.9"
+version = "0.28.10"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -5217,6 +5217,7 @@ dependencies = [
  "core-foundation",
  "coreaudio-rs",
  "cpal",
+ "dispatch2",
  "flacenc",
  "flate2",
  "genpdf",
@@ -5230,6 +5231,7 @@ dependencies = [
  "libloading 0.8.9",
  "nnnoiseless",
  "objc2",
+ "objc2-foundation",
  "ort",
  "pulldown-cmark",
  "rand 0.8.5",
@@ -5261,6 +5263,7 @@ dependencies = [
  "windows 0.62.2",
  "windows-sys 0.61.2",
  "winreg",
+ "zbus",
  "zeroize",
  "zip",
 ]

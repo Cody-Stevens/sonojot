@@ -225,7 +225,7 @@ pub async fn save_settings(
         if shortcut_changed {
             register_shortcut(&app, &settings.hotkey, settings.hotkey_mode)?;
         }
-        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        let executable = crate::executable::installed().map_err(|e| e.to_string())?;
         if old.launch_at_login != settings.launch_at_login {
             if let Err(error) = platform::set_startup_enabled(settings.launch_at_login, &executable)
             {
@@ -590,6 +590,8 @@ struct MeetingConsentCopy {
     system: String,
     system_permission: String,
     system_unsupported: String,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    system_unsupported_linux: String,
     system_only_blocked: String,
     title: String,
     got_it: String,
@@ -599,8 +601,15 @@ struct MeetingConsentCopy {
 }
 
 fn meeting_consent_copy() -> Result<MeetingConsentCopy, String> {
-    serde_json::from_str(include_str!("../../src/lib/meeting-source-copy.json"))
-        .map_err(|error| format!("The recording reminder could not be read: {error}"))
+    #[allow(unused_mut)]
+    let mut copy: MeetingConsentCopy =
+        serde_json::from_str(include_str!("../../src/lib/meeting-source-copy.json"))
+            .map_err(|error| format!("The recording reminder could not be read: {error}"))?;
+    #[cfg(target_os = "linux")]
+    {
+        copy.system_unsupported = copy.system_unsupported_linux.clone();
+    }
+    Ok(copy)
 }
 
 fn consent_meeting_source<'a>(
@@ -1281,6 +1290,66 @@ pub fn save_vocabulary(
 ) -> Result<Vec<VocabularyEntry>, String> {
     state.store.save_vocabulary(&entries)
 }
+#[tauri::command]
+pub fn get_words_overview(
+    state: AppStateHandle<'_>,
+) -> Result<crate::lexicon::WordsOverview, String> {
+    state.store.get_words_overview()
+}
+#[tauri::command]
+pub fn confirm_learned_word(
+    state: AppStateHandle<'_>,
+    id: String,
+    expected_revision: Option<u64>,
+    heard: Option<String>,
+    written: String,
+    context: Option<Vec<String>>,
+    kind: Option<crate::domain::VocabularyKind>,
+) -> Result<crate::store::LexiconMutationResult, String> {
+    state.store.confirm_learned_word(
+        &id,
+        expected_revision,
+        heard,
+        written,
+        context.unwrap_or_default(),
+        kind.unwrap_or(crate::domain::VocabularyKind::Replace),
+    )
+}
+#[tauri::command]
+pub fn ignore_learned_word(
+    state: AppStateHandle<'_>,
+    id: String,
+    expected_revision: Option<u64>,
+    target: Option<crate::lexicon::IgnoreTarget>,
+) -> Result<crate::store::LexiconMutationResult, String> {
+    state.store.ignore_learned_word(
+        &id,
+        expected_revision,
+        target.unwrap_or(crate::lexicon::IgnoreTarget::Mapping),
+    )
+}
+#[tauri::command]
+pub fn confirm_spelling_cluster(
+    state: AppStateHandle<'_>,
+    chosen: String,
+    variants: Vec<String>,
+) -> Result<crate::store::LexiconMutationResult, String> {
+    state.store.confirm_spelling_cluster(&chosen, &variants)
+}
+#[tauri::command]
+pub fn ignore_spelling_cluster(
+    state: AppStateHandle<'_>,
+    variants: Vec<String>,
+) -> Result<crate::store::LexiconMutationResult, String> {
+    state.store.ignore_spelling_cluster(&variants)
+}
+#[tauri::command]
+pub fn undo_lexicon_action(
+    state: AppStateHandle<'_>,
+    token: String,
+) -> Result<crate::lexicon::WordsOverview, String> {
+    state.store.undo_lexicon_action(&token)
+}
 
 #[tauri::command]
 pub fn list_dictations(
@@ -1304,13 +1373,17 @@ pub async fn export_dictation(state: AppStateHandle<'_>, id: String, path: Strin
 
 #[tauri::command]
 pub async fn copy_shortcut_command() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if let Some(image) = crate::executable::appimage() {
+        return platform::copy_text(&format!("{} --shortcut press", crate::hyprland::shell_quote(&image))).await;
+    }
     platform::copy_text(&format!("{} --shortcut press", crate::flavor::SLUG)).await
 }
 
 #[tauri::command]
 pub fn get_cli_path() -> Result<String, String> {
-    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-    Ok(crate::agent_integration::cli_beside(&executable).to_string_lossy().into_owned())
+    Ok(crate::agent_integration::cli_path(&crate::cli_protocol::data_dir())?
+        .to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -1384,8 +1457,16 @@ pub fn learn_correction(
     id: String,
     heard: String,
     written: String,
+    context: Option<Vec<String>>,
+    kind: Option<crate::domain::VocabularyKind>,
 ) -> Result<Vec<VocabularyEntry>, String> {
-    state.store.learn_correction(&id, &heard, &written)
+    state.store.learn_correction_with_options(
+        &id,
+        &heard,
+        &written,
+        context.unwrap_or_default(),
+        kind.unwrap_or(crate::domain::VocabularyKind::Replace),
+    )
 }
 
 #[tauri::command]

@@ -1,11 +1,33 @@
-import type { UpdateStatus } from "./protocol";
+import type { PackageManager, UpdateStatus } from "./protocol";
 import { formatBytes } from "./model-library";
 
 function channelName(channel: "stable" | "nightly"): string {
   return channel === "nightly" ? "Nightly" : "Stable";
 }
 
+/** A Linux package format as people name it, with its article. */
+function packageName(manager: PackageManager): string {
+  return manager === "dpkg"
+    ? "a Debian package"
+    : manager === "rpm"
+      ? "an RPM package"
+      : "a pacman package";
+}
+
+/** A Linux package manager installs this update, asking for a password. */
+function packageInstall(status: UpdateStatus): boolean {
+  return status.state === "ready" && !!status.package;
+}
+
+/** Shown while the update installs and SonoJot restarts. */
 export function updateRestartLabel(status: UpdateStatus): string {
+  if (status.state === "ready" && status.package) {
+    if (status.prompt === "password")
+      return `Enter your password to install SonoJot ${status.version}.`;
+    if (status.prompt === "terminal")
+      return `Enter your password in the terminal window to install SonoJot ${status.version}.`;
+    return `Installing SonoJot ${status.version}…`;
+  }
   return switching(status) ? "Restarting to switch…" : "Restarting to update…";
 }
 
@@ -29,6 +51,14 @@ export function updateStatusLabel(status: UpdateStatus): string {
       return status.older
         ? `SonoJot ${status.version} is the newest build on this channel.`
         : `SonoJot ${status.version} is available.`;
+    case "manual": {
+      const offer = status.switchChannel
+        ? `Switch to ${channelName(status.switchChannel)}: ${status.version} is available`
+        : `SonoJot ${status.version} is available`;
+      return status.reason === "noPackage" && status.package
+        ? `${offer}, but not yet as ${packageName(status.package)}. Get it from the download page.`
+        : `${offer}. This copy can't update in the app; get it from the download page.`;
+    }
     case "downloading":
       if (status.switchChannel)
         return status.percent === null
@@ -38,6 +68,13 @@ export function updateStatusLabel(status: UpdateStatus): string {
         ? "Downloading update…"
         : `Downloading update · ${Math.floor(status.percent)}%`;
     case "ready":
+      if (status.package) {
+        if (status.installError) return status.installError;
+        const name = status.switchChannel
+          ? `${channelName(status.switchChannel)} ${status.version}`
+          : `SonoJot ${status.version}`;
+        return `${name} is ready. Installing it asks for your password.`;
+      }
       if (status.switchChannel)
         return `${channelName(status.switchChannel)} ${status.version} is ready. Restart to switch.`;
       return `SonoJot ${status.version} is ready.`;
@@ -46,10 +83,14 @@ export function updateStatusLabel(status: UpdateStatus): string {
   }
 }
 
-/** An update is on offer: available, downloading or ready to restart. */
+/**
+ * An update is on offer: available (in the app or from the download page),
+ * downloading or ready to restart.
+ */
 export function updateOffered(status: UpdateStatus): boolean {
   return (
     status.state === "available" ||
+    status.state === "manual" ||
     status.state === "downloading" ||
     status.state === "ready"
   );
@@ -68,7 +109,7 @@ export function updateButtonLabel(
   status: UpdateStatus,
   installing: boolean,
 ): string {
-  if (installing) return "Restarting…";
+  if (installing) return packageInstall(status) ? "Installing…" : "Restarting…";
   switch (status.state) {
     case "idle":
     case "current":
@@ -80,11 +121,17 @@ export function updateButtonLabel(
       if (status.switchChannel)
         return `Switch to ${channelName(status.switchChannel)}`;
       return status.older ? "Switch version" : "Update available";
+    case "manual":
+      return status.switchChannel
+        ? `Switch to ${channelName(status.switchChannel)}`
+        : "Update available";
     case "downloading":
       return status.percent === null
         ? "Downloading…"
         : `Downloading… ${Math.floor(status.percent)}%`;
     case "ready":
+      if (status.package)
+        return switching(status) ? "Install to switch" : "Install update";
       return switching(status) ? "Restart to switch" : "Restart to update";
     case "error":
       return "Update failed · Retry";
@@ -97,9 +144,11 @@ export function updateTooltip(
   blockedReason: string | null,
 ): string {
   if (installing)
-    return switching(status)
-      ? "Restarting to switch…"
-      : "Restarting to finish updating SonoJot.";
+    return packageInstall(status)
+      ? updateRestartLabel(status)
+      : switching(status)
+        ? "Restarting to switch…"
+        : "Restarting to finish updating SonoJot.";
   switch (status.state) {
     case "idle":
       return "";
@@ -107,11 +156,12 @@ export function updateTooltip(
       return updateStatusLabel(status);
     case "checking":
       return "Checking for a new version of SonoJot.";
+    case "manual":
+      return [updateStatusLabel(status), noteSummary(status.notes)]
+        .filter(Boolean)
+        .join(" ");
     case "available": {
-      // Release metadata is plain text, never HTML. Keep the tooltip brief.
-      const notes = status.notes?.replace(/\s+/g, " ").trim() ?? "";
-      const summary =
-        notes.length > 240 ? `${notes.slice(0, 237).trimEnd()}…` : notes;
+      const summary = noteSummary(status.notes);
       return [
         status.switchChannel
           ? updateStatusLabel(status)
@@ -121,7 +171,9 @@ export function updateTooltip(
           : status.older
             ? "It's older than this build, so features added since then go away."
             : summary,
-        "Click to download. Nothing changes until you restart.",
+        status.package
+          ? "Click to download. Nothing changes until you install it."
+          : "Click to download. Nothing changes until you restart.",
       ]
         .filter(Boolean)
         .join(" ");
@@ -130,9 +182,15 @@ export function updateTooltip(
       return "Keep working. You'll be asked to restart when it's ready.";
     case "ready":
       return [
-        switching(status)
-          ? "Click to restart and switch channels. Save any edits first."
-          : "Click to restart and finish updating. Save any edits first.",
+        status.package
+          ? status.installError
+            ? `${status.installError} Click to try again.`
+            : switching(status)
+              ? "Click to install and switch channels. SonoJot asks for your password, then restarts. Save any edits first."
+              : "Click to install. SonoJot asks for your password, then restarts. Save any edits first."
+          : switching(status)
+            ? "Click to restart and switch channels. Save any edits first."
+            : "Click to restart and finish updating. Save any edits first.",
         blockedReason,
       ]
         .filter(Boolean)
@@ -142,7 +200,14 @@ export function updateTooltip(
   }
 }
 
-export type UpdateActionKind = "download" | "restart";
+/** Release metadata is plain text, never HTML. Keep tooltips brief. */
+function noteSummary(notes: string | null | undefined): string {
+  const text = notes?.replace(/\s+/g, " ").trim() ?? "";
+  return text.length > 240 ? `${text.slice(0, 237).trimEnd()}…` : text;
+}
+
+/** Restart installs the update; open shows the website's download page. */
+export type UpdateActionKind = "download" | "restart" | "open";
 
 /**
  * The next step About and the main-window notice offer beside the status.
@@ -153,7 +218,11 @@ export function updateAction(
   status: UpdateStatus,
   installing: boolean,
 ): { kind: UpdateActionKind; label: string } | null {
-  if (installing) return { kind: "restart", label: "Restarting…" };
+  if (installing)
+    return {
+      kind: "restart",
+      label: packageInstall(status) ? "Installing…" : "Restarting…",
+    };
   switch (status.state) {
     case "available":
       return {
@@ -164,10 +233,18 @@ export function updateAction(
             ? `Download ${status.version}`
             : "Download update",
       };
+    case "manual":
+      return { kind: "open", label: "Open download page" };
     case "ready":
       return {
         kind: "restart",
-        label: switching(status) ? "Restart to switch" : "Restart to update",
+        label: status.package
+          ? switching(status)
+            ? "Install to switch"
+            : "Install update"
+          : switching(status)
+            ? "Restart to switch"
+            : "Restart to update",
       };
     default:
       return null;
@@ -208,6 +285,7 @@ export function updateNoticeMessage(update: {
   if (update.installing) return updateRestartLabel(update.status);
   switch (update.status.state) {
     case "available":
+    case "manual":
     case "downloading":
     case "ready":
       return updateStatusLabel(update.status);

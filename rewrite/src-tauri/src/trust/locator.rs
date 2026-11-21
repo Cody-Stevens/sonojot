@@ -1,9 +1,9 @@
 //! Where the pasted words are on screen, and how to change one. The platform
 //! layer sits behind [`Locator`]; everything here is plain data.
 //!
-//! Privacy rule for every implementation: read only the text SonoJot just
-//! pasted (to find it and to notice edits to the marked words) and its
-//! position. Never read, keep or log anything else from the host app.
+//! Privacy rule for every implementation: read only the text needed to locate
+//! the words SonoJot just pasted (and notice edits to them) and their screen
+//! positions. Never keep, store or log text from the host app.
 
 use serde::Serialize;
 
@@ -35,32 +35,31 @@ impl Rect {
     pub fn intersects(&self, other: &Rect) -> bool {
         self.x < other.right() && other.x < self.right() && self.y < other.bottom() && other.y < self.bottom()
     }
+    pub fn intersect(&self, other: &Rect) -> Option<Rect> {
+        let x = self.x.max(other.x);
+        let y = self.y.max(other.y);
+        let r = self.right().min(other.right());
+        let b = self.bottom().min(other.bottom());
+        (r > x && b > y).then_some(Rect { x, y, w: r - x, h: b - y })
+    }
 }
 
-/// What a located field allows.
+/// What a located field allows. Doubtful words show only as inline highlights
+/// on the words themselves; when an app does not expose trustworthy positions,
+/// nothing is shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Capability {
-    /// Marks drawn on the words; a fix selects the word and types.
+    /// Marks drawn on the words; a fix replaces the word in place.
     Inline,
-    /// No trustworthy word positions; a chip near the field. A fix still
-    /// selects the word through the app and types.
-    FallbackReplace,
-    /// A chip; a fix deletes back and retypes the tail, only while the caret
-    /// is still at the end of the dictation.
-    FallbackRetype,
-    /// A chip; the app cannot be changed safely. Choices are shown to copy.
-    FallbackReadOnly,
-    /// Password fields, elevated or secure windows: show nothing at all.
+    /// Password fields, terminals, elevated windows, or apps without
+    /// trustworthy word positions: show nothing at all.
     Nothing,
 }
 
 impl Capability {
     pub fn inline(self) -> bool {
         self == Self::Inline
-    }
-    pub fn can_replace(self) -> bool {
-        matches!(self, Self::Inline | Self::FallbackReplace | Self::FallbackRetype)
     }
 }
 
@@ -82,7 +81,7 @@ pub enum Place {
     Visible(Vec<Rect>),
     /// Scrolled out of view or clipped by the field.
     Hidden,
-    /// The word no longer reads as pasted: the user edited it.
+    /// The word no longer reads as pasted: the user edited or deleted it.
     Changed,
 }
 
@@ -91,13 +90,15 @@ pub enum Place {
 #[serde(rename_all = "camelCase")]
 pub struct Frame {
     pub focus: Focus,
-    /// One per requested span, in request order. Empty unless inline.
+    /// One per requested span, in request order.
     pub marks: Vec<Place>,
+    /// Bounded replacement token when a marked word was retyped in place
+    /// between unchanged anchors (aligned with `marks`, empty when unused).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retyped: Vec<Option<String>>,
     /// The visible field.
     pub field: Option<Rect>,
-    /// Where a fallback chip should sit: the caret or the end of the pasted text.
-    pub anchor: Option<Rect>,
-    /// The pasted text can no longer be found (sent, cleared, undone).
+    /// The pasted words can no longer be found (sent, cleared, undone).
     pub text_gone: bool,
 }
 
@@ -141,18 +142,12 @@ pub trait Tracked {
     /// Look again. Cheap enough for ten calls a second while marks show.
     fn poll(&mut self) -> Frame;
     /// Replace span `index` (as requested) with `text`, or insert `text` at
-    /// its edge for a gap. Inline and FallbackReplace select and type;
-    /// FallbackRetype deletes back and retypes the tail when the caret is
-    /// still at the end.
+    /// its edge for a gap.
     fn replace(&mut self, index: usize, text: &str) -> Result<(), String>;
+    /// Mark span `index` as resolved (Kept or Replaced) so polling skips it.
+    fn resolve(&mut self, _index: usize) {}
     /// Give keyboard focus back to the field (after a keyboard popover).
     fn refocus(&mut self) -> bool;
-    /// Whether the chip anchor sits at the text (the caret or the end of the
-    /// paste) rather than standing in for it (the whole field, the pointer).
-    /// The panel then leaves out the full dictation: the text is right there.
-    fn near_text(&self, frame: &Frame) -> bool {
-        frame.anchor.is_some() && frame.anchor != frame.field
-    }
 }
 
 pub trait Locator {
@@ -161,10 +156,28 @@ pub trait Locator {
     fn attach(&mut self, request: &Request) -> Result<Box<dyn Tracked>, String>;
 }
 
-/// The overlay drops to the fallback when any located word fails the check:
-/// the point at the middle of its first rectangle must hit the word itself
-/// (rich editors were found about two characters off), the rectangle must be
-/// a plausible text size and lie inside the visible field.
+/// Nothing to show (password, terminal, elevated, or positions unavailable).
+pub struct Inert;
+
+impl Tracked for Inert {
+    fn capability(&self) -> Capability {
+        Capability::Nothing
+    }
+    fn poll(&mut self) -> Frame {
+        Frame { focus: Focus::Gone, marks: Vec::new(), retyped: Vec::new(), field: None, text_gone: true }
+    }
+    fn replace(&mut self, _: usize, _: &str) -> Result<(), String> {
+        Err("unsupported".into())
+    }
+    fn refocus(&mut self) -> bool {
+        false
+    }
+}
+
+/// Inline marks are skipped when any visible located word fails the check:
+/// the point at the word's rectangle must hit the word itself (rich editors
+/// can be characters off), the rectangle must be a plausible text size, and it
+/// must lie inside the visible field.
 pub fn trustworthy(rects: &[Rect], field: Option<&Rect>, hit_inside_word: bool) -> bool {
     let Some(first) = rects.first() else {
         return false;
@@ -225,5 +238,14 @@ mod tests {
         let last = text.rfind("plan").unwrap();
         let (a, b) = needle(text, last, last + 4);
         assert!(!text[a..b].contains('\n'));
+    }
+
+    #[test]
+    fn rect_intersection_clips_scrollable_fields() {
+        let outer = Rect { x: 10, y: 20, w: 300, h: 200 };
+        let inner = Rect { x: 10, y: -100, w: 300, h: 900 };
+        assert_eq!(outer.intersect(&inner), Some(outer));
+        let disjoint = Rect { x: 500, y: 500, w: 50, h: 50 };
+        assert_eq!(outer.intersect(&disjoint), None);
     }
 }

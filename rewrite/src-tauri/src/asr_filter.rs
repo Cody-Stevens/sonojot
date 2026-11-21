@@ -12,6 +12,9 @@
 //! finish, flush() supplies that delayed tail; it is padding, not capture time.
 //! When retaining an aligned gate copy, concatenate process outputs and flush,
 //! discard the first latency_samples(), then take the original sample count.
+//!
+//! crates/sonojot-mobile compiles this file too: keep it free of `crate::` paths and
+//! desktop-only dependencies.
 
 pub(crate) struct Filter {
     inner: Candidate,

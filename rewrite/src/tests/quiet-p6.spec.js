@@ -42,7 +42,13 @@ async function setting(page, name) {
     .locator(".settings-link")
     .filter({ has: page.getByText(name, { exact: true }) })
     .click();
-  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  const title =
+    name === "Dictation"
+      ? "Dictation settings"
+      : name === "Meetings"
+        ? "Meetings settings"
+        : name;
+  await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
 }
 async function shot(page, name) {
   await mkdir(folder, { recursive: true });
@@ -173,23 +179,28 @@ test("Words adds immediately, edits aliases, protects drafts and handles suggest
   expect(
     (await calls(page, "save_vocabulary")).at(-1).args.entries.at(-1).context,
   ).toEqual(["linux", "desktop"]);
-  await page.getByRole("button", { name: "Suggested", exact: true }).click();
+  await page.getByRole("button", { name: /^Review\b/ }).click();
   await page.getByRole("button", { name: "Review recent dictations" }).click();
-  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page
+    .locator(".review-entry", { hasText: "Tacksheet" })
+    .getByRole("button", { name: "Keep", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await calls(page, "confirm_learned_word")).length)
+    .toBe(1);
   expect(
-    (await calls(page, "save_vocabulary")).at(-1).args.entries.at(-1).written,
+    (await calls(page, "confirm_learned_word")).at(-1).args.written,
   ).toBe("Tacksheet");
-  await page.getByRole("button", { name: "Learned", exact: true }).click();
   await expect(
     page.getByRole("switch", {
-      name: "Learn from my corrections on this device",
+      name: "Learn words on this device",
     }),
   ).toBeVisible();
   await page.getByText("More learning options", { exact: true }).click();
   await page
     .getByRole("button", { name: "Reset learning…", exact: true })
     .click();
-  await expect(page.getByRole("dialog")).toContainText("Manual vocabulary");
+  await expect(page.getByRole("dialog")).toContainText("saved Words");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(await calls(page, "reset_learning")).toHaveLength(0);
   expect(errors).toEqual([]);

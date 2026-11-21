@@ -1,7 +1,9 @@
 //! System audio capture for meetings. Windows uses default-render-device WASAPI
 //! loopback; macOS 14.2+ uses a Core Audio global process tap behind a private
-//! aggregate device. Native objects stay on one dedicated owner thread, and
-//! silence has a position in the recording's common timeline.
+//! aggregate device; Linux records the default output's monitor source through
+//! the PulseAudio protocol, which PipeWire also serves. Native objects stay on
+//! one dedicated owner thread, and silence has a position in the recording's
+//! common timeline.
 
 use std::sync::{mpsc, Arc};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -28,7 +30,8 @@ pub enum SystemAudioStatus {
     NotDetermined,
     /// macOS permission is off. Only System Settings can turn it on.
     Denied,
-    /// This OS cannot capture system audio (macOS before 14.2, other platforms).
+    /// This OS cannot capture system audio (macOS before 14.2, Linux without a
+    /// PulseAudio or PipeWire server, other platforms).
     #[default]
     Unsupported,
 }
@@ -43,7 +46,10 @@ impl SystemAudioStatus {
 /// Stable prefixes let the recorder tell a permission refusal from a device fault.
 pub const PERMISSION_ERROR: &str =
     "System audio permission is off. Allow SonoJot in System Settings, Privacy & Security, Screen & System Audio Recording.";
+#[cfg(not(target_os = "linux"))]
 pub const UNSUPPORTED_ERROR: &str = "Recording system audio needs macOS 14.2 or later.";
+#[cfg(target_os = "linux")]
+pub const UNSUPPORTED_ERROR: &str = "Recording system audio needs PipeWire or PulseAudio.";
 
 pub fn is_permission_error(message: &str) -> bool {
     message.starts_with(PERMISSION_ERROR)
@@ -55,11 +61,11 @@ pub fn status() -> SystemAudioStatus {
     {
         SystemAudioStatus::Ready
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         native::status()
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         SystemAudioStatus::Unsupported
     }
@@ -1525,7 +1531,643 @@ mod native {
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+/// Places monitor reads on the recording timeline the way microphone capture
+/// does: the first read anchors it and every later frame is counted from
+/// there, so the audio clock sets the spacing. A hole the server reports
+/// advances the count and marks the next read. A read whose measured start is
+/// more than half a second later than counted means audio was lost without a
+/// hole; the timeline jumps to the measured position and marks it.
+#[cfg(any(target_os = "linux", test))]
+struct FrameTimeline {
+    rate: u32,
+    anchor: Option<Duration>,
+    frames: u64,
+    lost: bool,
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl FrameTimeline {
+    const LATE: Duration = Duration::from_millis(500);
+
+    fn new(rate: u32) -> Self {
+        Self { rate, anchor: None, frames: 0, lost: false }
+    }
+
+    fn duration(&self, frames: u64) -> Duration {
+        Duration::from_nanos(frames.saturating_mul(1_000_000_000) / self.rate as u64)
+    }
+
+    /// A gap the server reported. Before the first read there is nothing to keep.
+    fn hole(&mut self, frames: u64) {
+        if self.anchor.is_some() {
+            self.frames = self.frames.saturating_add(frames);
+            self.lost = true;
+        }
+    }
+
+    /// `measured` is where this read's first frame started by the server's
+    /// latency report; `trusted` is false when no report was available.
+    /// Returns the read's position and whether audio is missing before it.
+    fn place(&mut self, count: u64, measured: Duration, trusted: bool) -> (Duration, bool) {
+        let (at, discontinuity) = match self.anchor {
+            None => {
+                self.anchor = Some(measured);
+                (measured, false)
+            }
+            Some(anchor) => {
+                let counted = anchor.saturating_add(self.duration(self.frames));
+                if trusted && measured > counted.saturating_add(Self::LATE) {
+                    self.anchor = Some(measured.saturating_sub(self.duration(self.frames)));
+                    (measured, true)
+                } else {
+                    (counted, self.lost)
+                }
+            }
+        };
+        self.lost = false;
+        self.frames = self.frames.saturating_add(count);
+        (at, discontinuity)
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod native {
+    //! The default output's monitor source over the PulseAudio protocol, which
+    //! PipeWire serves through pipewire-pulse. libpulse is loaded at run time,
+    //! so a computer without it reports Unsupported and the app needs no extra
+    //! package to start. The server mixes the monitor down to mono 48 kHz.
+    //!
+    //! A stream opened on a monitor stays on that output, on PipeWire too
+    //! (it pins `target.object`). The owner watches the default output and
+    //! ends the stream when it changes, so the recorder reopens it on the new
+    //! one, as WASAPI loopback does on Windows.
+    use super::*;
+    use std::cell::RefCell;
+    use std::ffi::{c_char, c_int, c_void, CStr, CString};
+    use std::path::PathBuf;
+    use std::ptr::{null, null_mut};
+    use std::sync::OnceLock;
+
+    const RATE: u32 = 48_000;
+    const FRAME_BYTES: usize = 4; // one mono float32 sample
+    const SAMPLE_FLOAT32LE: c_int = 5;
+    const CONTEXT_NOAUTOSPAWN: c_int = 1;
+    const CONTEXT_READY: c_int = 4;
+    const CONTEXT_FAILED: c_int = 5;
+    const CONTEXT_TERMINATED: c_int = 6;
+    const STREAM_READY: c_int = 2;
+    const STREAM_FAILED: c_int = 3;
+    const STREAM_TERMINATED: c_int = 4;
+    const OPERATION_RUNNING: c_int = 0;
+    const OPERATION_DONE: c_int = 1;
+    // INTERPOLATE_TIMING | AUTO_TIMING_UPDATE | DONT_MOVE | ADJUST_LATENCY
+    const STREAM_FLAGS: c_int = 0x0002 | 0x0008 | 0x0200 | 0x2000;
+    const CANCELLED: &str = "System audio startup was cancelled.";
+
+    #[repr(C)]
+    struct SampleSpec {
+        format: c_int,
+        rate: u32,
+        channels: u8,
+    }
+
+    #[repr(C)]
+    struct BufferAttr {
+        maxlength: u32,
+        tlength: u32,
+        prebuf: u32,
+        minreq: u32,
+        fragsize: u32,
+    }
+
+    /// The leading fields of pa_server_info, only ever read through a pointer.
+    #[repr(C)]
+    struct ServerInfo {
+        user_name: *const c_char,
+        host_name: *const c_char,
+        server_version: *const c_char,
+        server_name: *const c_char,
+        sample_spec: SampleSpec,
+        default_sink_name: *const c_char,
+    }
+
+    type ServerInfoCallback = extern "C" fn(*mut c_void, *const ServerInfo, *mut c_void);
+
+    struct Api {
+        mainloop_new: unsafe extern "C" fn() -> *mut c_void,
+        mainloop_get_api: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
+        mainloop_iterate: unsafe extern "C" fn(*mut c_void, c_int, *mut c_int) -> c_int,
+        mainloop_free: unsafe extern "C" fn(*mut c_void),
+        context_new: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void,
+        context_connect:
+            unsafe extern "C" fn(*mut c_void, *const c_char, c_int, *const c_void) -> c_int,
+        context_get_state: unsafe extern "C" fn(*mut c_void) -> c_int,
+        context_errno: unsafe extern "C" fn(*mut c_void) -> c_int,
+        context_disconnect: unsafe extern "C" fn(*mut c_void),
+        context_unref: unsafe extern "C" fn(*mut c_void),
+        context_get_server_info:
+            unsafe extern "C" fn(*mut c_void, ServerInfoCallback, *mut c_void) -> *mut c_void,
+        operation_get_state: unsafe extern "C" fn(*mut c_void) -> c_int,
+        operation_cancel: unsafe extern "C" fn(*mut c_void),
+        operation_unref: unsafe extern "C" fn(*mut c_void),
+        stream_new: unsafe extern "C" fn(
+            *mut c_void,
+            *const c_char,
+            *const SampleSpec,
+            *const c_void,
+        ) -> *mut c_void,
+        stream_connect_record:
+            unsafe extern "C" fn(*mut c_void, *const c_char, *const BufferAttr, c_int) -> c_int,
+        stream_get_state: unsafe extern "C" fn(*mut c_void) -> c_int,
+        stream_peek: unsafe extern "C" fn(*mut c_void, *mut *const c_void, *mut usize) -> c_int,
+        stream_drop: unsafe extern "C" fn(*mut c_void) -> c_int,
+        stream_get_latency: unsafe extern "C" fn(*mut c_void, *mut u64, *mut c_int) -> c_int,
+        stream_disconnect: unsafe extern "C" fn(*mut c_void) -> c_int,
+        stream_unref: unsafe extern "C" fn(*mut c_void),
+        strerror: unsafe extern "C" fn(c_int) -> *const c_char,
+        _library: libloading::Library,
+    }
+
+    unsafe fn symbol<T: Copy>(library: &libloading::Library, name: &[u8]) -> Result<T, libloading::Error> {
+        Ok(*library.get::<T>(name)?)
+    }
+
+    unsafe fn load() -> Result<Api, libloading::Error> {
+        let library = libloading::Library::new("libpulse.so.0")?;
+        Ok(Api {
+            mainloop_new: symbol(&library, b"pa_mainloop_new\0")?,
+            mainloop_get_api: symbol(&library, b"pa_mainloop_get_api\0")?,
+            mainloop_iterate: symbol(&library, b"pa_mainloop_iterate\0")?,
+            mainloop_free: symbol(&library, b"pa_mainloop_free\0")?,
+            context_new: symbol(&library, b"pa_context_new\0")?,
+            context_connect: symbol(&library, b"pa_context_connect\0")?,
+            context_get_state: symbol(&library, b"pa_context_get_state\0")?,
+            context_errno: symbol(&library, b"pa_context_errno\0")?,
+            context_disconnect: symbol(&library, b"pa_context_disconnect\0")?,
+            context_unref: symbol(&library, b"pa_context_unref\0")?,
+            context_get_server_info: symbol(&library, b"pa_context_get_server_info\0")?,
+            operation_get_state: symbol(&library, b"pa_operation_get_state\0")?,
+            operation_cancel: symbol(&library, b"pa_operation_cancel\0")?,
+            operation_unref: symbol(&library, b"pa_operation_unref\0")?,
+            stream_new: symbol(&library, b"pa_stream_new\0")?,
+            stream_connect_record: symbol(&library, b"pa_stream_connect_record\0")?,
+            stream_get_state: symbol(&library, b"pa_stream_get_state\0")?,
+            stream_peek: symbol(&library, b"pa_stream_peek\0")?,
+            stream_drop: symbol(&library, b"pa_stream_drop\0")?,
+            stream_get_latency: symbol(&library, b"pa_stream_get_latency\0")?,
+            stream_disconnect: symbol(&library, b"pa_stream_disconnect\0")?,
+            stream_unref: symbol(&library, b"pa_stream_unref\0")?,
+            strerror: symbol(&library, b"pa_strerror\0")?,
+            _library: library,
+        })
+    }
+
+    /// Loaded once and kept for the life of the process.
+    fn api() -> Option<&'static Api> {
+        static API: OnceLock<Option<Api>> = OnceLock::new();
+        API.get_or_init(|| unsafe { load() }.ok()).as_ref()
+    }
+
+    /// A server is configured or listening at libpulse's usual sockets. This
+    /// runs for every snapshot, so it only looks at the environment and files.
+    fn server_present() -> bool {
+        if std::env::var_os("PULSE_SERVER").is_some_and(|server| !server.is_empty()) {
+            return true;
+        }
+        std::env::var_os("XDG_RUNTIME_DIR")
+            .map(|dir| PathBuf::from(dir).join("pulse/native"))
+            .into_iter()
+            .chain([PathBuf::from("/run/pulse/native"), PathBuf::from("/var/run/pulse/native")])
+            .any(|socket| socket.exists())
+    }
+
+    pub(super) fn status() -> SystemAudioStatus {
+        if server_present() && api().is_some() {
+            SystemAudioStatus::Ready
+        } else {
+            SystemAudioStatus::Unsupported
+        }
+    }
+
+    fn error_text(api: &Api, code: c_int) -> String {
+        let text = unsafe { (api.strerror)(code) };
+        if text.is_null() {
+            format!("error {code}")
+        } else {
+            unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned()
+        }
+    }
+
+    struct Mainloop(&'static Api, *mut c_void);
+    impl Mainloop {
+        /// Dispatch whatever the server has sent, without blocking.
+        fn pump(&self) -> Result<(), String> {
+            for _ in 0..64 {
+                let dispatched = unsafe { (self.0.mainloop_iterate)(self.1, 0, null_mut()) };
+                if dispatched < 0 {
+                    return Err("The audio server connection stopped.".into());
+                }
+                if dispatched == 0 {
+                    break;
+                }
+            }
+            Ok(())
+        }
+    }
+    impl Drop for Mainloop {
+        fn drop(&mut self) {
+            unsafe { (self.0.mainloop_free)(self.1) };
+        }
+    }
+
+    struct Context(&'static Api, *mut c_void);
+    impl Context {
+        fn state(&self) -> c_int {
+            unsafe { (self.0.context_get_state)(self.1) }
+        }
+        fn error(&self) -> String {
+            error_text(self.0, unsafe { (self.0.context_errno)(self.1) })
+        }
+    }
+    impl Drop for Context {
+        fn drop(&mut self) {
+            // Disconnecting cancels pending operations without calling them back.
+            unsafe {
+                (self.0.context_disconnect)(self.1);
+                (self.0.context_unref)(self.1);
+            }
+        }
+    }
+
+    struct Stream(&'static Api, *mut c_void);
+    impl Stream {
+        fn state(&self) -> c_int {
+            unsafe { (self.0.stream_get_state)(self.1) }
+        }
+        /// Capture-to-read delay of the next frame, from interpolated timing.
+        fn latency(&self) -> Option<Duration> {
+            let mut usec = 0u64;
+            let mut negative = 0;
+            let ok = unsafe { (self.0.stream_get_latency)(self.1, &mut usec, &mut negative) } == 0;
+            match (ok, negative != 0) {
+                (false, _) => None,
+                (true, true) => Some(Duration::ZERO),
+                (true, false) => (usec <= 10_000_000).then(|| Duration::from_micros(usec)),
+            }
+        }
+    }
+    impl Drop for Stream {
+        fn drop(&mut self) {
+            unsafe {
+                (self.0.stream_disconnect)(self.1);
+                (self.0.stream_unref)(self.1);
+            }
+        }
+    }
+
+    struct Operation(&'static Api, *mut c_void);
+    impl Operation {
+        fn state(&self) -> c_int {
+            unsafe { (self.0.operation_get_state)(self.1) }
+        }
+    }
+    impl Drop for Operation {
+        fn drop(&mut self) {
+            unsafe {
+                if self.state() == OPERATION_RUNNING {
+                    (self.0.operation_cancel)(self.1);
+                }
+                (self.0.operation_unref)(self.1);
+            }
+        }
+    }
+
+    /// Written by the server-info callback, which only runs inside pump().
+    #[derive(Default)]
+    struct DefaultSink {
+        answered: bool,
+        name: Option<String>,
+    }
+
+    extern "C" fn on_server_info(_: *mut c_void, info: *const ServerInfo, userdata: *mut c_void) {
+        let Some(slot) = (unsafe { userdata.cast::<RefCell<DefaultSink>>().as_ref() }) else {
+            return;
+        };
+        let Ok(mut slot) = slot.try_borrow_mut() else { return };
+        slot.answered = true;
+        slot.name = unsafe { info.as_ref() }
+            .map(|info| info.default_sink_name)
+            .filter(|name| !name.is_null())
+            .map(|name| unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty());
+    }
+
+    fn ask_default_sink(
+        api: &'static Api,
+        context: &Context,
+        slot: &RefCell<DefaultSink>,
+    ) -> Result<Operation, String> {
+        *slot.borrow_mut() = DefaultSink::default();
+        let userdata = (slot as *const RefCell<DefaultSink>).cast_mut().cast::<c_void>();
+        let operation =
+            unsafe { (api.context_get_server_info)(context.1, on_server_info, userdata) };
+        if operation.is_null() {
+            return Err(format!("Cannot ask the audio server for its output ({}).", context.error()));
+        }
+        Ok(Operation(api, operation))
+    }
+
+    /// The answer to a finished query: Some(name) or None when there is no output.
+    fn answer(operation: &Operation, slot: &RefCell<DefaultSink>) -> Option<Result<Option<String>, String>> {
+        match operation.state() {
+            OPERATION_RUNNING => None,
+            OPERATION_DONE if slot.borrow().answered => Some(Ok(slot.borrow().name.clone())),
+            _ => Some(Err("The audio server did not say which output is the default.".into())),
+        }
+    }
+
+    /// Pump until `check` decides, a stop arrives, or three seconds pass.
+    fn wait_for<T>(
+        mainloop: &Mainloop,
+        stop: &mpsc::Receiver<()>,
+        cancel: &AtomicBool,
+        mut check: impl FnMut() -> Option<Result<T, String>>,
+    ) -> Result<T, String> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            mainloop.pump()?;
+            if let Some(result) = check() {
+                return result;
+            }
+            if cancel.load(Ordering::Acquire) {
+                return Err(CANCELLED.into());
+            }
+            match stop.recv_timeout(Duration::from_millis(5)) {
+                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    cancel.store(true, Ordering::Release);
+                    return Err(CANCELLED.into());
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            if Instant::now() >= deadline {
+                return Err("The audio server did not answer within three seconds.".into());
+            }
+        }
+    }
+
+    pub(super) fn run(
+        epoch: Instant,
+        stop: mpsc::Receiver<()>,
+        ready: &mpsc::SyncSender<Result<(), String>>,
+        cancel: &AtomicBool,
+        failure: &FailureTime,
+        mut on_chunk: impl FnMut(SystemAudioChunk),
+    ) -> Result<(), String> {
+        let fail = |message: String| {
+            if !cancel.load(Ordering::Acquire) {
+                failure.record(epoch.elapsed());
+            }
+            message
+        };
+        let unavailable = |message: String| {
+            if !cancel.load(Ordering::Acquire) {
+                failure.record_cause(epoch.elapsed(), 3);
+            }
+            message
+        };
+        if cancel.load(Ordering::Acquire) {
+            return Err(CANCELLED.into());
+        }
+        let api = api().ok_or_else(|| fail(UNSUPPORTED_ERROR.into()))?;
+        // Declared before the context so it outlives every query that writes it.
+        let sink_slot = RefCell::new(DefaultSink::default());
+        let mainloop = Mainloop(api, unsafe { (api.mainloop_new)() });
+        if mainloop.1.is_null() {
+            return Err(fail("Cannot start the audio server connection.".into()));
+        }
+        let context = Context(api, unsafe {
+            (api.context_new)((api.mainloop_get_api)(mainloop.1), c"SonoJot".as_ptr())
+        });
+        if context.1.is_null() {
+            return Err(fail("Cannot start the audio server connection.".into()));
+        }
+        if unsafe { (api.context_connect)(context.1, null(), CONTEXT_NOAUTOSPAWN, null()) } < 0 {
+            return Err(unavailable(format!("Cannot reach the audio server ({}).", context.error())));
+        }
+        wait_for(&mainloop, &stop, cancel, || match context.state() {
+            CONTEXT_READY => Some(Ok(())),
+            CONTEXT_FAILED | CONTEXT_TERMINATED => {
+                Some(Err(format!("Cannot reach the audio server ({}).", context.error())))
+            }
+            _ => None,
+        })
+        .map_err(unavailable)?;
+
+        let query = ask_default_sink(api, &context, &sink_slot).map_err(unavailable)?;
+        let sink = wait_for(&mainloop, &stop, cancel, || answer(&query, &sink_slot))
+            .map_err(unavailable)?
+            .ok_or_else(|| unavailable("This computer has no audio output to record.".into()))?;
+        drop(query);
+        let monitor = CString::new(format!("{sink}.monitor"))
+            .map_err(|_| unavailable("The audio output has an unusable name.".into()))?;
+
+        let spec = SampleSpec { format: SAMPLE_FLOAT32LE, rate: RATE, channels: 1 };
+        let stream = Stream(api, unsafe {
+            (api.stream_new)(context.1, c"Meeting system audio".as_ptr(), &spec, null())
+        });
+        if stream.1.is_null() {
+            return Err(fail(format!("Cannot create the system audio stream ({}).", context.error())));
+        }
+        // 20 ms reads; the server's default maximum buffers about 20 seconds.
+        let attr = BufferAttr {
+            maxlength: u32::MAX,
+            tlength: u32::MAX,
+            prebuf: u32::MAX,
+            minreq: u32::MAX,
+            fragsize: (RATE as usize / 50 * FRAME_BYTES) as u32,
+        };
+        if !matches!(stop.try_recv(), Err(mpsc::TryRecvError::Empty)) {
+            cancel.store(true, Ordering::Release);
+        }
+        if cancel.load(Ordering::Acquire) {
+            return Err(CANCELLED.into());
+        }
+        if unsafe { (api.stream_connect_record)(stream.1, monitor.as_ptr(), &attr, STREAM_FLAGS) } < 0 {
+            return Err(unavailable(format!(
+                "Cannot record this computer's audio output ({}).",
+                context.error()
+            )));
+        }
+        wait_for(&mainloop, &stop, cancel, || match stream.state() {
+            STREAM_READY => Some(Ok(())),
+            STREAM_FAILED | STREAM_TERMINATED => Some(Err(format!(
+                "Cannot record this computer's audio output ({}).",
+                context.error()
+            ))),
+            _ => None,
+        })
+        .map_err(unavailable)?;
+        if cancel.load(Ordering::Acquire) {
+            return Err(CANCELLED.into());
+        }
+        if ready.send(Ok(())).is_err() {
+            return Ok(());
+        }
+
+        let mut timeline = FrameTimeline::new(RATE);
+        let mut carry: Vec<u8> = Vec::with_capacity(RATE as usize / 10 * FRAME_BYTES);
+        let mut last_data = Instant::now();
+        let mut last_output_check = Instant::now();
+        let mut output_query: Option<Operation> = None;
+        loop {
+            let stopping = cancel.load(Ordering::Acquire)
+                || match stop.recv_timeout(Duration::from_millis(5)) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => true,
+                    Err(mpsc::RecvTimeoutError::Timeout) => false,
+                };
+            // On stop, deliver what the server already sent, then end.
+            mainloop.pump().map_err(unavailable)?;
+            if !matches!(context.state(), CONTEXT_READY) {
+                return Err(unavailable(format!(
+                    "The audio server connection closed ({}).",
+                    context.error()
+                )));
+            }
+            if stream.state() != STREAM_READY {
+                return Err(unavailable("This computer's audio output went away.".into()));
+            }
+            for _ in 0..256 {
+                let mut data: *const c_void = null();
+                let mut bytes = 0usize;
+                if unsafe { (api.stream_peek)(stream.1, &mut data, &mut bytes) } < 0 {
+                    return Err(fail(format!(
+                        "Cannot read system audio ({}).",
+                        context.error()
+                    )));
+                }
+                if bytes == 0 {
+                    break;
+                }
+                last_data = Instant::now();
+                if data.is_null() {
+                    // A hole: the server lost this much audio.
+                    carry.clear();
+                    timeline.hole((bytes / FRAME_BYTES) as u64);
+                } else {
+                    carry.extend_from_slice(unsafe {
+                        std::slice::from_raw_parts(data.cast::<u8>(), bytes)
+                    });
+                }
+                unsafe { (api.stream_drop)(stream.1) };
+            }
+            let whole = carry.len() / FRAME_BYTES * FRAME_BYTES;
+            if whole > 0 {
+                let samples: Vec<f32> = carry[..whole]
+                    .chunks_exact(FRAME_BYTES)
+                    .map(|bytes| {
+                        let value = f32::from_le_bytes(bytes.try_into().unwrap());
+                        if value.is_finite() { value.clamp(-1.0, 1.0) } else { 0.0 }
+                    })
+                    .collect();
+                carry.drain(..whole);
+                let count = samples.len() as u64;
+                // The latency covers frames still queued after this read.
+                let latency = stream.latency();
+                let measured = epoch
+                    .elapsed()
+                    .saturating_sub(latency.unwrap_or_default())
+                    .saturating_sub(timeline.duration(count));
+                let (captured_at, discontinuity) =
+                    timeline.place(count, measured, latency.is_some());
+                on_chunk(SystemAudioChunk { samples, sample_rate: RATE, captured_at, discontinuity });
+            }
+            if stopping {
+                return Ok(());
+            }
+            // A monitor runs while it is recorded, with zeros when nothing
+            // plays. Nothing at all means the output stalled.
+            if last_data.elapsed() >= Duration::from_secs(2) {
+                failure.record_cause(epoch.elapsed(), 4);
+                return Err("System audio stopped delivering audio.".into());
+            }
+            match &output_query {
+                None if last_output_check.elapsed() >= Duration::from_millis(500) => {
+                    output_query =
+                        Some(ask_default_sink(api, &context, &sink_slot).map_err(unavailable)?);
+                }
+                Some(query) => match answer(query, &sink_slot) {
+                    None => {}
+                    Some(Ok(Some(current))) if current == sink => {
+                        output_query = None;
+                        last_output_check = Instant::now();
+                    }
+                    Some(Ok(Some(_))) => {
+                        failure.record_cause(epoch.elapsed(), 2);
+                        return Err(
+                            "The default system audio output changed; restart system capture."
+                                .into(),
+                        );
+                    }
+                    Some(Ok(None)) => {
+                        return Err(unavailable("This computer has no audio output to record.".into()))
+                    }
+                    Some(Err(error)) => return Err(unavailable(error)),
+                },
+                None => {}
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod hardware_tests {
+        use super::*;
+        use std::sync::atomic::AtomicUsize;
+
+        #[test]
+        #[ignore = "Opt-in hardware test records the default output's monitor for 600 ms and counts frames; it writes no file."]
+        fn linux_monitor_delivers_continuous_frames() {
+            assert_eq!(status(), SystemAudioStatus::Ready, "No PulseAudio or PipeWire server.");
+            let count = Arc::new(AtomicUsize::new(0));
+            let received = count.clone();
+            let peak = Arc::new(AtomicU32::new(0));
+            let loudest = peak.clone();
+            let last_end = Arc::new(std::sync::Mutex::new(Duration::ZERO));
+            let order = last_end.clone();
+            let (errors, error_rx) = mpsc::channel();
+            let epoch = Instant::now();
+            let capture = SystemAudioCapture::start(
+                epoch,
+                move |chunk| {
+                    assert_eq!(chunk.sample_rate, RATE);
+                    assert!(chunk.samples.iter().all(|v| v.is_finite()));
+                    let mut end = order.lock().unwrap();
+                    assert!(chunk.captured_at + Duration::from_millis(1) >= *end, "timeline went backwards");
+                    *end = chunk.captured_at
+                        + Duration::from_secs_f64(chunk.samples.len() as f64 / RATE as f64);
+                    received.fetch_add(chunk.samples.len(), Ordering::Relaxed);
+                    let high = chunk.samples.iter().fold(0.0f32, |high, v| high.max(v.abs()));
+                    loudest.fetch_max(high.to_bits(), Ordering::Relaxed);
+                },
+                move |error| {
+                    let _ = errors.send(error);
+                },
+            )
+            .unwrap();
+            std::thread::sleep(Duration::from_millis(600));
+            capture.stop().unwrap();
+            assert!(error_rx.try_recv().is_err());
+            let frames = count.load(Ordering::Relaxed);
+            let end = *last_end.lock().unwrap();
+            let peak = f32::from_bits(peak.load(Ordering::Relaxed));
+            eprintln!("Monitor delivered {frames} mono frames, peak {peak:.4}; timeline ended at {end:?}.");
+            // At least 300 ms of the 600 ms: the monitor runs even in silence.
+            assert!(frames >= RATE as usize * 3 / 10, "only {frames} frames arrived");
+            assert!(end <= epoch.elapsed());
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 mod native {
     use super::*;
     pub(super) fn run(
@@ -1618,6 +2260,32 @@ mod tests {
         assert_eq!(downmix(&[(&left, 1), (&right, 1)]), [0.25, 0.5]);
         assert!(downmix(&[]).is_empty());
         assert!(downmix(&[(&[] as &[f32], 2)]).is_empty());
+    }
+
+    #[test]
+    fn monitor_timeline_counts_frames_from_the_first_read() {
+        let ms = Duration::from_millis;
+        let mut timeline = FrameTimeline::new(1000);
+        assert_eq!(timeline.place(20, ms(100), true), (ms(100), false));
+        // Jitter in the measured position never moves counted audio.
+        assert_eq!(timeline.place(20, ms(135), true), (ms(120), false));
+        assert_eq!(timeline.place(20, ms(130), false), (ms(140), false));
+        // An untrusted measurement never jumps, however late it looks.
+        assert_eq!(timeline.place(20, ms(5_000), false), (ms(160), false));
+    }
+
+    #[test]
+    fn monitor_timeline_keeps_holes_and_late_reads_as_gaps() {
+        let ms = Duration::from_millis;
+        let mut timeline = FrameTimeline::new(1000);
+        timeline.hole(50); // Before the first read: nothing to keep.
+        assert_eq!(timeline.place(20, ms(100), true), (ms(100), false));
+        timeline.hole(30);
+        assert_eq!(timeline.place(20, ms(150), true), (ms(150), true));
+        assert_eq!(timeline.place(20, ms(170), true), (ms(170), false));
+        // Audio lost without a hole: jump to where the read really started.
+        assert_eq!(timeline.place(20, ms(1_000), true), (ms(1_000), true));
+        assert_eq!(timeline.place(20, ms(1_020), true), (ms(1_020), false));
     }
 
     #[test]

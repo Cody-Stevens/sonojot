@@ -1,5 +1,19 @@
-﻿<script lang="ts">
+﻿<script lang="ts" module>
+  // Remember On disk tab, search and open row when stepping into Speech/Notes and Back.
+  const remembered = {
+    tab: "installed" as "installed" | "not-offered",
+    selected: "",
+    query: "",
+  };
+</script>
+
+<script lang="ts">
   import { onMount } from "svelte";
+  import Icon from "../components/Icon.svelte";
+  import PageHeader from "../components/quiet/PageHeader.svelte";
+  import SegmentedControl from "../components/quiet/SegmentedControl.svelte";
+  import SearchBar from "../components/quiet/SearchBar.svelte";
+  import Disclosure from "../components/quiet/Disclosure.svelte";
   import ModelDownload from "../components/ModelDownload.svelte";
   import ModelUpdateNotice from "../components/ModelUpdateNotice.svelte";
   import { modelUpdates } from "../lib/model-updates.svelte";
@@ -33,10 +47,23 @@
   import { ensureDownloadConsent } from "../lib/download-consent.svelte";
   import type { SetupStatus } from "../lib/setup";
   import type { RouteTarget } from "../lib/route.svelte";
-  let { onnavigate }: { onnavigate: (target: RouteTarget) => void } = $props();
-  let tab = $state("installed");
-  let selected = $state("");
-  let query = $state("");
+  let {
+    onnavigate,
+    onback,
+    parentTitle = "Settings",
+  }: {
+    onnavigate: (target: RouteTarget) => void;
+    onback: () => void;
+    parentTitle?: string;
+  } = $props();
+  let tab = $state<"installed" | "not-offered">(remembered.tab);
+  let selected = $state(remembered.selected);
+  let query = $state(remembered.query);
+  $effect(() => {
+    remembered.tab = tab;
+    remembered.selected = selected;
+    remembered.query = query;
+  });
   let setup = $state<SetupStatus | null>(null);
   let pending = $state(false);
   const models = $derived(library.data?.models ?? []);
@@ -77,6 +104,10 @@
       : null,
   );
   const locked = $derived(modelStorage.locked || pending);
+  const viewOptions = [
+    { value: "installed" as const, label: "Installed" },
+    { value: "not-offered" as const, label: "Not offered" },
+  ];
   async function refresh() {
     const result = await app.perform("storage-setup", () => call("get_setup"));
     if (result) setup = result;
@@ -131,36 +162,44 @@
   }
 </script>
 
-<div class="disk-toolbar">
-  <div class="segments" aria-label="On disk views">
-    <button
-      aria-pressed={tab === "installed"}
-      onclick={() => (tab = "installed")}>Installed</button
-    ><button
-      aria-pressed={tab === "not-offered"}
-      onclick={() => (tab = "not-offered")}>Not offered</button
-    >
-  </div>
-  <input
-    type="search"
+<PageHeader title="On disk" back={{ label: parentTitle, onclick: onback }}>
+  {#snippet actions()}
+    <SegmentedControl
+      label="On disk views"
+      options={viewOptions}
+      value={tab}
+      onchange={(next) => (tab = next)}
+    />
+  {/snippet}
+</PageHeader>
+
+<div class="list-toolbar">
+  <SearchBar
+    label="Search models on disk"
     placeholder="Search models"
-    aria-label="Search models on disk"
     bind:value={query}
   />
 </div>
 <ModelUpdateNotice place="page" />
-<section class="stock paper-card quiet-settings disk-list">
-  {#if library.error}<p role="status">{library.error}</p>
-    <button class="button" onclick={() => library.refresh()}>Try again</button
-    >{/if}
-  {#if !rows.length}<p class="field-help">
+<section
+  class="stock paper-card ui-card flush quiet-settings disk-list"
+  aria-label="Models on disk"
+>
+  {#if library.error}<div class="disk-empty">
+      <p role="status">{library.error}</p>
+      <button class="button small" onclick={() => library.refresh()}
+        >Try again</button
+      >
+    </div>{/if}
+  {#if !rows.length}<p class="field-help disk-empty">
       {library.data ? "No matching models." : "Reading models…"}
     </p>{/if}
   {#each rows as model (model.id)}
     {@const plan = modelStorage.removal(model)}
-    {@const update = tab === "installed" ? updateFor(modelUpdates.list, model.id) : undefined}
+    {@const update =
+      tab === "installed" ? updateFor(modelUpdates.list, model.id) : undefined}
     <div
-      class="disk-entry"
+      class="day-rule disk-entry"
       class:selected={selected === model.id}
       data-model-id={model.id}
     >
@@ -169,6 +208,7 @@
         aria-expanded={selected === model.id}
         onclick={() => (selected = selected === model.id ? "" : model.id)}
         ><strong data-text-surface="emboss">{model.name}</strong><span
+          class="disk-size"
           data-text-surface="flat"
           >{tab === "installed"
             ? model.id === "local-rules"
@@ -182,119 +222,141 @@
               (model.deprecated
                 ? "Replaced by a newer package"
                 : "Outside the recommended speech frontier")}</span
+        ><span
+          class="row-chevron"
+          class:open={selected === model.id}
+          aria-hidden="true"><Icon name="chevron-right" size={14} /></span
         ></button
       >
-      {#if selected === model.id}<div class="disk-detail">
+      {#if selected === model.id}<div class="row-pocket disk-detail">
           <p class="field-help">{model.guidance}</p>
           {#if update}<div class="actions update-row">
               <span class="field-help" role="status">{updateStatus(update)}</span
               >{#if update.state === "available" && !update.automatic}<button
-                  class="button"
+                  class="button small"
                   onclick={() => modelUpdates.start(update.id)}
                   >{updateLabel(update)}</button
                 >{:else if update.state === "failed"}<button
-                  class="button"
-                  onclick={() => modelUpdates.start(update.id)}>Try again</button
+                  class="button small"
+                  onclick={() => modelUpdates.start(update.id)}
+                  >Try again</button
                 >{:else if updateRunning(update) && ["queued", "downloading"].includes(update.state)}<button
-                  class="button"
+                  class="button small"
                   onclick={() => modelUpdates.cancel(update.id)}>Cancel</button
                 >{/if}
             </div>{/if}
           {#if tab === "installed"}
-            {#if model.removable}<div class="actions">
+            <div class="actions">
+              {#if model.removable}
                 <button
-                  class="button"
+                  class="button small"
                   disabled={locked || !!plan.blocked}
                   onclick={() => modelStorage.remove(model)}>Remove</button
                 >{#if plan.blocked}<span class="field-help" role="status"
                     >{plan.blocked}</span
                   >{/if}
-              </div>{:else}<p class="field-help">
-                {model.id === "local-rules"
-                  ? "Built into SonoJot."
-                  : "This package cannot be removed here."}
-              </p>{/if}
-            {#if plan.needs}<button
-                class="button"
-                onclick={() =>
-                  onnavigate(
-                    plan.needs === "asr"
-                      ? { tab: "dictation", stage: "speech", from: "settings" }
-                      : { tab: "meetings", stage: "notes", from: "settings" },
-                  )}
-                >Choose another {plan.needs === "asr" ? "speech" : "notes"} model</button
-              >{/if}
+              {:else}<p class="field-help inline-note">
+                  {model.id === "local-rules"
+                    ? "Built into SonoJot."
+                    : "This package cannot be removed here."}
+                </p>{/if}
+              {#if plan.needs}<button
+                  class="button small"
+                  onclick={() =>
+                    onnavigate(
+                      plan.needs === "asr"
+                        ? {
+                            tab: "dictation",
+                            stage: "speech",
+                            from: "settings-disk",
+                          }
+                        : {
+                            tab: "meetings",
+                            stage: "notes",
+                            from: "settings-disk",
+                          },
+                    )}
+                  >Choose another {plan.needs === "asr" ? "speech" : "notes"} model</button
+                >{/if}
+            </div>
           {:else if !modelUnavailableReason(model)}<button
-              class="button"
+              class="button small"
               onclick={() =>
                 onnavigate({
                   tab: "dictation",
                   stage: "speech",
-                  from: "settings",
+                  from: "settings-disk",
                 })}>Open speech models</button
             >{/if}
         </div>{/if}
     </div>
   {/each}
 </section>
-<section class="stock paper-card quiet-settings">
-  <SettingRow label="Folder"
-    ><div class="folder">
-      <code>{setup?.modelsPath ?? "Reading folder…"}</code><small
-        data-text-surface="flat">{formatBytes(used)} in listed packages</small
-      >
+<section class="stock paper-card ui-card row-card quiet-settings">
+  <SettingRow label="Folder" layout="choice">
+    <div class="folder-row">
+      <div class="folder">
+        <code>{setup?.modelsPath ?? "Reading folder…"}</code>
+        <small data-text-surface="flat"
+          >{formatBytes(used)} in listed packages</small
+        >
+      </div>
+      <div class="actions">
+        <button class="button small" disabled={locked} onclick={() => locate()}
+          >Change</button
+        ><button
+          class="button small"
+          disabled={!app.native}
+          onclick={() =>
+            app.perform("folder", () => call("open_path", { kind: "models" }))}
+          >Open</button
+        >
+      </div>
     </div>
-    <button class="button" disabled={locked} onclick={() => locate()}
-      >Change</button
-    ><button
-      class="button"
-      disabled={!app.native}
-      onclick={() =>
-        app.perform("folder", () => call("open_path", { kind: "models" }))}
-      >Open</button
-    ></SettingRow
-  >
+  </SettingRow>
   {#if punctuation && !punctuationReady && !modelUnavailableReason(punctuation)}
     <SettingRow
       label="Punctuation"
       help="Optional local punctuation and vocabulary support"
+      layout="action"
     >
       <button
-        class="button"
+        class="button small"
         disabled={locked || speechChoice.locked}
         onclick={() => punctuation && speechChoice.use(punctuation, "helper")}
         >Install punctuation model</button
       >
     </SettingRow>
   {/if}
-  {#if punctuationDownload}<ModelDownload
-      model={punctuationDownload}
-      pending={false}
-      retryDisabled={locked}
-      onretry={(model) => speechChoice.use(model, "helper")}
-      oncancel={(model) => speechChoice.cancel(model.id)}
-    />{/if}
+  {#if punctuationDownload}<div class="download-pad">
+      <ModelDownload
+        model={punctuationDownload}
+        pending={false}
+        retryDisabled={locked}
+        onretry={(model) => speechChoice.use(model, "helper")}
+        oncancel={(model) => speechChoice.cancel(model.id)}
+      />
+    </div>{/if}
   {#if speechChoice.failure?.id === PUNCTUATION_MODEL}<p role="alert">
       {speechChoice.failure.message}
     </p>{/if}
-  <details>
-    <summary>Audio and video import</summary>
-    <div class="actions spaced">
+  <Disclosure title="Audio and video import">
+    <div class="actions media-actions">
       <span class="field-help"
         >{setup?.mediaImport.detail ||
           setup?.mediaImport.state ||
           "Checking…"}</span
       >{#if setup && ["missing", "failed"].includes(setup.mediaImport.state)}<button
-          class="button"
+          class="button small"
           disabled={locked}
           onclick={installMedia}>Install media support</button
         >{/if}<button
-        class="button"
+        class="button small"
         disabled={locked}
         onclick={() => locate(true)}>Locate converter</button
       >
     </div>
-  </details>
+  </Disclosure>
 </section>
 {#if locked}<p class="field-help">
     Model and folder changes wait for capture, downloads and model processing to
@@ -302,70 +364,98 @@
   </p>{/if}
 
 <style>
-  .disk-toolbar {
-    display: flex;
-    justify-content: space-between;
-    gap: 18px;
-    margin-bottom: 18px;
-  }
-  .disk-toolbar input {
-    width: 240px;
-  }
-  .disk-entry + .disk-entry {
-    border-top: 1px solid var(--line);
+  .disk-empty {
+    padding: 20px 18px;
+    margin: 0;
   }
   .disk-row {
     background: transparent;
     border: 0;
     display: flex;
-    align-items: baseline;
-    gap: 20px;
+    align-items: center;
+    gap: 14px;
     width: 100%;
+    min-height: 54px;
     text-align: left;
-    padding: 16px 8px;
+    padding: 13px 18px;
+    color: var(--ink);
+    font-size: 16px;
+    transition: background-color var(--motion-control) linear;
+  }
+  .disk-row:hover:not([aria-expanded="true"]) {
+    background-color: var(--well);
+  }
+  .disk-row:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
   }
   .disk-row strong {
-    flex: 1;
-    font-weight: 500;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-weight: 550;
   }
-  .disk-row span {
-    font-size: 14px;
+  .disk-size {
+    font-size: 13px;
     color: var(--soft-ink);
+    font-variant-numeric: tabular-nums;
     max-width: 45%;
+    text-align: right;
   }
-  .selected {
-    box-shadow: var(--raise-sm);
-    border-radius: 10px;
-    margin: 4px -8px;
-    padding: 0 8px;
+  .row-chevron {
+    display: grid;
+    place-items: center;
+    color: var(--soft-ink);
+    flex: none;
+    transition: transform var(--motion-control) var(--ease-settle);
   }
-  .disk-detail {
-    padding: 0 8px 16px;
+  .row-chevron.open {
+    transform: rotate(90deg);
   }
-  .disk-detail .field-help {
-    margin: 0 0 8px;
+  .disk-detail > .field-help:first-child {
+    margin: 0 0 12px;
+  }
+  .inline-note {
+    margin: 0;
+  }
+  .folder-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    width: 100%;
   }
   .folder {
     display: grid;
-    gap: 5px;
-    flex: 1;
+    gap: 4px;
+    flex: 1 1 200px;
+    min-width: 0;
     overflow-wrap: anywhere;
   }
   .folder code {
     font-size: 13px;
   }
-  summary {
-    cursor: pointer;
+  .folder small {
+    font-size: 13px;
+    color: var(--soft-ink);
   }
-  .disk-list {
-    padding-block: 4px;
+  .download-pad {
+    padding: 8px 0 14px;
+  }
+  .media-actions {
+    padding-bottom: 12px;
   }
   .update-row {
     align-items: center;
-    margin-bottom: 9px;
+    margin-bottom: 10px;
   }
   .update-row .field-help {
     flex: 1;
     margin: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .disk-row,
+    .row-chevron {
+      transition: none;
+    }
   }
 </style>

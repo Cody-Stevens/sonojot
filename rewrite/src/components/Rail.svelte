@@ -3,7 +3,12 @@
   import { app } from "../lib/app.svelte";
   import { call } from "../lib/api";
   import { duration, type MeetingDetail } from "../lib/protocol";
-  import { tabs, type Route, type RouteTarget } from "../lib/route.svelte";
+  import {
+    railTab,
+    tabs,
+    type Route,
+    type RouteTarget,
+  } from "../lib/route.svelte";
   import { updateButtonLabel, updateTooltip } from "../lib/updates";
   import { scrollEdges } from "../lib/scroll-edges";
   let {
@@ -15,6 +20,7 @@
     onnavigate?: (target: RouteTarget) => void;
     preview?: boolean;
   } = $props();
+  const activeTab = $derived(railTab(route));
   const recording = $derived(!preview && app.snapshot.meetingRecording);
   const activeId = $derived(recording ? app.snapshot.activeMeetingId : null);
   let meeting = $state<MeetingDetail | null>(null);
@@ -71,6 +77,47 @@
       "",
   );
 
+  let navEl = $state<HTMLElement | null>(null);
+  let thumbY = $state(0);
+  let thumbH = $state(0);
+  let thumbReady = $state(false);
+  let thumbAnimate = $state(false);
+  let lastTab = "";
+
+  function measureThumb(animate: boolean) {
+    if (!navEl) return;
+    const active = navEl.querySelector<HTMLButtonElement>(
+      `[data-nav="${CSS.escape(activeTab)}"]`,
+    );
+    if (!active) return;
+    const nextY = active.offsetTop;
+    const nextH = active.offsetHeight;
+    if (!nextH) return;
+    thumbAnimate = animate && thumbReady;
+    thumbY = nextY;
+    thumbH = nextH;
+    thumbReady = true;
+  }
+
+  $effect(() => {
+    const tab = activeTab;
+    const el = navEl;
+    if (!el) return;
+    const changed = lastTab !== "" && lastTab !== tab;
+    lastTab = tab;
+    measureThumb(changed);
+    const observer = new ResizeObserver(() => measureThumb(false));
+    observer.observe(el);
+    let disposed = false;
+    void document.fonts?.ready.then(() => {
+      if (!disposed) measureThumb(false);
+    });
+    return () => {
+      disposed = true;
+      observer.disconnect();
+    };
+  });
+
   function navKeys(event: KeyboardEvent) {
     if (!(event.currentTarget instanceof HTMLElement)) return;
     const buttons = [
@@ -96,13 +143,25 @@
 </script>
 
 <aside class="quiet-rail" use:scrollEdges>
-  <nav aria-label="Main navigation">
+  <nav
+    bind:this={navEl}
+    class="rail-track"
+    class:thumb-ready={thumbReady}
+    class:thumb-animate={thumbAnimate}
+    aria-label="Main navigation"
+  >
+    <span
+      class="rail-thumb"
+      aria-hidden="true"
+      style:transform={`translate3d(0, ${thumbY}px, 0)`}
+      style:height={`${thumbH}px`}
+    ></span>
     {#each tabs as tab}
       <button
         type="button"
         class="rail-item"
-        class:selected={route.tab === tab.id}
-        aria-current={route.tab === tab.id ? "page" : undefined}
+        class:selected={activeTab === tab.id}
+        aria-current={activeTab === tab.id ? "page" : undefined}
         data-nav={tab.id}
         onkeydown={navKeys}
         onclick={() => onnavigate({ tab: tab.id })}
@@ -149,7 +208,9 @@
           onnavigate({ tab: "settings", stage: "updates", sheet: "update" })}
       >
         <span class="update-mark" aria-hidden="true"
-          >{update.status.state === "error" || update.installProblem
+          >{update.status.state === "error" ||
+          (update.status.state === "ready" && update.status.installError) ||
+          update.installProblem
             ? "!"
             : "↓"}</span
         >
@@ -178,44 +239,110 @@
     flex-direction: column;
     align-items: center;
     gap: 18px;
-    padding: 12px 8px 18px;
+    padding: 0 7px 18px;
     min-height: 0;
     overflow-y: auto;
-    --edge-gap: 8px;
+    --edge-gap: 18px;
   }
-  nav {
+  .rail-track {
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 4px;
+    width: 100%;
+    padding: 4px;
+    border-radius: 19px;
+    background-color: var(--well);
+    box-shadow: var(--press);
+  }
+  .rail-thumb {
+    position: absolute;
+    top: 0;
+    left: 4px;
+    right: 4px;
+    z-index: 0;
+    border-radius: 15px;
+    pointer-events: none;
+    opacity: 0;
+    background-color: var(--card);
+    background-image: var(--paper-image);
+    background-size: var(--paper-tile-size);
+    background-position: top left;
+    background-blend-mode: multiply;
+    border: 1px solid var(--surface-border-color);
+    box-shadow: var(--raise-sm);
+  }
+  .rail-track.thumb-ready .rail-thumb {
+    opacity: 1;
+  }
+  .rail-track.thumb-animate .rail-thumb {
+    transition:
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      height 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
   .rail-item {
-    border: 0;
+    position: relative;
+    z-index: 1;
+    border: 1px solid transparent;
     background: transparent;
-    width: 74px;
-    min-height: 70px;
+    color: var(--soft-ink);
+    width: 100%;
+    min-height: 68px;
     padding: 10px 2px 8px;
-    border-radius: 16px 15px 17px 15px;
+    border-radius: 15px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 6px;
     font-size: 0.75rem;
     transition:
-      background-color var(--motion-control),
-      box-shadow var(--motion-control);
+      background-color var(--motion-control) linear,
+      color var(--motion-control) linear,
+      transform var(--motion-control) var(--ease-settle);
   }
   .rail-item:hover:not(.selected) {
-    background-color: var(--well);
+    background-color: color-mix(in srgb, var(--card) 45%, transparent);
+    color: var(--ink);
+  }
+  .rail-item:active {
+    transform: translateY(0.5px);
   }
   .rail-item.selected {
-    background-color: var(--dye);
-    color: var(--dye-ink);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .rail-track:not(.thumb-ready) .rail-item.selected {
+    background-color: var(--card);
     background-image: var(--paper-image);
     background-size: var(--paper-tile-size);
     background-position: top left;
     background-blend-mode: multiply;
+    border-color: var(--surface-border-color);
     box-shadow: var(--raise-sm);
-    font-weight: 600;
+  }
+  :global(.studio[data-material="off"]) .rail-track {
+    box-shadow: none;
+    border: 1px solid var(--line);
+  }
+  :global(.studio[data-material="off"]) .rail-thumb,
+  :global(.studio[data-material="off"])
+    .rail-track:not(.thumb-ready)
+    .rail-item.selected {
+    background-image: none;
+    box-shadow: none;
+    border-color: var(--line);
+  }
+  @media (prefers-contrast: more) {
+    .rail-track {
+      box-shadow: none;
+      border: 1px solid currentColor;
+    }
+    .rail-thumb,
+    .rail-track:not(.thumb-ready) .rail-item.selected {
+      background-image: none;
+      box-shadow: none;
+      border-color: currentColor;
+    }
   }
   .rail-icon {
     position: relative;
@@ -289,13 +416,14 @@
     .quiet-rail {
       padding-inline: 2px;
     }
-    .rail-item {
-      width: 70px;
-    }
   }
   @media (prefers-reduced-motion: reduce) {
-    .rail-item {
+    .rail-item,
+    .rail-thumb {
       transition: none;
+    }
+    .rail-item:active {
+      transform: none;
     }
   }
 </style>

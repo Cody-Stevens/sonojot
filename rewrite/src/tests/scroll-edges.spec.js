@@ -105,7 +105,15 @@ async function scrollTo(page, id, where) {
 
 /** Every scroller found has the cue, and it appears and hides correctly. */
 async function auditScrollers(page, where) {
-  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(
+    () =>
+      document.fonts.ready.then(
+        () =>
+          new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          ),
+      ),
+  );
   const found = await scrollers(page);
   const missing = found.filter((item) => !item.mode).map((item) => item.name);
   expect(missing, `scroll areas without edge cues on ${where}`).toEqual([]);
@@ -138,7 +146,7 @@ async function auditScrollers(page, where) {
 }
 
 for (const size of [
-  { width: 1220, height: 860 },
+  { width: 1060, height: 760 },
   { width: 740, height: 540 },
 ]) {
   test(`every page's scroll areas show edge cues at ${size.width}×${size.height}`, async ({
@@ -151,10 +159,11 @@ for (const size of [
       await goToPage(page, name);
       total += await auditScrollers(page, name);
     }
-    // At the minimum size most pages scroll. Since the November 13 light
-    // Speech page, no main page overflows at 1220×860; the sheets and long
-    // documents below keep that size covered.
-    if (size.height < 600) expect(total).toBeGreaterThan(pages.length - 2);
+    // At the minimum size half the pages still scroll (Dictation, Microphone,
+    // Shortcuts, Models), while compact screens (Meetings, Words, Look, Help)
+    // fit without blank margin; the sheets and long documents below keep both
+    // viewport sizes covered.
+    if (size.height < 600) expect(total).toBeGreaterThanOrEqual(4);
   });
 }
 

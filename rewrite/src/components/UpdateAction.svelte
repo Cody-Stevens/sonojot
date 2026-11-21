@@ -20,6 +20,7 @@
   async function activate(): Promise<void> {
     if (disabled || !action) return;
     if (action.kind === "download") await app.downloadUpdate();
+    else if (action.kind === "open") await app.openDownloadPage();
     else await app.restartToUpdate();
   }
 </script>

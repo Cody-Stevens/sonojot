@@ -301,7 +301,10 @@ test("Notes stage shares OpenRouter, keeps manual generation, and is reachable f
 }) => {
   await open(page);
   await page.getByRole("button", { name: "Notes", exact: true }).click();
-  await page.getByLabel("Style", { exact: true }).selectOption("tasks");
+  await page.getByRole("button", { name: "Style", exact: true }).click();
+  await page
+    .getByRole("option", { name: "Tasks by person", exact: true })
+    .click();
   await capture(page, "07-notes-stage.png");
   await page.getByRole("button", { name: /Online ·/ }).click();
   await expect(
@@ -318,7 +321,12 @@ test("Notes stage shares OpenRouter, keeps manual generation, and is reachable f
     .click();
   await page.getByRole("button", { name: /^Meetings / }).click();
   await page.getByRole("button", { name: /^Notes / }).click();
-  await expect(page.getByLabel("Style", { exact: true })).toHaveValue("tasks");
+  await expect(
+    page.getByRole("button", { name: "Style", exact: true }),
+  ).toContainText("Tasks by person");
+  await page
+    .getByRole("button", { name: "Back to Meetings settings", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Back to Settings", exact: true })
     .click();

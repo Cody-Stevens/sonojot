@@ -81,17 +81,53 @@ export function versionText(
       : record.published;
 }
 
-function phraseMatch(text: string, phrase: string): RegExpExecArray | null {
-  if (!phrase.trim()) return null;
+function phraseMatches(text: string, phrase: string): RegExpExecArray[] {
+  if (!phrase.trim()) return [];
   const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(
+  const re = new RegExp(
     `(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`,
-    "iu",
-  ).exec(text);
+    "giu",
+  );
+  const out: RegExpExecArray[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    out.push(m);
+    if (m[0].length === 0) break;
+  }
+  return out;
 }
 
 export function hasPhrase(text: string, phrase: string): boolean {
-  return phraseMatch(text, phrase) !== null;
+  return phraseMatches(text, phrase).length > 0;
+}
+
+/** A single explicit phrase replacement, targeting the occurrence nearest `offset` when given. */
+export function replaceWordAt(
+  text: string,
+  heard: string,
+  written: string,
+  offset?: number | null,
+): string | null {
+  const phrase = heard.trim();
+  if (!phrase || !written.trim()) return null;
+  const matches = phraseMatches(text, phrase);
+  if (!matches.length) return null;
+  let chosen = matches[0];
+  if (typeof offset === "number" && offset >= 0) {
+    let bestDist = Math.abs(chosen.index - offset);
+    for (const m of matches) {
+      const dist = Math.abs(m.index - offset);
+      if (dist < bestDist) {
+        chosen = m;
+        bestDist = dist;
+      }
+    }
+  }
+  return (
+    text.slice(0, chosen.index) +
+    written.trim() +
+    text.slice(chosen.index + chosen[0].length)
+  );
 }
 
 /** A single explicit phrase replacement, without interpreting punctuation as a pattern. */
@@ -100,12 +136,53 @@ export function replaceWord(
   heard: string,
   written: string,
 ): string | null {
-  const phrase = heard.trim();
-  if (!phrase || !written.trim()) return null;
-  const match = phraseMatch(text, phrase);
-  return match === null
-    ? null
-    : text.slice(0, match.index) +
-        written.trim() +
-        text.slice(match.index + match[0].length);
+  return replaceWordAt(text, heard, written, null);
+}
+
+export function nearbyContextWords(text: string, phrase: string): string[] {
+  const matches = phraseMatches(text, phrase);
+  if (!matches.length) return [];
+  const m = matches[0];
+  const before = text
+    .slice(Math.max(0, m.index - 48), m.index)
+    .split(/[^a-zA-Z0-9]+/)
+    .filter((w) => w.length >= 4);
+  const after = text
+    .slice(m.index + m[0].length, m.index + m[0].length + 48)
+    .split(/[^a-zA-Z0-9]+/)
+    .filter((w) => w.length >= 4);
+  const stop = new Set([
+    "that",
+    "this",
+    "with",
+    "from",
+    "have",
+    "been",
+    "were",
+    "they",
+    "them",
+    "their",
+    "there",
+    "what",
+    "when",
+    "where",
+    "which",
+    "about",
+    "into",
+    "just",
+    "like",
+    "make",
+    "more",
+    "some",
+    "than",
+    "then",
+    "very",
+    "your",
+  ]);
+  const out: string[] = [];
+  for (const w of [...before.slice(-3), ...after.slice(0, 3)]) {
+    const low = w.toLowerCase();
+    if (!stop.has(low) && !out.includes(low)) out.push(low);
+  }
+  return out.slice(0, 3);
 }

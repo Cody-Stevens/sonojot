@@ -4,11 +4,10 @@ import {
   autoplays,
   decodePcm,
   describe,
+  heading,
   optionsFor,
-  placeChip,
   placePopover,
-  segments,
-  showsFullText,
+  voiceHint,
   type TrustMark,
 } from "./trust";
 
@@ -21,9 +20,7 @@ const word: TrustMark = {
     { text: "Castle", label: "Next guess" },
   ],
   hasAudio: true,
-  rects: [],
-  from: 10,
-  to: 17,
+  rects: [{ x: 100, y: 100, w: 60, h: 20 }],
 };
 const gap: TrustMark = {
   ...word,
@@ -31,8 +28,7 @@ const gap: TrustMark = {
   kind: "gap",
   heard: "vendor",
   alternatives: [],
-  from: 30,
-  to: 30,
+  rects: [{ x: 220, y: 100, w: 14, h: 20 }],
 };
 const area = { x: 0, y: 0, w: 1000, h: 700 };
 
@@ -49,7 +45,30 @@ test("choices end with keep, gaps offer to add", () => {
     describe(word, 0, 2),
     /Spot 1 of 2: Castrel\. Could be Kestrel, your words/,
   );
-  assert.match(describe(gap, 1, 2), /missing after "vendor"/);
+  assert.match(describe(gap, 1, 2), /possible missing word after "vendor"/);
+});
+
+test("headings explain why a word or gap is marked", () => {
+  assert.deepEqual(heading(word), { lead: "Unsure about", word: "Castrel" });
+  assert.deepEqual(heading(gap), {
+    lead: "Possible missing word after",
+    word: "“vendor”",
+  });
+  assert.deepEqual(heading({ ...gap, heard: "" }), {
+    lead: "Possible missing word at the start",
+    word: "",
+  });
+});
+
+test("voice hint adapts when there are no suggested alternatives", () => {
+  assert.equal(
+    voiceHint("Ctrl+Space", true, true),
+    "Or hold Ctrl+Space and say the word",
+  );
+  assert.equal(
+    voiceHint("Ctrl+Space", false, false),
+    "Press Ctrl+Space and say the right word, or type over it",
+  );
 });
 
 test("the popover stays on screen and flips above near the bottom", () => {
@@ -80,25 +99,6 @@ test("the popover stays on screen and flips above near the bottom", () => {
   assert.equal(strip.x, 420, "strip centred on the word");
 });
 
-test("chip clamps inside the area", () => {
-  const chip = placeChip(
-    { x: 990, y: 690, w: 1, h: 20 },
-    { w: 110, h: 30 },
-    area,
-  );
-  assert.ok(chip.x + 110 <= 992 && chip.y + 30 <= 692);
-});
-
-test("panel text splits around marks", () => {
-  const text = "Fix the cash eviction";
-  const parts = segments(text, [{ ...word, from: 8, to: 12 }]);
-  assert.deepEqual(
-    parts.map((p) => p.text),
-    ["Fix the ", "cash", " eviction"],
-  );
-  assert.equal(parts[1].mark?.id, 1);
-});
-
 test("pcm decodes signed 16-bit little endian", () => {
   const bytes = String.fromCharCode(0x00, 0x40, 0x00, 0xc0);
   const samples = decodePcm(btoa(bytes));
@@ -108,27 +108,20 @@ test("pcm decodes signed 16-bit little endian", () => {
 test("opening plays the audio once only when allowed", () => {
   const view = { playOn: "hover" as const, busy: false, voice: null };
   assert.equal(autoplays(view, gap), true);
-  assert.equal(autoplays({ ...view, playOn: "click" }, gap), false, "On click setting");
-  assert.equal(autoplays({ ...view, busy: true }, gap), false, "never while recording");
-  assert.equal(autoplays({ ...view, voice: 2 }, gap), false, "not over a spoken fix");
-  assert.equal(autoplays(view, { hasAudio: false }), false, "nothing to play");
-});
-
-test("the panel repeats the dictation only away from the text", () => {
-  assert.equal(showsFullText({ nearText: true }), false);
-  assert.equal(showsFullText({ nearText: false }), true);
-});
-
-test("a gap sits between its word and the comma, as an empty run", () => {
-  const text = "broad strokes, style";
-  const at = text.indexOf(",");
-  const parts = segments(text, [{ ...gap, from: at, to: at }]);
-  assert.deepEqual(
-    parts.map((p) => [p.text, p.mark?.kind ?? null]),
-    [
-      ["broad strokes", null],
-      ["", "gap"],
-      [", style", null],
-    ],
+  assert.equal(
+    autoplays({ ...view, playOn: "click" }, gap),
+    false,
+    "On click setting",
   );
+  assert.equal(
+    autoplays({ ...view, busy: true }, gap),
+    false,
+    "never while recording",
+  );
+  assert.equal(
+    autoplays({ ...view, voice: 2 }, gap),
+    false,
+    "not over a spoken fix",
+  );
+  assert.equal(autoplays(view, { hasAudio: false }), false, "nothing to play");
 });

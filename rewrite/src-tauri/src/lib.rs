@@ -1,4 +1,6 @@
+pub mod executable;
 pub mod flavor;
+pub mod lexicon;
 mod confidence;
 pub mod trust;
 pub mod acceleration;
@@ -29,6 +31,7 @@ mod granite_speech;
 pub mod granite_worker;
 mod llama_asr;
 mod live_preview;
+mod parakeet_preview;
 mod media_support;
 pub mod meeting_ai;
 mod meeting_pieces;
@@ -106,6 +109,8 @@ mod windows;
 #[cfg(feature = "fidelity-eval")]
 pub use windows::build_quiet;
 mod updater;
+#[cfg(target_os = "linux")]
+mod package_update;
 
 use app::Runtime;
 use std::sync::Arc;
@@ -180,20 +185,25 @@ pub fn run() {
     // while another instance is still using it.
     let desktop_started = std::time::Instant::now();
     if std::env::args().any(|arg| arg == "--register-startup") {
-        let result = std::env::current_exe()
+        let result = crate::executable::installed()
             .map_err(|e| e.to_string())
             .and_then(|exe| platform::set_startup_enabled(true, &exe));
         std::process::exit(if result == Ok(true) { 0 } else { 1 });
     }
     std::env::set_var("MOONSHINE_ORT_SINGLE_THREAD", "1");
-    // WebKitGTK's DMA-BUF renderer draws blank or flickering windows on the
-    // NVIDIA driver under Wayland. Only this process opts out; an explicit
-    // WEBKIT_DISABLE_DMABUF_RENDERER (0 or 1) always wins.
+    // On the NVIDIA driver under Wayland, sharing WebKitGTK's frames as
+    // DMA-BUFs can draw blank or flickering windows, and turning the DMA-BUF
+    // renderer off is worse for SonoJot's transparent windows: WebKitGTK 2.54
+    // then presents only the damaged region, so whole sections vanish and
+    // only a hovered button stays (RTX 5070, driver 615, 2026-11-17). Keep the
+    // renderer and pass frames through shared memory instead. Only this
+    // process is affected; an explicit setting of either variable wins.
     #[cfg(target_os = "linux")]
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+        && std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_none()
         && std::path::Path::new("/proc/driver/nvidia/version").exists()
     {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
     }
     let context = tauri::generate_context!();
     if flavor::SYNC_TEST {
@@ -237,6 +247,7 @@ pub fn run() {
             updater::download_update,
             updater::restart_to_update,
             updater::dismiss_update_notice,
+            updater::open_download_page,
             commands::get_model_acceleration,
             ai_commands::get_ai_settings,
             ai_commands::save_ai_settings,
@@ -306,6 +317,7 @@ pub fn run() {
             commands::transcribe_meeting,
             commands::get_timed_transcript,
             windows::drag_screen_tab,
+            windows::end_screen_tab_drag,
             commands::cancel_meeting,
             commands::save_meeting,
             commands::clean_meeting,
@@ -320,6 +332,12 @@ pub fn run() {
             commands::export_meeting_audio,
             commands::get_vocabulary,
             commands::save_vocabulary,
+            commands::get_words_overview,
+            commands::confirm_learned_word,
+            commands::ignore_learned_word,
+            commands::confirm_spelling_cluster,
+            commands::ignore_spelling_cluster,
+            commands::undo_lexicon_action,
             commands::list_dictations,
             commands::count_dictations,
             commands::delete_dictation,
@@ -400,7 +418,7 @@ pub fn run() {
             cli_server::start(app.handle());
             // Doubtful-word marks after a paste; idle (no thread work) until then.
             if let Ok(snapshot) = runtime.snapshot() {
-                trust::init(app.handle(), &snapshot.settings.trust);
+                trust::init(app.handle(), &snapshot.settings.trust, runtime.store.clone());
             }
             // Once per install location: sonojot-cli on PATH, agents pointed at it.
             let data_dir = runtime.store.root().to_path_buf();
@@ -635,6 +653,8 @@ pub fn run() {
                 let data = runtime.store.root().to_path_buf();
                 std::thread::spawn(move || omarchy::pin_tray_once(&data));
             }
+            #[cfg(target_os = "linux")]
+            hyprland::watch_own_windows();
             #[cfg(target_os = "macos")]
             {
                 let handle = app.handle().clone();

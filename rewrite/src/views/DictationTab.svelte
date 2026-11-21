@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import Icon from "../components/Icon.svelte";
   import Meter from "../components/Meter.svelte";
+  import PageHeader from "../components/quiet/PageHeader.svelte";
+  import PipelineBand from "../components/quiet/PipelineBand.svelte";
   import Chip from "../components/quiet/Chip.svelte";
   import DayPages from "../components/quiet/DayPages.svelte";
   import DictationControl from "../components/DictationControl.svelte";
@@ -102,121 +104,126 @@
   });
 </script>
 
-<section class="stock paper-card dictation-band" aria-label="Dictation status">
-  <div class="band-state">
+<PageHeader title="Dictation" />
+
+<PipelineBand label="Dictation status" {status} live={active}>
+  {#snippet icon()}
     <span
       class="state-ring"
       class:listening={app.snapshot.state === "listening" ||
         app.snapshot.state === "loading"}
-      ><Icon name="microphone" size={23} /></span
     >
-    <h1 data-text-surface="emboss" aria-live="polite">{status}</h1>
-    {#if active}<div class="band-controls">
-        <DictationControl compact />
-      </div>{/if}
-  </div>
+      <Icon name="microphone" size={20} />
+    </span>
+  {/snippet}
+  {#snippet actions()}
+    {#if active}
+      <DictationControl compact />
+    {/if}
+  {/snippet}
+  {#snippet stages()}
+    {#if !active && !reviewing}
+      <div class="stage-row" role="group" aria-label="Dictation settings">
+        <span class="stage-step">
+          <Chip
+            label="Shortcut and mic"
+            onclick={() => onnavigate({ tab: "dictation", stage: "input" })}
+          >
+            <span class="keycaps"
+              >{#each settings.hotkey.split("+") as key}<kbd>{key}</kbd
+                >{/each}</span
+            >
+            {#if shortcutConflict}<span class="quiet-tag amber">TAKEN</span
+              >{/if}<span class="stage-dot">·</span><Icon
+              name="microphone"
+              size={14}
+            /><span class="chip-name">{mic?.name ?? "Choose mic"}</span
+            >{#if !mic}<span
+                class="health-dot"
+                aria-label="Microphone unavailable"
+              ></span>{/if}
+          </Chip>
+        </span>
+        <span class="stage-step">
+          <span class="stage-arrow" aria-hidden="true">→</span>
+          <Chip
+            label="Speech"
+            onclick={() => onnavigate({ tab: "dictation", stage: "speech" })}
+            ><span class="chip-name">{speechName}</span><span class="quiet-tag"
+              >{isGpuAsrModel(settings.asrModel) ||
+              isMetalAsrModel(settings.asrModel)
+                ? "GPU"
+                : "CPU"}</span
+            >{#if !speechReady}<span
+                class="health-dot"
+                aria-label="Speech model needs attention"
+              ></span>{/if}</Chip
+          >
+        </span>
+        <span class="stage-step">
+          <span class="stage-arrow" aria-hidden="true">→</span>
+          <Chip
+            label="Cleanup"
+            onclick={() => onnavigate({ tab: "dictation", stage: "cleanup" })}
+            ><span
+              >{settings.cleanupMode === "original"
+                ? "As heard"
+                : settings.cleanupMode === "format"
+                  ? "Format"
+                  : "Clean"}</span
+            >{#if cleaner}<span class="stage-dot">·</span><span
+                class="chip-name">{cleaner}</span
+              >{/if}{#if cleanupHealth}<span
+                class="health-dot"
+                aria-label="Cleanup needs attention"
+              ></span>{/if}</Chip
+          >
+        </span>
+        <span class="stage-step">
+          <span class="stage-arrow" aria-hidden="true">→</span>
+          <Chip
+            label="Paste and history"
+            onclick={() => onnavigate({ tab: "dictation", stage: "output" })}
+            ><span>{settings.autoPaste ? "Paste" : "Clipboard"}</span><span
+              class="stage-dot">·</span
+            ><span
+              >{settings.doNotSaveDictations
+                ? "No history"
+                : settings.keepDictationAudio
+                  ? "Text + audio"
+                  : "History"}</span
+            ></Chip
+          >
+        </span>
+      </div>
+    {/if}
+  {/snippet}
   {#if active}
-    {#if ["listening", "loading"].includes(app.snapshot.state)}<div
-        class="band-meter"
-      >
+    {#if ["listening", "loading"].includes(app.snapshot.state)}
+      <div class="band-meter">
         <Meter level={app.snapshot.audioLevel} active />
-      </div>{/if}
-    {#if app.snapshot.interimText || app.snapshot.previewText}<TranscriptPreview
+      </div>
+    {/if}
+    {#if app.snapshot.interimText || app.snapshot.previewText}
+      <TranscriptPreview
         text={[app.snapshot.interimText, app.snapshot.previewText]
           .filter(Boolean)
           .join(" ")}
-      />{/if}
-  {:else if !reviewing}
-    <div class="dictation-stages" role="group" aria-label="Dictation settings">
-      <Chip
-        label="Shortcut and mic"
-        onclick={() => onnavigate({ tab: "dictation", stage: "input" })}
-      >
-        <span class="keycaps"
-          >{#each settings.hotkey.split("+") as key}<kbd>{key}</kbd
-            >{/each}</span
-        >
-        {#if shortcutConflict}<span class="quiet-tag amber">TAKEN</span
-          >{/if}<span class="stage-dot">·</span><Icon
-          name="microphone"
-          size={15}
-        /><span class="chip-name">{mic?.name ?? "Choose mic"}</span
-        >{#if !mic}<span class="health-dot" aria-label="Microphone unavailable"
-          ></span>{/if}
-      </Chip>
-      <span class="stage-arrow" aria-hidden="true">→</span>
-      <Chip
-        label="Speech"
-        onclick={() => onnavigate({ tab: "dictation", stage: "speech" })}
-        ><span class="chip-name">{speechName}</span><span class="quiet-tag"
-          >{isGpuAsrModel(settings.asrModel) ||
-          isMetalAsrModel(settings.asrModel)
-            ? "GPU"
-            : "CPU"}</span
-        >{#if !speechReady}<span
-            class="health-dot"
-            aria-label="Speech model needs attention"
-          ></span>{/if}</Chip
-      >
-      <span class="stage-arrow" aria-hidden="true">→</span>
-      <Chip
-        label="Cleanup"
-        onclick={() => onnavigate({ tab: "dictation", stage: "cleanup" })}
-        ><span
-          >{settings.cleanupMode === "original"
-            ? "As heard"
-            : settings.cleanupMode === "format"
-              ? "Format"
-              : "Clean"}</span
-        >{#if cleaner}<span class="stage-dot">·</span><span class="chip-name"
-            >{cleaner}</span
-          >{/if}{#if cleanupHealth}<span
-            class="health-dot"
-            aria-label="Cleanup needs attention"
-          ></span>{/if}</Chip
-      >
-      <span class="stage-arrow" aria-hidden="true">→</span>
-      <Chip
-        label="Paste and history"
-        onclick={() => onnavigate({ tab: "dictation", stage: "output" })}
-        ><span>{settings.autoPaste ? "Paste" : "Clipboard"}</span><span
-          class="stage-dot">·</span
-        ><span
-          >{settings.doNotSaveDictations
-            ? "No history"
-            : settings.keepDictationAudio
-              ? "Text + audio"
-              : "History"}</span
-        ></Chip
-      >
-    </div>
+      />
+    {/if}
   {/if}
   <TransientDictation {reviewSessionId} />
-  {#if app.native && app.snapshot.capabilities.platform === "macos"}<MacPasteAccess
-      variant="settings"
-    />{/if}
-</section>
+  {#if app.native && app.snapshot.capabilities.platform === "macos"}
+    <MacPasteAccess variant="settings" />
+  {/if}
+</PipelineBand>
 <DayPages onselection={(open) => (reviewing = open)} />
 
 <style>
-  .dictation-band {
-    padding: 22px 24px;
-    margin-bottom: 0;
-  }
-  .band-state {
-    display: flex;
-    align-items: center;
-    gap: 13px;
-    margin-bottom: 18px;
-  }
-  h1 {
-    font-size: 28px;
-    line-height: 1.2;
-    margin: 0;
-  }
   .state-ring {
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
+    flex: none;
     display: grid;
     place-items: center;
     border: 2px solid color-mix(in srgb, var(--dye) 32%, transparent);
@@ -228,24 +235,9 @@
     color: var(--danger);
     border-color: var(--danger);
   }
-  .band-controls {
-    margin-left: auto;
-  }
   .band-meter {
     width: 180px;
-    margin-left: 51px;
-  }
-  .dictation-stages {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    flex-wrap: wrap;
-  }
-  .dictation-stages :global(.quiet-chip) {
-    min-width: 0;
-    font-size: 14px;
-    padding: 9px 10px;
-    gap: 6px;
+    margin-left: 48px;
   }
   .chip-name {
     max-width: 150px;
@@ -254,22 +246,19 @@
     white-space: nowrap;
   }
   .keycaps {
-    display: flex;
+    display: inline-flex;
     gap: 3px;
   }
   kbd {
     font-size: 12px;
-    padding: 1px 3px;
-  }
-  .stage-arrow,
-  .stage-dot {
-    color: var(--soft-ink);
+    padding: 1px 4px;
+    border-radius: 5px;
   }
   .health-dot {
     width: 7px;
     height: 7px;
     flex: 0 0 7px;
-    background: var(--amber, #99732e);
+    background: var(--warning-ink);
     border-radius: 50%;
   }
 </style>

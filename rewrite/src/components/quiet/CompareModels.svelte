@@ -1,5 +1,6 @@
 <script lang="ts">
   import Sheet from "./Sheet.svelte";
+  import SegmentedControl from "./SegmentedControl.svelte";
   import {
     paretoFrontier,
     paretoPoints,
@@ -156,28 +157,26 @@
       This computer: {hardwareText}
     </p>{/if}
   <div class="switches">
-    {#if views.length > 1}<div
-        class="segments view-switch"
-        role="group"
-        aria-label="Kind of speech"
-      >
-        {#each views as item}<button
-            aria-pressed={speech === item}
-            onclick={() => {
-              chosen = item;
-              active = "";
-            }}>{viewName(item)}</button
-          >{/each}
-      </div>{/if}
-    <div class="segments view-switch" role="group" aria-label="Show as">
-      <button
-        aria-pressed={layout === "chart"}
-        onclick={() => (layout = "chart")}>Chart</button
-      ><button
-        aria-pressed={layout === "table"}
-        onclick={() => (layout = "table")}>Table</button
-      >
-    </div>
+    {#if views.length > 1}
+      <SegmentedControl
+        label="Kind of speech"
+        options={views.map((item) => ({ value: item, label: viewName(item) }))}
+        value={speech}
+        onchange={(item) => {
+          chosen = item;
+          active = "";
+        }}
+      />
+    {/if}
+    <SegmentedControl
+      label="Show as"
+      options={[
+        { value: "chart" as const, label: "Chart" },
+        { value: "table" as const, label: "Table" },
+      ]}
+      value={layout}
+      onchange={(next) => (layout = next)}
+    />
   </div>
   {#if layout === "chart"}
     <p class="how" data-text-surface="flat">
@@ -369,19 +368,6 @@
     flex-wrap: wrap;
     gap: 8px 14px;
     margin: 0 0 12px;
-  }
-  .view-switch {
-    margin: 0;
-    width: fit-content;
-    padding: 3px;
-    gap: 3px;
-  }
-  .view-switch button {
-    flex: 0 0 auto;
-    padding: 6px 14px;
-    font-size: 14px;
-    line-height: 1.2;
-    white-space: nowrap;
   }
   .how {
     margin: 0 0 8px;

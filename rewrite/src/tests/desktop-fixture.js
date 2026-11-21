@@ -1101,7 +1101,7 @@ export async function installDesktopFixture(page, options = {}) {
             callbacks.get(handlers.get("tauri://resize"))?.({
               event: "tauri://resize",
               id: 2,
-              payload: { width: 1220, height: 860 },
+              payload: { width: 1060, height: 760 },
             });
             return null;
           case "plugin:window|minimize":
@@ -1409,6 +1409,7 @@ export async function installDesktopFixture(page, options = {}) {
           case "open_punctuation_model_page":
           case "open_model_license":
           case "open_legal_link":
+          case "open_download_page":
           case "open_openrouter_privacy":
           case "open_download_license":
           case "export_meeting":
@@ -1481,8 +1482,27 @@ export async function installDesktopFixture(page, options = {}) {
               routes: 0,
               activeRoutes: 0,
             });
-          case "suggest_vocabulary":
-            return clone(options.vocabularySuggestions ?? []);
+          case "suggest_vocabulary": {
+            const suggestions = clone(options.vocabularySuggestions ?? []);
+            for (const s of suggestions) {
+              if (!learned.some((e) => e.heard === s.heard && (e.text ?? e.written) === s.written)) {
+                learned.push({
+                  id: `mock-review-${learnedSeq++}`,
+                  kind: "correction",
+                  text: s.written,
+                  heard: s.heard,
+                  scope: null,
+                  sourceIds: [],
+                  sourceType: "review",
+                  enabled: true,
+                  userPinned: false,
+                  tier: "suggested",
+                  reason: s.reason || "Found in recent dictations",
+                });
+              }
+            }
+            return suggestions;
+          }
           case "cancel_vocabulary_suggestions":
             return null;
           case "get_model_library":
@@ -1624,9 +1644,147 @@ export async function installDesktopFixture(page, options = {}) {
           case "save_vocabulary":
             vocabulary = clone(args.entries);
             return clone(vocabulary);
+          case "get_words_overview":
+            return {
+              words: clone(vocabulary),
+              wordMeta: {},
+              activeLearned: clone(learned)
+                .filter((e) => e.enabled && e.tier === "active")
+                .map((e) => ({
+                  id: e.id,
+                  kind: e.heard ? "alias" : "hint",
+                  heard: e.heard ?? null,
+                  written: e.text ?? e.written ?? "",
+                  tier: "active",
+                  risk: "nonword",
+                  nearCues: [],
+                  fixes: e.fixes ?? 2,
+                  keeps: e.keeps ?? 0,
+                  applied: e.applied ?? 0,
+                  reverted: 0,
+                  probationLeft: 0,
+                  reason: e.reason ?? "You fixed this twice",
+                  sources: [],
+                  revision: 1,
+                  promotedTo: null,
+                })),
+              reviewItems: clone(learned)
+                .filter((e) => e.tier !== "active")
+                .map((e) => ({
+                  id: e.id,
+                  kind: e.heard ? "alias" : "hint",
+                  heard: e.heard ?? null,
+                  written: e.text ?? e.written ?? "",
+                  tier: "suggested",
+                  risk: "nonword",
+                  nearCues: [],
+                  fixes: e.fixes ?? 1,
+                  keeps: 0,
+                  applied: 0,
+                  reverted: 0,
+                  probationLeft: 0,
+                  reason: e.reason ?? "Fixed once",
+                  sources: [],
+                  revision: 1,
+                  promotedTo: null,
+                })),
+              clusters: [],
+              suppressedCount: 0,
+              lexiconRevision: 1,
+            };
+          case "confirm_learned_word": {
+            const idx = learned.findIndex((e) => e.id === args.id);
+            const item = idx >= 0 ? learned.splice(idx, 1)[0] : null;
+            const written = args.written || item?.text || "";
+            const heard = args.kind === "hint" ? written : args.heard || item?.heard || written;
+            vocabulary.push({
+              id: `confirmed-${Date.now()}`,
+              kind: args.kind ?? "replace",
+              heard,
+              written,
+              enabled: true,
+              aliases: args.kind === "hint" ? [] : [heard],
+              context: args.context ?? [],
+              scope: null,
+            });
+            return {
+              overview: {
+                words: clone(vocabulary),
+                wordMeta: {},
+                activeLearned: [],
+                reviewItems: clone(learned).map((e) => ({
+                  id: e.id,
+                  kind: e.heard ? "alias" : "hint",
+                  heard: e.heard ?? null,
+                  written: e.text ?? e.written ?? "",
+                  tier: "suggested",
+                  risk: "nonword",
+                  nearCues: [],
+                  fixes: 1,
+                  keeps: 0,
+                  applied: 0,
+                  reverted: 0,
+                  probationLeft: 0,
+                  reason: e.reason ?? "Fixed once",
+                  sources: [],
+                  revision: 1,
+                  promotedTo: null,
+                })),
+                clusters: [],
+                suppressedCount: 0,
+                lexiconRevision: 2,
+              },
+              undoToken: "mock-undo",
+              message: `Saved “${written}” to Words.`,
+            };
+          }
+          case "ignore_learned_word": {
+            const idx = learned.findIndex((e) => e.id === args.id);
+            const item = idx >= 0 ? learned.splice(idx, 1)[0] : null;
+            return {
+              overview: {
+                words: clone(vocabulary),
+                wordMeta: {},
+                activeLearned: [],
+                reviewItems: [],
+                clusters: [],
+                suppressedCount: 1,
+                lexiconRevision: 2,
+              },
+              undoToken: "mock-undo",
+              message: `SonoJot won’t suggest “${item?.text ?? ""}” again.`,
+            };
+          }
+          case "confirm_spelling_cluster":
+          case "ignore_spelling_cluster":
+            return {
+              overview: {
+                words: clone(vocabulary),
+                wordMeta: {},
+                activeLearned: [],
+                reviewItems: [],
+                clusters: [],
+                suppressedCount: 0,
+                lexiconRevision: 2,
+              },
+              undoToken: null,
+              message: "Updated.",
+            };
+          case "undo_lexicon_action":
+            return {
+              words: clone(vocabulary),
+              wordMeta: {},
+              activeLearned: [],
+              reviewItems: [],
+              clusters: [],
+              suppressedCount: 0,
+              lexiconRevision: 3,
+            };
           case "learn_correction":
             vocabulary.push({
-              aliases: [], context: [],
+              kind: args.kind ?? "replace",
+              aliases: args.kind === "hint" ? [] : [args.heard],
+              context: args.context ?? [],
               id: "learned",
               heard: args.heard,
               written: args.written,

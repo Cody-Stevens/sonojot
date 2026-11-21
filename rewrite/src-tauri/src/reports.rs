@@ -779,17 +779,18 @@ mod tests {
     #[test]
     fn update_restart_is_not_reported_as_a_crash() {
         let root = Temp::new();
-        let old = CrashReports::start_as(&root.0, "0.28.9").unwrap();
+        let current = env!("CARGO_PKG_VERSION");
+        let old = CrashReports::start_as(&root.0, current).unwrap();
         // Windows: the updater calls std::process::exit, so clean_exit never runs.
-        old.mark_update_restart("0.28.10");
+        old.mark_update_restart("99.0.0");
         drop(old);
-        let new = CrashReports::start_as(&root.0, "0.28.10").unwrap();
+        let new = CrashReports::start_as(&root.0, "99.0.0").unwrap();
         assert!(new.pending().unwrap().is_none());
-        assert_eq!(new.previous_version().as_deref(), Some("0.28.9"));
+        assert_eq!(new.previous_version().as_deref(), Some(current));
         assert!(!new.directory.join("update-restart.json").exists());
         // The marker is consumed: a later unclean exit is reported again.
         drop(new);
-        let after = CrashReports::start_as(&root.0, "0.28.10").unwrap();
+        let after = CrashReports::start_as(&root.0, "99.0.0").unwrap();
         assert_eq!(after.pending().unwrap().unwrap().reason, CrashReason::UnexpectedExit);
     }
 

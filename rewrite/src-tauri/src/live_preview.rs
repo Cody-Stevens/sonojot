@@ -76,6 +76,7 @@ pub(crate) fn running() -> bool {
 /// Moonshine streaming model already shows live text, so it gets none.
 pub(crate) fn wanted(root: &Path, enabled: bool, primary: &str) -> bool {
     enabled
+        && !crate::parakeet_preview::supported(primary)
         && cfg!(all(any(target_os = "windows", target_os = "linux"), target_arch = "x86_64"))
         && !matches!(primary, "moonshine-medium" | "moonshine-small" | MODEL_ID)
         && crate::asr::model_status(root, MODEL_ID, crate::model_verification::Check::Background)

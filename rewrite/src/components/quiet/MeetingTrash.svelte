@@ -49,17 +49,26 @@
 </script>
 
 <div class="recently-deleted" data-text-surface="flat">
-  <button class="button small" aria-expanded={open} onclick={toggle}
-    >Recently deleted</button
-  >
+  <div class="list-footer">
+    <span>Copies deleted on another device are kept here for 30 days.</span>
+    <button
+      type="button"
+      class="text-action"
+      aria-expanded={open}
+      onclick={toggle}>Recently deleted</button
+    >
+  </div>
   {#if open}
-    <section aria-label="Recently deleted meetings">
+    <section
+      class="stock paper-card ui-card trash-card"
+      aria-label="Recently deleted meetings"
+    >
       <p class="field-help">
         Kept for 30 days. Restore keeps a copy on this computer.
       </p>
       {#each rows as row (row.key)}
         <div class="deleted-row">
-          <span>{row.title}</span>
+          <span class="deleted-title">{row.title}</span>
           <span class="field-help"
             >{new Date(row.deletedAt * 1000).toLocaleDateString()}</span
           >
@@ -74,7 +83,7 @@
             onclick={() => change(row.key, false)}>Delete now</button
           >
         </div>
-      {:else}<p>No recently deleted meetings.</p>{/each}
+      {:else}<p class="field-help">No recently deleted meetings.</p>{/each}
       {#if error}<p role="alert">{error}</p>{/if}
     </section>
   {/if}
@@ -82,17 +91,25 @@
 
 <style>
   .recently-deleted {
-    margin: 16px 0;
+    margin-top: 16px;
+  }
+  .trash-card {
+    margin-top: 12px;
+    padding: 16px 20px;
+  }
+  .trash-card > p:first-child {
+    margin: 0 0 12px;
   }
   .deleted-row {
     display: flex;
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-    margin: 12px 0;
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
   }
-  .deleted-row > span:first-child {
-    flex: 1;
-    min-width: 120px;
+  .deleted-title {
+    flex: 1 1 140px;
+    color: var(--ink);
   }
 </style>

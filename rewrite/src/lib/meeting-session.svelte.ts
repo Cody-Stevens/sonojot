@@ -77,7 +77,10 @@ export function createMeetingSession() {
     systemAudioState(systemStatus, app.snapshot.capabilities.platform),
   );
   const systemNotice = $derived(
-    recordingSystemNotice(app.snapshot.meetingSystemAudio),
+    recordingSystemNotice(
+      app.snapshot.meetingSystemAudio,
+      app.snapshot.capabilities.platform,
+    ),
   );
   let systemFixError = $state("");
   async function fixSystem(): Promise<void> {
@@ -580,6 +583,7 @@ export function createMeetingSession() {
             !destroyed &&
             !app.snapshot.meetingRecording &&
             ["idle", "error"].includes(app.snapshot.state),
+          app.snapshot.capabilities.platform,
         );
         if (plan === null) return;
         if (plan.action === "fix") {

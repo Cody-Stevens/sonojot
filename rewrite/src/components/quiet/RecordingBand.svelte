@@ -67,12 +67,12 @@
 </script>
 
 <section
-  class="stock paper-card recording-band"
+  class="stock paper-card ui-card recording-band"
   aria-label="Recording this meeting"
 >
   <div class="recording-head">
     <span class="record-dot"></span>
-    <h1 data-text-surface="emboss">Recording</h1>
+    <h2 data-text-surface="emboss">Recording</h2>
     <time>{meetingClock(elapsed)}</time><span class="spacer"></span><button
       class="button stop"
       disabled={app.busy("meeting-record")}
@@ -144,22 +144,24 @@
 
 <style>
   .recording-band {
-    padding: 20px 26px;
-    border-radius: 16px;
-    margin: 0 0 22px;
+    padding: 18px 22px;
+    border-radius: var(--r-card-die);
+    margin: 0 0 18px;
+    box-shadow: var(--press);
   }
   .recording-head {
     display: flex;
     align-items: center;
-    gap: 14px;
-    margin-bottom: 18px;
+    gap: 12px;
+    margin-bottom: 14px;
   }
-  h1 {
-    font-size: 24px;
+  h2 {
+    font-size: 20px;
+    line-height: 24px;
     margin: 0;
   }
   time {
-    font-size: 20px;
+    font-size: 18px;
     font-variant-numeric: tabular-nums;
     color: var(--soft-ink);
   }
@@ -167,10 +169,11 @@
     flex: 1;
   }
   .record-dot {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     background: var(--danger);
     border-radius: 50%;
+    animation: recording-pulse 2400ms ease-in-out infinite;
   }
   .stop {
     color: var(--danger);

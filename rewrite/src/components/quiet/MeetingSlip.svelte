@@ -17,25 +17,26 @@
   const time = $derived(new Date(meeting.createdAt));
 </script>
 
-<article class="stock paper-card meeting-slip">
+<article class="meeting-slip">
   <button class="slip-open" data-meeting-id={meeting.id} onclick={onopen}>
     <time datetime={meeting.createdAt} data-text-surface="flat"
       >{Number.isFinite(time.getTime())
         ? time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : "—"}</time
     >
-    <span class="record-mark" aria-hidden="true">◉</span>
     <span class="slip-copy"
       ><strong data-text-surface="emboss">{meeting.title}</strong><small
         data-text-surface="flat"
-        >{duration(meeting.durationSeconds)} <span>·</span>
+        >{duration(meeting.durationSeconds)} <span aria-hidden="true">·</span>
         {meetingStatus[meeting.status] ?? meeting.status}
         {#if meeting.speakerCount}<span
             class="speaker-dots"
             aria-label={`${meeting.speakerCount} speakers`}
-            >{#each Array(Math.min(meeting.speakerCount, 5)) as _, i}<i
+            >{#each Array(Math.min(meeting.speakerCount, 4)) as _, i}<i
                 style:--speaker-index={i}
-              ></i>{/each}</span
+              ></i>{/each}{#if meeting.speakerCount > 4}<span
+                class="speaker-more">+{meeting.speakerCount - 4}</span
+              >{/if}</span
           >{/if}
       </small>{#if match}<small class="search-match" data-text-surface="flat"
           >{match}</small
@@ -60,59 +61,76 @@
     position: relative;
     display: flex;
     align-items: center;
-    margin: 10px 0;
+    margin: 0;
     padding: 0;
-    border-radius: 8px 13px 11px 9px;
-    box-shadow: var(--raise);
+    background: transparent;
   }
   .slip-open {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 18px;
     text-align: left;
-    padding: 16px 24px;
+    padding: 14px 18px;
     width: 100%;
+    min-height: 72px;
     color: var(--ink);
-    background: none;
+    background: transparent;
     border: 0;
     box-shadow: none;
-    min-height: 80px;
+    transition: background-color var(--motion-control) linear;
+  }
+  .slip-open:hover,
+  .meeting-slip:focus-within .slip-open {
+    background-color: var(--well);
+  }
+  .slip-open:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
   }
   time {
     color: var(--soft-ink);
-    font-size: 14px;
-    min-width: 60px;
-  }
-  .record-mark {
-    font-size: 30px;
-    color: var(--soft-ink);
-    width: 44px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    width: 68px;
+    flex: 0 0 68px;
   }
   .slip-copy {
     min-width: 0;
-    flex: 1;
-    padding-right: 110px;
+    flex: 1 1 auto;
+    padding-right: 96px;
   }
   strong {
-    font-size: 20px;
+    font-size: 17px;
+    line-height: 22px;
     font-weight: 600;
     display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   small {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 9px;
-    margin-top: 6px;
+    gap: 7px;
+    margin-top: 4px;
     color: var(--soft-ink);
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  .search-match {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .slip-actions {
     position: absolute;
-    right: 20px;
+    right: 16px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 140ms;
+    transition: opacity var(--motion-control) linear;
   }
   .meeting-slip:hover .slip-actions,
   .meeting-slip:focus-within .slip-actions {
@@ -121,28 +139,42 @@
   }
   .speaker-dots {
     display: inline-flex;
-    gap: 3px;
+    align-items: center;
+    margin-left: 2px;
   }
   .speaker-dots i {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     background: var(--dye);
-    opacity: calc(1 - var(--speaker-index) * 0.12);
+    opacity: calc(1 - var(--speaker-index) * 0.14);
+    border: 1px solid var(--card);
+    margin-left: -2px;
+  }
+  .speaker-dots i:first-child {
+    margin-left: 0;
+  }
+  .speaker-more {
+    margin-left: 4px;
+    font-size: 12px;
   }
   @media (max-width: 760px) {
-    .record-mark {
-      display: none;
-    }
-    .slip-open {
-      gap: 12px;
-      padding: 16px;
+    time {
+      width: 56px;
+      flex-basis: 56px;
     }
     .slip-copy {
-      padding-right: 90px;
+      padding-right: 84px;
+    }
+  }
+  @media (hover: none) {
+    .slip-actions {
+      opacity: 1;
+      pointer-events: auto;
     }
   }
   @media (prefers-reduced-motion: reduce) {
+    .slip-open,
     .slip-actions {
       transition: none;
     }

@@ -34,6 +34,9 @@ pub struct Runtime {
     pub tab_target: Mutex<Option<platform::PasteTarget>>,
     pub command_generation: AtomicU64,
     pub tab_gate: Mutex<()>,
+    /// The current temporary reveal opened a tab that was showing its lip
+    /// (Linux top-edge push), so it closes back to the lip, not to hidden.
+    pub tab_lip_reveal: std::sync::atomic::AtomicBool,
 }
 
 pub struct Control {
@@ -637,7 +640,7 @@ impl Runtime {
         let migration = store.import_legacy_default();
         let mut settings = store.load_settings()?;
         crate::acceleration::set_preference(settings.text_acceleration);
-        if let Ok(executable) = std::env::current_exe() {
+        if let Ok(executable) = crate::executable::installed() {
             if let Ok(enabled) = platform::reconcile_startup_registration(&executable) {
                 settings.launch_at_login = enabled;
             }
@@ -710,6 +713,7 @@ impl Runtime {
             tab_target: Mutex::new(None),
             command_generation: AtomicU64::new(0),
             tab_gate: Mutex::new(()),
+            tab_lip_reveal: std::sync::atomic::AtomicBool::new(false),
         });
         let weak = Arc::downgrade(&runtime);
         let handle = app.clone();
@@ -774,27 +778,38 @@ impl Runtime {
         Ok(value)
     }
     /// Hand a pasted dictation to the trust layer. Never fails the paste.
-    fn hand_to_trust(&self, publication: &Publication, target: Option<platform::PasteTarget>) {
+    fn hand_to_trust(
+        &self,
+        publication: &Publication,
+        target: Option<platform::PasteTarget>,
+        record_id: Option<String>,
+        privacy_generation: u64,
+    ) {
         let Ok(snapshot) = self.snapshot() else { return };
         let settings = snapshot.settings;
         let (Some(target), Some(capture)) = (target, publication.trust.clone()) else { return };
         if !settings.trust.enabled || publication.recognition_completeness != RecognitionCompleteness::Complete {
             return;
         }
-        let vocabulary = self
+        let plan = self
             .store
-            .get_vocabulary()
-            .map(|entries| entries.into_iter().filter(|e| e.enabled).map(|e| e.written).collect())
+            .lexicon_plan(&publication.text, settings.cleanup_mode, None)
             .unwrap_or_default();
-        crate::trust::after_paste(crate::trust::Pasted::new(
+        let mut pasted = crate::trust::Pasted::new(
             publication.text.clone(),
             Some(capture),
             platform::trust_target(&target),
             publication.target_app.clone(),
-            vocabulary,
+            plan.trust_confirmed_words,
             settings.hotkey.clone(),
             settings.hotkey_mode == HotkeyMode::Hold,
-        ));
+        );
+        pasted.record_id = record_id;
+        pasted.privacy_generation = privacy_generation;
+        pasted.active_hints = plan.trust_active_hints;
+        pasted.suggested_pairs = plan.trust_suggested_pairs;
+        pasted.probation_pairs = plan.probation_pairs;
+        crate::trust::after_paste(pasted);
     }
 
     pub fn emit(&self, app: &AppHandle) {
@@ -871,6 +886,9 @@ impl Runtime {
         // focus-taking request clears it. Hidden tabs stay edge-discoverable.
         let temporary = !cfg!(target_os = "macos") && snapshot.tab_temporary && visible && !pin;
         windows::set_screen_tab(app, visible, expanded, focus, capture, temporary)?;
+        if !temporary {
+            self.tab_lip_reveal.store(false, Ordering::Release);
+        }
         {
             let mut snapshot = lock(&self.snapshot)?;
             snapshot.tab_visible = visible;
@@ -897,6 +915,8 @@ impl Runtime {
         }
         let capture = tab_capture(&snapshot);
         windows::set_screen_tab(app, true, true, false, capture, true)?;
+        // Revealed from hidden, so it conceals back to hidden.
+        self.tab_lip_reveal.store(false, Ordering::Release);
         {
             let mut snapshot = lock(&self.snapshot)?;
             snapshot.tab_visible = true;
@@ -912,18 +932,43 @@ impl Runtime {
     /// pointer that re-entered after the watcher's decision keeps it open.
     pub fn conceal_temporary_tab(&self, app: &AppHandle) -> Result<(), String> {
         let _gate = lock(&self.tab_gate)?;
-        if !self.snapshot()?.tab_temporary || !windows::temporary_conceal_due(app) {
+        let snapshot = self.snapshot()?;
+        if !snapshot.tab_temporary || !windows::temporary_conceal_due(app) {
             return Ok(());
         }
-        windows::set_screen_tab(app, false, false, false, false, false)?;
+        let lip = self.tab_lip_reveal.swap(false, Ordering::AcqRel);
+        let capture = lip && tab_capture(&snapshot);
+        windows::set_screen_tab(app, lip, false, false, capture, false)?;
         {
             let mut snapshot = lock(&self.snapshot)?;
-            snapshot.tab_visible = false;
+            snapshot.tab_visible = lip;
             snapshot.tab_expanded = false;
             snapshot.tab_temporary = false;
         }
         self.emit(app);
         windows::tab_diagnostic("tab-edge-concealed", 0, 0);
+        Ok(())
+    }
+
+    /// Linux: the pointer pushed against the top edge above a tab that shows
+    /// only its lip. A desktop bar sits between that edge and the lip, so the
+    /// lip's own hover can't fire. Open it as a temporary reveal: it stays
+    /// while the pointer is on it and closes back to the lip after the grace.
+    pub fn expand_tab_from_edge(&self, app: &AppHandle) -> Result<(), String> {
+        let _gate = lock(&self.tab_gate)?;
+        let snapshot = self.snapshot()?;
+        if !snapshot.tab_visible || snapshot.tab_expanded || snapshot.tab_temporary {
+            return Ok(());
+        }
+        windows::set_screen_tab(app, true, true, false, tab_capture(&snapshot), true)?;
+        self.tab_lip_reveal.store(true, Ordering::Release);
+        {
+            let mut snapshot = lock(&self.snapshot)?;
+            snapshot.tab_expanded = true;
+            snapshot.tab_temporary = true;
+        }
+        self.emit(app);
+        windows::tab_diagnostic("tab-edge-expanded", 0, 0);
         Ok(())
     }
 
@@ -1213,18 +1258,23 @@ impl Runtime {
             }
             SpeechUpdate::Publish(mut publication) => {
                 // Persist raw before attempting delivery. A storage error does not discard the clipboard result.
-                let saved = publication.save(&self.store, control.privacy_generation);
-                *lock(&self.current_record_id)? = saved
-                    .as_ref()
-                    .ok()
-                    .and_then(|entry| entry.as_ref().map(|entry| entry.id.clone()));
+                let privacy_generation = control.privacy_generation;
+                let saved = publication.save(&self.store, privacy_generation);
+                let saved_record = saved.as_ref().ok().and_then(|entry| entry.clone());
+                let saved_record_id = saved_record.as_ref().map(|entry| entry.id.clone());
+                *lock(&self.current_record_id)? = saved_record_id.clone();
                 drop(state);
                 drop(control);
                 if let Err(error) = saved {
                     self.report(app, error);
                 }
-                if let Ok(Some(id)) = self.current_record_id.lock().map(|id| id.clone()) {
-                    let _ = app.emit("dictation-history-changed", id);
+                if let Some(record) = saved_record {
+                    let _ = app.emit("dictation-history-changed", &record.id);
+                    // Passive vocabulary observation runs off the paste hot path.
+                    let observe_store = self.store.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        observe_store.observe_dictation(&record, privacy_generation);
+                    });
                 }
                 let runtime = self.clone();
                 let delivery_app = app.clone();
@@ -1236,7 +1286,12 @@ impl Runtime {
                             Ok(outcome) => {
                                 // Paste first, mark after: the trust layer runs on its own thread.
                                 if outcome.paste_sent {
-                                    runtime.hand_to_trust(&publication, trust_target);
+                                    runtime.hand_to_trust(
+                                        &publication,
+                                        trust_target,
+                                        saved_record_id.clone(),
+                                        privacy_generation,
+                                    );
                                 }
                                 if let Ok(mut last) = runtime.last_published.lock() {
                                     *last = publication.text.clone();
@@ -1544,7 +1599,7 @@ pub fn register_shortcut(app: &AppHandle, value: &str, mode: HotkeyMode) -> Resu
     crate::domain::validate_hotkey(value)?;
     #[cfg(target_os = "linux")]
     if crate::hyprland::active() {
-        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        let executable = crate::executable::installed().map_err(|e| e.to_string())?;
         return crate::hyprland::install_shortcut(value, mode == HotkeyMode::Hold, &executable)
             .map_err(|e| format!("Cannot bind {value} in Hyprland: {e}"));
     }

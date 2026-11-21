@@ -72,6 +72,12 @@ pub fn serve(app: &AppHandle) -> Result<(), String> {
         .mode(0o700)
         .create(dir)
         .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    // A socket that still answers belongs to a live SonoJot (a second copy
+    // started outside single-instance, such as a test build). Taking it over
+    // would orphan the running app's shortcut when this copy exits.
+    if UnixStream::connect(&path).is_ok() {
+        return Err("Another SonoJot is already listening for the shortcut.".into());
+    }
     let _ = std::fs::remove_file(&path);
     let listener =
         UnixListener::bind(&path).map_err(|e| format!("Cannot open the shortcut socket: {e}"))?;

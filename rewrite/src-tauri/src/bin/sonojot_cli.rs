@@ -179,7 +179,7 @@ fn run(words: &[&str], options: &Options) -> Outcome {
                 "meetingModel": if settings["meetingAsrModel"].as_str().is_some_and(|m| !m.is_empty()) { &settings["meetingAsrModel"] } else { &settings["asrModel"] },
                 "meetingSpeakerLabels": settings["meetingSpeakerLabels"],
                 "notesModel": settings["notesModel"],
-                "cli": std::env::current_exe().ok().map(|p| p.display().to_string()),
+                "cli": cli_path(),
             }));
             Ok(())
         }
@@ -422,8 +422,8 @@ mod key_stdin_tests {
 /// PATH and agent MCP registration. Runs here, without the app.
 fn agents(words: &[&str]) -> Outcome {
     use sonojot_core::agent_integration::{ensure, forget, run, Mode};
-    let cli = std::env::current_exe().map_err(|e| e.to_string())?;
     let data = sonojot_core::cli_protocol::data_dir();
+    let cli = sonojot_core::agent_integration::cli_path(&data)?;
     let items = match words {
         [] | ["status"] => run(Mode::Check, &cli, &data),
         ["install"] => run(Mode::Install, &cli, &data),
@@ -674,7 +674,7 @@ Run `sonojot-cli update repair --confirm`."
 /// The version of the `sonojot-cli` installed beside this one. During an
 /// update this process may be a renamed older copy, so ask the file itself.
 fn installed_cli_version() -> Option<String> {
-    let cli = sonojot_core::agent_integration::cli_beside(&std::env::current_exe().ok()?);
+    let cli = sonojot_core::agent_integration::cli_path(&sonojot_core::cli_protocol::data_dir()).ok()?;
     let output = std::process::Command::new(cli)
         .arg("version")
         .stdin(std::process::Stdio::null())
@@ -1064,10 +1064,10 @@ fn launch_app() -> Outcome {
     } else {
         &["SonoJot", "sonojot"]
     };
-    let app = names
+    let app = sonojot_core::executable::appimage().or_else(|| names
         .iter()
         .map(|name| directory.join(name))
-        .find(|path| path.is_file())
+        .find(|path| path.is_file()))
         .ok_or_else(|| {
             Failure::NotRunning(format!(
                 "SonoJot is not running, and the app was not found beside {}.",
@@ -1216,7 +1216,7 @@ every GUI action is available, for example `meetings list`, `meetings transcribe
 }
 
 fn cli_path() -> String {
-    std::env::current_exe()
+    sonojot_core::agent_integration::cli_path(&sonojot_core::cli_protocol::data_dir())
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "sonojot-cli".into())
 }

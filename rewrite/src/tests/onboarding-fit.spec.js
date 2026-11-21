@@ -10,7 +10,7 @@ import { installDesktopFixture, macProfileFixture } from "./desktop-fixture.js";
 const directory = new URL("../../../artifacts/onboarding-review/", import.meta.url);
 const sizes = [
   { name: "min", width: 740, height: 540 },
-  { name: "default", width: 1220, height: 860 },
+  { name: "default", width: 1060, height: 760 },
 ];
 const platforms = {
   windows: () => ({ firstRun: true, capabilities: { platform: "windows" }, setup: { mediaImport: { state: "missing", detail: null } } }),

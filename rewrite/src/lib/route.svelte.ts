@@ -5,37 +5,40 @@ export const tabs = [
   { id: "settings", label: "Settings" },
 ] as const;
 export type Tab = (typeof tabs)[number]["id"];
-type Origin = { from?: "settings" };
-export type Route = Origin &
-  (
-    | {
-        tab: "dictation";
-        stage?: "input" | "speech" | "cleanup" | "output" | "trust";
-        item?: "microphone" | "shortcuts";
-        sheet?: never;
-      }
-    | {
-        tab: "meetings";
-        stage?: "speech" | "notes";
-        item?: string;
-        sheet?: never;
-      }
-    | { tab: "words"; stage?: never; item?: string; sheet?: never }
-    | {
-        tab: "settings";
-        stage?:
-          | "dictation"
-          | "meetings"
-          | "look"
-          | "sync"
-          | "memory"
-          | "disk"
-          | "updates"
-          | "help";
-        item?: never;
-        sheet?: "report" | "update";
-      }
-  );
+export type StageOrigin = "settings" | "settings-group" | "settings-disk";
+
+type FeatureRoute<
+  T extends "dictation" | "meetings",
+  S extends string,
+  I extends string,
+> = { tab: T; item?: I; sheet?: never } & (
+  | { stage?: never; from?: never }
+  | { stage: S; from?: StageOrigin }
+);
+
+export type Route =
+  | FeatureRoute<
+      "dictation",
+      "input" | "speech" | "cleanup" | "output" | "trust",
+      "microphone" | "shortcuts"
+    >
+  | FeatureRoute<"meetings", "speech" | "notes", string>
+  | { tab: "words"; stage?: never; item?: string; sheet?: never; from?: never }
+  | {
+      tab: "settings";
+      stage?:
+        | "dictation"
+        | "meetings"
+        | "look"
+        | "sync"
+        | "memory"
+        | "disk"
+        | "updates"
+        | "help";
+      item?: never;
+      sheet?: "report" | "update";
+      from?: never;
+    };
 
 /** Native menus, show_page, error actions and old bookmarks keep these ids. */
 export const legacyRoutes = {
@@ -50,13 +53,13 @@ export const legacyRoutes = {
   report: { tab: "settings", stage: "help", sheet: "report" },
 } as const satisfies Record<string, Route>;
 export type LegacyPage = keyof typeof legacyRoutes;
-export type RouteTarget = Route | LegacyPage | Tab;
+export type RouteTarget = Route | { tab: Tab } | LegacyPage | Tab;
 
 export function resolveRoute(
   target: RouteTarget | string | null,
 ): Route | null {
   if (target === null) return null;
-  if (typeof target !== "string") return { ...target };
+  if (typeof target !== "string") return { ...target } as Route;
   if (Object.hasOwn(legacyRoutes, target))
     return { ...legacyRoutes[target as LegacyPage] };
   if (target === "words" || target === "settings") return { tab: target };
@@ -73,11 +76,22 @@ export function sameRoute(a: Route, b: Route): boolean {
   );
 }
 
+/** Which top-level rail item should appear active for a route. */
+export function railTab(route: Route): Tab {
+  return route.from ? "settings" : route.tab;
+}
+
 export function backRoute(route: Route): Route {
   if (route.sheet) return { ...route, sheet: undefined };
+  if (route.from === "settings-group")
+    return { tab: "settings", stage: route.tab };
+  if (route.from === "settings-disk")
+    return { tab: "settings", stage: "disk" };
   if (route.from === "settings" || route.tab === "settings")
     return { tab: "settings" };
-  return { tab: route.tab };
+  if (route.tab === "dictation") return { tab: "dictation" };
+  if (route.tab === "meetings") return { tab: "meetings" };
+  return { tab: "words" };
 }
 
 export function routeTitle(route: Route): string {
@@ -91,8 +105,8 @@ export function routeTitle(route: Route): string {
       output: "Paste and history",
       trust: "Doubtful words",
       notes: "Notes",
-      dictation: "Dictation",
-      meetings: "Meetings",
+      dictation: "Dictation settings",
+      meetings: "Meetings settings",
       look: "Look and startup",
       sync: "Account and sync",
       memory: "Memory",

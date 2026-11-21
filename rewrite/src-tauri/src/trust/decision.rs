@@ -93,6 +93,17 @@ pub struct Mark {
 /// `max(1, words * max_share)` and never more than `max_marks`; when more
 /// qualify, only the most doubtful are kept.
 pub fn decide(evidence: &Evidence, sensitivity: Sensitivity, t: &Thresholds) -> Vec<Mark> {
+    decide_with_known(evidence, sensitivity, t, &[])
+}
+
+/// Same as `decide`, while suppressing false doubtful-word marks when the
+/// pasted word already matches an exact known spelling above a 0.25 floor.
+pub fn decide_with_known(
+    evidence: &Evidence,
+    sensitivity: Sensitivity,
+    t: &Thresholds,
+    known_words: &[String],
+) -> Vec<Mark> {
     let s = sensitivity.index();
     let mut marks = Vec::new();
     for (i, w) in evidence.words.iter().enumerate() {
@@ -100,9 +111,12 @@ pub fn decide(evidence: &Evidence, sensitivity: Sensitivity, t: &Thresholds) -> 
         if word.chars().all(|c| !c.is_alphanumeric()) {
             continue;
         }
+        let known_exact = known_words.iter().any(|k| k == word);
         let score = match w.confidence {
+            Some(c) if known_exact && c >= 0.25 => continue,
             Some(c) if c < t.word_confidence[s] => 1.0 - c,
             Some(_) => continue,
+            None if known_exact => continue,
             None if t.vocabulary_only[s] && w.alternatives.iter().any(|a| a.source == AltSource::Vocabulary) => t.vocabulary_weight,
             None => continue,
         };

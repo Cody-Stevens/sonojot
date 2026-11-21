@@ -7,6 +7,8 @@
   import { serializeTranscript } from "../../lib/meeting-transcript";
   import type { ErrorAction } from "../../lib/errors";
   import ErrorBanner from "../ErrorBanner.svelte";
+  import PageHeader from "./PageHeader.svelte";
+  import SegmentedControl from "./SegmentedControl.svelte";
   import ProcessingBand from "./ProcessingBand.svelte";
   import MeetingMenu from "./MeetingMenu.svelte";
   import Sheet from "./Sheet.svelte";
@@ -33,7 +35,6 @@
   let menuAnchor = $state<HTMLElement | null>(null);
   let editingNotes = $state(false);
   let passage = $state<string | null>(null);
-  // The speaker label being renamed: every passage, or only the one clicked.
   let naming = $state<{
     from: string;
     clock: string | null;
@@ -70,6 +71,20 @@
       app.busy("meeting-speakers"),
   );
   const notesLines = $derived(session.notes.split(/\r?\n/));
+  const docTabs = [
+    {
+      value: "notes" as const,
+      label: "Notes",
+      id: "meeting-tab-notes",
+      controls: "meeting-document-panel",
+    },
+    {
+      value: "transcript" as const,
+      label: "Transcript",
+      id: "meeting-tab-transcript",
+      controls: "meeting-document-panel",
+    },
+  ];
   $effect(() => {
     const id = meetingId;
     if (id) {
@@ -83,6 +98,7 @@
     await tick();
     document.getElementById(`passage-${id}`)?.focus();
   }
+  let renameButton = $state<HTMLButtonElement>();
   async function startRename() {
     session.renameOpen = true;
     await tick();
@@ -95,6 +111,7 @@
   function cancelRename() {
     if (detail) session.title = detail.title;
     session.renameOpen = false;
+    void tick().then(() => renameButton?.focus());
   }
   const canSave = $derived(
     app.native &&
@@ -103,10 +120,15 @@
       !session.transcriptConflict,
   );
   async function save() {
+    const wasRenaming = session.renameOpen;
     await session.saveChanges();
     if (!app.error) {
       editingNotes = false;
       passage = null;
+      if (wasRenaming && !session.renameOpen) {
+        await tick();
+        renameButton?.focus();
+      }
     }
   }
   function openSpeaker(event: MouseEvent, from: string, clock: string | null) {
@@ -123,8 +145,10 @@
     if (done) naming = null;
   }
   function syncClick() {
-    // A meeting still downloading jumps the queue; otherwise show its sync options.
-    if (meetingSync.status?.direction === "download" && glyph?.icon === "cloud-down")
+    if (
+      meetingSync.status?.direction === "download" &&
+      glyph?.icon === "cloud-down"
+    )
       void meetingSync.act("meeting_prioritize");
     else {
       menuAnchor = syncButton;
@@ -134,45 +158,73 @@
 </script>
 
 {#if detail}
-  <header class="meeting-heading">
-    <button
-      class="button small"
-      aria-label="All meetings"
-      disabled={session.writing}
-      onclick={session.back}>←</button
-    >
-    {#if session.renameOpen || session.processing}<input
-        class="meeting-title"
-        id="meeting-title"
-        aria-label="Meeting title"
-        placeholder="Name (optional)"
-        bind:value={session.title}
-        maxlength="200"
-        disabled={session.writing}
-        onkeydown={(event) => {
-          if (event.key === "Escape" && session.renameOpen) {
-            event.preventDefault();
-            cancelRename();
-          } else if (event.key === "Enter" && session.dirty && canSave) {
-            event.preventDefault();
-            void save();
-          }
-        }}
-      />{#if session.renameOpen}<button
-          class="button small"
-          onclick={cancelRename}>Cancel</button
-        >{/if}{:else}<div class="title-line">
-        <h1 data-text-surface="emboss">{detail.title}</h1><button
-          class="icon-button rename-title"
-          aria-label="Rename meeting"
-          title="Rename"
-          disabled={session.writing || session.recording}
-          onclick={startRename}><Icon name="edit" size={17} /></button
-        >
-      </div>{/if}
-    <div class="heading-actions">
+  <PageHeader
+    title={detail.title}
+    align="start"
+    class="meeting-heading"
+    back={{
+      label: "Meetings",
+      ariaLabel: "Back to Meetings",
+      disabled: session.writing,
+      onclick: session.back,
+    }}
+  >
+    {#snippet titleSlot()}
+      {#if session.renameOpen || session.processing}
+        <h1 class="sr-only">{detail.title || "Untitled meeting"}</h1>
+        <div class="title-edit-row">
+          <input
+            class="meeting-title"
+            id="meeting-title"
+            aria-label="Meeting title"
+            placeholder="Name (optional)"
+            bind:value={session.title}
+            maxlength="200"
+            disabled={session.writing}
+            onkeydown={(event) => {
+              if (event.key === "Escape" && session.renameOpen) {
+                event.preventDefault();
+                cancelRename();
+              } else if (event.key === "Enter" && session.dirty && canSave) {
+                event.preventDefault();
+                void save();
+              }
+            }}
+          />{#if session.renameOpen}<button
+              class="button small"
+              onclick={cancelRename}>Cancel</button
+            >{/if}
+        </div>
+      {:else}
+        <div class="title-block">
+          <div class="title-heading-line">
+            <h1 class="meeting-title-text" data-text-surface="emboss">
+              {detail.title}
+            </h1><button
+              bind:this={renameButton}
+              type="button"
+              class="rename-title"
+              aria-label="Rename meeting"
+              title="Rename"
+              disabled={session.writing || session.recording}
+              onclick={startRename}><Icon name="edit" size={16} /></button
+            >
+          </div>
+          <div class="meeting-meta" data-text-surface="flat">
+            <span>{session.date(detail.createdAt)}</span>
+            <span aria-hidden="true">·</span>
+            <span>{duration(detail.durationSeconds)}</span>
+            {#if detail.speakerCount}
+              <span aria-hidden="true">·</span>
+              <span>{detail.speakerCount} speakers</span>
+            {/if}
+          </div>
+        </div>
+      {/if}
+    {/snippet}
+    {#snippet actions()}
       {#if syncShown && glyph}<button
-          class="icon-button sync-glyph"
+          class="button small icon-square sync-glyph"
           class:attention={glyph.attention}
           bind:this={syncButton}
           aria-label={`Sync: ${glyph.label}`}
@@ -181,26 +233,31 @@
               ? "Downloading this meeting first"
               : "Downloading · select to download this meeting first"
             : glyph.label}
-          onclick={syncClick}><Icon name={glyph.icon} size={20} /></button
+          onclick={syncClick}><Icon name={glyph.icon} size={18} /></button
         >{/if}
       <button
-        class="button small share-button"
+        class="button small icon-square share-button"
         bind:this={anchor}
         aria-label="Meeting options"
         title="Export and options"
         onclick={() => {
           menuAnchor = anchor;
           menu = "menu";
-        }}><Icon name="share" size={19} /></button
+        }}><Icon name="share" size={18} /></button
       >
+    {/snippet}
+  </PageHeader>
+  {#if session.renameOpen || session.processing}
+    <div class="meeting-meta editing-meta" data-text-surface="flat">
+      <span>{session.date(detail.createdAt)}</span>
+      <span aria-hidden="true">·</span>
+      <span>{duration(detail.durationSeconds)}</span>
+      {#if detail.speakerCount}
+        <span aria-hidden="true">·</span>
+        <span>{detail.speakerCount} speakers</span>
+      {/if}
     </div>
-  </header>
-  <div class="meeting-meta" data-text-surface="flat">
-    <span>{session.date(detail.createdAt)}</span><span
-      >· {duration(detail.durationSeconds)}</span
-    >{#if detail.speakerCount}<span>· {detail.speakerCount} speakers</span
-      >{/if}
-  </div>
+  {/if}
   {#if session.processing}<ProcessingBand {session} />{/if}
   {#if (detail.error || session.meetingError) && (!session.statusKey || session.statusKey !== session.hiddenStatus)}<ErrorBanner
       error={session.meetingError || detail.error}
@@ -216,14 +273,14 @@
       {session.audioNotice}
     </p>{/if}
   {#if detail.transcriptionStoppedAtSeconds !== null || ["interrupted", "cancelled", "canceled"].includes(detail.status)}<div
-      class="stock paper-card stopped-notice"
+      class="stock paper-card ui-card stopped-notice"
     >
       <span
         >Transcription stopped{detail.transcriptionStoppedAtSeconds !== null
           ? ` at ${meetingClock(detail.transcriptionStoppedAtSeconds)}`
           : ""}. Audio is kept.</span
       ><button
-        class="button"
+        class="button small"
         disabled={session.transcribeBlocked}
         onclick={() => {
           session.openTranscribeSetup();
@@ -232,29 +289,15 @@
       >
     </div>{/if}
   <div class="document-controls">
-    <div
-      class="segments"
-      role="tablist"
-      tabindex="-1"
-      aria-label="Meeting document"
-      onkeydown={session.tabKeydown}
-    >
-      <button
-        id="meeting-tab-notes"
-        role="tab"
-        aria-selected={session.tab === "notes"}
-        tabindex={session.tab === "notes" ? 0 : -1}
-        onclick={() => (session.tab = "notes")}>Notes</button
-      ><button
-        id="meeting-tab-transcript"
-        role="tab"
-        aria-selected={session.tab === "transcript"}
-        tabindex={session.tab === "transcript" ? 0 : -1}
-        onclick={() => (session.tab = "transcript")}>Transcript</button
-      >
-    </div>
+    <SegmentedControl
+      label="Meeting document"
+      mode="tabs"
+      options={docTabs}
+      value={session.tab}
+      onchange={(next) => (session.tab = next)}
+    />
     {#if session.dirty}<button
-        class="button"
+        class="button primary small"
         disabled={!canSave}
         onclick={save}>Save changes</button
       >{/if}
@@ -264,16 +307,23 @@
         >The transcript changed elsewhere. Your draft is still here; copy any
         text you want to keep before reloading.</span
       >
-      <button class="button" disabled={locked} onclick={session.reloadSaved}
+      <button class="button small" disabled={locked} onclick={session.reloadSaved}
         >Reload saved meeting</button
       >
     </div>{/if}
-  <section
-    class="stock paper-card meeting-document"
-    aria-label={session.tab === "notes"
-      ? "Meeting notes"
-      : "Meeting transcript"}
+  <div
+    id="meeting-document-panel"
+    role="tabpanel"
+    aria-labelledby={session.tab === "notes"
+      ? "meeting-tab-notes"
+      : "meeting-tab-transcript"}
   >
+    <section
+      class="stock paper-card ui-card meeting-document"
+      aria-label={session.tab === "notes"
+        ? "Meeting notes"
+        : "Meeting transcript"}
+    >
     {#if session.tab === "notes"}
       {#if detail.status === "processingNotes" && !session.notes}<p
           role="status"
@@ -425,7 +475,8 @@
           {warning}
         </p>{/each}
     {/if}
-  </section>
+    </section>
+  </div>
   {#if menu}<MeetingMenu
       {session}
       {meetingSync}
@@ -499,8 +550,10 @@
     margin-top: 14px;
   }
   .speaker-choices button[aria-pressed="true"] {
-    background-color: var(--dye);
-    color: var(--dye-ink);
+    background-color: var(--well);
+    color: var(--ink);
+    box-shadow: var(--press);
+    font-weight: 600;
   }
   .sheet-actions {
     display: flex;
@@ -508,95 +561,99 @@
     gap: 12px;
     margin-top: 24px;
   }
-  .meeting-heading {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-  .title-line {
-    flex: 1;
+  .title-block {
     min-width: 0;
   }
-  .meeting-heading h1 {
+  .title-heading-line {
+    line-height: 36px;
+  }
+  .meeting-title-text {
     display: inline;
-    font-size: 27px;
     margin: 0;
+    font-size: 32px;
+    line-height: 36px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
     overflow-wrap: anywhere;
   }
   .rename-title {
-    display: inline-grid;
-    vertical-align: 0.12em;
-    margin-left: 10px;
-    padding: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    margin-left: 8px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    box-shadow: none;
     color: var(--soft-ink);
+    transition:
+      color var(--motion-control) linear,
+      background-color var(--motion-control) linear;
   }
   .rename-title:hover:not(:disabled) {
     color: var(--ink);
+    background-color: var(--well);
   }
-  .heading-actions {
+  .rename-title:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .title-edit-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-left: auto;
   }
-  .share-button {
+  .meeting-title {
+    flex: 1 1 auto;
+    min-width: 100px;
+    height: 36px;
+    padding: 4px 12px;
+    font-size: 20px;
+  }
+  .icon-square {
+    width: 36px;
+    height: 36px;
+    padding: 0 !important;
     display: grid;
     place-items: center;
-    padding: 7px 10px;
   }
   .sync-glyph {
-    padding: 6px;
     color: var(--soft-ink);
   }
   .sync-glyph.attention {
     color: var(--warning-ink);
   }
-  .meeting-title {
-    flex: 1;
-    min-width: 100px;
-    font-size: 24px;
-  }
   .meeting-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    align-items: center;
+    gap: 6px;
     font-size: 14px;
+    line-height: 18px;
     color: var(--soft-ink);
-    margin: 12px 0 24px 50px;
+    font-variant-numeric: tabular-nums;
+    margin: 6px 0 0;
+  }
+  .editing-meta {
+    margin: -10px 0 18px;
   }
   .document-controls {
     display: flex;
     align-items: center;
-    gap: 20px;
+    flex-wrap: wrap;
+    gap: 12px 18px;
     justify-content: space-between;
-    margin: 14px 0;
-  }
-  .segments {
-    width: max-content;
-    margin: 0;
-    padding: 4px;
-    border-radius: 10px;
-  }
-  .segments button {
-    flex: none;
-    padding: 9px 18px;
-    font-size: 15px;
-    border: 0;
-    border-radius: 8px;
-  }
-  .segments button[aria-selected="true"] {
-    background-color: var(--dye);
-    background-image: var(--paper-image);
-    background-size: var(--paper-tile-size);
-    background-blend-mode: multiply;
-    color: var(--dye-ink);
-    box-shadow: var(--raise-sm);
+    margin: 0 0 14px;
   }
   .meeting-document {
     position: relative;
-    margin-top: 14px;
-    padding: 24px 38px 40px 92px;
-    border-radius: 5px 12px 0 0;
+    margin: 0;
+    padding: 24px 36px 40px 90px;
+    border-radius: var(--r-card-die);
     min-height: max(400px, calc(100dvh - 310px));
     box-shadow: var(--raise);
   }
@@ -604,7 +661,7 @@
     content: "";
     position: absolute;
     inset: 0 auto 0 66px;
-    border-left: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
+    border-left: 1px solid var(--margin-rule);
     pointer-events: none;
   }
   .meeting-document textarea {
@@ -626,7 +683,7 @@
   }
   .notes-heading {
     display: block;
-    font-size: 23px;
+    font-size: 22px;
     font-weight: 600;
     margin: 10px 0 12px;
   }
@@ -648,11 +705,11 @@
     gap: 24px;
     margin: 4px -12px;
     padding: 14px 12px;
-    border-radius: 9px;
+    border-radius: var(--r-inner);
   }
   .transcript-passage.chosen {
-    box-shadow: var(--raise);
-    background: var(--well);
+    box-shadow: var(--press);
+    background-color: var(--well);
   }
   .passage-who {
     width: 120px;
@@ -692,6 +749,7 @@
     font-size: 12px;
     color: var(--soft-ink);
     margin-top: 4px;
+    font-variant-numeric: tabular-nums;
   }
   .passage-body {
     flex: 1;
@@ -730,7 +788,6 @@
     align-items: center;
     justify-content: space-between;
     padding: 14px 20px;
-    border-radius: 10px;
   }
   .empty-document h2 {
     font-size: 23px;
@@ -743,11 +800,12 @@
     margin-top: 10px;
   }
   @media (max-width: 760px) {
-    .meeting-heading {
-      flex-wrap: wrap;
+    .meeting-title-text {
+      font-size: 26px;
+      line-height: 32px;
     }
     .meeting-document {
-      padding: 24px;
+      padding: 22px;
     }
     .meeting-document::before {
       display: none;
@@ -757,6 +815,11 @@
     }
     .transcript-passage {
       gap: 12px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rename-title {
+      transition: none;
     }
   }
 </style>

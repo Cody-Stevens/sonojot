@@ -512,6 +512,17 @@ pub async fn suggest_vocabulary(
                 }
             },
         );
+        if let Ok(suggestions) = &result {
+            let pairs: Vec<(String, String)> = suggestions
+                .iter()
+                .map(|s| (s.heard.clone(), s.written.clone()))
+                .collect();
+            if !pairs.is_empty() {
+                let _ = runtime
+                    .store
+                    .record_review_proposals(&pairs, records.first().map(|r| r.id.as_str()));
+            }
+        }
         if _review_lease.is_some() {
             if result.is_ok() {
                 crate::resource_manager::note_text_loaded(&notes.notes_model);

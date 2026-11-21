@@ -1,6 +1,10 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { LIVE_PREVIEW_MODEL, livePreviewHelpText } from "./live-preview";
+import {
+  LIVE_PREVIEW_MODEL,
+  livePreviewHelpText,
+  previewBuiltIn,
+} from "./live-preview";
 import type { ModelEntry } from "./model-library";
 
 const model = (state: string, supported = true): ModelEntry => ({
@@ -55,4 +59,25 @@ test("live preview help names the download it still needs", () => {
     livePreviewHelpText(model("installed"), "moonshine-medium"),
     /already shows live text/,
   );
+});
+
+test("SonoJot Parakeet preview does not require Moonshine, including on Mac", () => {
+  for (const previewModel of [
+    undefined,
+    model("not-installed"),
+    model("unavailable", false),
+  ]) {
+    const help = livePreviewHelpText(
+      previewModel,
+      "parakeet-tdt-0.6b-v2-sonojot-ft2",
+    );
+    assert.match(help, /Uses SonoJot Parakeet, with no extra model/);
+    assert.doesNotMatch(help, /Needs Moonshine|Not available/);
+  }
+});
+
+test("only SonoJot Parakeet shows live text without the helper model", () => {
+  assert.equal(previewBuiltIn("parakeet-tdt-0.6b-v2-sonojot-ft2"), true);
+  assert.equal(previewBuiltIn("parakeet-tdt-0.6b-v2"), false);
+  assert.equal(previewBuiltIn("whisper-small-metal"), false);
 });

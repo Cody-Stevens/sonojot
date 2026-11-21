@@ -1,237 +1,452 @@
-.quiet-panel {
-  padding: 6px 22px;
+/* Shared coherent surfaces, lists, option cards, rows, and stamps. */
+
+.page-view {
+  animation: view-settle var(--motion-control) var(--ease-settle);
 }
+@keyframes view-settle {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Unified mounted cards: consistent 18px die-cut radius and 18px horizontal rail. */
+.ui-card {
+  border-radius: var(--r-card-die);
+  margin: 0 0 18px;
+  padding: 18px;
+}
+.page-view > .ui-card:last-child {
+  margin-bottom: 0;
+}
+.ui-card.row-card {
+  padding: 0 18px;
+}
+.ui-card.flush {
+  padding: 0;
+  overflow: hidden;
+}
+.ui-card.option-card {
+  padding: 9px;
+}
+
+/* Consistent dividers between any adjacent rows, doors, or disclosures in a card. */
+:is(.setting-row, .settings-link, .ui-disclosure, .card-door)
+  + :is(.setting-row, .ui-disclosure, .card-door) {
+  border-top: 1px solid var(--line);
+}
+:is(.setting-row, .ui-disclosure, .card-door) + .settings-link::before,
+.settings-link + .settings-link::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline: 10px;
+  border-top: 1px solid var(--line);
+  pointer-events: none;
+}
+
+/* Settings and navigation doors inside a row-card. */
+.settings-link {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 16px;
+  width: calc(100% + 20px);
+  margin-inline: -10px;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 10px;
+  position: relative;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-inner);
+  text-align: left;
+  transition: background-color var(--motion-control) linear;
+}
+.settings-link:hover {
+  background-color: var(--well);
+}
+.settings-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.settings-link strong {
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 1.3;
+}
+.settings-link > span {
+  color: var(--soft-ink);
+  font-size: 15px;
+  line-height: 1.35;
+}
+.settings-link .door-chevron {
+  display: grid;
+  place-items: center;
+  color: var(--soft-ink);
+}
+.settings-hardware {
+  color: var(--soft-ink);
+  font-size: 14px;
+  line-height: 1.4;
+  margin: 0 0 14px;
+}
+@media (max-width: 760px) {
+  .settings-link {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    gap: 4px 12px;
+  }
+  .settings-link > strong {
+    grid-column: 1;
+  }
+  .settings-link > .door-detail,
+  .settings-link > span:not(.door-chevron) {
+    grid-column: 1;
+  }
+  .settings-link .door-chevron {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+/* Blind-deboss stamps (Recommended, Custom, Experiment, Hint, Not pasted). */
+.quiet-tag,
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  justify-self: start;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background-color: var(--well);
+  box-shadow: var(--press);
+  color: var(--soft-ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.05em;
+  text-transform: none;
+  white-space: nowrap;
+}
+.quiet-tag.amber,
+.stamp.amber {
+  color: var(--warning-ink);
+  border-color: color-mix(in srgb, var(--warning-ink) 45%, transparent);
+}
+.studio[data-material="off"] .quiet-tag,
+.studio[data-material="off"] .stamp {
+  box-shadow: none;
+}
+
+/* Single-choice model lists (Speech, Cleanup, Notes) and sheet options. */
+.option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.option-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--r-inner);
+  padding-right: 12px;
+  transition:
+    background-color var(--motion-control) linear,
+    box-shadow var(--motion-control) var(--ease-settle);
+}
+.option-row + .option-row::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  inset-inline: 14px;
+  border-top: 1px solid var(--line);
+  pointer-events: none;
+}
+.option-row.chosen::before,
+.option-row.chosen + .option-row::before,
+.option-row:hover::before,
+.option-row:hover + .option-row::before {
+  opacity: 0;
+}
+.option-row:hover:not(.chosen) {
+  background-color: var(--card);
+  background-image: var(--paper-image);
+  background-size: var(--paper-tile-size);
+  background-position: top left;
+  background-blend-mode: multiply;
+  box-shadow: var(--raise-sm);
+}
+.option-row.chosen {
+  background-color: var(--well);
+  box-shadow: var(--press);
+}
+.option-row.dimmed {
+  opacity: 0.72;
+}
+.option-row:has(.card-choose:focus-visible),
+.option-row:has(.option-choose:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.option-row .card-choose,
+.option-row .option-choose {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 11px 6px 11px 14px;
+  margin: 0;
+  border: 0;
+  border-radius: var(--r-inner);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+}
+.option-row .card-choose:focus-visible,
+.option-row .option-choose:focus-visible {
+  outline: none;
+}
+.option-row.chosen .card-choose strong,
+.option-row.chosen .option-choose strong {
+  font-weight: 650;
+}
+
 .quiet-option {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 14px 12px;
+  min-height: 52px;
+  padding: 11px 14px;
   border: 1px solid transparent;
-  border-bottom-color: var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-inner);
   color: var(--ink);
   background: transparent;
   text-align: left;
   font-size: 16px;
+  position: relative;
+  transition:
+    background-color var(--motion-control) linear,
+    box-shadow var(--motion-control) var(--ease-settle);
+}
+.quiet-option + .quiet-option::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline: 14px;
+  border-top: 1px solid var(--line);
+  pointer-events: none;
+}
+.quiet-option.chosen::before,
+.quiet-option[aria-pressed="true"]::before,
+.quiet-option.chosen + .quiet-option::before,
+.quiet-option[aria-pressed="true"] + .quiet-option::before,
+.quiet-option:hover::before,
+.quiet-option:hover + .quiet-option::before {
+  opacity: 0;
 }
 .quiet-option.chosen,
 .quiet-option[aria-pressed="true"] {
   background-color: var(--well);
   box-shadow: var(--press);
 }
-.quiet-option:hover:not(:disabled) {
-  border-color: var(--line);
+.quiet-option:hover:not(:disabled):not(.chosen):not([aria-pressed="true"]) {
+  background-color: var(--card);
+  background-image: var(--paper-image);
+  background-size: var(--paper-tile-size);
+  background-position: top left;
+  background-blend-mode: multiply;
+  box-shadow: var(--raise-sm);
 }
-.studio[data-material="off"] .quiet-option,
-.studio[data-material="off"] .choice-dot {
-  box-shadow: none;
+.quiet-option:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
+
 .choice-dot {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   border-radius: 50%;
   border: 1px solid var(--line);
+  background-color: var(--well);
   box-shadow: var(--press);
 }
-.quiet-option[aria-pressed="true"] .choice-dot {
+.choice-dot::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
   background: var(--dye);
-  border: 3px solid var(--well);
+  transform: scale(0.4);
+  opacity: 0;
+  transition:
+    transform var(--motion-control) var(--ease-settle),
+    opacity var(--motion-control) linear;
 }
-.option-copy {
-  flex: 1;
+.option-row.chosen .choice-dot::after,
+.quiet-option.chosen .choice-dot::after,
+.quiet-option[aria-pressed="true"] .choice-dot::after,
+.card-choose[aria-pressed="true"] .choice-dot::after {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.option-copy,
+.model-copy {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.option-copy > small:not(.quiet-tag) {
+.option-title,
+.title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.option-copy strong,
+.model-copy strong {
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+.option-copy > small:not(.quiet-tag):not(.stamp),
+.model-copy > small:not(.quiet-tag):not(.stamp) {
   display: block;
   color: var(--soft-ink);
-  font-size: 13px;
-  margin-top: 5px;
-  line-height: 1.45;
-}
-.stage-setting {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-  min-height: 65px;
-  padding: 12px 0;
-}
-.stage-setting + .stage-setting {
-  border-top: 1px solid var(--line);
-}
-.stage-setting.wide-label {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-/* A setting label followed by its information button. */
-.label-with-info {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-}
-.stage-control {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  min-width: 0;
-}
-.stage-control.end {
-  justify-content: flex-end;
-}
-.stage-setting small {
   font-size: 14px;
+  line-height: 1.4;
+}
+.option-meta {
+  font-size: 13px;
+  line-height: 1.3;
   color: var(--soft-ink);
-}
-.stage-control .segments {
-  display: flex;
-  padding: 4px;
-  margin: 0;
-  gap: 3px;
-}
-.stage-control .segments button {
-  font-size: 15px;
-  padding: 7px 12px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  flex: 0 0 auto;
-}
-.quiet-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 4px;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  font-size: 10px;
-  line-height: 1.35;
-  letter-spacing: 0.025em;
-  white-space: nowrap;
-}
-.quiet-tag.amber {
-  color: var(--warning-ink, #835d24);
-  border-color: currentColor;
-}
-.studio[data-theme="slate"] .quiet-tag.amber {
-  color: #d4b676;
-}
-@media (max-width: 900px) {
-  .stage-setting {
-    grid-template-columns: 130px minmax(0, 1fr);
-  }
-  .stage-setting small {
-    display: block;
-  }
+  flex: none;
+  text-align: right;
 }
 
-/* Settings uses the same raised sheet and pressed controls as stage screens. */
-.quiet-settings {
-  padding: 8px 22px;
-  margin-bottom: 20px;
+/* Shared Notebook Day Cards (Dictation and Meetings). */
+.day-group {
+  margin-bottom: 24px;
 }
-.quiet-settings .paper-row {
-  padding: 18px 0;
-  gap: 22px;
+.day-group:last-child {
+  margin-bottom: 0;
 }
-.quiet-settings .row-copy {
-  flex: 0 0 180px;
-  min-width: 0;
-}
-.quiet-settings .row-control {
-  flex: 1;
-  justify-content: flex-start;
-  gap: 12px;
-}
-.quiet-settings .row-copy small {
-  font-size: 13px;
-}
-.settings-link {
-  display: grid;
-  grid-template-columns: 180px 1fr 12px;
-  /* The highlight reaches into the card's padding so it covers the whole door
-     and clears the text; the divider stays outside the fill. */
-  width: calc(100% + 24px);
-  margin-inline: -12px;
+.day-heading {
+  display: flex;
   align-items: baseline;
-  gap: 22px;
-  padding: 18px 12px;
-  position: relative;
-  background: transparent;
-  border: 0;
-  border-radius: 10px;
-  text-align: left;
+  gap: 8px;
+  margin: 0 0 8px 18px;
+  font-size: 14px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--ink);
 }
-.settings-link + .settings-link::before {
+.day-heading span {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--soft-ink);
+  font-variant-numeric: tabular-nums;
+}
+.day-card {
+  position: relative;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--r-card-die);
+}
+.day-card.notebook::before {
   content: "";
   position: absolute;
   top: 0;
-  inset-inline: 12px;
+  bottom: 0;
+  left: 90px;
+  border-left: 1px solid var(--margin-rule);
+  pointer-events: none;
+}
+.day-card.notebook:has(.open-dictation)::before {
+  display: none;
+}
+.day-rule {
+  position: relative;
+}
+.day-rule + .day-rule::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline: 18px;
   border-top: 1px solid var(--line);
   pointer-events: none;
 }
-.settings-link:hover {
+
+/* Concentric inline expansion pocket (Dictation, Words, On disk). */
+.row-pocket {
+  margin: 0 9px 9px;
+  padding: 18px;
+  border-radius: var(--r-inner);
   background-color: var(--well);
+  box-shadow: var(--press);
 }
-.settings-link:focus-visible {
-  outline-offset: 1px;
-}
-.settings-link strong {
-  font-weight: 600;
-  font-size: 19px;
-}
-.settings-link > span {
-  color: var(--soft-ink);
-  font-size: 15px;
-}
-.settings-hardware {
-  color: var(--soft-ink);
-  font-size: 15px;
+
+/* Shared list toolbar and quiet list footer. */
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0 0 18px;
 }
-@media (max-width: 800px) {
-  .quiet-settings .row-copy {
-    flex-basis: 145px;
-  }
-  .settings-link {
-    grid-template-columns: 145px 1fr 12px;
-    gap: 14px;
-  }
-}
-.quiet-settings .segments,
-.disk-toolbar .segments,
-.words-heading .segments {
+.list-footer {
   display: flex;
-  flex: 0 0 auto;
-  gap: 3px;
-  padding: 4px;
-  margin: 0;
-  align-self: center;
-}
-.quiet-settings .segments button,
-.disk-toolbar .segments button,
-.words-heading .segments button {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  padding: 8px 13px;
-  font-size: 16px;
-}
-.disk-toolbar {
   align-items: center;
-}
-.disk-toolbar input {
-  height: 46px;
-}
-.stage-diff .stamp {
-  text-transform: uppercase;
-  border: 1px solid var(--line);
-  padding: 1px 4px;
-  font-size: 10px;
-  letter-spacing: 0.05em;
-}
-.quiet-settings .row-control {
-  display: flex;
+  justify-content: space-between;
   flex-wrap: wrap;
-  max-width: none;
-  min-width: 0;
+  gap: 8px 16px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--soft-ink);
+  margin: 14px 18px 0;
+}
+
+@media (max-width: 760px) {
+  .day-card.notebook::before {
+    left: 78px;
+  }
+  .option-row .card-choose,
+  .option-row .option-choose,
+  .quiet-option {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .option-meta {
+    margin-left: auto;
+    text-align: right;
+    align-self: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-view {
+    animation: none;
+  }
+  .option-row,
+  .quiet-option,
+  .choice-dot::after,
+  .settings-link {
+    transition: none;
+  }
 }

@@ -18,12 +18,11 @@ export function paperScroll(node: HTMLElement): { destroy(): void } {
   const fullPad = parseFloat(getComputedStyle(node).paddingBlockEnd) || 0;
   node.dataset.scrollEdges = "frame";
   const measure = () => {
-    /* The flow child's box bottom is the true end of content, independent of
-       scroll position and of the current trailing padding. */
+    /* The flow child's height plus top padding is the true end of content,
+       independent of scroll position and of the current trailing padding. */
     const contentEnd = flow
-      ? flow.getBoundingClientRect().bottom -
-        node.getBoundingClientRect().top +
-        node.scrollTop
+      ? (parseFloat(getComputedStyle(node).paddingBlockStart) || 0) +
+        flow.getBoundingClientRect().height
       : node.scrollHeight -
         (parseFloat(getComputedStyle(node).paddingBlockEnd) || 0);
     const room = node.clientHeight - contentEnd;

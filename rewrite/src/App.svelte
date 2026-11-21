@@ -32,7 +32,7 @@
   import ModelUpdateNotice from "./components/ModelUpdateNotice.svelte";
   import Rail from "./components/Rail.svelte";
   import Sheet from "./components/quiet/Sheet.svelte";
-  import StageHeader from "./components/quiet/StageHeader.svelte";
+  import PageHeader from "./components/quiet/PageHeader.svelte";
   import UpdateSheet from "./components/quiet/UpdateSheet.svelte";
   import WhatsNewSheet from "./components/quiet/WhatsNewSheet.svelte";
   import { whatsNew } from "./lib/whats-new.svelte";
@@ -43,6 +43,7 @@
     routeTitle,
     sameRoute,
     type RouteTarget,
+    type StageOrigin,
   } from "./lib/route.svelte";
   import type { ErrorAction } from "./lib/errors";
   import ScreenTab from "./components/ScreenTab.svelte";
@@ -98,13 +99,48 @@
       ? { tab: "settings" as const }
       : router.current,
   );
-  const parentTitle = $derived(
-    route.from === "settings" || route.tab === "settings"
-      ? "Settings"
-      : route.tab === "meetings"
-        ? "Meetings"
-        : "Dictation",
-  );
+  const pageRoute = $derived(route.sheet ? backRoute(route) : route);
+  const parentTitle = $derived(routeTitle(backRoute(pageRoute)));
+  const pageKey = $derived(`${pageRoute.tab}:${pageRoute.stage ?? ""}`);
+  const scrollPositions = new Map<string, number>();
+  let cancelScrollRestore: (() => void) | null = null;
+  function stopScrollRestore(): void {
+    cancelScrollRestore?.();
+    cancelScrollRestore = null;
+  }
+  function scheduleScrollRestore(content: HTMLElement, target: number): void {
+    stopScrollRestore();
+    if (target <= 0) {
+      content.scrollTo({ top: 0 });
+      return;
+    }
+    const apply = () => {
+      content.scrollTo({ top: target });
+      return (
+        content.scrollHeight - content.clientHeight >= target - 1 &&
+        content.scrollTop >= target - 2
+      );
+    };
+    if (apply()) return;
+    const flow = content.firstElementChild ?? content;
+    const stop = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      content.removeEventListener("wheel", stop);
+      content.removeEventListener("pointerdown", stop);
+      content.removeEventListener("keydown", stop);
+      if (cancelScrollRestore === stop) cancelScrollRestore = null;
+    };
+    const observer = new ResizeObserver(() => {
+      if (apply()) stop();
+    });
+    observer.observe(flow);
+    content.addEventListener("wheel", stop, { passive: true });
+    content.addEventListener("pointerdown", stop, { passive: true });
+    content.addEventListener("keydown", stop);
+    const timer = window.setTimeout(stop, 1200);
+    cancelScrollRestore = stop;
+  }
   $effect(() => {
     if (
       shouldShowCrash(
@@ -232,6 +268,7 @@
     }
     return () => {
       disposed = true;
+      stopScrollRestore();
       cleanup?.();
       cleanupWindow?.();
       cleanupNavigation?.();
@@ -260,7 +297,20 @@
   async function navigate(next: RouteTarget | string): Promise<boolean> {
     const resolved = resolveRoute(next);
     if (resolved && sameRoute(resolved, route)) return true;
-    const closingSheet = !!route.sheet && !resolved?.sheet;
+    const nextUnderlying = resolved
+      ? resolved.sheet
+        ? backRoute(resolved)
+        : resolved
+      : null;
+    const sameUnderlyingPage =
+      !!nextUnderlying && sameRoute(nextUnderlying, pageRoute);
+    const previousKey = pageKey;
+    const contentBefore = document.querySelector<HTMLElement>(".page-content");
+    if (!sameUnderlyingPage && contentBefore) {
+      scrollPositions.set(previousKey, contentBefore.scrollTop);
+    }
+    const returningBack =
+      !!nextUnderlying && sameRoute(nextUnderlying, backRoute(pageRoute));
     if (!(await router.go(next))) return false;
     reportCrash = null;
     dictationReviewSession = null;
@@ -268,20 +318,41 @@
     app.notice = "";
     dismissedError = "";
     await tick();
-    if (!closingSheet) {
+    if (!sameUnderlyingPage) {
       const content = document.querySelector<HTMLElement>(".page-content");
-      content?.scrollTo({ top: 0 });
-      if (!route.sheet) content?.focus({ preventScroll: true });
+      const restored = returningBack ? (scrollPositions.get(pageKey) ?? 0) : 0;
+      if (content) {
+        if (returningBack && restored > 0) {
+          scheduleScrollRestore(content, restored);
+        } else {
+          stopScrollRestore();
+          content.scrollTo({ top: 0 });
+        }
+        const deepLinkedInput =
+          pageRoute.tab === "dictation" &&
+          pageRoute.stage === "input" &&
+          (pageRoute.item === "microphone" || pageRoute.item === "shortcuts");
+        if (!route.sheet && !deepLinkedInput) {
+          content.focus({ preventScroll: true });
+        }
+      }
     }
     return true;
   }
   async function manageModels(target: ModelsTarget): Promise<void> {
+    const origin: StageOrigin | undefined =
+      pageRoute.tab === "settings" && pageRoute.stage === "disk"
+        ? "settings-disk"
+        : pageRoute.tab === "settings" &&
+            (pageRoute.stage === "dictation" || pageRoute.stage === "meetings")
+          ? "settings-group"
+          : route.from;
     if (target === "punctuation")
       await navigate({ tab: "settings", stage: "disk" });
     else if (target === "notes")
-      await navigate({ tab: "meetings", stage: "notes", from: route.from });
+      await navigate({ tab: "meetings", stage: "notes", from: origin });
     else if (target === "meeting" || target === "speakers")
-      await navigate({ tab: "meetings", stage: "speech", from: route.from });
+      await navigate({ tab: "meetings", stage: "speech", from: origin });
     else
       await navigate({
         tab: "dictation",
@@ -291,7 +362,7 @@
             : target === "dictationAudio"
               ? "output"
               : "speech",
-        from: route.from,
+        from: origin,
       });
   }
   async function reviewMicrophoneTest(resultSessionId: number): Promise<void> {
@@ -480,24 +551,13 @@
                         >
                       </div>{/if}
                   </div>
-                  {#if route.stage || route.from}
-                    <StageHeader
-                      title={route.sheet === "report"
-                        ? "Help"
-                        : routeTitle(route)}
-                      parent={parentTitle}
-                      heading={route.tab === "settings" ||
-                        (route.tab === "meetings" &&
-                          ["notes", "speech"].includes(route.stage ?? "")) ||
-                        (route.tab === "dictation" &&
-                          [
-                            "input",
-                            "output",
-                            "trust",
-                            "cleanup",
-                            "speech",
-                          ].includes(route.stage ?? ""))}
-                      onback={() => void navigate(backRoute(route))}
+                  {#if (pageRoute.stage || pageRoute.from) && !(pageRoute.tab === "settings" && pageRoute.stage === "disk")}
+                    <PageHeader
+                      title={routeTitle(pageRoute)}
+                      back={{
+                        label: parentTitle,
+                        onclick: () => void navigate(backRoute(pageRoute)),
+                      }}
                     />
                   {/if}
                   {#if app.native && !app.ready}<p
@@ -506,39 +566,48 @@
                     >
                       Starting SonoJot…
                     </p>
-                  {:else if route.tab === "settings"}<Settings
-                      {route}
-                      onnavigate={navigate}
-                      ontour={() => {
-                        onboardingMode = "tour";
-                      }}
-                    />
-                  {:else if route.tab === "dictation" && route.stage === "input"}<InputScreen
-                      onreview={reviewMicrophoneTest}
-                    />
-                  {:else if route.tab === "dictation" && route.stage === "output"}<OutputScreen
-                    />
-                  {:else if route.tab === "dictation" && route.stage === "trust"}<TrustScreen
-                    />
-                  {:else if route.tab === "dictation" && route.stage === "cleanup"}<CleanupScreen
-                      onmanage={manageModels}
-                    />
-                  {:else if (route.tab === "dictation" || route.tab === "meetings") && route.stage === "speech"}{#key route.tab}<SpeechScreen
-                        meeting={route.tab === "meetings"}
-                      />{/key}
-                  {:else if route.tab === "meetings" && route.stage === "notes"}<MeetingNotesScreen
-                      onmanage={manageModels}
-                    />
-                  {:else if route.tab === "dictation"}<DictationTab
-                      onnavigate={navigate}
-                      reviewSessionId={dictationReviewSession}
-                    />{:else if route.tab === "words"}<Vocabulary
-                      onmanage={manageModels}
-                    />{:else if route.tab === "meetings"}<MeetingsTab
-                      onnavigate={navigate}
-                      onmanage={manageModels}
-                      onerroraction={errorAction}
-                    />{/if}
+                  {:else}
+                    {#key pageKey}
+                      <div class="page-view">
+                        {#if pageRoute.tab === "settings"}<Settings
+                            route={pageRoute}
+                            onnavigate={navigate}
+                            onback={() => void navigate(backRoute(pageRoute))}
+                            {parentTitle}
+                            ontour={() => {
+                              onboardingMode = "tour";
+                            }}
+                          />
+                        {:else if pageRoute.tab === "dictation" && pageRoute.stage === "input"}<InputScreen
+                            item={pageRoute.item}
+                            onreview={reviewMicrophoneTest}
+                          />
+                        {:else if pageRoute.tab === "dictation" && pageRoute.stage === "output"}<OutputScreen
+                          />
+                        {:else if pageRoute.tab === "dictation" && pageRoute.stage === "trust"}<TrustScreen
+                          />
+                        {:else if pageRoute.tab === "dictation" && pageRoute.stage === "cleanup"}<CleanupScreen
+                            onmanage={manageModels}
+                          />
+                        {:else if (pageRoute.tab === "dictation" || pageRoute.tab === "meetings") && pageRoute.stage === "speech"}<SpeechScreen
+                            meeting={pageRoute.tab === "meetings"}
+                          />
+                        {:else if pageRoute.tab === "meetings" && pageRoute.stage === "notes"}<MeetingNotesScreen
+                            onmanage={manageModels}
+                          />
+                        {:else if pageRoute.tab === "dictation"}<DictationTab
+                            onnavigate={navigate}
+                            reviewSessionId={dictationReviewSession}
+                          />{:else if pageRoute.tab === "words"}<Vocabulary
+                            onmanage={manageModels}
+                          />{:else if pageRoute.tab === "meetings"}<MeetingsTab
+                            onnavigate={navigate}
+                            onmanage={manageModels}
+                            onerroraction={errorAction}
+                          />{/if}
+                      </div>
+                    {/key}
+                  {/if}
                 </div>
               </main>
             </div>

@@ -46,9 +46,19 @@
   const menubar =
     new URLSearchParams(window.location.search).get("presentation") ===
     "menubar";
-  // Moving the tab between monitors is native on Windows only.
-  const draggable = $derived(app.snapshot.capabilities.platform === "windows");
+  // Moving the tab between monitors: native on Windows; on Linux (Hyprland)
+  // the WebView reports the pointer-up that ends it.
+  const draggable = $derived(
+    app.snapshot.capabilities.platform === "windows" ||
+      app.snapshot.capabilities.platform === "linux",
+  );
+  // Windows clips a collapsed tab to its lip with a native window region; on
+  // Linux the window is only parked partly above the screen, so the sheet must
+  // not draw where a bar that hides itself leaves the top edge bare.
+  const linux = $derived(app.snapshot.capabilities.platform === "linux");
   function dragLip(event: PointerEvent): void {
+    // A press whose release went elsewhere must not turn hovering into a drag.
+    if (dragStart && !dragging && (event.buttons & 1) === 0) dragStart = null;
     if (
       !dragStart ||
       dragging ||
@@ -101,13 +111,17 @@
       ? tabMeetingWarning(
           app.snapshot.settings.meetingSource,
           app.snapshot.capabilities.systemAudioStatus,
+          app.snapshot.capabilities.platform,
         )
       : null,
   );
   // While recording, a missing other side outranks the live transcript.
   const systemNotice = $derived(
     capture === "meeting"
-      ? recordingSystemNotice(app.snapshot.meetingSystemAudio)
+      ? recordingSystemNotice(
+          app.snapshot.meetingSystemAudio,
+          app.snapshot.capabilities.platform,
+        )
       : null,
   );
   const idleRecordBlocked = $derived(
@@ -349,6 +363,7 @@
         tabMeetingWarning(
           app.snapshot.settings.meetingSource,
           app.snapshot.capabilities.systemAudioStatus,
+          app.snapshot.capabilities.platform,
         )
       ) {
         meetingConfirmation = true;
@@ -502,6 +517,7 @@
   bind:this={root}
   class="screen-tab"
   class:native={app.native}
+  class:linux
   class:menubar
   class:expanded
   class:recording
@@ -530,9 +546,11 @@
       onpointermove={dragLip}
       onpointerup={() => {
         dragStart = null;
+        if (dragging && linux) void call("end_screen_tab_drag");
       }}
       onpointercancel={() => {
         dragStart = null;
+        if (dragging && linux) void call("end_screen_tab_drag");
       }}
       aria-label="Open dictation controls"
       aria-expanded={expanded}
@@ -835,6 +853,9 @@
   }
   .screen-tab:not(.native).expanded {
     transform: translateY(0);
+  }
+  .screen-tab.native.linux:not(.expanded):not(.menubar) .tab-sheet {
+    visibility: hidden;
   }
   .tab-lip {
     position: absolute;

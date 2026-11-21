@@ -32,6 +32,24 @@ pub struct Store {
     root: Arc<PathBuf>,
     gate: Arc<Mutex<()>>,
     privacy_generation: Arc<AtomicU64>,
+    lexicon_cache: Arc<Mutex<Option<crate::lexicon::LexiconFile>>>,
+    undo_cache: Arc<Mutex<std::collections::HashMap<String, LexiconUndo>>>,
+}
+
+#[derive(Clone, Debug)]
+struct LexiconUndo {
+    restored_entries: Vec<crate::lexicon::LexiconEntry>,
+    removed_suppression: Option<crate::lexicon::Suppression>,
+    added_vocab_id: Option<String>,
+    previous_vocab: Option<VocabularyEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LexiconMutationResult {
+    pub overview: crate::lexicon::WordsOverview,
+    pub undo_token: Option<String>,
+    pub message: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -104,6 +122,8 @@ impl Store {
             root: Arc::new(root),
             gate: Arc::new(Mutex::new(())),
             privacy_generation: Arc::new(AtomicU64::new(0)),
+            lexicon_cache: Arc::new(Mutex::new(None)),
+            undo_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
         for folder in ["meetings", "dictations", "models", "logs", "migrations"] {
             let path = store.root.join(folder);
@@ -256,6 +276,9 @@ impl Store {
             if self.root.join("setup-seen.json").is_file() {
                 settings.setup_profile = Some(crate::domain::SetupProfile::Custom);
                 settings.meeting_notes_preset = None;
+            } else {
+                // New installs learn locally on this device by default while history is on.
+                settings.learn_from_corrections = true;
             }
             return Ok(settings);
         }
@@ -294,6 +317,7 @@ impl Store {
         let old = self.settings_unlocked()?;
         if old.do_not_save_dictations != settings.do_not_save_dictations
             || old.learn_from_corrections != settings.learn_from_corrections
+            || old.learn_from_meetings != settings.learn_from_meetings
             || old.keep_dictation_audio != settings.keep_dictation_audio
         {
             // Invalidate before I/O: a failed save must never authorize stale work.
@@ -358,6 +382,20 @@ impl Store {
                 entries: entries.clone(),
             },
         )?;
+        // An explicit manual addition overrides any prior local suppression on the same word.
+        if let Ok(mut lex) = self.lexicon_unlocked() {
+            let mut cleared = false;
+            for entry in entries.iter().filter(|e| e.enabled) {
+                let heard = (entry.kind != crate::domain::VocabularyKind::Hint)
+                    .then_some(entry.heard.as_str());
+                if crate::lexicon::clear_suppression(&mut lex, heard, &entry.written) {
+                    cleared = true;
+                }
+            }
+            if cleared {
+                let _ = self.write_lexicon_unlocked(&lex);
+            }
+        }
         crate::sync_account::wake();
         Ok(entries)
     }
@@ -714,6 +752,14 @@ impl Store {
         let _guard = self.lock()?;
         self.dictation_unlocked(id)?;
         self.invalidate_privacy_unlocked();
+        if let Ok(mut lex) = self.lexicon_unlocked() {
+            if crate::lexicon::retract_source(
+                &mut lex,
+                &crate::lexicon::SourceRef::Dictation(id.to_owned()),
+            ) {
+                self.write_lexicon_unlocked(&lex)?;
+            }
+        }
         let mut entries = self.learning_unlocked()?;
         remove_learning_sources(&mut entries, &HashSet::from([id.to_owned()]));
         // Remove derivatives first: an I/O failure cannot orphan private excerpts.
@@ -732,6 +778,11 @@ impl Store {
         let _guard = self.lock()?;
         self.invalidate_privacy_unlocked();
         let paths = self.dictation_paths_unlocked()?;
+        if let Ok(mut lex) = self.lexicon_unlocked() {
+            if crate::lexicon::retract_all_dictations(&mut lex) {
+                self.write_lexicon_unlocked(&lex)?;
+            }
+        }
         let mut entries = self.learning_unlocked()?;
         // Includes dangling source references left by externally removed records.
         entries.retain(|e| e.source_ids.is_empty() && e.source_type == "manual");
@@ -780,14 +831,25 @@ impl Store {
 
     fn supported_learning_unlocked(&self) -> Result<Vec<LearnedEntry>, String> {
         let mut entries = self.learning_unlocked()?;
+        let mut changed = false;
         // Missing externally removed sources also cannot support retrieval.
         for entry in &mut entries {
+            let before = entry.source_ids.len();
             entry
                 .source_ids
                 .retain(|id| self.dictation_unlocked(id).is_ok());
+            if entry.source_ids.len() != before {
+                changed = true;
+            }
         }
+        let before = entries.len();
         entries.retain(|e| e.source_type == "manual" || !e.source_ids.is_empty());
-        self.write_learning_unlocked(&entries)?;
+        if entries.len() != before {
+            changed = true;
+        }
+        if changed {
+            self.write_learning_unlocked(&entries)?;
+        }
         Ok(entries)
     }
 
@@ -848,11 +910,18 @@ impl Store {
         }
         let _guard = self.lock()?;
         self.invalidate_privacy_unlocked();
+        if let Ok(mut cache) = self.lexicon_cache.lock() {
+            *cache = Some(crate::lexicon::LexiconFile::default());
+        }
+        if let Ok(mut undo) = self.undo_cache.lock() {
+            undo.clear();
+        }
+        self.remove_owned_unlocked(&self.root.join("lexicon.json"))?;
         self.remove_owned_unlocked(&self.root.join("learning.json"))
     }
 
     /// Save one explicit edit, preserving immutable raw recognition. Automatic
-    /// learning is synchronous under this gate; there is no queued extractor.
+    /// learning updates the local lexicon without requiring a topic scope.
     pub fn save_dictation_correction(
         &self,
         id: &str,
@@ -873,47 +942,88 @@ impl Store {
         }
         let mut entries = self.learning_unlocked()?;
         let mut learned_count = 0;
+        let mut outcome = "recordOnly".to_owned();
         if generation == self.privacy_generation()
             && settings.learn_from_corrections
             && !settings.do_not_save_dictations
-            && scope.is_some()
             && record.recognition_completeness == RecognitionCompleteness::Complete
         {
-            if let Some((heard, written)) = learning::narrow_correction(&record.published, text) {
-                // A previous generated spelling is not independent ASR evidence.
-                if contains_phrase(&record.raw, &heard) && entries.len() < learning::MAX_ENTRIES {
-                    let same = entries.iter_mut().find(|e| {
-                        e.kind == LearnedKind::Correction
-                            && e.heard
-                                .as_deref()
-                                .is_some_and(|h| h.eq_ignore_ascii_case(&heard))
-                            && e.scope
-                                .as_deref()
-                                .is_some_and(|s| s.eq_ignore_ascii_case(scope.unwrap()))
-                    });
-                    if let Some(entry) = same {
-                        // Disabled/conflicting evidence stays disabled/unchanged.
-                        if entry.enabled
-                            && entry.text == written
-                            && entry.source_type == "dictationCorrection"
-                            && !entry.source_ids.iter().any(|s| s == id)
-                            && entry.source_ids.len() < 32
-                        {
-                            entry.source_ids.push(id.to_owned());
+            // New lexicon path: works without a manual topic scope.
+            if let Some((heard, written, nearby)) =
+                crate::lexicon::extract_diff_pair(&record.published, text)
+            {
+                if contains_phrase(&record.raw, &heard) {
+                    let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+                    if let Ok(mut lex) = self.lexicon_unlocked() {
+                        let fix_outcome = crate::lexicon::record_fix(
+                            &mut lex,
+                            &confirmed,
+                            crate::lexicon::SourceRef::Dictation(id.to_owned()),
+                            crate::lexicon::SourceKind::HistoryEdit,
+                            &heard,
+                            &written,
+                            &nearby,
+                            crate::lexicon::today_day(),
+                        );
+                        if fix_outcome != crate::lexicon::FixOutcome::Ignored {
+                            let _ = self.write_lexicon_unlocked(&lex);
+                            outcome = match fix_outcome {
+                                crate::lexicon::FixOutcome::Activated => "activated",
+                                crate::lexicon::FixOutcome::Suggested => "suggested",
+                                crate::lexicon::FixOutcome::EvidenceAdded => "evidenceAdded",
+                                crate::lexicon::FixOutcome::Ignored => "recordOnly",
+                            }
+                            .into();
+                            if matches!(
+                                fix_outcome,
+                                crate::lexicon::FixOutcome::Suggested
+                                    | crate::lexicon::FixOutcome::Activated
+                            ) {
+                                learned_count = 1;
+                            }
                         }
-                    } else {
-                        entries.push(LearnedEntry {
-                            id: new_id(),
-                            kind: LearnedKind::Correction,
-                            text: written,
-                            heard: Some(heard),
-                            scope: scope.map(str::to_owned),
-                            source_ids: vec![id.to_owned()],
-                            source_type: "dictationCorrection".into(),
-                            enabled: true,
-                            user_pinned: false,
+                    }
+                }
+            }
+
+            // Legacy scoped learning.json path kept only when caller passes an explicit scope.
+            if let Some(scope_str) = scope {
+                if let Some((heard, written)) = learning::narrow_correction(&record.published, text)
+                {
+                    if contains_phrase(&record.raw, &heard) && entries.len() < learning::MAX_ENTRIES
+                    {
+                        let same = entries.iter_mut().find(|e| {
+                            e.kind == LearnedKind::Correction
+                                && e.heard
+                                    .as_deref()
+                                    .is_some_and(|h| h.eq_ignore_ascii_case(&heard))
+                                && e.scope
+                                    .as_deref()
+                                    .is_some_and(|s| s.eq_ignore_ascii_case(scope_str))
                         });
-                        learned_count = 1;
+                        if let Some(entry) = same {
+                            if entry.enabled
+                                && entry.text == written
+                                && entry.source_type == "dictationCorrection"
+                                && !entry.source_ids.iter().any(|s| s == id)
+                                && entry.source_ids.len() < 32
+                            {
+                                entry.source_ids.push(id.to_owned());
+                            }
+                        } else {
+                            entries.push(LearnedEntry {
+                                id: new_id(),
+                                kind: LearnedKind::Correction,
+                                text: written,
+                                heard: Some(heard),
+                                scope: Some(scope_str.to_owned()),
+                                source_ids: vec![id.to_owned()],
+                                source_type: "dictationCorrection".into(),
+                                enabled: true,
+                                user_pinned: false,
+                            });
+                            learned_count = 1;
+                        }
                     }
                 }
             }
@@ -926,10 +1036,13 @@ impl Store {
             &self.root.join("dictations").join(format!("{id}.json")),
             &record,
         )?;
-        self.write_learning_unlocked(&entries)?;
+        if !entries.is_empty() || self.root.join("learning.json").exists() {
+            self.write_learning_unlocked(&entries)?;
+        }
         Ok(SavedCorrection {
             record,
             learned_count,
+            outcome: Some(outcome),
         })
     }
 
@@ -1016,37 +1129,86 @@ impl Store {
     }
 
     /// Explicitly saved Vocabulary is independent of its source transcript and
-    /// retained on history deletion. Automatic learning uses learning.json instead.
+    /// retained on history deletion. Sets `aliases` so deterministic cleanup
+    /// applies the rule, wakes sync, and clears any prior suppression.
     pub fn learn_correction(
         &self,
         dictation_id: &str,
         heard: &str,
         written: &str,
     ) -> Result<Vec<VocabularyEntry>, String> {
+        self.learn_correction_with_options(
+            dictation_id,
+            heard,
+            written,
+            Vec::new(),
+            crate::domain::VocabularyKind::Replace,
+        )
+    }
+
+    pub fn learn_correction_with_options(
+        &self,
+        dictation_id: &str,
+        heard: &str,
+        written: &str,
+        context: Vec<String>,
+        kind: crate::domain::VocabularyKind,
+    ) -> Result<Vec<VocabularyEntry>, String> {
         validate_id(dictation_id)?;
         let _guard = self.lock()?;
         let record = self.dictation_unlocked(dictation_id)?;
-        if heard.trim().is_empty() || !contains_phrase(&record.raw, heard.trim()) {
+        let heard_trimmed = heard.trim();
+        let written_trimmed = written.trim();
+        if heard_trimmed.is_empty() || !contains_phrase(&record.raw, heard_trimmed) {
             return Err("The heard phrase must occur in the original dictation.".into());
         }
+        let cleaned_context: Vec<String> = context
+            .into_iter()
+            .map(|c| c.trim().to_lowercase())
+            .filter(|c| !c.is_empty() && c.chars().all(char::is_alphanumeric))
+            .collect();
         let mut entries = self.vocabulary_unlocked()?;
         if let Some(entry) = entries
             .iter_mut()
-            .find(|e| e.heard.eq_ignore_ascii_case(heard.trim()))
+            .find(|e| e.heard.eq_ignore_ascii_case(heard_trimmed))
         {
-            if entry.written != written.trim() {
+            if entry.written != written_trimmed {
                 return Err("This heard phrase already has a different spelling. Edit it in Vocabulary to change it.".into());
             }
-            entry.written = written.trim().into();
+            entry.written = written_trimmed.into();
             entry.enabled = true;
+            if entry.kind != crate::domain::VocabularyKind::Hint
+                && crate::cleanup::valid_alias(heard_trimmed)
+                && !entry
+                    .aliases
+                    .iter()
+                    .any(|a| a.eq_ignore_ascii_case(heard_trimmed))
+            {
+                entry.aliases.push(heard_trimmed.into());
+            }
+            for cue in cleaned_context {
+                if !entry.context.iter().any(|c| c == &cue) {
+                    entry.context.push(cue);
+                }
+            }
         } else {
+            let is_hint = kind == crate::domain::VocabularyKind::Hint;
+            let aliases = if !is_hint && crate::cleanup::valid_alias(heard_trimmed) {
+                vec![heard_trimmed.into()]
+            } else {
+                Vec::new()
+            };
             entries.push(VocabularyEntry {
-                kind: crate::domain::VocabularyKind::Replace,
-                aliases: Vec::new(),
-                context: Vec::new(),
+                kind,
+                aliases,
+                context: if is_hint { Vec::new() } else { cleaned_context },
                 id: new_id(),
-                heard: heard.trim().into(),
-                written: written.trim().into(),
+                heard: if is_hint {
+                    written_trimmed.into()
+                } else {
+                    heard_trimmed.into()
+                },
+                written: written_trimmed.into(),
                 enabled: true,
                 scope: None,
             });
@@ -1059,7 +1221,864 @@ impl Store {
                 entries: entries.clone(),
             },
         )?;
+        if let Ok(mut lex) = self.lexicon_unlocked() {
+            let mut changed = crate::lexicon::clear_suppression(
+                &mut lex,
+                Some(heard_trimmed),
+                written_trimmed,
+            );
+            let before = lex.entries.len();
+            lex.entries.retain(|e| {
+                !(e.written == written_trimmed
+                    && e.heard
+                        .as_deref()
+                        .is_some_and(|h| h.eq_ignore_ascii_case(heard_trimmed)))
+            });
+            changed |= lex.entries.len() != before;
+            if changed {
+                let _ = self.write_lexicon_unlocked(&lex);
+            }
+        }
+        crate::sync_account::wake();
         Ok(entries)
+    }
+
+    // --- Local lexicon (lexicon.json) ---
+
+    fn lexicon_unlocked(&self) -> Result<crate::lexicon::LexiconFile, String> {
+        if let Ok(guard) = self.lexicon_cache.lock() {
+            if let Some(cached) = guard.as_ref() {
+                return Ok(cached.clone());
+            }
+        }
+        let path = self.root.join("lexicon.json");
+        let loaded = if path.exists() {
+            let file: crate::lexicon::LexiconFile = self.read(&path)?;
+            if file.schema_version != crate::lexicon::LEXICON_SCHEMA_VERSION {
+                return Err("This lexicon file uses an unsupported schema version.".into());
+            }
+            file
+        } else if self.root.join("learning.json").exists() {
+            let legacy = self.learning_unlocked().unwrap_or_default();
+            let (mut lex, manual_vocab) =
+                crate::lexicon::migrate_legacy_learning(legacy, crate::lexicon::today_day());
+            // Keep surviving dictations only during migration.
+            lex.entries.retain_mut(|entry| {
+                entry.sources.retain(|ev| match &ev.source {
+                    crate::lexicon::SourceRef::Dictation(id) => self.dictation_unlocked(id).is_ok(),
+                    crate::lexicon::SourceRef::Meeting(_) => true,
+                });
+                !entry.sources.is_empty()
+            });
+            if !manual_vocab.is_empty() {
+                if let Ok(mut vocab) = self.vocabulary_unlocked() {
+                    let mut added = false;
+                    for mv in manual_vocab {
+                        if !vocab.iter().any(|v| v.heard.eq_ignore_ascii_case(&mv.heard)) {
+                            vocab.push(mv);
+                            added = true;
+                        }
+                    }
+                    if added && validate_vocabulary(&vocab).is_ok() {
+                        let _ = self.write(
+                            &self.root.join("vocabulary.json"),
+                            &VocabularyFile {
+                                schema_version: 1,
+                                entries: vocab,
+                            },
+                        );
+                    }
+                }
+            }
+            lex
+        } else {
+            crate::lexicon::LexiconFile::default()
+        };
+        if let Ok(mut guard) = self.lexicon_cache.lock() {
+            *guard = Some(loaded.clone());
+        }
+        Ok(loaded)
+    }
+
+    fn write_lexicon_unlocked(&self, lexicon: &crate::lexicon::LexiconFile) -> Result<(), String> {
+        let path = self.root.join("lexicon.json");
+        self.write(&path, lexicon)?;
+        if let Ok(mut guard) = self.lexicon_cache.lock() {
+            *guard = Some(lexicon.clone());
+        }
+        Ok(())
+    }
+
+    pub fn lexicon_plan(
+        &self,
+        raw: &str,
+        mode: CleanupMode,
+        meeting_id: Option<&str>,
+    ) -> Result<crate::lexicon::LexiconPlan, String> {
+        let _guard = self.lock()?;
+        let settings = self.settings_unlocked()?;
+        let confirmed = self.vocabulary_unlocked()?;
+        let lex = self.lexicon_unlocked().unwrap_or_default();
+        Ok(crate::lexicon::plan(
+            &lex,
+            &confirmed,
+            raw,
+            mode,
+            settings.learn_from_corrections,
+            meeting_id,
+        ))
+    }
+
+    fn resolve_source_summary_unlocked(
+        &self,
+        source: &crate::lexicon::SourceRef,
+    ) -> Option<crate::lexicon::SourceSummary> {
+        match source {
+            crate::lexicon::SourceRef::Dictation(id) => {
+                let record = self.dictation_unlocked(id).ok()?;
+                let date = format_short_date(&record.created_at);
+                let label = record
+                    .target_app
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(|app| format!("Dictation in {app}"))
+                    .unwrap_or_else(|| "Dictation".into());
+                Some(crate::lexicon::SourceSummary {
+                    kind: "dictation".into(),
+                    id: id.clone(),
+                    label,
+                    date,
+                })
+            }
+            crate::lexicon::SourceRef::Meeting(id) => {
+                let path = self.meetings_dir().join(format!("{id}.json"));
+                let value: Value = self.read(&path).ok()?;
+                let detail = value.get("detail").unwrap_or(&value);
+                let title = detail
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or("Saved meeting")
+                    .to_owned();
+                let date = detail
+                    .get("createdAt")
+                    .and_then(Value::as_str)
+                    .map(format_short_date)
+                    .unwrap_or_default();
+                Some(crate::lexicon::SourceSummary {
+                    kind: "meeting".into(),
+                    id: id.clone(),
+                    label: title,
+                    date,
+                })
+            }
+        }
+    }
+
+    pub fn get_words_overview(&self) -> Result<crate::lexicon::WordsOverview, String> {
+        let _guard = self.lock()?;
+        let words = self.vocabulary_unlocked()?;
+        let lex = self.lexicon_unlocked()?;
+        Ok(crate::lexicon::build_overview(&lex, &words, |src| {
+            self.resolve_source_summary_unlocked(src)
+        }))
+    }
+
+    fn push_undo(&self, undo: LexiconUndo) -> String {
+        let token = new_id();
+        if let Ok(mut cache) = self.undo_cache.lock() {
+            if cache.len() >= 16 {
+                cache.clear();
+            }
+            cache.insert(token.clone(), undo);
+        }
+        token
+    }
+
+    pub fn confirm_learned_word(
+        &self,
+        id: &str,
+        expected_revision: Option<u64>,
+        heard: Option<String>,
+        written: String,
+        context: Vec<String>,
+        kind: crate::domain::VocabularyKind,
+    ) -> Result<LexiconMutationResult, String> {
+        let _guard = self.lock()?;
+        let mut lex = self.lexicon_unlocked()?;
+        let pos = lex
+            .entries
+            .iter()
+            .position(|e| e.id == id)
+            .ok_or("This learned word is no longer pending.")?;
+        if let Some(rev) = expected_revision {
+            if lex.entries[pos].revision != rev {
+                return Err("This word changed. Reload Words and try again.".into());
+            }
+        }
+        let entry = lex.entries.remove(pos);
+        let written_trimmed = written.trim().to_owned();
+        if written_trimmed.is_empty() {
+            return Err("Enter the written spelling.".into());
+        }
+        let is_hint = kind == crate::domain::VocabularyKind::Hint;
+        let heard_trimmed = if is_hint {
+            written_trimmed.clone()
+        } else {
+            heard
+                .as_deref()
+                .or(entry.heard.as_deref())
+                .unwrap_or(&written_trimmed)
+                .trim()
+                .to_owned()
+        };
+        let cleaned_context: Vec<String> = context
+            .into_iter()
+            .map(|c| c.trim().to_lowercase())
+            .filter(|c| !c.is_empty() && c.chars().all(char::is_alphanumeric))
+            .collect();
+
+        let mut words = self.vocabulary_unlocked()?;
+        let mut added_vocab_id = None;
+        let mut previous_vocab = None;
+
+        if let Some(target_id) = entry.promoted_to.as_deref() {
+            if let Some(existing) = words.iter_mut().find(|w| w.id == target_id) {
+                previous_vocab = Some(existing.clone());
+                if !is_hint
+                    && crate::cleanup::valid_alias(&heard_trimmed)
+                    && !existing
+                        .aliases
+                        .iter()
+                        .any(|a| a.eq_ignore_ascii_case(&heard_trimmed))
+                {
+                    existing.aliases.push(heard_trimmed.clone());
+                }
+                for cue in cleaned_context {
+                    if !existing.context.iter().any(|c| c == &cue) {
+                        existing.context.push(cue);
+                    }
+                }
+            }
+        } else if let Some(existing) = words
+            .iter_mut()
+            .find(|w| w.heard.eq_ignore_ascii_case(&heard_trimmed))
+        {
+            previous_vocab = Some(existing.clone());
+            existing.written = written_trimmed.clone();
+            existing.enabled = true;
+            if !is_hint
+                && crate::cleanup::valid_alias(&heard_trimmed)
+                && !existing
+                    .aliases
+                    .iter()
+                    .any(|a| a.eq_ignore_ascii_case(&heard_trimmed))
+            {
+                existing.aliases.push(heard_trimmed.clone());
+            }
+            for cue in cleaned_context {
+                if !existing.context.iter().any(|c| c == &cue) {
+                    existing.context.push(cue);
+                }
+            }
+        } else {
+            let vocab_id = new_id();
+            let aliases = if !is_hint && crate::cleanup::valid_alias(&heard_trimmed) {
+                vec![heard_trimmed.clone()]
+            } else {
+                Vec::new()
+            };
+            words.push(VocabularyEntry {
+                kind,
+                id: vocab_id.clone(),
+                heard: heard_trimmed.clone(),
+                written: written_trimmed.clone(),
+                enabled: true,
+                aliases,
+                context: if is_hint { Vec::new() } else { cleaned_context },
+                scope: None,
+            });
+            added_vocab_id = Some(vocab_id);
+        }
+
+        validate_vocabulary(&words)?;
+        self.write(
+            &self.root.join("vocabulary.json"),
+            &VocabularyFile {
+                schema_version: 1,
+                entries: words.clone(),
+            },
+        )?;
+        crate::lexicon::clear_suppression(
+            &mut lex,
+            (!is_hint).then_some(heard_trimmed.as_str()),
+            &written_trimmed,
+        );
+        lex.revision = lex.revision.saturating_add(1);
+        self.write_lexicon_unlocked(&lex)?;
+        crate::sync_account::wake();
+
+        let undo_token = self.push_undo(LexiconUndo {
+            restored_entries: vec![entry],
+            removed_suppression: None,
+            added_vocab_id,
+            previous_vocab,
+        });
+        let overview = crate::lexicon::build_overview(&lex, &words, |src| {
+            self.resolve_source_summary_unlocked(src)
+        });
+        Ok(LexiconMutationResult {
+            overview,
+            undo_token: Some(undo_token),
+            message: format!("Saved “{written_trimmed}” to Words."),
+        })
+    }
+
+    pub fn ignore_learned_word(
+        &self,
+        id: &str,
+        expected_revision: Option<u64>,
+        target: crate::lexicon::IgnoreTarget,
+    ) -> Result<LexiconMutationResult, String> {
+        let _guard = self.lock()?;
+        let mut lex = self.lexicon_unlocked()?;
+        let pos = lex
+            .entries
+            .iter()
+            .position(|e| e.id == id)
+            .ok_or("This learned word was already removed.")?;
+        if let Some(rev) = expected_revision {
+            if lex.entries[pos].revision != rev {
+                return Err("This word changed. Reload Words and try again.".into());
+            }
+        }
+        let entry = lex.entries.remove(pos);
+        let day = crate::lexicon::today_day();
+        let digest = crate::lexicon::suppression_digest(
+            &lex.suppression_key,
+            target,
+            entry.heard.as_deref(),
+            &entry.written,
+        );
+        crate::lexicon::add_suppression(&mut lex, target, entry.heard.as_deref(), &entry.written, day);
+        let suppression = crate::lexicon::Suppression {
+            target,
+            keyed_digest: digest,
+            day,
+        };
+        self.write_lexicon_unlocked(&lex)?;
+
+        let written = entry.written.clone();
+        let undo_token = self.push_undo(LexiconUndo {
+            restored_entries: vec![entry],
+            removed_suppression: Some(suppression),
+            added_vocab_id: None,
+            previous_vocab: None,
+        });
+        let words = self.vocabulary_unlocked()?;
+        let overview = crate::lexicon::build_overview(&lex, &words, |src| {
+            self.resolve_source_summary_unlocked(src)
+        });
+        Ok(LexiconMutationResult {
+            overview,
+            undo_token: Some(undo_token),
+            message: format!("SonoJot won’t suggest “{written}” again."),
+        })
+    }
+
+    pub fn confirm_spelling_cluster(
+        &self,
+        chosen: &str,
+        variants: &[String],
+    ) -> Result<LexiconMutationResult, String> {
+        let chosen = chosen.trim();
+        if chosen.is_empty() {
+            return Err("Choose a spelling to save.".into());
+        }
+        let _guard = self.lock()?;
+        let mut lex = self.lexicon_unlocked()?;
+        let mut words = self.vocabulary_unlocked()?;
+
+        let mut restored_entries = Vec::new();
+        lex.entries.retain(|e| {
+            let in_cluster = e.kind == crate::lexicon::TermKind::Hint
+                && variants
+                    .iter()
+                    .any(|v| v.eq_ignore_ascii_case(&e.written));
+            if in_cluster {
+                restored_entries.push(e.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        let other_heard: Vec<String> = variants
+            .iter()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| {
+                !v.is_empty()
+                    && !v.eq_ignore_ascii_case(chosen)
+                    && crate::lexicon::classify_heard(v) == crate::lexicon::HeardRisk::Nonword
+                    && crate::cleanup::valid_alias(v)
+            })
+            .collect();
+
+        let mut added_vocab_id = None;
+        let mut previous_vocab = None;
+        let kind = if other_heard.is_empty() {
+            crate::domain::VocabularyKind::Hint
+        } else {
+            crate::domain::VocabularyKind::Replace
+        };
+        let primary_heard = other_heard
+            .first()
+            .cloned()
+            .unwrap_or_else(|| chosen.to_owned());
+
+        if let Some(existing) = words.iter_mut().find(|w| {
+            w.written.eq_ignore_ascii_case(chosen) || w.heard.eq_ignore_ascii_case(&primary_heard)
+        }) {
+            previous_vocab = Some(existing.clone());
+            existing.written = chosen.to_owned();
+            existing.enabled = true;
+            if existing.kind != crate::domain::VocabularyKind::Hint {
+                for alias in &other_heard {
+                    if !existing
+                        .aliases
+                        .iter()
+                        .any(|a| a.eq_ignore_ascii_case(alias))
+                    {
+                        existing.aliases.push(alias.clone());
+                    }
+                }
+            }
+        } else {
+            let vocab_id = new_id();
+            words.push(VocabularyEntry {
+                kind,
+                id: vocab_id.clone(),
+                heard: primary_heard,
+                written: chosen.to_owned(),
+                enabled: true,
+                aliases: other_heard,
+                context: Vec::new(),
+                scope: None,
+            });
+            added_vocab_id = Some(vocab_id);
+        }
+
+        validate_vocabulary(&words)?;
+        self.write(
+            &self.root.join("vocabulary.json"),
+            &VocabularyFile {
+                schema_version: 1,
+                entries: words.clone(),
+            },
+        )?;
+        crate::lexicon::clear_suppression(&mut lex, None, chosen);
+        lex.revision = lex.revision.saturating_add(1);
+        self.write_lexicon_unlocked(&lex)?;
+        crate::sync_account::wake();
+
+        let undo_token = self.push_undo(LexiconUndo {
+            restored_entries,
+            removed_suppression: None,
+            added_vocab_id,
+            previous_vocab,
+        });
+        let overview = crate::lexicon::build_overview(&lex, &words, |src| {
+            self.resolve_source_summary_unlocked(src)
+        });
+        Ok(LexiconMutationResult {
+            overview,
+            undo_token: Some(undo_token),
+            message: format!("Saved “{chosen}” to Words."),
+        })
+    }
+
+    pub fn ignore_spelling_cluster(
+        &self,
+        variants: &[String],
+    ) -> Result<LexiconMutationResult, String> {
+        let _guard = self.lock()?;
+        let mut lex = self.lexicon_unlocked()?;
+        let day = crate::lexicon::today_day();
+        let mut restored_entries = Vec::new();
+        lex.entries.retain(|e| {
+            let in_cluster = e.kind == crate::lexicon::TermKind::Hint
+                && variants
+                    .iter()
+                    .any(|v| v.eq_ignore_ascii_case(&e.written));
+            if in_cluster {
+                restored_entries.push(e.clone());
+                false
+            } else {
+                true
+            }
+        });
+        for variant in variants {
+            crate::lexicon::add_suppression(
+                &mut lex,
+                crate::lexicon::IgnoreTarget::Term,
+                None,
+                variant,
+                day,
+            );
+        }
+        self.write_lexicon_unlocked(&lex)?;
+        let words = self.vocabulary_unlocked()?;
+        let overview = crate::lexicon::build_overview(&lex, &words, |src| {
+            self.resolve_source_summary_unlocked(src)
+        });
+        Ok(LexiconMutationResult {
+            overview,
+            undo_token: None,
+            message: "Ignored those spellings.".into(),
+        })
+    }
+
+    pub fn undo_lexicon_action(
+        &self,
+        token: &str,
+    ) -> Result<crate::lexicon::WordsOverview, String> {
+        let undo = self
+            .undo_cache
+            .lock()
+            .ok()
+            .and_then(|mut cache| cache.remove(token))
+            .ok_or("Nothing left to undo.")?;
+        let _guard = self.lock()?;
+        let mut lex = self.lexicon_unlocked()?;
+        let mut words = self.vocabulary_unlocked()?;
+
+        let mut vocab_changed = false;
+        if let Some(added_id) = undo.added_vocab_id {
+            words.retain(|w| w.id != added_id);
+            vocab_changed = true;
+        }
+        if let Some(prev) = undo.previous_vocab {
+            if let Some(slot) = words.iter_mut().find(|w| w.id == prev.id) {
+                *slot = prev;
+                vocab_changed = true;
+            }
+        }
+        if vocab_changed {
+            validate_vocabulary(&words)?;
+            self.write(
+                &self.root.join("vocabulary.json"),
+                &VocabularyFile {
+                    schema_version: 1,
+                    entries: words.clone(),
+                },
+            )?;
+            crate::sync_account::wake();
+        }
+        if let Some(sup) = undo.removed_suppression {
+            lex.suppressions.retain(|s| {
+                !(s.target == sup.target && s.keyed_digest == sup.keyed_digest)
+            });
+        }
+        for entry in undo.restored_entries {
+            if !lex.entries.iter().any(|e| e.id == entry.id) {
+                lex.entries.push(entry);
+            }
+        }
+        lex.revision = lex.revision.saturating_add(1);
+        self.write_lexicon_unlocked(&lex)?;
+        Ok(crate::lexicon::build_overview(&lex, &words, |src| {
+            self.resolve_source_summary_unlocked(src)
+        }))
+    }
+
+    pub fn observe_dictation(&self, record: &DictationRecord, generation: u64) {
+        if record.recognition_completeness != RecognitionCompleteness::Complete {
+            return;
+        }
+        let Ok(_guard) = self.lock() else { return };
+        if generation != self.privacy_generation() {
+            return;
+        }
+        let Ok(settings) = self.settings_unlocked() else { return };
+        if !settings.learn_from_corrections || settings.do_not_save_dictations {
+            return;
+        }
+        let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+        let Ok(mut lex) = self.lexicon_unlocked() else { return };
+        if crate::lexicon::observe_passive_text(
+            &mut lex,
+            &confirmed,
+            crate::lexicon::SourceRef::Dictation(record.id.clone()),
+            &record.published,
+            crate::lexicon::today_day(),
+        ) {
+            let _ = self.write_lexicon_unlocked(&lex);
+        }
+    }
+
+    pub fn record_trust_choice(
+        &self,
+        record_id: Option<&str>,
+        generation: u64,
+        heard: &str,
+        written: &str,
+        is_revert: bool,
+        is_voice_fix: bool,
+        nearby: &[String],
+    ) -> crate::lexicon::FixOutcome {
+        let Some(record_id) = record_id else {
+            return crate::lexicon::FixOutcome::Ignored;
+        };
+        let Ok(_guard) = self.lock() else {
+            return crate::lexicon::FixOutcome::Ignored;
+        };
+        if generation != self.privacy_generation() {
+            return crate::lexicon::FixOutcome::Ignored;
+        }
+        let Ok(settings) = self.settings_unlocked() else {
+            return crate::lexicon::FixOutcome::Ignored;
+        };
+        if !settings.learn_from_corrections || settings.do_not_save_dictations {
+            return crate::lexicon::FixOutcome::Ignored;
+        }
+        if self.dictation_unlocked(record_id).is_err() {
+            return crate::lexicon::FixOutcome::Ignored;
+        }
+        let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+        let Ok(mut lex) = self.lexicon_unlocked() else {
+            return crate::lexicon::FixOutcome::Ignored;
+        };
+        let day = crate::lexicon::today_day();
+        if is_revert {
+            if crate::lexicon::record_revert(&mut lex, &confirmed, written, heard, day) {
+                let _ = self.write_lexicon_unlocked(&lex);
+            }
+            return crate::lexicon::FixOutcome::Ignored;
+        }
+        let kind = if is_voice_fix {
+            crate::lexicon::SourceKind::VoiceFix
+        } else {
+            crate::lexicon::SourceKind::OverlayChoice
+        };
+        let outcome = crate::lexicon::record_fix(
+            &mut lex,
+            &confirmed,
+            crate::lexicon::SourceRef::Dictation(record_id.to_owned()),
+            kind,
+            heard,
+            written,
+            nearby,
+            day,
+        );
+        if outcome != crate::lexicon::FixOutcome::Ignored {
+            let _ = self.write_lexicon_unlocked(&lex);
+        }
+        outcome
+    }
+
+    pub fn record_trust_keep(
+        &self,
+        record_id: Option<&str>,
+        generation: u64,
+        word: &str,
+        offered_alternatives: &[String],
+    ) {
+        let Some(record_id) = record_id else { return };
+        let Ok(_guard) = self.lock() else { return };
+        if generation != self.privacy_generation() {
+            return;
+        }
+        let Ok(settings) = self.settings_unlocked() else { return };
+        if !settings.learn_from_corrections || settings.do_not_save_dictations {
+            return;
+        }
+        if self.dictation_unlocked(record_id).is_err() {
+            return;
+        }
+        let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+        let Ok(mut lex) = self.lexicon_unlocked() else { return };
+        if crate::lexicon::record_keep(
+            &mut lex,
+            &confirmed,
+            crate::lexicon::SourceRef::Dictation(record_id.to_owned()),
+            word,
+            offered_alternatives,
+            crate::lexicon::today_day(),
+        ) {
+            let _ = self.write_lexicon_unlocked(&lex);
+        }
+    }
+
+    pub fn record_trust_retype(
+        &self,
+        record_id: Option<&str>,
+        generation: u64,
+        heard: &str,
+        written: &str,
+        nearby: &[String],
+    ) -> crate::lexicon::FixOutcome {
+        let Some(record_id) = record_id else {
+            return crate::lexicon::FixOutcome::Ignored;
+        };
+        let Ok(_guard) = self.lock() else {
+            return crate::lexicon::FixOutcome::Ignored;
+        };
+        if generation != self.privacy_generation() {
+            return crate::lexicon::FixOutcome::Ignored;
+        }
+        let Ok(settings) = self.settings_unlocked() else {
+            return crate::lexicon::FixOutcome::Ignored;
+        };
+        if !settings.learn_from_corrections || settings.do_not_save_dictations {
+            return crate::lexicon::FixOutcome::Ignored;
+        }
+        if self.dictation_unlocked(record_id).is_err() {
+            return crate::lexicon::FixOutcome::Ignored;
+        }
+        let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+        let Ok(mut lex) = self.lexicon_unlocked() else {
+            return crate::lexicon::FixOutcome::Ignored;
+        };
+        let outcome = crate::lexicon::record_fix(
+            &mut lex,
+            &confirmed,
+            crate::lexicon::SourceRef::Dictation(record_id.to_owned()),
+            crate::lexicon::SourceKind::HostRetype,
+            heard,
+            written,
+            nearby,
+            crate::lexicon::today_day(),
+        );
+        if outcome != crate::lexicon::FixOutcome::Ignored {
+            let _ = self.write_lexicon_unlocked(&lex);
+        }
+        outcome
+    }
+
+    pub fn record_meeting_speaker(&self, meeting_id: &str, name: &str) {
+        let Ok(_guard) = self.lock() else { return };
+        let Ok(settings) = self.settings_unlocked() else { return };
+        if !settings.learn_from_corrections {
+            return;
+        }
+        let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+        let Ok(mut lex) = self.lexicon_unlocked() else { return };
+        if crate::lexicon::record_speaker_name(
+            &mut lex,
+            &confirmed,
+            meeting_id,
+            name,
+            crate::lexicon::today_day(),
+        ) {
+            let _ = self.write_lexicon_unlocked(&lex);
+        }
+    }
+
+    pub fn observe_meeting_transcript(&self, meeting_id: &str, text: &str) {
+        let Ok(_guard) = self.lock() else { return };
+        let Ok(settings) = self.settings_unlocked() else { return };
+        if !settings.learn_from_corrections || !settings.learn_from_meetings {
+            return;
+        }
+        let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+        let Ok(mut lex) = self.lexicon_unlocked() else { return };
+        if crate::lexicon::observe_passive_text(
+            &mut lex,
+            &confirmed,
+            crate::lexicon::SourceRef::Meeting(meeting_id.to_owned()),
+            text,
+            crate::lexicon::today_day(),
+        ) {
+            let _ = self.write_lexicon_unlocked(&lex);
+        }
+    }
+
+    pub fn record_meeting_edit(&self, meeting_id: &str, old_text: &str, new_text: &str) {
+        let Ok(_guard) = self.lock() else { return };
+        let Ok(settings) = self.settings_unlocked() else { return };
+        if !settings.learn_from_corrections || !settings.learn_from_meetings {
+            return;
+        }
+        let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+        let Ok(mut lex) = self.lexicon_unlocked() else { return };
+        let day = crate::lexicon::today_day();
+        let mut changed = false;
+        for (old_line, new_line) in old_text.lines().zip(new_text.lines()) {
+            if old_line == new_line {
+                continue;
+            }
+            if let Some((heard, written, nearby)) =
+                crate::lexicon::extract_diff_pair(old_line, new_line)
+            {
+                let out = crate::lexicon::record_fix(
+                    &mut lex,
+                    &confirmed,
+                    crate::lexicon::SourceRef::Meeting(meeting_id.to_owned()),
+                    crate::lexicon::SourceKind::MeetingEdit,
+                    &heard,
+                    &written,
+                    &nearby,
+                    day,
+                );
+                if out != crate::lexicon::FixOutcome::Ignored {
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            let _ = self.write_lexicon_unlocked(&lex);
+        }
+    }
+
+    pub fn retract_meeting(&self, meeting_id: &str) {
+        let Ok(_guard) = self.lock() else { return };
+        if let Ok(mut lex) = self.lexicon_unlocked() {
+            if crate::lexicon::retract_source(
+                &mut lex,
+                &crate::lexicon::SourceRef::Meeting(meeting_id.to_owned()),
+            ) {
+                let _ = self.write_lexicon_unlocked(&lex);
+            }
+        }
+    }
+
+    pub fn note_applied_pairs(&self, pairs: &[(String, String)]) {
+        if pairs.is_empty() {
+            return;
+        }
+        let Ok(_guard) = self.lock() else { return };
+        let confirmed = self.vocabulary_unlocked().unwrap_or_default();
+        if let Ok(mut lex) = self.lexicon_unlocked() {
+            if crate::lexicon::note_applied_pairs(
+                &mut lex,
+                &confirmed,
+                pairs,
+                crate::lexicon::today_day(),
+            ) {
+                let _ = self.write_lexicon_unlocked(&lex);
+            }
+        }
+    }
+
+    pub fn record_review_proposals(
+        &self,
+        proposals: &[(String, String)],
+        source_id: Option<&str>,
+    ) -> Result<usize, String> {
+        let _guard = self.lock()?;
+        let confirmed = self.vocabulary_unlocked()?;
+        let mut lex = self.lexicon_unlocked()?;
+        let added = crate::lexicon::record_review_proposals(
+            &mut lex,
+            &confirmed,
+            proposals,
+            source_id,
+            crate::lexicon::today_day(),
+        );
+        if added > 0 {
+            self.write_lexicon_unlocked(&lex)?;
+        }
+        Ok(added)
     }
 
     pub fn import_legacy_default(&self) -> Result<MigrationReport, String> {
@@ -1497,6 +2516,27 @@ fn rebase_value(value: &mut Value, prefixes: &[(PathBuf, PathBuf)]) -> bool {
 pub(crate) fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
+pub(crate) fn format_short_date(rfc3339: &str) -> String {
+    let Ok(dt) = OffsetDateTime::parse(rfc3339, &Rfc3339) else {
+        return String::new();
+    };
+    let month = match dt.month() {
+        time::Month::January => "Jan",
+        time::Month::February => "Feb",
+        time::Month::March => "Mar",
+        time::Month::April => "Apr",
+        time::Month::May => "May",
+        time::Month::June => "Jun",
+        time::Month::July => "Jul",
+        time::Month::August => "Aug",
+        time::Month::September => "Sep",
+        time::Month::October => "Oct",
+        time::Month::November => "Nov",
+        time::Month::December => "Dec",
+    };
+    format!("{month} {}", dt.day())
+}
+
 pub(crate) fn now() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -1923,6 +2963,14 @@ mod tests {
     #[test]
     fn privacy_learning_is_opt_in_source_bound_and_reset_rejects_stale_edits() {
         let (directory, store) = temp_store("privacy-learning");
+        // New installs default local learning on; turning it off blocks new learning.
+        assert!(store.load_settings().unwrap().learn_from_corrections);
+        store
+            .save_settings(&Settings {
+                learn_from_corrections: false,
+                ..Settings::default()
+            })
+            .unwrap();
         let record = sample(&store, "Open the Velmora project");
         let unchanged_raw = record.raw.clone();
         assert_eq!(
@@ -2708,12 +3756,17 @@ mod tests {
             .unwrap();
         assert_eq!(saved.learned_count, 0);
 
-        // Unscoped explicit saves update the record but create no reusable alias.
+        // Unscoped explicit edit on an ordinary-word collision queues for Review
+        // (Suggested) without auto-applying in cleanup.
         let unscoped = commit(&store, "ask quinn about it", "ask quinn about it");
         let saved = store
             .save_dictation_correction(&unscoped.id, "ask Qwen about it", None)
             .unwrap();
-        assert_eq!(saved.learned_count, 0);
+        assert_eq!(saved.outcome.as_deref(), Some("suggested"));
+        let plan = store
+            .lexicon_plan("ask quinn about it", CleanupMode::Clean, None)
+            .unwrap();
+        assert!(plan.cleanup_vocabulary.is_empty());
 
         // Incomplete recognition never becomes a trusted alias.
         let generation = store.privacy_generation();
@@ -2745,6 +3798,72 @@ mod tests {
             .is_err());
         // Late learning cannot recreate support: no entries appear.
         assert!(store.get_learning().unwrap().is_empty());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn fix_word_populates_aliases_and_applies_in_cleanup_and_lexicon_triage_round_trips() {
+        let (directory, store) = temp_store("lexicon-triage");
+        let record = sample(&store, "open tax sheet today");
+        let saved = store
+            .learn_correction(&record.id, "tax sheet", "Tacksheet")
+            .unwrap();
+        assert_eq!(saved[0].aliases, vec!["tax sheet".to_string()]);
+        let plan = store
+            .lexicon_plan("open tax sheet today", CleanupMode::Clean, None)
+            .unwrap();
+        let cleaned = crate::cleanup::safe_format(
+            "open tax sheet today",
+            crate::cleanup::Mode::Clean,
+            &plan.cleanup_vocabulary,
+        );
+        assert!(cleaned.text.contains("Tacksheet"), "{}", cleaned.text);
+
+        // History edit without scope surfaces in Words -> Review, confirms with Undo,
+        // and Ignore writes a permanent suppression that blocks rediscovery.
+        let d2 = sample(&store, "deploy velmore now");
+        let res = store
+            .save_dictation_correction(&d2.id, "deploy Velmora now", None)
+            .unwrap();
+        assert_eq!(res.outcome.as_deref(), Some("suggested"));
+        let overview = store.get_words_overview().unwrap();
+        assert_eq!(overview.review_items.len(), 1);
+        let item_id = overview.review_items[0].id.clone();
+
+        let confirmed = store
+            .confirm_learned_word(
+                &item_id,
+                Some(overview.review_items[0].revision),
+                Some("velmore".into()),
+                "Velmora".into(),
+                Vec::new(),
+                crate::domain::VocabularyKind::Replace,
+            )
+            .unwrap();
+        assert!(confirmed.overview.words.iter().any(|w| w.written == "Velmora"));
+        assert!(confirmed.overview.review_items.is_empty());
+
+        let restored = store
+            .undo_lexicon_action(confirmed.undo_token.as_deref().unwrap())
+            .unwrap();
+        assert_eq!(restored.review_items.len(), 1);
+
+        let ignored = store
+            .ignore_learned_word(
+                &item_id,
+                None,
+                crate::lexicon::IgnoreTarget::Mapping,
+            )
+            .unwrap();
+        assert!(ignored.overview.review_items.is_empty());
+        assert_eq!(ignored.overview.suppressed_count, 1);
+
+        // Suppressed pair is not re-suggested on another correction.
+        let d3 = sample(&store, "deploy velmore again");
+        let res3 = store
+            .save_dictation_correction(&d3.id, "deploy Velmora again", None)
+            .unwrap();
+        assert_eq!(res3.outcome.as_deref(), Some("recordOnly"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

@@ -3,6 +3,7 @@
   import { onMount, untrack } from "svelte";
   import SyncPairing from "../components/SyncPairing.svelte";
   import MeetingSyncStorage from "../components/quiet/MeetingSyncStorage.svelte";
+  import Disclosure from "../components/quiet/Disclosure.svelte";
   import Sheet from "../components/quiet/Sheet.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { z } from "zod";
@@ -131,7 +132,7 @@
 </script>
 
 {#if !recovery}
-  <section class="stock paper-card sync-sheet">
+  <section class="stock paper-card ui-card sync-sheet">
     {#if !sync.status?.signedIn}
       <p>
         Keep your words on your devices. Vocabulary sync is free and end-to-end
@@ -139,7 +140,7 @@
       </p>
       <div class="sync-actions">
         <button
-          class="button"
+          class="button primary"
           disabled={sync.busy}
           onclick={() => start("sign-up")}>Set up sync</button
         >
@@ -147,16 +148,18 @@
           >Add this computer</button
         >
       </div>
-      <details>
-        <summary>Self-hosted server</summary><label
-          >Server address<input
-            type="url"
-            class="well"
-            placeholder="https://sync.example.com"
-            bind:value={server}
-          /></label
-        >
-      </details>
+      <div class="sync-fold">
+        <Disclosure title="Self-hosted server">
+          <label
+            >Server address<input
+              type="url"
+              class="well"
+              placeholder="https://sync.example.com"
+              bind:value={server}
+            /></label
+          >
+        </Disclosure>
+      </div>
     {:else if !sync.status.unlocked}
       {#if sync.status.initialized === false}
         <h2 data-text-surface="emboss">Set up sync</h2>
@@ -164,14 +167,16 @@
           This computer creates your encryption key. Save the recovery code
           next, and you’re set.
         </p>
-        <button
-          class="button"
-          disabled={sync.busy}
-          onclick={async () => {
-            confirm = "setup";
-            await confirmed();
-          }}>Create encryption key</button
-        >
+        <div class="sync-actions">
+          <button
+            class="button primary"
+            disabled={sync.busy}
+            onclick={async () => {
+              confirm = "setup";
+              await confirmed();
+            }}>Create encryption key</button
+          >
+        </div>
       {:else}
         <SyncPairing />
         <button
@@ -198,9 +203,11 @@
                   bind:value={entered}
                 /></label
               >
-              <button class="button" disabled={sync.busy || !entered}
-                >Unlock</button
-              >
+              <div class="sync-actions">
+                <button class="button" disabled={sync.busy || !entered}
+                  >Unlock</button
+                >
+              </div>
             </form>
             <button
               class="text-action"
@@ -214,12 +221,14 @@
                   sync.status.pendingReset * 1000,
                 ).toLocaleString()}. This request expires seven days later.
               </p>
-              <button
-                class="button"
-                disabled={sync.busy || !resetReady}
-                onclick={() => (confirm = "reset")}
-                >Complete reset after 72 hours</button
-              >
+              <div class="sync-actions">
+                <button
+                  class="button"
+                  disabled={sync.busy || !resetReady}
+                  onclick={() => (confirm = "reset")}
+                  >Complete reset after 72 hours</button
+                >
+              </div>
             {/if}
           </div>
         {/if}
@@ -243,12 +252,12 @@
           </p>
           <div class="sync-actions">
             <button
-              class="button"
+              class="button small"
               disabled={sync.busy}
               onclick={() => runSync("join_ack", { device: join.id })}
               >OK</button
             ><button
-              class="button"
+              class="button small"
               disabled={sync.busy}
               onclick={() => {
                 removing = join.id;
@@ -258,30 +267,43 @@
           </div>
         </section>
       {/each}
-      <strong data-text-surface="emboss">{sync.status.email}</strong>
-      <p data-text-surface="flat">
-        Words and meetings · {devices.filter((d) => d.revoked_at === null)
-          .length}
-        {devices.filter((d) => d.revoked_at === null).length === 1
-          ? "device"
-          : "devices"}
-      </p>
-      <p class="field-help" data-text-surface="flat">
-        {sync.status.lastSync
-          ? `Last synced ${new Date(sync.status.lastSync * 1000).toLocaleString()}`
-          : "Ready to sync vocabulary and meetings"}
-      </p>
+      <div class="account-summary">
+        <div class="account-copy">
+          <strong data-text-surface="emboss">{sync.status.email}</strong>
+          <p data-text-surface="flat">
+            Words and meetings · {devices.filter((d) => d.revoked_at === null)
+              .length}
+            {devices.filter((d) => d.revoked_at === null).length === 1
+              ? "device"
+              : "devices"}
+          </p>
+          <p class="field-help" data-text-surface="flat">
+            {sync.status.lastSync
+              ? `Last synced ${new Date(sync.status.lastSync * 1000).toLocaleString()}`
+              : "Ready to sync vocabulary and meetings"}
+          </p>
+        </div>
+        <div class="sync-actions">
+          <button
+            class="button small"
+            disabled={sync.busy}
+            onclick={() => runSync("now")}>Sync now</button
+          >
+        </div>
+      </div>
       {#if sync.status.pendingReset}
         <p role="alert">
           A reset was requested. It can erase encrypted sync after {new Date(
             sync.status.pendingReset * 1000,
           ).toLocaleString()}.
         </p>
-        <button
-          class="button"
-          disabled={sync.busy}
-          onclick={() => runSync("reset_cancel")}>Cancel reset</button
-        >
+        <div class="sync-actions">
+          <button
+            class="button small"
+            disabled={sync.busy}
+            onclick={() => runSync("reset_cancel")}>Cancel reset</button
+          >
+        </div>
       {/if}
       {#if sync.status.resetCancelled}<p role="status">
           SonoJot cancelled a sync reset because this device can unlock your
@@ -289,15 +311,14 @@
         </p>{/if}
       {#if sync.status.notice}
         <p role="alert">{sync.status.notice}</p>
-        <button
-          class="button"
-          onclick={() => runSync("journal_ack", { confirmed: true })}
-          >I reviewed my local words</button
-        >
+        <div class="sync-actions">
+          <button
+            class="button small"
+            onclick={() => runSync("journal_ack", { confirmed: true })}
+            >I reviewed my local words</button
+          >
+        </div>
       {/if}
-      <button class="button" disabled={sync.busy} onclick={() => runSync("now")}
-        >Sync now</button
-      >
       <MeetingSyncStorage />
       <button
         class="text-action"
@@ -316,7 +337,7 @@
                   ? " · this device"
                   : ""}</span
               ><button
-                class="button"
+                class="button small"
                 disabled={sync.busy}
                 onclick={() => {
                   removing = device.id;
@@ -326,42 +347,50 @@
               >
             </div>
           {/each}
-          <button class="button" disabled={sync.busy} onclick={reload}
-            >Refresh devices</button
-          >
-          <button
-            class="button"
-            disabled={sync.busy}
-            onclick={() => (confirm = "recovery_new")}>New recovery code</button
-          >
-          {#if sync.status.recoveryPending}
-            <button
-              class="button"
-              disabled={sync.busy}
-              onclick={async () => {
-                const r = await runSync("recovery_show", { confirmed: true });
-                if (r) recovery = z.object({ code: z.string() }).parse(r).code;
-              }}>Save recovery code</button
-            >
-          {/if}
-          <details>
-            <summary>Sign in again or update contact email</summary>
-            <p>
-              Sign in with an email code. Confirm contact email changes here on
-              an unlocked computer; reset notices keep going to the previous
-              address until then.
-            </p>
-            <button class="button" disabled={sync.busy} onclick={() => start()}
-              >Sign in securely</button
+          <div class="sync-actions">
+            <button class="button small" disabled={sync.busy} onclick={reload}
+              >Refresh devices</button
             >
             <button
-              class="button"
+              class="button small"
               disabled={sync.busy}
-              onclick={() =>
-                runSync("signin", { provider: "email", link: true })}
-              >Confirm contact email</button
+              onclick={() => (confirm = "recovery_new")}
+              >New recovery code</button
             >
-          </details>
+            {#if sync.status.recoveryPending}
+              <button
+                class="button small"
+                disabled={sync.busy}
+                onclick={async () => {
+                  const r = await runSync("recovery_show", { confirmed: true });
+                  if (r) recovery = z.object({ code: z.string() }).parse(r).code;
+                }}>Save recovery code</button
+              >
+            {/if}
+          </div>
+          <div class="sync-fold">
+            <Disclosure title="Sign in again or update contact email">
+              <p class="field-help">
+                Sign in with an email code. Confirm contact email changes here
+                on an unlocked computer; reset notices keep going to the
+                previous address until then.
+              </p>
+              <div class="sync-actions spaced">
+                <button
+                  class="button small"
+                  disabled={sync.busy}
+                  onclick={() => start()}>Sign in securely</button
+                >
+                <button
+                  class="button small"
+                  disabled={sync.busy}
+                  onclick={() =>
+                    runSync("signin", { provider: "email", link: true })}
+                  >Confirm contact email</button
+                >
+              </div>
+            </Disclosure>
+          </div>
           <div class="sync-actions">
             <button
               class="text-action"
@@ -369,7 +398,7 @@
               onclick={() => runSync("signout")}>Sign out</button
             >
             <button
-              class="button"
+              class="button small"
               disabled={sync.busy}
               onclick={async () => {
                 const path = await save({
@@ -390,7 +419,7 @@
     {/if}
   </section>
 {/if}
-{#if recovery}<section class="stock paper-card sync-sheet">
+{#if recovery}<section class="stock paper-card ui-card sync-sheet">
     <h2 data-text-surface="emboss">Save your recovery code</h2>
     <p>
       If you lose every device and this code, no one can recover your synced
@@ -494,15 +523,31 @@
 
 <style>
   .sync-sheet {
-    padding: 27px;
+    padding: 22px;
     margin-bottom: 18px;
     display: grid;
-    gap: 18px;
+    gap: 16px;
+  }
+  .account-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+  }
+  .account-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
   }
   .sync-actions {
     display: flex;
+    align-items: center;
     flex-wrap: wrap;
     gap: 9px;
+  }
+  .sync-fold {
+    border-top: 1px solid var(--line);
   }
   .sync-row {
     display: flex;
@@ -557,9 +602,5 @@
   .recovery-code {
     overflow-wrap: anywhere;
     user-select: text;
-  }
-  .sync-sheet details input {
-    width: 100%;
-    margin-top: 9px;
   }
 </style>

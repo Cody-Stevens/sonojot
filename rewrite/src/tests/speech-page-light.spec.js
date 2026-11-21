@@ -3,7 +3,7 @@ import { installDesktopFixture } from "./desktop-fixture.js";
 import { speechProfiles, ft2 } from "./speech-page-fixture.js";
 
 // November 13 light Speech page: information buttons and Compare models.
-async function open(page, hw = "nvidia", size = { width: 1220, height: 860 }) {
+async function open(page, hw = "nvidia", size = { width: 1060, height: 760 }) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize(size);

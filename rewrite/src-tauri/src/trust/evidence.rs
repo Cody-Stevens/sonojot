@@ -22,6 +22,8 @@ pub struct RawWord {
 pub enum AltSource {
     /// A personal vocabulary entry that sounds or is spelled close.
     Vocabulary,
+    /// A locally learned hint or suggestion (never creates a mark on its own).
+    Learned,
     /// The decoder's own next-best candidate.
     NextGuess,
     /// What the recognizer heard before cleanup changed it.
@@ -33,7 +35,7 @@ pub enum AltSource {
 impl AltSource {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Vocabulary => "Your words",
+            Self::Vocabulary | Self::Learned => "Your words",
             Self::NextGuess => "Next guess",
             Self::AsHeard => "As heard",
             Self::SecondModel => "Second model",
@@ -342,6 +344,49 @@ pub fn vocabulary_alternatives(word: &str, vocabulary: &[String]) -> Vec<Alterna
         .take(2)
         .map(|(_, v)| Alternative { text: v.clone(), source: AltSource::Vocabulary })
         .collect()
+}
+
+/// Attach active local hints and suggested (heard -> written) pairs to
+/// independently selected marks. Never creates new marks on its own.
+pub fn attach_learned_alternatives(
+    marks: &mut [super::decision::Mark],
+    active_hints: &[String],
+    suggested_pairs: &[(String, String)],
+) {
+    for mark in marks.iter_mut() {
+        if mark.kind != super::decision::MarkKind::Word {
+            continue;
+        }
+        let mut additions: Vec<Alternative> = Vec::new();
+        // 1. Direct suggested pair match (heard matches the doubted word).
+        for (heard, written) in suggested_pairs {
+            if heard.eq_ignore_ascii_case(&mark.heard) && *written != mark.heard {
+                additions.push(Alternative {
+                    text: written.clone(),
+                    source: AltSource::Learned,
+                });
+            }
+        }
+        // 2. Close phonetic/spelling match among active local hints.
+        for alt in vocabulary_alternatives(&mark.heard, active_hints) {
+            additions.push(Alternative {
+                text: alt.text,
+                source: AltSource::Learned,
+            });
+        }
+        for alt in additions {
+            if mark.alternatives.len() >= 3 {
+                break;
+            }
+            if !mark
+                .alternatives
+                .iter()
+                .any(|existing| existing.text.eq_ignore_ascii_case(&alt.text))
+            {
+                mark.alternatives.push(alt);
+            }
+        }
+    }
 }
 
 /// A rough English sound key: letters folded into sound classes, vowels

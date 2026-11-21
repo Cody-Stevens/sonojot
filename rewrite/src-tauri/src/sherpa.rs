@@ -7,7 +7,12 @@ use std::{
     ffi::{c_char, CStr, CString},
     path::{Path, PathBuf},
     ptr,
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
 };
+
+#[cfg(test)]
+#[path = "parakeet_preview_probe.rs"]
+mod preview_probe;
 
 #[repr(C)]
 struct FeatureConfig {
@@ -330,17 +335,65 @@ impl Api {
 }
 
 enum Decoder {
-    Native(*const OfflineRecognizer),
+    Native(Arc<NativeRecognizer>),
     Llama(crate::llama_asr::Server),
 }
 
 pub struct Engine {
-    api: Api,
+    api: Arc<Api>,
     decoder: Decoder,
     vad: *const VoiceActivityDetector,
     _keep: Vec<CString>,
     pub model_id: String,
     pub requested_model: String,
+}
+
+struct NativeRecognizer {
+    handle: *const OfflineRecognizer,
+    api: Arc<Api>,
+    primary_busy: AtomicBool,
+    preview_busy: AtomicBool,
+}
+
+// The pinned sherpa offline transducer uses per-stream features/results and
+// local decoder state. Its shared ONNX Runtime CPU sessions support concurrent
+// Run calls. Only the Parakeet preview shares this handle; it creates and frees
+// its own stream, never accesses the VAD, and retains the library with the model.
+unsafe impl Send for NativeRecognizer {}
+unsafe impl Sync for NativeRecognizer {}
+
+impl Drop for NativeRecognizer {
+    fn drop(&mut self) { unsafe { (self.api.destroy_offline)(self.handle) }; }
+}
+
+impl NativeRecognizer {
+    fn preview(&self, samples: &[f32]) -> Option<String> {
+        if self.primary_busy.load(Ordering::Acquire)
+            || self.preview_busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
+        { return None; }
+        let _preview = PrimaryDecode(&self.preview_busy);
+        if self.primary_busy.load(Ordering::Acquire) { return None; }
+        unsafe {
+            let stream = (self.api.create_stream)(self.handle);
+            if stream.is_null() { return None; }
+            (self.api.accept)(stream, 16_000, samples.as_ptr(), samples.len() as i32);
+            (self.api.decode)(self.handle, stream);
+            let result = (self.api.get_result)(stream);
+            let text = if result.is_null() { None } else {
+                let text = (!(*result).text.is_null())
+                    .then(|| CStr::from_ptr((*result).text).to_string_lossy().into_owned());
+                (self.api.destroy_result)(result);
+                text
+            };
+            (self.api.destroy_stream)(stream);
+            text
+        }
+    }
+}
+
+struct PrimaryDecode<'a>(&'a AtomicBool);
+impl Drop for PrimaryDecode<'_> {
+    fn drop(&mut self) { self.0.store(false, Ordering::Release); }
 }
 
 impl Engine {
@@ -373,7 +426,7 @@ impl Engine {
                 return Err(format!("{requested} is not installed"));
             }
         }
-        let api = Api::open(root)?;
+        let api = Arc::new(Api::open(root)?);
         let dir = if llama {
             crate::llama_asr::model_dir(root, requested)
         } else if whisper.is_some() {
@@ -451,13 +504,11 @@ impl Engine {
             if recognizer.is_null() {
                 return Err(format!("Cannot initialize speech recognition: {requested}"));
             }
-            Decoder::Native(recognizer)
+            Decoder::Native(Arc::new(NativeRecognizer { handle: recognizer, api: api.clone(),
+                primary_busy: AtomicBool::new(false), preview_busy: AtomicBool::new(false) }))
         };
         let vad = unsafe { (api.create_vad)(&vad_config, 30.0) };
         if vad.is_null() {
-            if let Decoder::Native(recognizer) = &decoder {
-                unsafe { (api.destroy_offline)(*recognizer) };
-            }
             // A llama server is dropped here and shuts down its owned child.
             return Err(
                 "Cannot initialize voice-activity detection for the optional speech model.".into(),
@@ -503,6 +554,7 @@ impl Engine {
             early_ok: cut.is_some_and(|cut| cut.step.is_some()),
             completeness: RecognitionCompleteness::Complete,
             warnings: Vec::new(),
+            preview: None,
             #[cfg(feature = "fidelity-eval")]
             segment_evidence: Vec::new(),
             #[cfg(feature = "fidelity-eval")]
@@ -523,8 +575,11 @@ impl Engine {
             Decoder::Llama(server) => {
                 return server.transcribe(samples).map(NativeSegment::from_llama_response);
             }
-            Decoder::Native(recognizer) => *recognizer,
+            Decoder::Native(recognizer) => recognizer,
         };
+        recognizer.primary_busy.store(true, Ordering::Release);
+        let _primary = PrimaryDecode(&recognizer.primary_busy);
+        let recognizer = recognizer.handle;
         let stream = unsafe { (self.api.create_stream)(recognizer) };
         if stream.is_null() {
             return Err("Cannot start optional-model recognition.".into());
@@ -1503,12 +1558,6 @@ impl Drop for Engine {
                 (self.api.destroy_vad)(self.vad);
                 self.vad = ptr::null();
             }
-            if let Decoder::Native(recognizer) = &mut self.decoder {
-                if !recognizer.is_null() {
-                    (self.api.destroy_offline)(*recognizer);
-                    *recognizer = ptr::null();
-                }
-            }
         }
     }
 }
@@ -1580,6 +1629,7 @@ pub(crate) fn refresh_qwen_guard(
 
 pub struct Stream<'a> {
     engine: &'a mut Engine,
+    preview: Option<crate::parakeet_preview::Preview>,
     pending: Vec<f32>,
     gate_pending: Vec<f32>,
     qwen_input: Option<QwenInput>,
@@ -1634,6 +1684,24 @@ struct VadEvidence {
 }
 
 impl Stream<'_> {
+    pub(crate) fn allow_preview(&mut self, allowed: bool) {
+        if allowed && self.preview.is_none() && crate::parakeet_preview::supported(&self.engine.model_id) {
+            if let Decoder::Native(recognizer) = &self.engine.decoder {
+                let recognizer = recognizer.clone();
+                // The stream may already have drained audio while loading or
+                // recovering. Keep the preview on the same capture timeline.
+                let origin = self.vad_samples + self.pending.len() as u64;
+                self.preview = crate::parakeet_preview::Preview::start(origin, move |audio| recognizer.preview(audio));
+            }
+        }
+        if let Some(preview) = &mut self.preview { preview.allow(allowed); }
+    }
+
+    pub(crate) fn preview_text(&mut self) -> String {
+        let committed = (f64::from(self.committed_seconds().unwrap_or(0.0)) * 16_000.0).round() as u64;
+        let speaking = unsafe { (self.engine.api.vad_detected)(self.engine.vad) } != 0;
+        self.preview.as_mut().map_or_else(String::new, |preview| preview.poll(committed, speaking).to_owned())
+    }
     /// Level the detector's copy so quiet speech is not discarded. Call before
     /// adding audio. Meetings and file transcription use it; live dictation
     /// streams do not.
@@ -1665,6 +1733,7 @@ impl Stream<'_> {
             return Err("Invalid input sample rate.".into());
         }
         let samples = resample(samples, sample_rate, 16_000);
+        if let Some(preview) = &mut self.preview { preview.push(&samples); }
         let levelled = self.level.as_mut().map(|level| level.process(&samples));
         if let Some(input) = &mut self.qwen_input {
             // Level before RNNoise: its suppression would erase quiet speech.

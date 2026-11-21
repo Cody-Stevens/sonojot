@@ -15,7 +15,7 @@ export default defineConfig({
     baseURL,
     browserName: "chromium",
     channel: process.platform === "win32" ? "msedge" : undefined,
-    viewport: { width: 1220, height: 860 },
+    viewport: { width: 1060, height: 760 },
     screenshot: "only-on-failure",
   },
   webServer: {

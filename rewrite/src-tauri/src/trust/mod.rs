@@ -6,9 +6,10 @@
 //!   from the raw transcript to the cleaned text (platform independent).
 //! - `decision`: a pure function from evidence and sensitivity to marks.
 //! - `session`: the last pasted dictation, its marks and their lifetime.
-//! - `locator`: where the words are on screen and how to replace one; the
-//!   platform layer (`windows_uia`) sits behind its trait.
-//! - `overlay`: the transparent window that draws marks, popover and chip.
+//! - `locator`: where the words are on screen and how to replace one; platform
+//!   layers (`windows_uia`, `linux_atspi`, `mac_ax`) sit behind its trait.
+//! - `track`: shared edit-tracking engine keeping marks anchored through edits.
+//! - `overlay`: the transparent window that draws marks and the popover.
 //!
 //! This module only wires them together on one worker thread. The paste always
 //! happens first; nothing here can delay or fail it. Errors end the session
@@ -17,10 +18,15 @@
 pub mod decision;
 pub mod evidence;
 pub mod locator;
-#[cfg(target_os = "macos")]
-mod mac_anchor;
 mod overlay;
 pub mod session;
+pub mod track;
+#[cfg(target_os = "linux")]
+mod linux_atspi;
+#[cfg(target_os = "macos")]
+mod mac_ax;
+#[cfg(target_os = "macos")]
+mod mac_panel;
 #[cfg(windows)]
 mod windows_uia;
 
@@ -62,6 +68,11 @@ pub struct Pasted {
     pub target: Target,
     pub app: Option<String>,
     pub vocabulary: Vec<String>,
+    pub active_hints: Vec<String>,
+    pub suggested_pairs: Vec<(String, String)>,
+    pub probation_pairs: Vec<(String, String)>,
+    pub record_id: Option<String>,
+    pub privacy_generation: u64,
     pub dictation_key: String,
     pub hold: bool,
 }
@@ -72,7 +83,20 @@ impl Pasted {
             Some(c) => Source::Capture(c),
             None => Source::Marks(Vec::new(), None),
         };
-        Self { text, source, target, app, vocabulary, dictation_key, hold }
+        Self {
+            text,
+            source,
+            target,
+            app,
+            vocabulary,
+            active_hints: Vec::new(),
+            suggested_pairs: Vec::new(),
+            probation_pairs: Vec::new(),
+            record_id: None,
+            privacy_generation: 0,
+            dictation_key,
+            hold,
+        }
     }
 }
 
@@ -95,10 +119,9 @@ pub enum UiEvent {
     Closed { refocus: bool },
     Choose { mark: u32, text: String },
     Keep { mark: u32 },
+    KeepAll,
     Next { from: Option<u32>, back: bool },
     Dismiss,
-    /// The pointer is on the chip: it stays a little longer.
-    ChipHover,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -115,7 +138,7 @@ struct Shared {
     session: u64,
     audio: Option<Arc<Vec<f32>>>,
     spans: Vec<(u32, (f32, f32))>,
-    /// A popover or panel choice is open: the dictation key fixes by voice.
+    /// A popover is open: the dictation key fixes that word by voice.
     popover: Option<u32>,
     recent_apps: Vec<String>,
 }
@@ -140,12 +163,12 @@ fn shared() -> Option<std::sync::MutexGuard<'static, Shared>> {
 }
 
 /// Metadata-only log line: an event code and numbers, never text.
-fn log(code: &str, value: u64) {
+pub(crate) fn log(code: &str, value: u64) {
     // The diagnostics label check takes letters, digits, dots and dashes.
     crate::recognition_diagnostics::event("trust", &code.replace('_', "-"), std::process::id(), 0, 0, value);
 }
 
-pub fn init(app: &AppHandle, settings: &TrustSettings) {
+pub fn init(app: &AppHandle, settings: &TrustSettings, store: crate::store::Store) {
     if SERVICE.get().is_some() {
         return;
     }
@@ -158,7 +181,7 @@ pub fn init(app: &AppHandle, settings: &TrustSettings) {
     let settings = settings.clone();
     register_next_shortcut(&app, "", &settings.next_shortcut);
     let _ = std::thread::Builder::new().name("trust-layer".into()).spawn(move || {
-        let mut worker = Worker::new(app, settings, shared);
+        let mut worker = Worker::new(app, settings, shared, Some(store));
         worker.run(rx);
     });
 }
@@ -177,8 +200,8 @@ pub fn settings_changed(app: &AppHandle, old: &TrustSettings, new: &TrustSetting
     send(Msg::Settings(new.clone()));
 }
 
-/// True while a popover or panel is open: the dictation key then fixes the
-/// open mark by voice instead of starting a dictation.
+/// True while a popover is open: the dictation key then fixes the open mark
+/// by voice instead of starting a new dictation.
 pub fn voice_fix_armed() -> bool {
     shared().is_some_and(|s| s.popover.is_some())
 }
@@ -204,8 +227,15 @@ pub fn recent_apps() -> Vec<String> {
 }
 
 /// True when `window` is SonoJot's own overlay (it may hold focus briefly).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn overlay_owns(window: usize) -> bool {
     overlay::owns(window)
+}
+
+/// True while SonoJot's trust overlay holds keyboard focus.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn overlay_focused() -> bool {
+    overlay::is_focused()
 }
 
 fn register_next_shortcut(app: &AppHandle, old: &str, new: &str) {
@@ -267,10 +297,23 @@ pub fn snippet(mark: u32) -> Option<SnippetData> {
 /// Compute the marks for a pasted dictation: raw evidence, vocabulary
 /// alternatives, gaps from the held audio, carried onto the pasted text.
 pub fn marks_for(text: &str, capture: &Capture, vocabulary: &[String], sensitivity: decision::Sensitivity) -> Vec<Mark> {
+    marks_for_with_lexicon(text, capture, vocabulary, &[], &[], &[], sensitivity)
+}
+
+pub fn marks_for_with_lexicon(
+    text: &str,
+    capture: &Capture,
+    vocabulary: &[String],
+    active_hints: &[String],
+    suggested_pairs: &[(String, String)],
+    probation_pairs: &[(String, String)],
+    sensitivity: decision::Sensitivity,
+) -> Vec<Mark> {
     let t = decision::thresholds();
     let mut raw = evidence::from_raw(&capture.raw_text, &capture.raw_words);
     let words: Vec<String> = (0..raw.words.len()).map(|i| raw.word(i).to_owned()).collect();
     for (w, word) in raw.words.iter_mut().zip(&words) {
+        // Only Confirmed vocabulary words may generate vocabulary-only marks.
         w.alternatives = evidence::vocabulary_alternatives(word, vocabulary);
     }
     let times: Vec<Option<(f32, f32)>> = raw.words.iter().map(|w| w.time).collect();
@@ -284,7 +327,48 @@ pub fn marks_for(text: &str, capture: &Capture, vocabulary: &[String], sensitivi
     }
     fill_section_times(&mut raw, &capture.segments);
     let projected = evidence::project(&raw, text);
-    decision::decide(&projected, sensitivity, &t)
+    let mut known_words = Vec::with_capacity(vocabulary.len() + active_hints.len());
+    known_words.extend(vocabulary.iter().cloned());
+    known_words.extend(active_hints.iter().cloned());
+    let mut marks = decision::decide_with_known(&projected, sensitivity, &t, &known_words);
+
+    // Attach active hints & suggested pairs AFTER independent mark selection.
+    evidence::attach_learned_alternatives(&mut marks, active_hints, suggested_pairs);
+
+    // Add probation marks (within max_marks cap) for auto-active aliases on their first uses.
+    if !probation_pairs.is_empty() && marks.len() < t.max_marks {
+        for (i, w) in projected.words.iter().enumerate() {
+            if marks.len() >= t.max_marks {
+                break;
+            }
+            if marks.iter().any(|m| m.kind == MarkKind::Word && m.start == w.start) {
+                continue;
+            }
+            let pasted_word = projected.word(i);
+            let matched = probation_pairs.iter().find(|(heard, written)| {
+                written == pasted_word
+                    && w.alternatives
+                        .iter()
+                        .any(|a| a.source == evidence::AltSource::AsHeard && a.text.eq_ignore_ascii_case(heard))
+            });
+            if let Some((heard, _)) = matched {
+                marks.push(Mark {
+                    kind: MarkKind::Word,
+                    start: w.start,
+                    end: w.end,
+                    heard: pasted_word.to_owned(),
+                    alternatives: vec![evidence::Alternative {
+                        text: heard.clone(),
+                        source: evidence::AltSource::AsHeard,
+                    }],
+                    audio: w.time,
+                    score: 0.5,
+                });
+            }
+        }
+        marks.sort_by_key(|m| (m.start, m.kind == MarkKind::Word));
+    }
+    marks
 }
 
 /// Words without their own timing get their section's span (when short), so
@@ -309,7 +393,6 @@ struct Active {
     tracked: Box<dyn Tracked>,
     /// Tracker span index -> mark id.
     ids: Vec<u32>,
-    capability: Capability,
     overlay: Option<overlay::Overlay>,
     frame: Option<Frame>,
     popover: Option<u32>,
@@ -321,10 +404,10 @@ struct Active {
     host_dark: Option<bool>,
     dictation_key: String,
     hold: bool,
-    target: Target,
+    record_id: Option<String>,
+    privacy_generation: u64,
+    pasted_at: Instant,
     finished_at: Option<Instant>,
-    /// When the fallback chip appeared or was last hovered.
-    chip_since: Instant,
     seq: u64,
 }
 
@@ -332,6 +415,7 @@ struct Worker {
     app: AppHandle,
     settings: TrustSettings,
     shared: Arc<Mutex<Shared>>,
+    store: Option<crate::store::Store>,
     active: Option<Active>,
     locator: Option<Box<dyn Locator>>,
     next_session: u64,
@@ -339,8 +423,13 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(app: AppHandle, settings: TrustSettings, shared: Arc<Mutex<Shared>>) -> Self {
-        Self { app, settings, shared, active: None, locator: None, next_session: 1, last_view: String::new() }
+    fn new(
+        app: AppHandle,
+        settings: TrustSettings,
+        shared: Arc<Mutex<Shared>>,
+        store: Option<crate::store::Store>,
+    ) -> Self {
+        Self { app, settings, shared, store, active: None, locator: None, next_session: 1, last_view: String::new() }
     }
 
     fn run(&mut self, rx: Receiver<Msg>) {
@@ -379,9 +468,14 @@ impl Worker {
             {
                 Box::new(windows_uia::UiaLocator::new())
             }
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
             {
-                Box::new(ChipOnly)
+                linux_atspi::enable_accessibility();
+                Box::new(linux_atspi::AtspiLocator)
+            }
+            #[cfg(target_os = "macos")]
+            {
+                Box::new(mac_ax::MacAxLocator)
             }
         })
     }
@@ -432,7 +526,18 @@ impl Worker {
             }
         }
         let (marks, audio) = match &p.source {
-            Source::Capture(c) => (marks_for(&p.text, c, &p.vocabulary, self.settings.sensitivity), c.audio.clone()),
+            Source::Capture(c) => (
+                marks_for_with_lexicon(
+                    &p.text,
+                    c,
+                    &p.vocabulary,
+                    &p.active_hints,
+                    &p.suggested_pairs,
+                    &p.probation_pairs,
+                    self.settings.sensitivity,
+                ),
+                c.audio.clone(),
+            ),
             Source::Marks(m, a) => (m.clone(), a.clone()),
         };
         log("marks", marks.len() as u64);
@@ -453,7 +558,9 @@ impl Worker {
         };
         let capability = tracked.capability();
         log(capability_code(capability), marks.len() as u64);
-        if capability == Capability::Nothing {
+        // Doubtful words show only as inline highlights on the words themselves.
+        // When an app gives no trustworthy word positions, fail quietly.
+        if !capability.inline() {
             return;
         }
         let id = self.next_session;
@@ -468,25 +575,30 @@ impl Worker {
             s.popover = None;
         }
         let n = session.open_count();
+        let noun = if n == 1 {
+            if session.marks[0].mark.kind == MarkKind::Gap { "spot" } else { "word" }
+        } else {
+            "spots"
+        };
         self.active = Some(Active {
             session,
             tracked,
             ids,
-            capability,
             overlay: None,
             frame: None,
             popover: None,
             keyboard: false,
             focus_request: None,
             message: None,
-            announce: Some((format!("Dictation pasted. {n} {} to check.", if n == 1 { "word" } else { "spots" }), 1)),
+            announce: Some((format!("Dictation pasted. {n} {noun} to check."), 1)),
             voice: None,
             host_dark: None,
             dictation_key: p.dictation_key,
             hold: p.hold,
-            target: p.target,
+            record_id: p.record_id,
+            privacy_generation: p.privacy_generation,
+            pasted_at: Instant::now(),
             finished_at: None,
-            chip_since: Instant::now(),
             seq: 1,
         });
         notice(&self.app, &format!("Pasted · {n} to check"));
@@ -511,8 +623,33 @@ impl Worker {
         for (i, place) in frame.marks.iter().enumerate() {
             if *place == Place::Changed {
                 if let Some(id) = a.ids.get(i) {
-                    if a.session.edited(*id) && a.popover == Some(*id) {
-                        a.popover = None;
+                    let mark_snapshot = a.session.get(*id).cloned();
+                    if a.session.edited(*id) {
+                        a.tracked.resolve(i);
+                        if a.popover == Some(*id) {
+                            a.popover = None;
+                        }
+                        // Bounded marked-word retype capture: only when InField, within 30s
+                        // of paste, and WordTracker extracted a stable token between anchors.
+                        if frame.focus == Focus::InField && a.pasted_at.elapsed() <= Duration::from_secs(30) {
+                            if let (Some(store), Some(m), Some(Some(typed))) = (
+                                self.store.as_ref(),
+                                mark_snapshot.filter(|m| m.mark.kind == MarkKind::Word),
+                                frame.retyped.get(i),
+                            ) {
+                                let nearby = crate::lexicon::extract_nearby_cues(
+                                    &a.session.text,
+                                    &m.mark.heard,
+                                );
+                                store.record_trust_retype(
+                                    a.record_id.as_deref(),
+                                    a.privacy_generation,
+                                    &m.mark.heard,
+                                    typed,
+                                    &nearby,
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -530,12 +667,6 @@ impl Worker {
             _ => {}
         }
         a.frame = Some(frame);
-        // A chip floats over the host app: it goes by itself after a short while.
-        let held = a.popover.is_some() || a.voice.is_some() || a.keyboard;
-        if !a.capability.inline() && a.session.visibility == Visibility::Shown && session::chip_due(a.chip_since, Instant::now(), held) {
-            a.session.dismiss(Instant::now());
-            log("chip_timeout", a.session.open_count() as u64);
-        }
         if a.session.finished() {
             a.finished_at = Some(Instant::now());
             notice(&self.app, "All checked");
@@ -547,7 +678,7 @@ impl Worker {
     }
 
     /// Build the overlay's view and send it when it changed. The overlay
-    /// exists only while marks or the chip are on screen.
+    /// exists only while marks are on screen.
     fn render(&mut self) {
         let Some(a) = &mut self.active else { return };
         let shown = a.session.visibility == Visibility::Shown && a.finished_at.is_none() && a.session.open_count() > 0;
@@ -562,7 +693,14 @@ impl Worker {
             return;
         }
         let Some(frame) = &a.frame else { return };
-        let Some(anchor) = frame.field.or(frame.anchor) else { return };
+        let Some(anchor) = frame.field.or_else(|| {
+            frame.marks.iter().find_map(|p| match p {
+                Place::Visible(rs) => rs.first().copied(),
+                _ => None,
+            })
+        }) else {
+            return;
+        };
         if a.host_dark.is_none() {
             a.host_dark = Some(host_dark(frame.field));
         }
@@ -619,26 +757,11 @@ impl Worker {
             UiEvent::Opened { mark, via } => {
                 a.popover = Some(mark);
                 log(if via == "hover" { "open_hover" } else if via == "key" { "open_key" } else { "open_click" }, 0);
-                // A panel opened from the chip takes the keyboard, so its keys
-                // (K, 1-3, Escape, arrows) reach it instead of the host app.
-                // Closing or choosing hands focus back to the field.
-                if via == "click" && !a.capability.inline() && !a.keyboard {
-                    a.keyboard = true;
-                    self.render();
-                    if let Some(o) = self.active.as_mut().and_then(|a| a.overlay.as_mut()) {
-                        o.take_focus();
-                    }
-                    return;
-                }
                 self.render();
             }
             UiEvent::Closed { refocus } => {
                 a.popover = None;
                 a.voice = None;
-                // Closing the panel clears the chip; the tray item brings it back.
-                if !a.capability.inline() {
-                    a.session.dismiss(Instant::now());
-                }
                 if a.keyboard {
                     a.keyboard = false;
                     if let Some(o) = &mut a.overlay {
@@ -651,16 +774,49 @@ impl Worker {
                 self.render();
             }
             UiEvent::Keep { mark } => {
+                if let Some(index) = a.ids.iter().position(|id| *id == mark) {
+                    a.tracked.resolve(index);
+                }
+                if let (Some(store), Some(m)) = (
+                    self.store.as_ref(),
+                    a.session.get(mark).filter(|m| m.mark.kind == MarkKind::Word).cloned(),
+                ) {
+                    let offered: Vec<String> = m
+                        .mark
+                        .alternatives
+                        .iter()
+                        .map(|alt| alt.text.clone())
+                        .collect();
+                    store.record_trust_keep(
+                        a.record_id.as_deref(),
+                        a.privacy_generation,
+                        &m.mark.heard,
+                        &offered,
+                    );
+                }
                 a.session.keep(mark);
                 let was_key = a.keyboard;
                 a.popover = None;
-                self.after_resolve(mark, was_key, format!("Kept."));
+                self.after_resolve(mark, was_key, "Kept.".into());
             }
-            UiEvent::Choose { mark, text } => self.choose(mark, &text),
+            UiEvent::KeepAll => {
+                for i in 0..a.ids.len() {
+                    a.tracked.resolve(i);
+                }
+                a.session.keep_all();
+                a.popover = None;
+                a.voice = None;
+                if a.keyboard {
+                    a.keyboard = false;
+                    if let Some(o) = &mut a.overlay {
+                        o.release_focus();
+                    }
+                    a.tracked.refocus();
+                }
+                self.tick();
+            }
+            UiEvent::Choose { mark, text } => self.choose(mark, &text, false),
             UiEvent::Next { from, back } => self.next_mark(from, back),
-            UiEvent::ChipHover => {
-                a.chip_since = Instant::now();
-            }
             UiEvent::Dismiss => {
                 a.session.dismiss(Instant::now());
                 a.popover = None;
@@ -676,20 +832,10 @@ impl Worker {
         }
     }
 
-    fn choose(&mut self, mark: u32, text: &str) {
+    fn choose(&mut self, mark: u32, text: &str, is_voice_fix: bool) {
         let Some(a) = &mut self.active else { return };
         let Some(m) = a.session.get(mark).filter(|m| m.status == Status::Open).cloned() else { return };
         let was_key = a.keyboard;
-        if !a.capability.can_replace() {
-            // Read-only apps: hand the word over on the clipboard instead.
-            let word = text.trim().to_owned();
-            tauri::async_runtime::spawn(async move {
-                let _ = crate::platform::copy_text(&word).await;
-            });
-            a.session.keep(mark);
-            a.popover = None;
-            return self.after_resolve(mark, was_key, "Copied. Paste it where it belongs.".into());
-        }
         let Some(index) = a.ids.iter().position(|id| *id == mark) else { return };
         let insertion = match m.mark.kind {
             MarkKind::Word => text.trim().to_owned(),
@@ -702,13 +848,46 @@ impl Worker {
         }
         match a.tracked.replace(index, &insertion) {
             Ok(()) => {
+                a.tracked.resolve(index);
                 a.session.replaced(mark, text.trim());
                 a.popover = None;
                 log("replaced", 0);
-                // Positions moved: find the remaining words again.
+                let mut auto_activated = false;
+                if m.mark.kind == MarkKind::Word {
+                    if let Some(store) = self.store.as_ref() {
+                        let is_revert = m.mark.alternatives.iter().any(|alt| {
+                            alt.source == evidence::AltSource::AsHeard
+                                && alt.text.eq_ignore_ascii_case(text.trim())
+                        });
+                        let nearby =
+                            crate::lexicon::extract_nearby_cues(&a.session.text, &m.mark.heard);
+                        let outcome = store.record_trust_choice(
+                            a.record_id.as_deref(),
+                            a.privacy_generation,
+                            &m.mark.heard,
+                            text.trim(),
+                            is_revert,
+                            is_voice_fix,
+                            &nearby,
+                        );
+                        auto_activated = outcome == crate::lexicon::FixOutcome::Activated;
+                    }
+                }
+                // Give the host a moment to settle layout before the next poll
+                // relocates remaining open marks in place.
                 std::thread::sleep(Duration::from_millis(60));
-                self.reattach();
-                let said = if m.mark.kind == MarkKind::Gap { format!("Added {}.", text.trim()) } else { format!("Replaced {} with {}.", m.mark.heard, text.trim()) };
+                let said = if m.mark.kind == MarkKind::Gap {
+                    format!("Added {}.", text.trim())
+                } else if auto_activated {
+                    format!(
+                        "Replaced {} with {}. SonoJot will write {} from now on.",
+                        m.mark.heard,
+                        text.trim(),
+                        text.trim()
+                    )
+                } else {
+                    format!("Replaced {} with {}.", m.mark.heard, text.trim())
+                };
                 self.after_resolve(mark, was_key, said);
             }
             Err(message) => {
@@ -722,29 +901,6 @@ impl Worker {
                 }
                 self.render();
             }
-        }
-    }
-
-    fn reattach(&mut self) {
-        let Some(a) = &mut self.active else { return };
-        let open: Vec<(u32, Mark)> = a.session.open().map(|m| (m.id, m.mark.clone())).collect();
-        if open.is_empty() {
-            return;
-        }
-        let marks: Vec<Mark> = open.iter().map(|(_, m)| m.clone()).collect();
-        let spans = spans_for(&a.session.text, &marks);
-        let text = a.session.text.clone();
-        let target = a.target.clone();
-        let request = Request { text: &text, spans: &spans, target: &target };
-        let attached = match &mut self.locator {
-            Some(l) => l.attach(&request).ok(),
-            None => None,
-        };
-        let Some(a) = &mut self.active else { return };
-        if let Some(t) = attached.filter(|t| t.capability() != Capability::Nothing) {
-            a.capability = t.capability();
-            a.tracked = t;
-            a.ids = open.iter().map(|(id, _)| *id).collect();
         }
     }
 
@@ -789,7 +945,6 @@ impl Worker {
             let n = a.session.open_count();
             a.announce = Some((format!("Marks back for the last dictation. {n} to check."), a.seq));
         }
-        a.chip_since = Instant::now();
         let open: Vec<u32> = a.session.open().map(|m| m.id).collect();
         if open.is_empty() {
             return;
@@ -823,12 +978,15 @@ impl Worker {
         };
         match voice_choice(&text, &m.mark) {
             VoiceChoice::Keep => {
+                if let Some(index) = a.ids.iter().position(|id| *id == mark) {
+                    a.tracked.resolve(index);
+                }
                 a.session.keep(mark);
                 let was_key = a.keyboard;
                 a.popover = None;
                 self.after_resolve(mark, was_key, "Kept.".into());
             }
-            VoiceChoice::Word(w) => self.choose(mark, &w),
+            VoiceChoice::Word(w) => self.choose(mark, &w, true),
             VoiceChoice::Nothing => self.render(),
         }
     }
@@ -837,9 +995,6 @@ impl Worker {
 fn capability_code(c: Capability) -> &'static str {
     match c {
         Capability::Inline => "inline",
-        Capability::FallbackReplace => "fallback_replace",
-        Capability::FallbackRetype => "fallback_retype",
-        Capability::FallbackReadOnly => "fallback_read_only",
         Capability::Nothing => "nothing",
     }
 }
@@ -912,9 +1067,6 @@ struct ViewMark {
     alternatives: Vec<ViewAlt>,
     has_audio: bool,
     rects: Vec<RectF>,
-    /// UTF-16 offsets into `text`, for the fallback panel.
-    from: usize,
-    to: usize,
 }
 
 #[derive(Serialize, PartialEq)]
@@ -928,9 +1080,6 @@ struct Notice {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct View {
     session: u64,
-    mode: &'static str,
-    can_replace: bool,
-    retype: bool,
     scale: f64,
     /// The usable part of the monitor, in overlay CSS pixels.
     area: RectF,
@@ -940,22 +1089,13 @@ pub(crate) struct View {
     play_on: &'static str,
     dictation_key: String,
     hold: bool,
-    text: String,
     marks: Vec<ViewMark>,
-    chip: Option<RectF>,
     focus: Option<Notice>,
     voice: Option<u32>,
     message: Option<Notice>,
     announce: Option<Notice>,
-    /// The chip sits at the text: the panel shows the one-line context and
-    /// the audio, not the whole dictation.
-    near_text: bool,
     /// A dictation or meeting is recording: nothing plays by itself.
     busy: bool,
-}
-
-fn utf16(text: &str, byte: usize) -> usize {
-    text[..byte.min(text.len())].encode_utf16().count()
 }
 
 fn build_view(a: &Active, frame: &Frame, m: &overlay::Monitor, settings: &TrustSettings, busy: bool) -> View {
@@ -965,14 +1105,13 @@ fn build_view(a: &Active, frame: &Frame, m: &overlay::Monitor, settings: &TrustS
         w: r.w as f64 / m.scale,
         h: r.h as f64 / m.scale,
     };
-    let inline = a.capability.inline();
     let marks = a
         .session
         .open()
         .map(|sm| {
             let index = a.ids.iter().position(|id| *id == sm.id);
-            let rects: Vec<RectF> = match (inline, index.and_then(|i| frame.marks.get(i))) {
-                (true, Some(Place::Visible(rs))) => match sm.mark.kind {
+            let rects: Vec<RectF> = match index.and_then(|i| frame.marks.get(i)) {
+                Some(Place::Visible(rs)) => match sm.mark.kind {
                     MarkKind::Word => rs.iter().map(css).collect(),
                     MarkKind::Gap => {
                         // A thin insertion marker at the word's edge.
@@ -994,18 +1133,12 @@ fn build_view(a: &Active, frame: &Frame, m: &overlay::Monitor, settings: &TrustS
                 alternatives: sm.mark.alternatives.iter().map(|alt| ViewAlt { text: alt.text.clone(), label: alt.source.label() }).collect(),
                 has_audio: a.session.has_audio() && sm.mark.audio.is_some(),
                 rects,
-                from: utf16(&a.session.text, sm.mark.start),
-                to: utf16(&a.session.text, sm.mark.end),
             }
         })
         .collect();
-    let chip = (!inline).then(|| frame.anchor.as_ref().map(css)).flatten();
     let notice = |n: &Option<(String, u64)>| n.as_ref().map(|(text, seq)| Notice { text: text.clone(), seq: *seq });
     View {
         session: a.session.id,
-        mode: if inline { "inline" } else { "chip" },
-        can_replace: a.capability.can_replace(),
-        retype: a.capability == Capability::FallbackRetype,
         scale: m.scale,
         area: RectF { x: (m.work.x - m.x) as f64 / m.scale, y: (m.work.y - m.y) as f64 / m.scale, w: m.work.w as f64 / m.scale, h: m.work.h as f64 / m.scale },
         host_dark: a.host_dark.unwrap_or(false),
@@ -1014,14 +1147,11 @@ fn build_view(a: &Active, frame: &Frame, m: &overlay::Monitor, settings: &TrustS
         play_on: settings.play_on.as_str(),
         dictation_key: a.dictation_key.clone(),
         hold: a.hold,
-        text: a.session.text.clone(),
         marks,
-        chip,
         focus: a.focus_request.map(|(mark, seq)| Notice { text: mark.to_string(), seq }),
         voice: a.voice,
         message: notice(&a.message),
         announce: notice(&a.announce),
-        near_text: !inline && a.tracked.near_text(frame),
         busy,
     }
 }
@@ -1030,8 +1160,9 @@ fn notice(app: &AppHandle, text: &str) {
     crate::app::set_delivery_notice(app, text);
 }
 
-/// Whether the field is dark: a few background pixels just inside its
-/// corners (colour only, never text), else the system's app theme.
+/// Whether the host field is dark: on Windows samples 4 corner pixels (colour
+/// only, never text) with a registry fallback; on Linux and macOS checks the
+/// desktop's colour-scheme preference.
 fn host_dark(field: Option<locator::Rect>) -> bool {
     #[cfg(windows)]
     {
@@ -1060,80 +1191,62 @@ fn host_dark(field: Option<locator::Rect>) -> bool {
             .and_then(|k| k.get_value::<u32, _>("AppsUseLightTheme"))
             .is_ok_and(|v| v == 0)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
         let _ = field;
-        false
+        std::process::Command::new("gsettings")
+            .args(["get", "org.gnome.desktop.interface", "color-scheme"])
+            .stderr(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains("prefer-dark"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = field;
+        use objc2::rc::{autoreleasepool, Retained};
+        use objc2::runtime::AnyObject;
+        use objc2::{class, msg_send};
+        use std::ffi::{c_char, CStr};
+        autoreleasepool(|_| unsafe {
+            let defaults: Option<Retained<AnyObject>> = msg_send![class!(NSUserDefaults), standardUserDefaults];
+            let Some(defaults) = defaults else { return false };
+            let key: Option<Retained<AnyObject>> = msg_send![class!(NSString), stringWithUTF8String: c"AppleInterfaceStyle".as_ptr()];
+            let Some(key) = key else { return false };
+            let style: Option<Retained<AnyObject>> = msg_send![&*defaults, stringForKey: &*key];
+            let Some(style) = style else { return false };
+            let utf8: *const c_char = msg_send![&*style, UTF8String];
+            !utf8.is_null() && CStr::from_ptr(utf8).to_str().is_ok_and(|s| s.eq_ignore_ascii_case("Dark"))
+        })
     }
 }
 
 /// A display in points (top-left origin on the main display) and its scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
-struct Display {
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-    scale: f64,
+pub(crate) struct Display {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub scale: f64,
 }
 
-/// A point-space caret or pointer as a thin rectangle in the physical pixels
-/// windows are placed in: `point * scale` of the display that holds it.
+/// Convert a point-space rectangle into the physical pixels windows are placed
+/// in on macOS (`point * scale` of the display that holds its centre).
 #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
-fn physical_rect(x: f64, y: f64, h: f64, displays: &[Display]) -> Option<locator::Rect> {
-    let d = displays.iter().find(|d| x >= d.x && y >= d.y && x < d.x + d.w && y < d.y + d.h)?;
-    Some(locator::Rect { x: (x * d.scale).round() as i32, y: (y * d.scale).round() as i32, w: d.scale.ceil() as i32, h: (h * d.scale).round().max(1.0) as i32 })
-}
-
-/// Platforms without a word locator (macOS, Linux): a chip at the caret when
-/// the app exposes it (macOS Accessibility), else beside the pointer; choices
-/// are copied to paste. The place is found once, right after the paste.
-#[cfg(not(windows))]
-struct ChipOnly;
-
-#[cfg(not(windows))]
-impl Locator for ChipOnly {
-    fn attach(&mut self, request: &Request) -> Result<Box<dyn Tracked>, String> {
-        #[cfg(target_os = "macos")]
-        let found = mac_anchor::anchor();
-        #[cfg(not(target_os = "macos"))]
-        let found = crate::hyprland::cursor_physical().map(|(x, y)| (locator::Rect { x, y, w: 1, h: 24 }, false));
-        let (anchor, near) = found.unwrap_or((locator::Rect { x: 0, y: 0, w: 1, h: 1 }, false));
-        Ok(Box::new(ChipTracked { anchor, near, process: request.target.process }))
-    }
-}
-
-#[cfg(not(windows))]
-struct ChipTracked {
-    anchor: locator::Rect,
-    near: bool,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    process: u32,
-}
-
-#[cfg(not(windows))]
-impl Tracked for ChipTracked {
-    fn capability(&self) -> Capability {
-        Capability::FallbackReadOnly
-    }
-    fn poll(&mut self) -> Frame {
-        Frame { focus: Focus::InField, marks: Vec::new(), field: None, anchor: Some(self.anchor), text_gone: false }
-    }
-    fn replace(&mut self, _: usize, _: &str) -> Result<(), String> {
-        Err("unsupported".into())
-    }
-    fn refocus(&mut self) -> bool {
-        // The panel took the keyboard: give the app the user dictated into its turn back.
-        #[cfg(target_os = "macos")]
-        if self.process != 0 {
-            return crate::mac_paste::activate(self.process as i32);
-        }
-        false
-    }
-    fn near_text(&self, _: &Frame) -> bool {
-        self.near
-    }
+pub(crate) fn physical_rect(x: f64, y: f64, w: f64, h: f64, displays: &[Display]) -> Option<locator::Rect> {
+    let cx = x + w / 2.0;
+    let cy = y + h / 2.0;
+    let d = displays
+        .iter()
+        .find(|d| cx >= d.x && cy >= d.y && cx < d.x + d.w && cy < d.y + d.h)
+        .or_else(|| displays.iter().find(|d| x >= d.x && y >= d.y && x < d.x + d.w && y < d.y + d.h))?;
+    Some(locator::Rect {
+        x: (x * d.scale).round() as i32,
+        y: (y * d.scale).round() as i32,
+        w: (w * d.scale).round().max(1.0) as i32,
+        h: (h * d.scale).round().max(1.0) as i32,
+    })
 }
 
 /// Debug: paste a dictation with chosen marks into the field in front, so
@@ -1203,7 +1316,20 @@ pub fn debug_marks(text: &str, marks: &[DebugMark]) -> Result<(Vec<Mark>, Arc<Ve
 }
 
 pub fn inject(text: String, marks: Vec<Mark>, audio: Arc<Vec<f32>>, target: Target, app: Option<String>, dictation_key: String, hold: bool) {
-    send(Msg::Pasted(Box::new(Pasted { text, source: Source::Marks(marks, Some(audio)), target, app, vocabulary: Vec::new(), dictation_key, hold })));
+    send(Msg::Pasted(Box::new(Pasted {
+        text,
+        source: Source::Marks(marks, Some(audio)),
+        target,
+        app,
+        vocabulary: Vec::new(),
+        active_hints: Vec::new(),
+        suggested_pairs: Vec::new(),
+        probation_pairs: Vec::new(),
+        record_id: None,
+        privacy_generation: 0,
+        dictation_key,
+        hold,
+    })));
 }
 
 #[cfg(test)]
@@ -1261,16 +1387,16 @@ mod tests {
     }
 
     #[test]
-    fn caret_points_map_to_the_physical_pixels_of_their_display() {
+    fn point_rects_map_to_the_physical_pixels_of_their_display() {
         let displays = [
             Display { x: 0.0, y: 0.0, w: 1512.0, h: 982.0, scale: 2.0 },
             Display { x: 1512.0, y: -200.0, w: 1920.0, h: 1080.0, scale: 1.0 },
         ];
-        let r = physical_rect(100.0, 50.0, 18.0, &displays).unwrap();
-        assert_eq!((r.x, r.y, r.h), (200, 100, 36), "Retina doubles");
-        let r = physical_rect(1600.0, -100.0, 18.0, &displays).unwrap();
-        assert_eq!((r.x, r.y, r.h), (1600, -100, 18), "second display at its own scale");
-        assert!(physical_rect(5000.0, 10.0, 18.0, &displays).is_none(), "off every display");
+        let r = physical_rect(100.0, 50.0, 60.0, 18.0, &displays).unwrap();
+        assert_eq!((r.x, r.y, r.w, r.h), (200, 100, 120, 36), "Retina doubles");
+        let r = physical_rect(1600.0, -100.0, 40.0, 18.0, &displays).unwrap();
+        assert_eq!((r.x, r.y, r.w, r.h), (1600, -100, 40, 18), "second display at its own scale");
+        assert!(physical_rect(5000.0, 10.0, 40.0, 18.0, &displays).is_none(), "off every display");
     }
 
     #[test]

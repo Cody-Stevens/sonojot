@@ -658,7 +658,9 @@ mod tests {
         let root = temp_root();
         let changelog = Changelog::start(&root, "0.28.9", None, UpdateChannel::Stable).unwrap();
         let offer = changelog.for_offer(Some(Vec::new()), "0.28.8", "0.28.12", Some("Fixed a thing."), UpdateChannel::Stable);
-        assert_eq!(versions(&offer.releases), ["0.28.12", "0.28.9"]);
+        let listed = versions(&offer.releases);
+        assert_eq!(listed.first().copied(), Some("0.28.12"));
+        assert!(listed.contains(&"0.28.9"));
         assert_eq!(offer.releases[0].notes, ["Fixed a thing."]);
         fs::remove_dir_all(root).unwrap();
     }

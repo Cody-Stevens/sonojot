@@ -288,24 +288,23 @@ test("an outstanding meeting read cannot swallow a completion notification", asy
   ).toHaveValue("Completed while the read was waiting.");
 });
 
-test("learning remains opt-in and resetting it requires confirmation", async ({
+test("learning controls toggle cleanly and resetting requires confirmation", async ({
   page,
 }) => {
   await openApp(page, {}, "/?page=vocabulary");
   const learning = await openVocabularyView(page, "Learning from your fixes");
   await learning
     .getByRole("switch", {
-      name: "Learn from my corrections on this device",
+      name: "Learn words on this device",
       exact: true,
     })
     .click();
   expect((await settings(page)).learnFromCorrections).toBe(true);
-  const entry = learning.locator('[data-learning-id="mock-learned-one"]');
-  await entry.getByRole("button", { name: /grock/ }).click();
-  await openFold(entry, "Source references");
-  await expect(entry).toContainText("dictation-correction");
-  await openFold(learning, "More learning options");
-  await learning
+  const review = page.getByRole("region", { name: "Words to review" });
+  const entry = review.locator('[data-review-id="mock-learned-one"]');
+  await expect(entry).toContainText("grock");
+  await page.getByText("More learning options", { exact: true }).click();
+  await page
     .getByRole("button", { name: "Reset learning…", exact: true })
     .click();
   expect(await calls(page, "reset_learning")).toHaveLength(0);
@@ -313,5 +312,5 @@ test("learning remains opt-in and resetting it requires confirmation", async ({
     .getByRole("dialog")
     .getByRole("button", { name: "Reset learning", exact: true })
     .click();
-  await expect(learning).toContainText("No learned entries.");
+  await expect(review).toContainText("Nothing waiting to review.");
 });

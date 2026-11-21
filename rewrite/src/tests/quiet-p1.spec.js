@@ -61,8 +61,15 @@ test("four-item shell, keyboard navigation, legacy ids and Settings doors", asyn
   await expect(heading(page, "Settings")).toBeVisible();
   await capture(page, "37-settings-fog.png");
   await page.getByRole("button", { name: /^Dictation / }).click();
+  await expect(heading(page, "Dictation settings")).toBeVisible();
   await page.getByRole("button", { name: /^Speech / }).click();
   await expect(heading(page, "Speech")).toBeVisible();
+  await expect(nav(page).locator('[data-nav="settings"]')).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await page.getByRole("button", { name: "Back to Dictation settings" }).click();
+  await expect(heading(page, "Dictation settings")).toBeVisible();
   await page.getByRole("button", { name: "Back to Settings" }).click();
   await expect(heading(page, "Settings")).toBeVisible();
   await page.getByText("Advanced", { exact: true }).click();
@@ -76,8 +83,8 @@ test("four-item shell, keyboard navigation, legacy ids and Settings doors", asyn
   await expect(heading(page, "On disk")).toBeVisible();
 
   for (const [id, tab, title] of [
-    ["dictation", "dictation", "Ready"],
-    ["meetings", "meetings", "Not recording"],
+    ["dictation", "dictation", "Dictation"],
+    ["meetings", "meetings", "Meetings"],
     ["setup", "dictation", "Speech"],
     ["microphone", "dictation", "Shortcut and mic"],
     ["shortcuts", "dictation", "Shortcut and mic"],
@@ -104,7 +111,7 @@ test("four-item shell, keyboard navigation, legacy ids and Settings doors", asyn
   await page.evaluate(() => window.__testNavigatePage("not-a-page"));
   await expect(page).toHaveTitle("Report a problem · SonoJot");
   await page.evaluate(() => window.__testNavigatePage("dictation"));
-  await expect(heading(page, "Ready")).toBeVisible();
+  await expect(heading(page, "Dictation")).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -270,7 +277,7 @@ test("error recovery and Escape keep their native command paths", async ({
       "Speech",
     ],
     ["Vocabulary entry invalid", "Review vocabulary", "Words"],
-    ["System audio unavailable", "Open meetings", "Not recording"],
+    ["System audio unavailable", "Open meetings", "Meetings"],
   ]) {
     await page.evaluate((error) => window.__testPushSnapshot({ error }), error);
     await page

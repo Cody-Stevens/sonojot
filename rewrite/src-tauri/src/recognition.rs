@@ -110,7 +110,13 @@ enum Operation {
     /// File and meeting streams: level the detector's copy (detector_level).
     /// Sent after Begin and before any audio, and again on replay.
     AssistQuietSpeech,
-    Audio { samples: Vec<f32>, rate: u32 },
+    Audio {
+        samples: Vec<f32>,
+        rate: u32,
+        /// Only the live dictation owner opts in, while caught up with capture.
+        #[serde(default)]
+        preview_allowed: bool,
+    },
     Finish { observed: bool },
     Abort,
     Shutdown,
@@ -140,6 +146,9 @@ enum Reply {
         /// Audio covered by `raw` (see `asr::Stream::committed_seconds`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         committed_seconds: Option<f32>,
+        /// Display-only draft, never copied into raw or Finished.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        preview: String,
     },
     Finished {
         result: RecognitionResult,
@@ -580,8 +589,9 @@ fn validate_response(response: &Response, request: u64, session: u64) -> Result<
     let valid_warnings =
         |warnings: &[String]| warnings.len() <= 64 && warnings.iter().all(|s| s.len() <= 2048);
     match &response.body {
-        Reply::Text { raw, original_text, warnings, committed_seconds }
+        Reply::Text { raw, original_text, warnings, committed_seconds, preview }
             if raw.len() > MAX_TEXT
+                || preview.len() > MAX_TEXT
                 || committed_seconds.is_some_and(|seconds| !seconds.is_finite() || seconds < 0.0)
                 || original_text.as_ref().is_some_and(|text| text.len() > MAX_TEXT)
                 || !valid_warnings(warnings) => {
@@ -805,6 +815,8 @@ impl Remote {
             assist_quiet_speech: false,
             raw: String::new(),
             committed_seconds: None,
+            preview: String::new(),
+            preview_allowed: false,
             original_text: None,
             warnings: Vec::new(),
             failed: false,
@@ -878,6 +890,8 @@ pub struct RemoteStream<'a> {
     assist_quiet_speech: bool,
     raw: String,
     committed_seconds: Option<f32>,
+    preview: String,
+    preview_allowed: bool,
     original_text: Option<String>,
     warnings: Vec<String>,
     failed: bool,
@@ -887,6 +901,11 @@ pub struct RemoteStream<'a> {
     last_decode_log: Instant,
 }
 impl RemoteStream<'_> {
+    pub(crate) fn allow_preview(&mut self, allowed: bool) {
+        self.preview_allowed = allowed;
+        if !allowed { self.preview.clear(); }
+    }
+    pub(crate) fn preview_text(&self) -> &str { &self.preview }
     /// Ask the worker to level its detector input; call before any audio.
     pub(crate) fn assist_quiet_speech(&mut self) -> Result<(), String> {
         if self.failed { return Ok(()); }
@@ -909,11 +928,12 @@ impl RemoteStream<'_> {
         self.warnings.clone()
     }
     fn accept_text(&mut self, reply: Reply) -> Result<(), String> {
-        let Reply::Text { raw, original_text, warnings, committed_seconds } = reply else {
+        let Reply::Text { raw, original_text, warnings, committed_seconds, preview } = reply else {
             return Err("Unexpected recognition response.".into());
         };
         self.raw = raw; // complete snapshot: replay never appends duplicate text
         self.committed_seconds = committed_seconds;
+        self.preview = if self.preview_allowed { preview } else { String::new() };
         self.original_text = original_text;
         self.warnings = warnings;
         if !self.first_result && !self.raw.is_empty() {
@@ -937,6 +957,8 @@ impl RemoteStream<'_> {
     }
 
     fn recover(&mut self) -> Result<(), String> {
+        self.preview.clear();
+        self.preview_allowed = false;
         check_wait(self.cancel, Instant::now() + START_LIMIT)?;
         if self.retried {
             return Err("Recognition retry exhausted.".into());
@@ -974,8 +996,10 @@ impl RemoteStream<'_> {
             .map_err(|_| "Replay position failed.")?
             < replay.bytes
         {
-            let op: Operation = read_frame(&mut replay.file)?;
-            if !matches!(op, Operation::Audio { .. }) {
+            let mut op: Operation = read_frame(&mut replay.file)?;
+            if let Operation::Audio { preview_allowed, .. } = &mut op {
+                *preview_allowed = false;
+            } else {
                 return Err("Invalid replay operation.".into());
             }
             let reply = self.remote.call(self.session, op, self.cancel)?;
@@ -993,6 +1017,8 @@ impl RemoteStream<'_> {
     }
 
     fn fail(&mut self) {
+        self.preview.clear();
+        self.preview_allowed = false;
         diag::event(
             "review-required",
             &self.remote.model,
@@ -1028,6 +1054,7 @@ impl RemoteStream<'_> {
                     })
                     .collect(),
                 rate,
+                preview_allowed: self.preview_allowed,
             };
             if self.replay.as_mut().is_some_and(|r| r.append(&op).is_err()) {
                 self.replay.take();
@@ -1290,7 +1317,7 @@ fn serve_stream(
             return Err("Stale stream request.");
         }
         let reply = match &request.op {
-            Operation::Audio { samples, rate } => {
+            Operation::Audio { samples, rate, preview_allowed } => {
                 if samples.len() > MAX_SAMPLES
                     || *rate == 0
                     || *rate > 384_000
@@ -1298,6 +1325,7 @@ fn serve_stream(
                 {
                     return Err("Invalid normalized audio.");
                 }
+                stream.allow_preview(*preview_allowed);
                 stream
                     .add(samples, *rate)
                     .map_err(|_| "Native decode failed.")?;
@@ -1305,7 +1333,7 @@ fn serve_stream(
                 // Capture callbacks can be only a few milliseconds long.
                 // Publish at the model's cadence (see `worker_main`),
                 // including while draining queued audio after Stop.
-                if pending_seconds >= cadence {
+                if pending_seconds >= cadence || *preview_allowed {
                     raw = stream.update().map_err(|_| "Native update failed.")?;
                     original_text = stream.original_text().map(str::to_owned);
                     committed_seconds = stream.committed_seconds();
@@ -1316,9 +1344,11 @@ fn serve_stream(
                     original_text: original_text.clone(),
                     warnings: stream.warnings(),
                     committed_seconds,
+                    preview: if *preview_allowed { stream.preview_text() } else { String::new() },
                 }
             }
             Operation::Finish { observed } => {
+                stream.allow_preview(false);
                 #[cfg(feature = "fidelity-eval")]
                 let result = if *observed {
                     stream.finish_observed().map(|(r, d)| (r, Some(d)))

@@ -41,7 +41,10 @@ export function meetingDays(rows: MeetingSummary[], now = new Date()) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
-  const groups = new Map<string, { label: string; rows: MeetingSummary[] }>();
+  const groups = new Map<
+    string,
+    { key: string; label: string; date: string; rows: MeetingSummary[] }
+  >();
   for (const row of rows) {
     const date = new Date(row.createdAt);
     const valid = Number.isFinite(date.getTime());
@@ -57,17 +60,18 @@ export function meetingDays(rows: MeetingSummary[], now = new Date()) {
         : day === yesterday.getTime()
           ? "Yesterday"
           : valid
-            ? date.toLocaleDateString(undefined, {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-                year:
-                  date.getFullYear() === today.getFullYear()
-                    ? undefined
-                    : "numeric",
-              })
+            ? date.toLocaleDateString(undefined, { weekday: "long" })
             : "Earlier";
-    if (!groups.has(key)) groups.set(key, { label, rows: [] });
+    const formattedDate = valid
+      ? date.toLocaleDateString(undefined, {
+          day: "numeric",
+          month: "short",
+          year:
+            date.getFullYear() === today.getFullYear() ? undefined : "numeric",
+        })
+      : "";
+    if (!groups.has(key))
+      groups.set(key, { key, label, date: formattedDate, rows: [] });
     groups.get(key)!.rows.push(row);
   }
   return [...groups.values()];

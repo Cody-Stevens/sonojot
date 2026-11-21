@@ -1,6 +1,6 @@
 // The doubtful-word overlay's view model and its pure helpers. The native
 // trust layer sends a `TrustView` whenever something on screen changes; the
-// overlay only draws it and reports what the user did.
+// overlay only draws inline marks and the popover, and reports what the user did.
 
 export type RectF = { x: number; y: number; w: number; h: number };
 
@@ -13,17 +13,12 @@ export type TrustMark = {
   alternatives: TrustAlternative[];
   hasAudio: boolean;
   rects: RectF[];
-  from: number;
-  to: number;
 };
 
 export type TrustNotice = { text: string; seq: number };
 
 export type TrustView = {
   session: number;
-  mode: "inline" | "chip";
-  canReplace: boolean;
-  retype: boolean;
   scale: number;
   area: RectF;
   hostDark: boolean;
@@ -32,15 +27,11 @@ export type TrustView = {
   playOn: "hover" | "click";
   dictationKey: string;
   hold: boolean;
-  text: string;
   marks: TrustMark[];
-  chip: RectF | null;
   focus: TrustNotice | null;
   voice: number | null;
   message: TrustNotice | null;
   announce: TrustNotice | null;
-  /** The chip sits at the text: the panel leaves out the full dictation. */
-  nearText: boolean;
   /** A dictation or meeting is recording: nothing plays by itself. */
   busy: boolean;
 };
@@ -72,18 +63,18 @@ export function heading(mark: TrustMark): { lead: string; word: string } {
   return mark.kind === "gap"
     ? {
         lead: mark.heard
-          ? "Something may be missing after"
-          : "Something may be missing before the first word",
+          ? "Possible missing word after"
+          : "Possible missing word at the start",
         word: mark.heard ? `“${mark.heard}”` : "",
       }
-    : { lead: "Heard", word: mark.heard };
+    : { lead: "Unsure about", word: mark.heard };
 }
 
 /** What a screen reader hears when a popover opens from the keyboard. */
 export function describe(mark: TrustMark, index: number, total: number) {
   const where = `Spot ${index + 1} of ${total}`;
   if (mark.kind === "gap")
-    return `${where}: something may be missing after "${mark.heard}". Down to choose, Enter to add, Escape to close.`;
+    return `${where}: possible missing word after "${mark.heard}". Down to choose, Enter to add, Escape to close.`;
   const could = mark.alternatives.length
     ? ` Could be ${mark.alternatives.map((a) => `${a.text}, ${a.label.toLowerCase()}`).join(" or ")}.`
     : "";
@@ -91,7 +82,7 @@ export function describe(mark: TrustMark, index: number, total: number) {
 }
 
 /**
- * Whether opening a popover or panel plays the mark's audio once by itself:
+ * Whether opening a popover plays the mark's audio once by itself:
  * only with "Play the audio: On hover" (the default), never while a dictation
  * or meeting records or a spoken fix is listening.
  */
@@ -104,13 +95,11 @@ export function autoplays(
   );
 }
 
-/** Whether the fallback panel repeats the whole dictation. */
-export function showsFullText(view: Pick<TrustView, "nearText">): boolean {
-  return !view.nearText;
-}
-
-export function voiceHint(key: string, hold: boolean) {
-  return `${hold ? "Or hold" : "Or press"} ${key} and say it`;
+export function voiceHint(key: string, hold: boolean, hasAlternatives = true) {
+  if (hasAlternatives) {
+    return `${hold ? "Or hold" : "Or press"} ${key} and say the word`;
+  }
+  return `${hold ? "Hold" : "Press"} ${key} and say the right word, or type over it`;
 }
 
 export type Placement = { x: number; y: number; above: boolean; notch: number };
@@ -140,57 +129,6 @@ export function placePopover(
   x = Math.max(area.x + margin, Math.min(x, area.x + area.w - size.w - margin));
   const notch = Math.max(10, Math.min(size.w - 24, center - x - 7));
   return { x, y, above, notch };
-}
-
-/** The fallback chip sits just right of its anchor, or inside the area. */
-export function placeChip(
-  anchor: RectF,
-  size: { w: number; h: number },
-  area: RectF,
-): { x: number; y: number } {
-  const margin = 8;
-  let x = anchor.x + anchor.w + 10;
-  let y = anchor.y + anchor.h / 2 - size.h / 2;
-  if (x + size.w > area.x + area.w - margin) x = anchor.x - size.w - 10;
-  x = Math.max(area.x + margin, Math.min(x, area.x + area.w - size.w - margin));
-  y = Math.max(area.y + margin, Math.min(y, area.y + area.h - size.h - margin));
-  return { x, y };
-}
-
-/** The fallback panel opens above the chip, or below it when there is no room. */
-export function placePanel(
-  chip: RectF,
-  size: { w: number; h: number },
-  area: RectF,
-): { x: number; y: number } {
-  const margin = 8;
-  let y = chip.y - size.h - 8;
-  if (y < area.y + margin)
-    y = Math.min(chip.y + chip.h + 8, area.y + area.h - size.h - margin);
-  const x = Math.max(
-    area.x + margin,
-    Math.min(chip.x + chip.w - size.w, area.x + area.w - size.w - margin),
-  );
-  return { x, y };
-}
-
-/** Split the pasted text into plain runs and marked runs for the panel. */
-export function segments(
-  text: string,
-  marks: TrustMark[],
-): { text: string; mark: TrustMark | null }[] {
-  const sorted = [...marks].sort((a, b) => a.from - b.from || a.to - b.to);
-  const out: { text: string; mark: TrustMark | null }[] = [];
-  let at = 0;
-  for (const mark of sorted) {
-    if (mark.from < at) continue;
-    if (mark.from > at)
-      out.push({ text: text.slice(at, mark.from), mark: null });
-    out.push({ text: text.slice(mark.from, mark.to), mark });
-    at = mark.to;
-  }
-  if (at < text.length) out.push({ text: text.slice(at), mark: null });
-  return out;
 }
 
 /** Decode the native 16-bit PCM snippet into samples for Web Audio. */

@@ -109,6 +109,7 @@ pub struct Settings {
     pub do_not_save_dictations: bool,
     pub keep_dictation_audio: bool,
     pub learn_from_corrections: bool,
+    pub learn_from_meetings: bool,
     pub memory_mode: MemoryMode,
     pub model_retention: ModelRetention,
     /// Marks for doubtful words after a paste. See `trust`.
@@ -199,6 +200,7 @@ impl Default for Settings {
             do_not_save_dictations: false,
             keep_dictation_audio: false,
             learn_from_corrections: false,
+            learn_from_meetings: false,
             memory_mode: MemoryMode::Overlap,
             model_retention: ModelRetention::Minutes10,
             trust: TrustSettings::default(),
@@ -675,6 +677,8 @@ impl Default for LearnedEntry {
 pub struct SavedCorrection {
     pub record: DictationRecord,
     pub learned_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

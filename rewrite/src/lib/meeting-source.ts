@@ -7,6 +7,13 @@ export function systemAudioFixable(status: SystemAudioStatus): boolean {
   return status === "notDetermined" || status === "denied";
 }
 
+/** Why system audio is unavailable: an old Mac, or Linux without a sound server. */
+function systemUnsupported(platform: string): string {
+  return platform === "linux"
+    ? copy.systemUnsupportedLinux
+    : copy.systemUnsupported;
+}
+
 /** Shared by meeting entry points so a one-sided recording has the same warning. */
 export function meetingSourceWarning(source: MeetingSource): string | null {
   switch (source) {
@@ -55,8 +62,10 @@ export interface MeetingStartPrompt {
 export function meetingStartPrompt(
   settings: MeetingStartSettings,
   status: SystemAudioStatus = "ready",
+  platform = "",
 ): MeetingStartPrompt | null {
   const remind = !settings.meetingConsentAcknowledged;
+  const unsupportedText = systemUnsupported(platform);
   const fixable = systemAudioFixable(status);
   const unsupported = status === "unsupported";
   let prompt: Omit<MeetingStartPrompt, "cancelLabel"> | null = null;
@@ -74,7 +83,7 @@ export function meetingStartPrompt(
       else if (unsupported)
         prompt = {
           title: copy.microphoneTitle,
-          detail: `${copy.microphone}\n\n${copy.systemUnsupported}`,
+          detail: `${copy.microphone}\n\n${unsupportedText}`,
           label: copy.recordMicrophone,
           primary: "microphone",
         };
@@ -83,7 +92,7 @@ export function meetingStartPrompt(
       prompt = {
         title: copy.microphoneTitle,
         detail: unsupported
-          ? `${copy.microphone}\n\n${copy.systemUnsupported}`
+          ? `${copy.microphone}\n\n${unsupportedText}`
           : copy.microphone,
         ...(unsupported
           ? { label: copy.recordMicrophone, primary: "start" as const }
@@ -109,7 +118,7 @@ export function meetingStartPrompt(
         : unsupported
           ? {
               title: copy.microphoneTitle,
-              detail: `${copy.systemUnsupported}\n\n${copy.microphone}`,
+              detail: `${unsupportedText}\n\n${copy.microphone}`,
               label: copy.recordMicrophone,
               primary: "microphone",
             }
@@ -150,9 +159,10 @@ export async function prepareMeetingStart(
   confirm: (prompt: MeetingStartPrompt) => Promise<MeetingStartChoice>,
   save: (patch: Partial<MeetingStartSettings>) => Promise<void>,
   isCurrent: () => boolean = () => true,
+  platform = "",
 ): Promise<MeetingStartPlan | null> {
   if (!isCurrent()) return null;
-  const prompt = meetingStartPrompt(settings, status);
+  const prompt = meetingStartPrompt(settings, status, platform);
   if (!prompt) return { action: "start", source: settings.meetingSource };
   const choice = await confirm(prompt);
   const action =
@@ -189,6 +199,7 @@ export interface TabMeetingWarning {
 export function tabMeetingWarning(
   source: MeetingSource,
   status: SystemAudioStatus,
+  platform = "",
 ): TabMeetingWarning | null {
   const fixable = systemAudioFixable(status);
   const unsupported = status === "unsupported";
@@ -214,7 +225,7 @@ export function tabMeetingWarning(
         };
       if (unsupported)
         return {
-          text: copy.systemUnsupported,
+          text: systemUnsupported(platform),
           start: { label: copy.recordMicrophone, source: "microphone" },
           primary: null,
         };
@@ -229,12 +240,19 @@ export function tabMeetingWarning(
 /** The live notice while the other side of a recording is missing. */
 export function recordingSystemNotice(
   problem: "permission" | "lost" | "unsupported" | null,
+  platform = "",
 ): { text: string; fix: string | null } | null {
   switch (problem) {
     case "permission":
       return { text: copy.recordingPermission, fix: copy.allow };
     case "unsupported":
-      return { text: copy.recordingUnsupported, fix: null };
+      return {
+        text:
+          platform === "linux"
+            ? copy.recordingUnsupportedLinux
+            : copy.recordingUnsupported,
+        fix: null,
+      };
     default:
       return null;
   }
@@ -250,9 +268,10 @@ export function systemAudioState(
     case "ready":
       return {
         label: "Ready",
-        detail: mac
-          ? "Meetings record the other people on your calls."
-          : "Windows needs no permission. Meetings record the other people on your calls.",
+        detail:
+          platform === "windows"
+            ? "Windows needs no permission. Meetings record the other people on your calls."
+            : "Meetings record the other people on your calls.",
         action: null,
       };
     case "notDetermined":
@@ -270,9 +289,10 @@ export function systemAudioState(
     case "unsupported":
       return {
         label: "Unavailable",
-        detail: mac
-          ? `${copy.systemUnsupported} Meetings record your microphone only.`
-          : "This computer can't record system audio. Meetings record your microphone only.",
+        detail:
+          mac || platform === "linux"
+            ? `${systemUnsupported(platform)} Meetings record your microphone only.`
+            : "This computer can't record system audio. Meetings record your microphone only.",
         action: null,
       };
   }

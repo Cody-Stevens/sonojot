@@ -2,7 +2,7 @@
   import { onMount, tick, untrack } from "svelte";
   import DictationRow from "./DictationRow.svelte";
   import OpenDictation from "./OpenDictation.svelte";
-  import Well from "./Well.svelte";
+  import SearchBar from "./SearchBar.svelte";
   import { app } from "../../lib/app.svelte";
   import { call } from "../../lib/api";
   import { dayPages } from "../../lib/dictation-history";
@@ -97,20 +97,13 @@
 
 <svelte:window onkeydown={keyboard} />
 
-<div class="history-search">
-  <Well
-    ><span aria-hidden="true">⌕</span><input
-      aria-label="Search dictations"
-      placeholder="Search dictations"
-      bind:value={query}
-      disabled={app.dirty}
-    />{#if query}<button
-        class="button small"
-        aria-label="Clear search"
-        disabled={app.dirty}
-        onclick={() => (query = "")}>×</button
-      >{/if}</Well
-  >
+<div class="list-toolbar">
+  <SearchBar
+    label="Search dictations"
+    placeholder="Search dictations"
+    bind:value={query}
+    disabled={app.dirty}
+  />
 </div>
 {#if app.snapshot.settings.doNotSaveDictations}<p
     class="field-help"
@@ -121,10 +114,10 @@
 <div bind:this={list} role="region" aria-label="Recent dictations">
   {#each groups as group (group.key)}
     <section class="day-group" aria-label={group.label}>
-      <h2 data-text-surface="emboss">
-        {group.label}<span data-text-surface="flat">{group.date}</span>
+      <h2 class="day-heading" data-text-surface="flat">
+        {group.label}{#if group.date}<span>{group.date}</span>{/if}
       </h2>
-      <div class="stock paper-card day-page">
+      <div class="stock paper-card ui-card day-card notebook">
         {#each group.records as record (record.id)}
           <div class="day-rule">
             {#if selected === record.id}<OpenDictation
@@ -162,8 +155,9 @@
     </div>
   {/each}
 </div>
-<div class="history-foot" data-text-surface="flat">
-  <span>Last 100 dictations</span><button
+<div class="list-footer" data-text-surface="flat">
+  <span>Last 100 dictations</span>
+  <button
     class="text-action"
     disabled={!app.native || app.busy("history-load")}
     onclick={() => void refresh()}>Refresh</button
@@ -171,55 +165,9 @@
 </div>
 
 <style>
-  .history-search {
-    margin: 18px 0 24px;
-  }
-  .day-group {
-    margin-bottom: 22px;
-  }
-  h2 {
-    font-size: 16px;
-    margin: 0 4px 9px;
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-  }
-  h2 span {
-    font-size: 14px;
-    font-weight: 400;
-    color: var(--soft-ink);
-  }
-  .day-page {
-    position: relative;
-    padding: 0;
-    margin: 0;
-    overflow: hidden;
-    border-radius: 18px 17px 19px 17px;
-  }
-  .day-page::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 96px;
-    border-left: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
-    pointer-events: none;
-  }
-  .day-page:has(:global(.open-dictation))::before {
-    display: none;
-  }
-  .day-rule + .day-rule {
-    border-top: 1px solid var(--line);
-  }
-  .history-foot {
-    display: flex;
-    justify-content: space-between;
-    font-size: 13px;
-    color: var(--soft-ink);
-    margin: 12px 4px;
-  }
   .history-empty {
-    padding: 50px 18px;
+    padding: 48px 18px;
     text-align: center;
+    color: var(--soft-ink);
   }
 </style>

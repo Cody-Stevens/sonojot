@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant, SystemTime},
 };
 use tauri::AppHandle;
@@ -19,9 +19,52 @@ const CHECK_FAILED: &str = "Updates are unavailable. Try again later.";
 const DOWNLOAD_FAILED: &str = "The update could not be downloaded. Check for updates to try again.";
 const INSTALL_FAILED: &str = "The update could not be installed. Check for updates to try again.";
 const FIRST_CHECK: Duration = Duration::from_secs(30);
+/// Where a Linux install that can't update in the app gets the new version.
+const DOWNLOAD_PAGE: &str = "https://sonojot.com/#install";
+/// The AppImage's platform. Its feed also tells installs that can't update in
+/// the app (unknown install, no package yet) which version is out.
+const APPIMAGE_KEY: &str = "linux-x86_64";
 /// Opening or returning to the main window checks again once the last check
 /// is this old. Privacy notice section 3 describes this cadence.
 const FOCUS_CHECK_AFTER: Duration = Duration::from_secs(60 * 60);
+
+/// The Linux package manager that installs this SonoJot's updates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PackageManager {
+    Pacman,
+    Dpkg,
+    Rpm,
+}
+
+impl PackageManager {
+    /// The update manifest's platform for this manager's package.
+    pub fn platform_key(self) -> &'static str {
+        match self {
+            Self::Pacman => "linux-x86_64-pacman",
+            Self::Dpkg => "linux-x86_64-deb",
+            Self::Rpm => "linux-x86_64-rpm",
+        }
+    }
+}
+
+/// How the password is being asked for while a package installs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InstallPrompt {
+    Password,
+    Terminal,
+}
+
+/// Why a newer version has to come from the download page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ManualReason {
+    /// No package manager owns this Linux install.
+    UnknownInstall,
+    /// The release has no package for this install's manager.
+    NoPackage,
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -48,6 +91,20 @@ pub enum UpdateStatus {
         older: bool,
         #[serde(default, rename = "switchChannel")]
         switch_channel: Option<UpdateChannel>,
+        /// Set when a Linux package manager installs it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        package: Option<PackageManager>,
+    },
+    /// A newer version is out, but this install can't update in the app.
+    /// The update action opens the download page.
+    Manual {
+        version: String,
+        notes: Option<String>,
+        reason: ManualReason,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        package: Option<PackageManager>,
+        #[serde(default, rename = "switchChannel")]
+        switch_channel: Option<UpdateChannel>,
     },
     Downloading {
         percent: Option<u8>,
@@ -61,6 +118,15 @@ pub enum UpdateStatus {
         older: bool,
         #[serde(default, rename = "switchChannel")]
         switch_channel: Option<UpdateChannel>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        package: Option<PackageManager>,
+        /// While a package installs: how the password is being asked for.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<InstallPrompt>,
+        /// Why the last package install didn't finish. The download is kept,
+        /// so installing can be tried again.
+        #[serde(default, rename = "installError", skip_serializing_if = "Option::is_none")]
+        install_error: Option<String>,
     },
     Error {
         message: String,
@@ -77,6 +143,8 @@ pub enum NoUpdateReason {
 
 enum CheckResult<R> {
     Available(R),
+    /// Newer, but it has to come from the download page.
+    Manual(R, ManualReason),
     Current(NoUpdateReason),
 }
 
@@ -257,6 +325,7 @@ impl<R> Service<R> {
         let state = self.lock()?;
         Ok(match state.status {
             UpdateStatus::Available { .. }
+            | UpdateStatus::Manual { .. }
             | UpdateStatus::Downloading { .. }
             | UpdateStatus::Ready { .. } => state
                 .offered
@@ -381,7 +450,41 @@ impl<R> Service<R> {
             .take()
             .ok_or("No update is ready to install.")?;
         state.installing = true;
+        if let UpdateStatus::Ready { install_error, .. } = &mut state.status {
+            *install_error = None;
+        }
         Ok((package, lease))
+    }
+
+    /// Shows how a package install is asking for the password.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    fn set_prompt(&self, prompt: Option<InstallPrompt>) {
+        if let Ok(mut state) = self.lock() {
+            if let UpdateStatus::Ready { prompt: current, .. } = &mut state.status {
+                *current = prompt;
+            }
+        }
+    }
+
+    /// A package install was cancelled or failed. Its verified download stays
+    /// ready, so installing can be tried again without downloading it again.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    fn install_retry(&self, package: Package<R>, message: String) {
+        if let Ok(mut state) = self.lock() {
+            state.installing = false;
+            if let UpdateStatus::Ready {
+                prompt,
+                install_error,
+                ..
+            } = &mut state.status
+            {
+                *prompt = None;
+                *install_error = Some(message);
+                state.package = Some(package);
+            } else {
+                state.status = UpdateStatus::Error { message };
+            }
+        }
     }
 
     fn install_failed(&self) {
@@ -408,10 +511,15 @@ trait Backend {
     fn current_version(&self) -> &str {
         env!("CARGO_PKG_VERSION")
     }
+    /// The Linux package manager that installs this app's updates.
+    fn package(&self) -> Option<PackageManager> {
+        None
+    }
     fn platform(&self) -> &str {
         match std::env::consts::OS {
             "macos" => "Mac",
             "windows" => "Windows",
+            "linux" => "Linux",
             _ => "this computer",
         }
     }
@@ -479,6 +587,80 @@ pub(crate) fn newer(candidate: &str, current: &str) -> bool {
 /// The third field also accepts the installed version (repair).
 struct PluginBackend(AppHandle, UpdateChannel, bool);
 
+impl PluginBackend {
+    /// The newest eligible release for `target` across the channel's feeds,
+    /// and why the selected feed has nothing to offer, when it doesn't.
+    async fn check_target(
+        &self,
+        target: &str,
+    ) -> Result<(Option<Update>, Option<NoUpdateReason>), ()> {
+        // Endpoints in one plugin builder are fallbacks, not competing feeds.
+        // Check each feed independently so the newest eligible release wins.
+        let mut best: Option<Update> = None;
+        let mut primary = None;
+        for (index, endpoint) in endpoints(self.1).into_iter().enumerate() {
+            let updater = self
+                .0
+                .updater_builder()
+                .endpoints(vec![endpoint.parse().map_err(|_| ())?])
+                .map_err(|_| ())?
+                .target(target)
+                // Inspect even equal/older releases so a missing platform
+                // and an already-current installation have distinct results.
+                // Eligibility below still gates every downloadable offer.
+                .version_comparator(|_, _| true)
+                .timeout(Duration::from_secs(30))
+                .build()
+                .map_err(|_| ())?;
+            let release = match updater.check().await {
+                Ok(release) => release,
+                Err(tauri_plugin_updater::Error::TargetNotFound(_)) => {
+                    if index == 0 {
+                        primary = Some(NoUpdateReason::NoBuild);
+                    }
+                    continue;
+                }
+                Err(_) => continue,
+            };
+            if index == 0 {
+                primary = Some(NoUpdateReason::NoBuild);
+            }
+            if let Some(mut update) = release {
+                validate_manifest(&update.raw_json, target)?;
+                if index == 0 {
+                    primary = Some(no_update_reason(
+                        &update.version,
+                        self.current_version(),
+                        self.1,
+                    ));
+                }
+                if eligible(&update.version, env!("CARGO_PKG_VERSION"), self.1, self.2)
+                    && best
+                        .as_ref()
+                        .is_none_or(|old| newer(&update.version, &old.version))
+                {
+                    update.timeout = Some(Duration::from_secs(15 * 60));
+                    best = Some(update);
+                }
+            }
+        }
+        // A failed selected feed must not look like a successful empty check
+        // just because the stable fallback answered: callers turn a missing
+        // reason into a failed check.
+        Ok((best, primary))
+    }
+
+    /// For installs that can't update in the app: the AppImage's feed says
+    /// whether a newer version is out, which the download page then offers.
+    async fn probe(&self, reason: ManualReason) -> Result<CheckResult<Update>, ()> {
+        let (best, primary) = self.check_target(APPIMAGE_KEY).await?;
+        match best {
+            Some(release) => Ok(CheckResult::Manual(release, reason)),
+            None => primary.map(CheckResult::Current).ok_or(()),
+        }
+    }
+}
+
 impl Backend for PluginBackend {
     type Release = Update;
 
@@ -486,67 +668,42 @@ impl Backend for PluginBackend {
         self.1
     }
 
+    fn package(&self) -> Option<PackageManager> {
+        match installation() {
+            Installation::Package(package) => Some(package.manager),
+            _ => None,
+        }
+    }
+
     fn check(&self) -> Task<'_, Result<CheckResult<Update>, ()>> {
         Box::pin(async {
-            let Some(target) = platform_key(std::env::consts::OS, std::env::consts::ARCH) else {
-                return Ok(CheckResult::Current(NoUpdateReason::NoBuild));
-            };
-            // Endpoints in one plugin builder are fallbacks, not competing feeds.
-            // Check each feed independently so the newest eligible release wins.
-            let mut best: Option<Update> = None;
-            let mut primary = None;
-            for (index, endpoint) in endpoints(self.1).into_iter().enumerate() {
-                let updater = self
-                    .0
-                    .updater_builder()
-                    .endpoints(vec![endpoint.parse().map_err(|_| ())?])
-                    .map_err(|_| ())?
-                    .target(target)
-                    // Inspect even equal/older releases so a missing platform
-                    // and an already-current installation have distinct results.
-                    // Eligibility below still gates every downloadable offer.
-                    .version_comparator(|_, _| true)
-                    .timeout(Duration::from_secs(30))
-                    .build()
-                    .map_err(|_| ())?;
-                let release = match updater.check().await {
-                    Ok(release) => release,
-                    Err(tauri_plugin_updater::Error::TargetNotFound(_)) => {
-                        if index == 0 {
-                            primary = Some(NoUpdateReason::NoBuild);
+            let linux_x64 = std::env::consts::ARCH == "x86_64";
+            match installation() {
+                Installation::Own => {
+                    let Some(target) = installed_platform_key() else {
+                        return Ok(CheckResult::Current(NoUpdateReason::NoBuild));
+                    };
+                    let (best, primary) = self.check_target(target).await?;
+                    match best {
+                        Some(release) => Ok(CheckResult::Available(release)),
+                        None => primary.map(CheckResult::Current).ok_or(()),
+                    }
+                }
+                Installation::Package(package) if linux_x64 => {
+                    let (best, primary) = self.check_target(package.manager.platform_key()).await?;
+                    match (best, primary) {
+                        (Some(release), _) => Ok(CheckResult::Available(release)),
+                        // No package for this manager: say whether a newer
+                        // version is out anyway.
+                        (None, Some(NoUpdateReason::NoBuild)) => {
+                            self.probe(ManualReason::NoPackage).await
                         }
-                        continue;
-                    }
-                    Err(_) => continue,
-                };
-                if index == 0 {
-                    primary = Some(NoUpdateReason::NoBuild);
-                }
-                if let Some(mut update) = release {
-                    validate_manifest(&update.raw_json, target)?;
-                    if index == 0 {
-                        primary = Some(no_update_reason(
-                            &update.version,
-                            self.current_version(),
-                            self.1,
-                        ));
-                    }
-                    if eligible(&update.version, env!("CARGO_PKG_VERSION"), self.1, self.2)
-                        && best
-                            .as_ref()
-                            .is_none_or(|old| newer(&update.version, &old.version))
-                    {
-                        update.timeout = Some(Duration::from_secs(15 * 60));
-                        best = Some(update);
+                        (None, primary) => primary.map(CheckResult::Current).ok_or(()),
                     }
                 }
+                Installation::Unknown if linux_x64 => self.probe(ManualReason::UnknownInstall).await,
+                _ => Ok(CheckResult::Current(NoUpdateReason::NoBuild)),
             }
-            if let Some(release) = best {
-                return Ok(CheckResult::Available(release));
-            }
-            // A failed selected feed must not look like a successful empty check
-            // just because the stable fallback answered.
-            primary.map(CheckResult::Current).ok_or(())
         })
     }
 
@@ -557,14 +714,10 @@ impl Backend for PluginBackend {
                 .body
                 .as_ref()
                 .map(|notes| notes.chars().take(32_768).collect()),
-            platform_key(std::env::consts::OS, std::env::consts::ARCH).and_then(|target| {
-                release
-                    .raw_json
-                    .get("platforms")?
-                    .get(target)?
-                    .get("size")?
-                    .as_u64()
-            }),
+            release
+                .raw_json
+                .get("platforms")
+                .and_then(|platforms| platforms.get(&release.target)?.get("size")?.as_u64()),
         )
     }
 
@@ -597,10 +750,67 @@ fn no_update_reason(candidate: &str, current: &str, channel: UpdateChannel) -> N
     }
 }
 
-fn platform_key(os: &str, arch: &str) -> Option<&'static str> {
-    match (os, arch) {
-        ("windows", "x86_64") => Some("windows-x86_64"),
-        ("macos", "aarch64") => Some("darwin-aarch64"),
+fn running_appimage() -> bool {
+    // A package binary must never use the plugin's deb/rpm installer, even if
+    // it inherited APPIMAGE from a parent process.
+    appimage_install(
+        crate::executable::appimage().is_some(),
+        tauri::utils::platform::bundle_type(),
+    )
+}
+
+fn appimage_install(has_file: bool, bundle: Option<tauri::utils::config::BundleType>) -> bool {
+    has_file && bundle == Some(tauri::utils::config::BundleType::AppImage)
+}
+
+/// How this copy of SonoJot is installed, which decides how it updates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Installation {
+    /// The app replaces itself: Windows, the Mac and the Linux AppImage.
+    Own,
+    /// A Linux package manager owns it and installs its updates.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Package(PackageOwner),
+    /// Linux, but no package manager owns it: a build run from a folder.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Unknown,
+}
+
+#[cfg(target_os = "linux")]
+type PackageOwner = crate::package_update::PackageInstall;
+#[cfg(not(target_os = "linux"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+struct PackageOwner {
+    manager: PackageManager,
+}
+
+/// Found once: it runs package-manager queries, so the first call belongs off
+/// the async runtime (request_check makes it in a blocking task).
+fn installation() -> &'static Installation {
+    static INSTALLATION: OnceLock<Installation> = OnceLock::new();
+    INSTALLATION.get_or_init(|| {
+        #[cfg(target_os = "linux")]
+        if !running_appimage() {
+            return tauri::utils::platform::current_exe()
+                .ok()
+                .and_then(|exe| crate::package_update::detect(&exe))
+                .map_or(Installation::Unknown, Installation::Package);
+        }
+        Installation::Own
+    })
+}
+
+fn installed_platform_key() -> Option<&'static str> {
+    platform_key(std::env::consts::OS, std::env::consts::ARCH, installation())
+}
+
+fn platform_key(os: &str, arch: &str, installation: &Installation) -> Option<&'static str> {
+    match (os, arch, installation) {
+        ("windows", "x86_64", _) => Some("windows-x86_64"),
+        ("macos", "aarch64", _) => Some("darwin-aarch64"),
+        ("linux", "x86_64", Installation::Own) => Some(APPIMAGE_KEY),
+        ("linux", "x86_64", Installation::Package(package)) => Some(package.manager.platform_key()),
         _ => None,
     }
 }
@@ -646,6 +856,25 @@ async fn check<B: Backend>(service: &Service<B::Release>, backend: &B, emit: imp
                 });
                 return Ok::<(), ()>(());
             }
+            CheckResult::Manual(release, reason) => {
+                let (version, notes, _) = B::describe(&release);
+                let older = B::is_older(&release);
+                let mut state = service.lock().map_err(|_| ())?;
+                state.available = None;
+                state.offered = Some(version.clone());
+                state.offered_notes = notes.clone();
+                if older || !on_channel(backend.current_version(), backend.channel()) {
+                    state.switch_channel = Some(backend.channel());
+                }
+                state.status = UpdateStatus::Manual {
+                    version,
+                    notes,
+                    reason,
+                    package: backend.package(),
+                    switch_channel: state.switch_channel,
+                };
+                return Ok(());
+            }
         };
         let (version, notes, size) = B::describe(&release);
         let repair = B::is_repair(&release);
@@ -664,6 +893,7 @@ async fn check<B: Backend>(service: &Service<B::Release>, backend: &B, emit: imp
             repair,
             older,
             switch_channel: state.switch_channel,
+            package: backend.package(),
         };
         Ok(())
     }
@@ -717,6 +947,9 @@ async fn download<B: Backend>(
             notes,
             older,
             switch_channel,
+            package: backend.package(),
+            prompt: None,
+            install_error: None,
         };
         Ok::<(), ()>(())
     }
@@ -755,8 +988,12 @@ pub(crate) fn request_check(
     let runtime = runtime.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let problem = tauri::async_runtime::spawn_blocking(install_problem)
-            .await
+        let problem = tauri::async_runtime::spawn_blocking(|| {
+            // Package-manager queries, cached for the checks that follow.
+            installation();
+            install_problem()
+        })
+        .await
             .ok()
             .flatten();
         let repair = reinstall || problem.is_some();
@@ -957,6 +1194,14 @@ pub(crate) fn restart_to_update(
     };
     state.emit(&app);
     let runtime = state.inner().clone();
+    #[cfg(target_os = "linux")]
+    if let Installation::Package(install) = installation() {
+        let install = install.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            install_package(&app, &runtime, &install, package, lease)
+        });
+        return Ok(snapshot);
+    }
     tauri::async_runtime::spawn_blocking(move || {
         // Idle resident workers may hold DLLs in the installation directory.
         // Releasing them does not cancel any job: admission is already closed.
@@ -983,6 +1228,91 @@ pub(crate) fn restart_to_update(
         runtime.emit(&app);
     });
     Ok(snapshot)
+}
+
+/// Installs a verified package with its manager, which asks for the password
+/// (a polkit dialog or a terminal), then restarts into the new version. On
+/// failure the download stays ready, so installing can be tried again.
+#[cfg(target_os = "linux")]
+fn install_package(
+    app: &AppHandle,
+    runtime: &Arc<Runtime>,
+    install: &crate::package_update::PackageInstall,
+    package: Package<Update>,
+    lease: resource_manager::UpdateInstallLease,
+) {
+    let version = package.release.version.clone();
+    // The download came from this manager's platform, never another one.
+    let result = if package.release.target == install.manager.platform_key() {
+        crate::package_update::install(install, &package.bytes, &version, |prompt| {
+            runtime.updater.set_prompt(Some(prompt));
+            runtime.emit(app);
+        })
+    } else {
+        Err(INSTALL_FAILED.into())
+    };
+    match result {
+        Ok(()) => {
+            runtime.updater.set_prompt(None);
+            runtime.emit(app);
+            prepare_restart(app, runtime, &version);
+            // Admission stays closed until this process exits.
+            std::mem::forget(lease);
+            restart_after_package(app);
+        }
+        Err(message) => {
+            crate::recognition_diagnostics::event(
+                "update-package-install-failed",
+                "",
+                std::process::id(),
+                0,
+                0,
+                0,
+            );
+            runtime.updater.install_retry(package, message);
+            drop(lease);
+            runtime.emit(app);
+        }
+    }
+}
+
+/// Starts the newly installed binary, as the AppImage path does. Tauri's
+/// restart would launch an APPIMAGE inherited from another AppImage app (a
+/// terminal or editor), so then SonoJot relaunches itself once it has exited.
+#[cfg(target_os = "linux")]
+fn restart_after_package(app: &AppHandle) {
+    use tauri::Manager;
+    let env = app.env();
+    if env.appimage.is_none() {
+        app.restart();
+    }
+    let Ok(exe) = tauri::utils::platform::current_exe() else {
+        app.restart();
+    };
+    let spawned = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(r#"pid=$1; shift; while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done; exec "$@""#)
+        .arg("sh")
+        .arg(std::process::id().to_string())
+        .arg(exe)
+        .args(env.args_os.iter().skip(1))
+        .env_remove("APPIMAGE")
+        .env_remove("APPDIR")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    if spawned.is_err() {
+        app.restart();
+    }
+    app.exit(0);
+}
+
+/// Opens the website's install section, for installs that can't update in
+/// the app.
+#[tauri::command]
+pub(crate) async fn open_download_page() -> Result<(), String> {
+    crate::legal_links::open_https(DOWNLOAD_PAGE.into(), "download page").await
 }
 
 fn prepare_restart(app: &AppHandle, runtime: &Arc<Runtime>, version: &str) {
@@ -1067,6 +1397,8 @@ mod tests {
         available: bool,
         check_fails: bool,
         signature_valid: bool,
+        manual: Option<ManualReason>,
+        package: Option<PackageManager>,
         checks: AtomicUsize,
         downloads: AtomicUsize,
     }
@@ -1081,6 +1413,8 @@ mod tests {
                 available: true,
                 check_fails: false,
                 signature_valid: true,
+                manual: None,
+                package: None,
                 checks: AtomicUsize::new(0),
                 downloads: AtomicUsize::new(0),
             }
@@ -1098,12 +1432,17 @@ mod tests {
         fn platform(&self) -> &str {
             "Mac"
         }
+        fn package(&self) -> Option<PackageManager> {
+            self.package
+        }
         fn check(&self) -> Task<'_, Result<CheckResult<String>, ()>> {
             self.checks.fetch_add(1, Ordering::SeqCst);
             Box::pin(std::future::ready(if self.check_fails {
                 Err(())
             } else {
-                Ok(if self.available {
+                Ok(if let (true, Some(reason)) = (self.available, self.manual) {
+                    CheckResult::Manual(self.version.into(), reason)
+                } else if self.available {
                     CheckResult::Available(self.version.into())
                 } else {
                     CheckResult::Current(self.no_update)
@@ -1138,6 +1477,159 @@ mod tests {
             .build()
             .unwrap()
             .block_on(task)
+    }
+
+    #[test]
+    fn only_an_appimage_bundle_with_an_outer_file_can_self_update() {
+        use tauri::utils::config::BundleType;
+        assert!(appimage_install(true, Some(BundleType::AppImage)));
+        assert!(!appimage_install(false, Some(BundleType::AppImage)));
+        for bundle in [None, Some(BundleType::Deb), Some(BundleType::Rpm)] {
+            assert!(!appimage_install(true, bundle));
+        }
+    }
+
+    fn ready(package: Option<PackageManager>) -> UpdateStatus {
+        UpdateStatus::Ready {
+            version: "0.29.0".into(),
+            notes: None,
+            older: false,
+            switch_channel: None,
+            package,
+            prompt: None,
+            install_error: None,
+        }
+    }
+
+    #[test]
+    fn package_fields_reach_the_wire_only_for_package_installs() {
+        let plain = serde_json::to_value(ready(None)).unwrap();
+        for field in ["package", "prompt", "installError"] {
+            assert!(plain.get(field).is_none(), "{field}");
+        }
+        let mut status = ready(Some(PackageManager::Pacman));
+        if let UpdateStatus::Ready { prompt, install_error, .. } = &mut status {
+            *prompt = Some(InstallPrompt::Terminal);
+            *install_error = Some("Closed.".into());
+        }
+        let value = serde_json::to_value(&status).unwrap();
+        assert_eq!(value["package"], "pacman");
+        assert_eq!(value["prompt"], "terminal");
+        assert_eq!(value["installError"], "Closed.");
+        assert_eq!(serde_json::from_value::<UpdateStatus>(value).unwrap(), status);
+        let manual = serde_json::to_value(UpdateStatus::Manual {
+            version: "0.29.0".into(),
+            notes: None,
+            reason: ManualReason::NoPackage,
+            package: Some(PackageManager::Rpm),
+            switch_channel: None,
+        })
+        .unwrap();
+        assert_eq!(manual["state"], "manual");
+        assert_eq!(manual["reason"], "noPackage");
+        assert_eq!(manual["package"], "rpm");
+        assert_eq!(
+            serde_json::to_value(ManualReason::UnknownInstall).unwrap(),
+            "unknownInstall"
+        );
+        // Older builds sent packageManaged on current; it is now ignored.
+        let old: UpdateStatus = serde_json::from_value(serde_json::json!({
+            "state": "current", "channel": "stable", "version": "1.0.0",
+            "platform": "Linux", "reason": "noBuild", "packageManaged": true
+        }))
+        .unwrap();
+        assert!(matches!(old, UpdateStatus::Current { .. }));
+    }
+
+    #[test]
+    fn a_newer_version_without_a_package_points_to_the_download_page() {
+        let _gate = resource_manager::tests::test_gate();
+        resource_manager::reset_for_tests(
+            crate::domain::MemoryMode::Overlap,
+            crate::domain::ModelRetention::OnExit,
+        );
+        for reason in [ManualReason::NoPackage, ManualReason::UnknownInstall] {
+            let service = Service::default();
+            let backend = MockBackend {
+                current: "0.22.0",
+                manual: Some(reason),
+                package: (reason == ManualReason::NoPackage).then_some(PackageManager::Dpkg),
+                ..MockBackend::default()
+            };
+            assert!(service.begin_check().unwrap());
+            run(check(&service, &backend, || {}));
+            assert_eq!(
+                service.snapshot().unwrap().status,
+                UpdateStatus::Manual {
+                    version: "0.23.0".into(),
+                    notes: Some("Release notes".into()),
+                    reason,
+                    package: backend.package,
+                    switch_channel: None,
+                }
+            );
+            // Nothing downloads; See changes still has the offer's notes.
+            assert!(service.begin_download().is_err());
+            assert_eq!(backend.downloads.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                service.offer().unwrap(),
+                Some(("0.23.0".into(), Some("Release notes".into())))
+            );
+            // Later checks still run, so a package that arrives is offered.
+            assert!(service.begin_check().unwrap());
+        }
+    }
+
+    #[test]
+    fn a_cancelled_package_install_keeps_the_download_for_another_try() {
+        let _gate = resource_manager::tests::test_gate();
+        resource_manager::reset_for_tests(
+            crate::domain::MemoryMode::Overlap,
+            crate::domain::ModelRetention::OnExit,
+        );
+        let service = Service::default();
+        let backend = MockBackend {
+            current: "0.22.0",
+            package: Some(PackageManager::Pacman),
+            ..MockBackend::default()
+        };
+        assert!(service.begin_check().unwrap());
+        run(check(&service, &backend, || {}));
+        assert!(matches!(
+            service.snapshot().unwrap().status,
+            UpdateStatus::Available { package: Some(PackageManager::Pacman), .. }
+        ));
+        let release = service.begin_download().unwrap().unwrap();
+        run(download(&service, &backend, release, || {}));
+        let (package, lease) = service.claim_install().unwrap();
+        service.set_prompt(Some(InstallPrompt::Password));
+        assert!(matches!(
+            service.snapshot().unwrap().status,
+            UpdateStatus::Ready { prompt: Some(InstallPrompt::Password), .. }
+        ));
+        assert!(service.snapshot().unwrap().installing);
+        service.install_retry(package, "You closed the password prompt.".into());
+        drop(lease);
+        let snapshot = service.snapshot().unwrap();
+        assert!(!snapshot.installing);
+        assert!(matches!(
+            &snapshot.status,
+            UpdateStatus::Ready {
+                package: Some(PackageManager::Pacman),
+                prompt: None,
+                install_error: Some(message),
+                ..
+            } if message == "You closed the password prompt."
+        ));
+        // The same verified bytes install again, and the old message clears.
+        let (package, lease) = service.claim_install().unwrap();
+        assert_eq!(package.bytes, vec![1, 2, 3]);
+        assert!(matches!(
+            service.snapshot().unwrap().status,
+            UpdateStatus::Ready { install_error: None, .. }
+        ));
+        service.install_failed();
+        drop(lease);
     }
 
     #[test]
@@ -1253,6 +1745,7 @@ mod tests {
                 repair: false,
                 older: false,
                 switch_channel: None,
+                package: None,
             }
         );
         assert!(service.lock().unwrap().package.is_none());
@@ -1437,14 +1930,40 @@ mod tests {
         let manifest = serde_json::json!({
             "version": "0.23.0", "notes": "Test", "platforms": {
                 "windows-x86_64": { "url": "https://releases.sonojot.com/test-setup.exe", "signature": "signature" },
-                "darwin-aarch64": { "url": "https://releases.sonojot.com/test.app.tar.gz", "signature": "signature" }
+                "darwin-aarch64": { "url": "https://releases.sonojot.com/test.app.tar.gz", "signature": "signature" },
+                "linux-x86_64": { "url": "https://releases.sonojot.com/test.AppImage", "signature": "signature" },
+                "linux-x86_64-deb": { "url": "https://releases.sonojot.com/test.deb", "signature": "signature" },
+                "linux-x86_64-rpm": { "url": "https://releases.sonojot.com/test.rpm", "signature": "signature" },
+                "linux-x86_64-pacman": { "url": "https://releases.sonojot.com/test.pkg.tar.zst", "signature": "signature" }
             }
         });
-        assert_eq!(platform_key("windows", "x86_64"), Some("windows-x86_64"));
-        assert_eq!(platform_key("macos", "aarch64"), Some("darwin-aarch64"));
-        assert_eq!(platform_key("macos", "x86_64"), None);
-        assert_eq!(platform_key("linux", "x86_64"), None);
-        for target in ["windows-x86_64", "darwin-aarch64"] {
+        let own = Installation::Own;
+        assert_eq!(platform_key("windows", "x86_64", &own), Some("windows-x86_64"));
+        assert_eq!(platform_key("macos", "aarch64", &own), Some("darwin-aarch64"));
+        assert_eq!(platform_key("macos", "x86_64", &own), None);
+        assert_eq!(platform_key("linux", "x86_64", &own), Some("linux-x86_64"));
+        assert_eq!(platform_key("linux", "aarch64", &own), None);
+        assert_eq!(platform_key("linux", "x86_64", &Installation::Unknown), None);
+        #[cfg(target_os = "linux")]
+        for (manager, key) in [
+            (PackageManager::Pacman, "linux-x86_64-pacman"),
+            (PackageManager::Dpkg, "linux-x86_64-deb"),
+            (PackageManager::Rpm, "linux-x86_64-rpm"),
+        ] {
+            let package = Installation::Package(
+                crate::package_update::PackageInstall::for_tests(manager),
+            );
+            assert_eq!(platform_key("linux", "x86_64", &package), Some(key));
+            assert_eq!(platform_key("linux", "aarch64", &package), None);
+        }
+        for target in [
+            "windows-x86_64",
+            "darwin-aarch64",
+            "linux-x86_64",
+            "linux-x86_64-deb",
+            "linux-x86_64-rpm",
+            "linux-x86_64-pacman",
+        ] {
             assert!(validate_manifest(&manifest, target).is_ok());
             let mut missing = manifest.clone();
             missing["platforms"].as_object_mut().unwrap().remove(target);
@@ -1616,6 +2135,7 @@ mod channel_tests {
             repair: false,
             older: false,
             switch_channel: None,
+            package: None,
         });
         assert!(service
             .change_channel(UpdateChannel::Nightly, || Err("Save failed".into()))

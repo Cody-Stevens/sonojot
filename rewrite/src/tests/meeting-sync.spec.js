@@ -86,13 +86,17 @@ test("storage shows the allowance and defaults audio uploads off", async ({
     page.getByText("Meeting storage: 1.0 MB of 100.0 GB", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByLabel("Upload meeting audio by default"),
+    page.getByRole("switch", { name: "Upload meeting audio by default" }),
   ).not.toBeChecked();
   await expect(
     page.getByText("Audio uses about 0.5 MB per minute", { exact: false }),
   ).toBeVisible();
-  await page.getByLabel("Always download synced audio").click();
-  await expect(page.getByLabel("Always download synced audio")).toBeChecked();
+  await page
+    .getByRole("switch", { name: "Always download synced audio" })
+    .click();
+  await expect(
+    page.getByRole("switch", { name: "Always download synced audio" }),
+  ).toBeChecked();
   await page.screenshot({
     path: "artifacts/meeting-sync-storage.png",
     fullPage: true,

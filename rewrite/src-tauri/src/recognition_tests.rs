@@ -103,7 +103,8 @@ fn fake_child() {
                 assert_eq!(count, 0, "the stream option must precede audio");
                 Reply::Ack
             }
-            Operation::Audio { samples, rate } => {
+            Operation::Audio { samples, rate, preview_allowed } => {
+                if behavior == "no-preview" { assert!(!preview_allowed, "replay must not request preview work"); }
                 assert_eq!(request.session, active);
                 assert!(!samples.is_empty() && samples.len() <= MAX_SAMPLES);
                 assert!(*rate > 0 && *rate <= 384_000);
@@ -142,6 +143,7 @@ fn fake_child() {
                         original_text: behavior.starts_with("guarded").then(|| format!("{raw} go go go go")),
                         warnings: vec![],
                         committed_seconds: None,
+                        preview: if *preview_allowed { "speculative only".into() } else { String::new() },
                     }
                 }
             }
@@ -284,7 +286,8 @@ fn malformed_oversize_stale_and_wrong_kind_responses_terminate_child() {
                     1,
                     Operation::Audio {
                         samples: vec![0.1],
-                        rate: 16_000
+                        rate: 16_000,
+                        preview_allowed: false,
                     },
                     &NEVER_CANCEL,
                     Duration::from_secs(2)
@@ -313,6 +316,7 @@ fn stalled_load_and_decode_have_finite_deadlines_and_terminate_child() {
             Operation::Audio {
                 samples: vec![0.1],
                 rate: 16_000,
+                preview_allowed: false,
             }
         };
         let start = Instant::now();
@@ -598,7 +602,8 @@ fn response_validation_rejects_wrong_version_request_and_oversized_text() {
                 raw: "a".repeat(MAX_TEXT + 1),
                 original_text: None,
                 warnings: vec![],
-                committed_seconds: None
+                committed_seconds: None,
+                preview: String::new(),
             }
         },
         1,
@@ -644,7 +649,7 @@ fn original_text_roundtrips_in_worker_frames_and_obeys_byte_limits() {
                     }, details: None,
                 }
             } else {
-                Reply::Text { raw: String::new(), original_text: Some(original), warnings: vec!["omitted".into()], committed_seconds: None }
+                Reply::Text { raw: String::new(), original_text: Some(original), warnings: vec!["omitted".into()], committed_seconds: None, preview: String::new() }
             };
             let response = Response { version: VERSION, request: 1, session: 1, body };
             let bytes = encode(&response).unwrap();
@@ -679,4 +684,42 @@ fn background_helpers_get_the_two_highest_allowed_processors() {
     assert_eq!(background_affinity(0b0101_0101, 2), 0b0101_0000);
     assert_eq!(background_affinity(0b0000_0011, 2), 0b0000_0011);
     assert_eq!(background_affinity(0b0000_0100, 2), 0b0000_0100);
+}
+
+#[test]
+fn preview_never_enters_finished_or_incomplete_results() {
+    for fail in [false, true] {
+        let _children = if fail { Children::set(&["crash-second", "crash-first", "success"]) }
+            else { Children::set(&["success"]) };
+        let mut remote = remote();
+        let mut stream = remote.stream(None).unwrap();
+        stream.allow_preview(true);
+        stream.add(&[0.1], 16_000).unwrap();
+        assert_eq!(stream.preview_text(), "speculative only");
+        assert_eq!(stream.update().unwrap(), "0.1");
+        stream.allow_preview(false);
+        assert!(stream.preview_text().is_empty());
+        stream.allow_preview(true);
+        stream.add(&[0.2], 16_000).unwrap();
+        if fail { assert!(stream.preview_text().is_empty()); }
+        let result = stream.finish(false).unwrap().0;
+        assert_eq!(result.text, if fail { "0.1" } else { "0.1 0.2" });
+        assert_eq!(result.completeness, if fail { RecognitionCompleteness::Incomplete } else { RecognitionCompleteness::Complete });
+        let second = remote.stream(None).unwrap();
+        assert!(second.preview_text().is_empty());
+        drop(second);
+    }
+}
+
+#[test]
+fn recovery_replays_audio_without_speculative_decoding() {
+    let _children = Children::set(&["crash-second", "no-preview"]);
+    let mut remote = remote();
+    let mut stream = remote.stream(None).unwrap();
+    stream.allow_preview(true);
+    stream.add(&[0.1], 16_000).unwrap();
+    assert_eq!(stream.preview_text(), "speculative only");
+    stream.add(&[0.2], 16_000).unwrap();
+    assert!(stream.preview_text().is_empty());
+    assert_eq!(stream.finish(false).unwrap().0.text, "0.1 0.2");
 }

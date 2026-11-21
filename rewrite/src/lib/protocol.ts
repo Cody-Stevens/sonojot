@@ -113,6 +113,7 @@ export const settingsSchema = z.object({
   /** Keep dictation audio locally for 30 days to improve the user's own models. */
   keepDictationAudio: z.boolean().default(false),
   learnFromCorrections: z.boolean().default(false),
+  learnFromMeetings: z.boolean().default(false),
   memoryMode: memoryModeSchema.default("overlap"),
   modelRetention: modelRetentionSchema.default("10m"),
   /** Doubtful-word marks after a paste. */
@@ -142,6 +143,9 @@ export const recognitionCompletenessSchema = z.enum(["complete", "incomplete"]);
 export type RecognitionCompleteness = z.infer<
   typeof recognitionCompletenessSchema
 >;
+/** The Linux package manager that installs this app's updates. */
+const packageManagerSchema = z.enum(["pacman", "dpkg", "rpm"]);
+export type PackageManager = z.infer<typeof packageManagerSchema>;
 export const updateStatusSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),
   z.object({ state: z.literal("checking") }),
@@ -162,6 +166,16 @@ export const updateStatusSchema = z.discriminatedUnion("state", [
     /** Older than this build: the newest build on the channel just chosen. */
     older: z.boolean().optional(),
     switchChannel: z.enum(["stable", "nightly"]).nullish(),
+    package: packageManagerSchema.nullish(),
+  }),
+  /** Newer, but this install can't update in the app: open the download page. */
+  z.object({
+    state: z.literal("manual"),
+    version: z.string().min(1),
+    notes: z.string().nullable(),
+    reason: z.enum(["unknownInstall", "noPackage"]),
+    package: packageManagerSchema.nullish(),
+    switchChannel: z.enum(["stable", "nightly"]).nullish(),
   }),
   z.object({
     state: z.literal("downloading"),
@@ -174,6 +188,12 @@ export const updateStatusSchema = z.discriminatedUnion("state", [
     notes: z.string().nullable(),
     older: z.boolean().optional(),
     switchChannel: z.enum(["stable", "nightly"]).nullish(),
+    /** Set when a Linux package manager installs it. */
+    package: packageManagerSchema.nullish(),
+    /** While a package installs: where the password is being asked for. */
+    prompt: z.enum(["password", "terminal"]).nullish(),
+    /** Why the last package install didn't finish; the download is kept. */
+    installError: z.string().nullish(),
   }),
   z.object({ state: z.literal("error"), message: z.string() }),
 ]);
@@ -378,6 +398,64 @@ export const learnedEntrySchema = z.object({
   userPinned: z.boolean(),
 });
 export type LearnedEntry = z.infer<typeof learnedEntrySchema>;
+export const sourceSummarySchema = z.object({
+  kind: z.string(),
+  id: z.string(),
+  label: z.string(),
+  date: z.string(),
+});
+export type SourceSummary = z.infer<typeof sourceSummarySchema>;
+export const learnedItemViewSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["hint", "spelling", "alias"]),
+  heard: z.string().nullable().default(null),
+  written: z.string(),
+  tier: z.enum(["observed", "suggested", "active"]),
+  risk: z.enum(["nonword", "ordinary", "protected"]),
+  nearCues: z.array(z.string()).default([]),
+  fixes: z.number().int().nonnegative().default(0),
+  keeps: z.number().int().nonnegative().default(0),
+  applied: z.number().int().nonnegative().default(0),
+  reverted: z.number().int().nonnegative().default(0),
+  probationLeft: z.number().int().nonnegative().default(0),
+  reason: z.string(),
+  sources: z.array(sourceSummarySchema).default([]),
+  revision: z.number().int().nonnegative().default(0),
+  promotedTo: z.string().nullable().default(null),
+});
+export type LearnedItemView = z.infer<typeof learnedItemViewSchema>;
+export const spellingClusterViewSchema = z.object({
+  key: z.string(),
+  variants: z.array(z.string()),
+  totalSources: z.number().int().nonnegative(),
+  reason: z.string(),
+});
+export type SpellingClusterView = z.infer<typeof spellingClusterViewSchema>;
+export const confirmedWordMetaSchema = z.object({
+  id: z.string(),
+  applied: z.number().int().nonnegative().default(0),
+  lastDay: z.number().int().nonnegative().default(0),
+  needsCheck: z.boolean().default(false),
+  inertLegacy: z.boolean().default(false),
+  extraAliases: z.array(learnedItemViewSchema).default([]),
+});
+export type ConfirmedWordMeta = z.infer<typeof confirmedWordMetaSchema>;
+export const wordsOverviewSchema = z.object({
+  words: vocabularySchema,
+  wordMeta: z.record(z.string(), confirmedWordMetaSchema).default({}),
+  activeLearned: z.array(learnedItemViewSchema).default([]),
+  reviewItems: z.array(learnedItemViewSchema).default([]),
+  clusters: z.array(spellingClusterViewSchema).default([]),
+  suppressedCount: z.number().int().nonnegative().default(0),
+  lexiconRevision: z.number().int().nonnegative().default(0),
+});
+export type WordsOverview = z.infer<typeof wordsOverviewSchema>;
+export const lexiconMutationResultSchema = z.object({
+  overview: wordsOverviewSchema,
+  undoToken: z.string().nullable().default(null),
+  message: z.string(),
+});
+export type LexiconMutationResult = z.infer<typeof lexiconMutationResultSchema>;
 const nothing = z.union([z.undefined(), z.null()]);
 /** Kinds registered in src-tauri/src/permissions.rs `SPECS`. */
 export const permissionKinds = [
@@ -412,6 +490,7 @@ export const commandSchemas = {
   download_update: snapshotSchema,
   restart_to_update: snapshotSchema,
   dismiss_update_notice: snapshotSchema,
+  open_download_page: nothing,
   get_whats_new: whatsNewStateSchema,
   dismiss_whats_new: whatsNewStateSchema,
   get_update_changelog: whatsNewSchema.nullable(),
@@ -462,6 +541,7 @@ export const commandSchemas = {
   save_dictation_correction: z.object({
     record: dictationRecordSchema,
     learnedCount: z.number().int().nonnegative(),
+    outcome: z.string().nullable().optional(),
   }),
   get_learning: z.array(learnedEntrySchema),
   save_learning: z.array(learnedEntrySchema),
@@ -495,6 +575,7 @@ export const commandSchemas = {
   stop_cleanup: snapshotSchema,
   set_screen_tab: snapshotSchema,
   drag_screen_tab: nothing,
+  end_screen_tab_drag: nothing,
   screen_tab_record: snapshotSchema,
   copy_last_dictation: nothing,
   copy_smart_original: nothing,
@@ -504,7 +585,14 @@ export const commandSchemas = {
   show_page: nothing,
   copy_text: nothing,
   list_meetings: z.array(meetingSummarySchema),
-  list_meeting_trash: z.array(z.object({ key: z.string(), id: z.string(), title: z.string(), deletedAt: z.number() })),
+  list_meeting_trash: z.array(
+    z.object({
+      key: z.string(),
+      id: z.string(),
+      title: z.string(),
+      deletedAt: z.number(),
+    }),
+  ),
   restore_meeting_trash: z.string(),
   delete_meeting_trash: nothing,
   search_meetings: z.array(z.object({ id: z.string(), line: z.string() })),
@@ -533,6 +621,12 @@ export const commandSchemas = {
   export_meeting_audio: nothing,
   get_vocabulary: vocabularySchema,
   save_vocabulary: vocabularySchema,
+  get_words_overview: wordsOverviewSchema,
+  confirm_learned_word: lexiconMutationResultSchema,
+  ignore_learned_word: lexiconMutationResultSchema,
+  confirm_spelling_cluster: lexiconMutationResultSchema,
+  ignore_spelling_cluster: lexiconMutationResultSchema,
+  undo_lexicon_action: wordsOverviewSchema,
   open_path: nothing,
   open_punctuation_model_page: nothing,
   get_diagnostics: z.string(),
@@ -555,6 +649,7 @@ export interface CommandArguments {
   download_update: undefined;
   restart_to_update: undefined;
   dismiss_update_notice: undefined;
+  open_download_page: undefined;
   get_whats_new: undefined;
   dismiss_whats_new: undefined;
   get_update_changelog: undefined;
@@ -641,6 +736,7 @@ export interface CommandArguments {
   };
   screen_tab_record: undefined;
   drag_screen_tab: undefined;
+  end_screen_tab_drag: undefined;
   copy_last_dictation: undefined;
   copy_smart_original: { resultSessionId: number };
   copy_history_pre_model: { id: string };
@@ -702,6 +798,23 @@ export interface CommandArguments {
   export_meeting_audio: { id: string; path: string };
   get_vocabulary: undefined;
   save_vocabulary: { entries: VocabularyEntry[] };
+  get_words_overview: undefined;
+  confirm_learned_word: {
+    id: string;
+    expectedRevision?: number | null;
+    heard?: string | null;
+    written: string;
+    context?: string[];
+    kind?: "replace" | "hint";
+  };
+  ignore_learned_word: {
+    id: string;
+    expectedRevision?: number | null;
+    target?: "mapping" | "term";
+  };
+  confirm_spelling_cluster: { chosen: string; variants: string[] };
+  ignore_spelling_cluster: { variants: string[] };
+  undo_lexicon_action: { token: string };
   open_path: { kind: "data" | "models" | "logs" };
   open_punctuation_model_page: { id?: string } | undefined;
   get_diagnostics: undefined;
@@ -711,7 +824,13 @@ export interface CommandArguments {
   copy_history: { id: string; original: boolean };
   export_dictation: { id: string; path: string };
   copy_shortcut_command: undefined;
-  learn_correction: { id: string; heard: string; written: string };
+  learn_correction: {
+    id: string;
+    heard: string;
+    written: string;
+    context?: string[];
+    kind?: "replace" | "hint";
+  };
 }
 export type CommandName = keyof CommandArguments;
 export type CommandResult<C extends CommandName> = z.output<
@@ -784,6 +903,7 @@ export const previewSnapshot: Snapshot = {
     doNotSaveDictations: false,
     keepDictationAudio: false,
     learnFromCorrections: false,
+    learnFromMeetings: false,
     memoryMode: "overlap",
     modelRetention: "10m",
     trust: { ...trustDefaults },

@@ -1,9 +1,12 @@
 ﻿<script lang="ts">
   import { onMount } from "svelte";
+  import Icon from "../components/Icon.svelte";
   import SettingRow from "../components/SettingRow.svelte";
+  import Disclosure from "../components/quiet/Disclosure.svelte";
   import LegalLinks from "../components/LegalLinks.svelte";
   import ThirdPartyNotices from "../components/ThirdPartyNotices.svelte";
   import TermsText from "../components/TermsText.svelte";
+  import { scrollEdges } from "../lib/scroll-edges";
   import { app } from "../lib/app.svelte";
   import { call } from "../lib/api";
   import apacheLicense from "../../../LICENSE?raw";
@@ -30,81 +33,128 @@
   }
 </script>
 
-<section class="stock paper-card quiet-settings">
+<section class="stock paper-card ui-card row-card quiet-settings">
   <button class="settings-link" onclick={onreport}
     ><strong data-text-surface="emboss">Report a problem</strong><span
-      >See what is sent first</span
-    ><span>›</span></button
+      class="door-detail"
+      data-text-surface="flat">See what is sent first</span
+    ><span class="door-chevron" aria-hidden="true"
+      ><Icon name="chevron-right" size={15} /></span
+    ></button
   >
-  <SettingRow label="Command line"
-    >{#snippet info()}<p>
-        sonojot-cli runs everything the app window can do, for scripts and
-        other apps.
-      </p>{/snippet}<code class="cli-path">{cliPath || "Reading installed path…"}</code><button
-      class="button"
-      disabled={!cliPath || app.busy("copy-cli")}
-      onclick={() =>
-        app.perform(
-          "copy-cli",
-          () => call("copy_cli_path"),
-          "CLI path copied.",
-        )}>Copy path</button
-    ></SettingRow
-  >
-  <SettingRow label="First-run setup"
-    >{#snippet info()}<p>
-        Runs the first-run setup again, including the meeting consent reminder.
-      </p>{/snippet}<button class="button" disabled={locked} onclick={runAgain}
-      >Run again</button
-    ></SettingRow
-  >
-</section>
-<details class="stock paper-card quiet-settings">
-  <summary data-text-surface="emboss">Troubleshooting and legal</summary>
-  <div class="actions spaced">
-    {#each ["data", "models", "logs"] as kind}<button
-        class="button"
+  <SettingRow label="Command line" layout="choice">
+    {#snippet info()}
+      <p>
+        sonojot-cli runs everything the app window can do, for scripts and other
+        apps.
+      </p>
+    {/snippet}
+    <div class="cli-row">
+      <code class="cli-path" title={cliPath}
+        >{cliPath || "Reading installed path…"}</code
+      >
+      <button
+        class="button small"
+        disabled={!cliPath || app.busy("copy-cli")}
         onclick={() =>
-          app.perform("folder", () =>
-            call("open_path", {
-              kind:
-                kind === "data"
-                  ? "data"
-                  : kind === "models"
-                    ? "models"
-                    : "logs",
-            }),
-          )}>Open {kind} folder</button
-      >{/each}<button
-      class="button"
-      onclick={() =>
-        app.perform("diagnostics", async () => {
-          diagnostics = await call("get_diagnostics");
-        })}>Show diagnostics</button
+          app.perform(
+            "copy-cli",
+            () => call("copy_cli_path"),
+            "CLI path copied.",
+          )}>Copy path</button
+      >
+    </div>
+  </SettingRow>
+  <SettingRow label="First-run setup" layout="action">
+    {#snippet info()}
+      <p>
+        Runs the first-run setup again, including the meeting consent reminder.
+      </p>
+    {/snippet}
+    <button class="button small" disabled={locked} onclick={runAgain}
+      >Run again</button
     >
-  </div>
-  {#if diagnostics}<textarea
-      class="spaced"
-      rows="8"
-      readonly
-      aria-label="Desktop diagnostics"
-      value={diagnostics}></textarea>{/if}
-  <details class="spaced"><summary>Terms of Use</summary><TermsText /></details>
-  <details class="spaced">
-    <summary>Apache License 2.0</summary>
-    <pre>{apacheLicense}</pre>
-  </details>
-  <LegalLinks /><ThirdPartyNotices />
-</details>
+  </SettingRow>
+  <Disclosure title="Troubleshooting and legal">
+    <div class="help-fold-body">
+      <div class="actions">
+        {#each ["data", "models", "logs"] as kind}<button
+            class="button small"
+            onclick={() =>
+              app.perform("folder", () =>
+                call("open_path", {
+                  kind:
+                    kind === "data"
+                      ? "data"
+                      : kind === "models"
+                        ? "models"
+                        : "logs",
+                }),
+              )}>Open {kind} folder</button
+          >{/each}<button
+          class="button small"
+          onclick={() =>
+            app.perform("diagnostics", async () => {
+              diagnostics = await call("get_diagnostics");
+            })}>Show diagnostics</button
+        >
+      </div>
+      {#if diagnostics}
+        <div class="scroll-edges-frame">
+          <textarea
+            rows="8"
+            readonly
+            aria-label="Desktop diagnostics"
+            value={diagnostics}
+            use:scrollEdges={{ frame: true }}
+          ></textarea>
+        </div>
+      {/if}
+      <div class="nested-fold">
+        <Disclosure title="Terms of Use"><TermsText /></Disclosure>
+      </div>
+      <div class="nested-fold">
+        <Disclosure title="Apache License 2.0">
+          <pre class="license-pre">{apacheLicense}</pre>
+        </Disclosure>
+      </div>
+      <LegalLinks /><ThirdPartyNotices />
+    </div>
+  </Disclosure>
+</section>
 
 <style>
+  .cli-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    width: 100%;
+  }
   .cli-path {
-    font-size: 12px;
-    max-width: 420px;
+    flex: 1 1 200px;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--soft-ink);
     overflow-wrap: anywhere;
   }
-  summary {
-    cursor: pointer;
+  .help-fold-body {
+    display: grid;
+    gap: 12px;
+    padding-bottom: 12px;
+  }
+  .nested-fold {
+    border-top: 1px solid var(--line);
+  }
+  .license-pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font:
+      13px/1.6 "Cascadia Mono",
+      "Courier New",
+      monospace;
+    margin: 0;
   }
   textarea {
     width: 100%;

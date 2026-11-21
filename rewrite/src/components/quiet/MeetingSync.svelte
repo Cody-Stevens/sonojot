@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "../Icon.svelte";
+  import SegmentedControl from "./SegmentedControl.svelte";
   import {
     syncGlyph,
     type MeetingSyncStatus,
@@ -39,28 +40,28 @@
       </div>{/if}
     <div class="sync-field">
       <span>Upload recording</span>
-      <div
-        class="segments"
-        role="group"
-        aria-label="Upload recording for this meeting"
-      >
-        <button
-          aria-pressed={status.audioOverride === null}
-          disabled={disabled || busy}
-          onclick={() => upload(null)}
-          >{status.audioOverride === null
-            ? `Default (${status.audioEnabled ? "on" : "off"})`
-            : "Default"}</button
-        ><button
-          aria-pressed={status.audioOverride === true}
-          disabled={disabled || busy}
-          onclick={() => upload(true)}>On</button
-        ><button
-          aria-pressed={status.audioOverride === false}
-          disabled={disabled || busy}
-          onclick={() => upload(false)}>Off</button
-        >
-      </div>
+      <SegmentedControl
+        label="Upload recording for this meeting"
+        disabled={disabled || busy}
+        options={[
+          {
+            value: "default" as const,
+            label:
+              status.audioOverride === null
+                ? `Default (${status.audioEnabled ? "on" : "off"})`
+                : "Default",
+          },
+          { value: "on" as const, label: "On" },
+          { value: "off" as const, label: "Off" },
+        ]}
+        value={status.audioOverride === null
+          ? "default"
+          : status.audioOverride
+            ? "on"
+            : "off"}
+        onchange={(next) =>
+          upload(next === "default" ? null : next === "on")}
+      />
     </div>
     {#if status.conflicts.length}
       <details open>
@@ -162,13 +163,6 @@
   .sync-field {
     display: grid;
     gap: 8px;
-  }
-  .segments {
-    font-size: 14px;
-  }
-  .segments button {
-    font-size: 14px;
-    padding: 9px 10px;
   }
   .sync-actions {
     display: flex;

@@ -105,8 +105,9 @@ test("day pages, keyboard actions, saved versions, word fixes and export", async
   page.on("pageerror", (error) => errors.push(error.message));
   await open(page);
   await expect(
-    page.getByRole("heading", { name: "Ready", exact: true }),
+    page.getByRole("heading", { name: "Dictation", exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("status").first()).toContainText("Ready");
   const stages = page.getByRole("group", { name: "Dictation settings" });
   await expect(stages.getByRole("button")).toHaveCount(4);
   await expect(
@@ -328,6 +329,12 @@ test("output shared Settings door, retention and confirmed deletion", async ({
     confirmed: true,
   });
   await page.getByRole("button", { name: "Close sheet" }).click();
+  await page
+    .getByRole("button", { name: "Back to Dictation settings" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Dictation settings", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Back to Settings" }).click();
   await expect(
     page.getByRole("heading", { name: "Settings", exact: true }),
@@ -348,8 +355,9 @@ test("Slate capture band, Escape paths and incomplete review", async ({
     }),
   );
   await expect(
-    page.getByRole("heading", { name: "Listening", exact: true }),
+    page.getByRole("heading", { name: "Dictation", exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("status").first()).toContainText("Listening");
   await expect(
     page.getByRole("group", { name: "Dictation settings" }),
   ).toHaveCount(0);

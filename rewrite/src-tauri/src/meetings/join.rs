@@ -240,7 +240,10 @@ impl Meetings {
         }
         record.speaker_names.insert(from.into(), to.into());
         self.write(&record)?;
-        Ok(record.detail)
+        let detail = record.detail;
+        drop(_guard);
+        self.store.record_meeting_speaker(id, to);
+        Ok(detail)
     }
 
     pub fn reassign_passage(&self, id: &str, clock: &str, from: &str, to: &str) -> Result<MeetingDetail, String> {

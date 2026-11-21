@@ -7,6 +7,8 @@ import {
   updateActionDisabled,
   updateNoticeMessage,
   updateButtonLabel,
+  updateOffered,
+  updateRestartLabel,
   updateStatusLabel,
   updateTooltip,
 } from "./updates";
@@ -449,4 +451,149 @@ test("no Mac build and already-newest checks always give an explicit result", ()
       false,
     );
   }
+});
+
+test("Linux package installs ask for a password and keep the download when cancelled", () => {
+  const available = updateStatusSchema.parse({
+    state: "available",
+    version: "0.29.0",
+    notes: null,
+    size: null,
+    package: "pacman",
+  });
+  assert.equal(updateStatusLabel(available), "SonoJot 0.29.0 is available.");
+  assert.match(
+    updateTooltip(available, false, null),
+    /Nothing changes until you install it\.$/,
+  );
+  const ready = updateStatusSchema.parse({
+    state: "ready",
+    version: "0.29.0",
+    notes: null,
+    package: "pacman",
+  });
+  assert.equal(
+    updateStatusLabel(ready),
+    "SonoJot 0.29.0 is ready. Installing it asks for your password.",
+  );
+  assert.equal(updateButtonLabel(ready, false), "Install update");
+  assert.deepEqual(updateAction(ready, false), {
+    kind: "restart",
+    label: "Install update",
+  });
+  assert.equal(
+    updateTooltip(ready, false, null),
+    "Click to install. SonoJot asks for your password, then restarts. Save any edits first.",
+  );
+  const message = (prompt: string | undefined) =>
+    updateNoticeMessage({
+      status: updateStatusSchema.parse({ ...ready, prompt }),
+      installing: true,
+      noticeDismissed: false,
+    });
+  assert.equal(message(undefined), "Installing SonoJot 0.29.0…");
+  assert.equal(
+    message("password"),
+    "Enter your password to install SonoJot 0.29.0.",
+  );
+  assert.equal(
+    message("terminal"),
+    "Enter your password in the terminal window to install SonoJot 0.29.0.",
+  );
+  assert.equal(updateButtonLabel(ready, true), "Installing…");
+  assert.deepEqual(updateAction(ready, true), {
+    kind: "restart",
+    label: "Installing…",
+  });
+  assert.equal(
+    updateActionDisabled(ready, true, null, true, () => false),
+    true,
+  );
+  const cancelled = updateStatusSchema.parse({
+    ...ready,
+    installError: "You closed the password prompt, so SonoJot wasn't updated.",
+  });
+  assert.equal(
+    updateStatusLabel(cancelled),
+    "You closed the password prompt, so SonoJot wasn't updated.",
+  );
+  assert.equal(
+    updateTooltip(cancelled, false, null),
+    "You closed the password prompt, so SonoJot wasn't updated. Click to try again.",
+  );
+  assert.deepEqual(updateAction(cancelled, false), {
+    kind: "restart",
+    label: "Install update",
+  });
+  const switching = updateStatusSchema.parse({
+    ...ready,
+    switchChannel: "nightly",
+    older: false,
+  });
+  assert.equal(
+    updateStatusLabel(switching),
+    "Nightly 0.29.0 is ready. Installing it asks for your password.",
+  );
+  assert.equal(updateButtonLabel(switching, false), "Install to switch");
+  // The AppImage, Windows and Mac keep their restart wording.
+  const own = updateStatusSchema.parse({ ...ready, package: undefined });
+  assert.equal(updateButtonLabel(own, false), "Restart to update");
+  assert.equal(updateRestartLabel(own), "Restarting to update…");
+  assert.equal(updateButtonLabel(own, true), "Restarting…");
+});
+
+test("Linux installs that can't update in the app open the download page", () => {
+  const noPackage = updateStatusSchema.parse({
+    state: "manual",
+    version: "0.29.0",
+    notes: "Faster notes.",
+    reason: "noPackage",
+    package: "rpm",
+  });
+  assert.equal(
+    updateStatusLabel(noPackage),
+    "SonoJot 0.29.0 is available, but not yet as an RPM package. Get it from the download page.",
+  );
+  assert.equal(updateOffered(noPackage), true);
+  assert.equal(updateButtonLabel(noPackage, false), "Update available");
+  assert.deepEqual(updateAction(noPackage, false), {
+    kind: "open",
+    label: "Open download page",
+  });
+  assert.equal(
+    updateActionDisabled(noPackage, false, null, true, () => false),
+    false,
+  );
+  assert.match(updateTooltip(noPackage, false, null), / Faster notes\.$/);
+  assert.equal(
+    updateNoticeMessage({
+      status: noPackage,
+      installing: false,
+      noticeDismissed: false,
+    }),
+    updateStatusLabel(noPackage),
+  );
+  const debian = updateStatusSchema.parse({ ...noPackage, package: "dpkg" });
+  assert.match(updateStatusLabel(debian), /not yet as a Debian package/);
+  const pacman = updateStatusSchema.parse({ ...noPackage, package: "pacman" });
+  assert.match(updateStatusLabel(pacman), /not yet as a pacman package/);
+  const unknown = updateStatusSchema.parse({
+    state: "manual",
+    version: "0.29.0",
+    notes: null,
+    reason: "unknownInstall",
+    switchChannel: "nightly",
+  });
+  assert.equal(
+    updateStatusLabel(unknown),
+    "Switch to Nightly: 0.29.0 is available. This copy can't update in the app; get it from the download page.",
+  );
+  assert.equal(updateButtonLabel(unknown, false), "Switch to Nightly");
+  assert.equal(updateAction(unknown, false)?.kind, "open");
+  for (const status of [
+    { state: "manual", version: "0.29.0", notes: null, reason: "other" },
+    { state: "ready", version: "0.29.0", notes: null, package: "apt" },
+    { state: "ready", version: "0.29.0", notes: null, prompt: "sudo" },
+  ])
+    assert.equal(updateStatusSchema.safeParse(status).success, false);
 });

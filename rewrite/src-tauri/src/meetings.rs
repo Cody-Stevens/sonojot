@@ -289,11 +289,20 @@ mod clean {
                     // chosen exactly as for a dictation of that text, and only
                     // to passages still as recognized: a passage the user
                     // edited keeps its words.
-                    let mut terms = vocabulary.clone();
-                    if unedited.is_some() {
-                        terms.extend(self.store.learned_cleanup_vocabulary_for(
-                            passage, crate::domain::CleanupMode::Clean, LEARNED_BUDGET).unwrap_or_default());
-                    }
+                    let (mut terms, passage_confirmed) = if unedited.is_some() {
+                        match self.store.lexicon_plan(passage, crate::domain::CleanupMode::Clean, Some(id)) {
+                            Ok(plan) => {
+                                let mut t = plan.cleanup_vocabulary;
+                                t.extend(self.store.learned_cleanup_vocabulary_for(
+                                    passage, crate::domain::CleanupMode::Clean, LEARNED_BUDGET).unwrap_or_default());
+                                (t, plan.confirmed_structured)
+                            }
+                            Err(_) => (vocabulary.clone(), confirmed.clone()),
+                        }
+                    } else {
+                        (vocabulary.clone(), confirmed.clone())
+                    };
+                    let _ = &mut terms;
                     // As in dictation, cleanup reads an unedited passage with the
                     // capital each mid-sentence recognizer piece starts with lowered.
                     let joined = if casing { None } else {
@@ -304,7 +313,7 @@ mod clean {
                     // deletion and without an optional cleanup model.
                     let run = || crate::cleanup::clean_transcript(&crate::cleanup::Transcript {
                         root: &self.store.models_dir(), text: joined.as_deref().unwrap_or(passage),
-                        mode: crate::cleanup::Mode::Clean, vocabulary: &terms, confirmed: &confirmed,
+                        mode: crate::cleanup::Mode::Clean, vocabulary: &terms, confirmed: &passage_confirmed,
                         policy: crate::cleanup::CleanupPolicy::conservative(),
                         written_form: if settings.written_form { crate::punctuation::WrittenFormMode::Model }
                             else { crate::punctuation::WrittenFormMode::Off },
@@ -1496,6 +1505,7 @@ impl Meetings {
             record.automatic_title_pending = false;
             record.detail.summary.title = title.trim().into();
         }
+        let old_transcript = record.detail.transcript.clone();
         record.detail.transcript = transcript.into();
         record.detail.notes = notes.into();
         if let Some(cleaned) = cleaned_transcript {
@@ -1504,6 +1514,10 @@ impl Meetings {
         record.detail.summary.has_transcript = !transcript.trim().is_empty();
         record.detail.summary.status = completed_status(&record.detail).into();
         self.write(&record)?;
+        drop(_guard);
+        if old_transcript != transcript {
+            self.store.record_meeting_edit(id, &old_transcript, transcript);
+        }
         Ok(record.detail)
     }
     /// Rebuilds the transcript from the recognition that produced it, with or
@@ -1583,8 +1597,13 @@ impl Meetings {
         if remote {
             self.trash_owned(id)?;
             self.revision.fetch_add(1, Ordering::Release);
+            drop(_guard);
+            self.store.retract_meeting(id);
             return Ok(());
         }
+        drop(_guard);
+        self.store.retract_meeting(id);
+        let _guard = self.store.lock()?;
         if crate::flavor::sync_enabled() { crate::meeting_sync::queue_delete(&self.store, id)?; }
         for path in [
             &paths.mixed,
@@ -2018,7 +2037,15 @@ impl Meetings {
             operations.insert(id.into(), token.clone());
         }
         self.write(&record)?;
-        Ok(record.detail)
+        let observed = (!keep_previous && !incomplete).then(|| record.detail.transcript.clone());
+        let detail = record.detail;
+        drop(operations);
+        drop(_guard);
+        if let Some(text) = observed {
+            self.store.retract_meeting(id);
+            self.store.observe_meeting_transcript(id, &text);
+        }
+        Ok(detail)
     }
 
     fn finish_operation(

@@ -5,6 +5,9 @@
 
 <script lang="ts">
   import { onMount } from "svelte";
+  import Icon from "../components/Icon.svelte";
+  import PageHeader from "../components/quiet/PageHeader.svelte";
+  import Disclosure from "../components/quiet/Disclosure.svelte";
   import RecommendedSetup from "../components/quiet/RecommendedSetup.svelte";
   import LookScreen from "./LookScreen.svelte";
   import MemoryScreen from "./MemoryScreen.svelte";
@@ -26,10 +29,14 @@
   let {
     route,
     onnavigate,
+    onback,
+    parentTitle = "Settings",
     ontour,
   }: {
     route: Route;
     onnavigate: (target: RouteTarget) => void;
+    onback?: () => void;
+    parentTitle?: string;
     ontour: () => void;
   } = $props();
   let reset = $state(false);
@@ -87,13 +94,21 @@
             {
               label: "Shortcut and mic",
               detail: `${settings.hotkey} · ${settings.microphone || "Default microphone"}`,
-              target: { tab: "dictation", stage: "input", from: "settings" },
+              target: {
+                tab: "dictation",
+                stage: "input",
+                from: "settings-group",
+              },
             },
             {
               label: "Speech",
               detail: modelName(settings.asrModel, models, catalog),
               role: "asr",
-              target: { tab: "dictation", stage: "speech", from: "settings" },
+              target: {
+                tab: "dictation",
+                stage: "speech",
+                from: "settings-group",
+              },
             },
             {
               label: "Cleanup",
@@ -106,19 +121,31 @@
                 .filter(Boolean)
                 .join(" · "),
               role: "cleanup",
-              target: { tab: "dictation", stage: "cleanup", from: "settings" },
+              target: {
+                tab: "dictation",
+                stage: "cleanup",
+                from: "settings-group",
+              },
             },
             {
               label: "Paste and history",
               detail: `${settings.autoPaste ? "Paste where I was typing" : "Clipboard only"} · ${settings.doNotSaveDictations ? "keep nothing" : settings.keepDictationAudio ? "keep text and audio" : "keep text"}`,
-              target: { tab: "dictation", stage: "output", from: "settings" },
+              target: {
+                tab: "dictation",
+                stage: "output",
+                from: "settings-group",
+              },
             },
             {
               label: "Doubtful words",
               detail: settings.trust.enabled
                 ? `${{ fewer: "Fewer", balanced: "Balanced", more: "More" }[settings.trust.sensitivity]} · ${settings.trust.markStyle === "band" ? "marker band" : "dotted underline"}`
                 : "Off",
-              target: { tab: "dictation", stage: "trust", from: "settings" },
+              target: {
+                tab: "dictation",
+                stage: "trust",
+                from: "settings-group",
+              },
             },
           ],
         ]
@@ -129,13 +156,21 @@
                 label: "Speech and speakers",
                 detail: `${source} · ${meetingName} · ${settings.meetingSpeakerLabels ? "speaker names" : "no speaker names"}`,
                 role: "meetingSpeech",
-                target: { tab: "meetings", stage: "speech", from: "settings" },
+                target: {
+                  tab: "meetings",
+                  stage: "speech",
+                  from: "settings-group",
+                },
               },
               {
                 label: "Notes",
                 detail: notesName,
                 role: "notes",
-                target: { tab: "meetings", stage: "notes", from: "settings" },
+                target: {
+                  tab: "meetings",
+                  stage: "notes",
+                  from: "settings-group",
+                },
               },
             ],
           ]
@@ -228,14 +263,18 @@
   });
 </script>
 
-{#if !route.stage}<header class="page-heading">
-    <h1 data-text-surface="emboss">Settings</h1>
-  </header>{/if}
+{#if !route.stage}
+  <PageHeader title="Settings" />
+{/if}
 {#if route.stage === "look"}<LookScreen />
 {:else if route.stage === "sync" && app.snapshot.capabilities.sync}<SyncScreen
   />
 {:else if route.stage === "memory"}<MemoryScreen />
-{:else if route.stage === "disk"}<DiskScreen {onnavigate} />
+{:else if route.stage === "disk"}<DiskScreen
+    {onnavigate}
+    onback={onback ?? (() => onnavigate({ tab: "settings" }))}
+    {parentTitle}
+  />
 {:else if route.stage === "updates"}<UpdatesScreen />
 {:else if route.stage === "help"}<HelpScreen
     {ontour}
@@ -243,7 +282,7 @@
       onnavigate({ tab: "settings", stage: "help", sheet: "report" })}
   />
 {:else}
-  {#if route.stage}<div class="stock paper-card setup-bar">
+  {#if route.stage}<div class="stock paper-card ui-card setup-bar">
       <div>
         <strong data-text-surface="emboss"
           >{changes.length
@@ -258,12 +297,14 @@
         >
       </div>
       {#if changes.length}<button
-          class="button"
+          class="button small"
           disabled={profiles.applyLocked}
           onclick={() => (reset = true)}>Back to recommended</button
         >{/if}
     </div>{/if}
-  {#each groups as group}<section class="stock paper-card quiet-settings">
+  {#each groups as group}<section
+      class="stock paper-card ui-card row-card quiet-settings"
+    >
       {#each group as door}{@const change = changes.find(
           (item) => item.role === door.role,
         )}
@@ -280,36 +321,42 @@
               >{:else if !route.stage && changes.some( (item) => (door.label === "Dictation" ? ["asr", "cleanup"].includes(item.role) : door.label === "Meetings" && ["notes", "meetingSpeech"].includes(item.role)) )}<small
                 class="stamp">Custom</small
               >{/if}</span
-          ><span aria-hidden="true">›</span></button
+          ><span class="door-chevron" aria-hidden="true"
+            ><Icon name="chevron-right" size={15} /></span
+          ></button
         >
       {/each}
     </section>{/each}
-  {#if advanced.length}<details
-      class="stock paper-card quiet-settings advanced"
-      open={remembered.advanced}
-      ontoggle={(event) => (remembered.advanced = event.currentTarget.open)}
+  {#if advanced.length}<section
+      class="stock paper-card ui-card row-card quiet-settings"
     >
-      <summary
-        ><strong data-text-surface="emboss">Advanced</strong><span
-          class="door-detail"
-          data-text-surface="flat">Memory · On disk</span
-        ></summary
+      <Disclosure
+        class="advanced"
+        title="Advanced"
+        detail="Memory · On disk"
+        open={remembered.advanced}
+        ontoggle={(open) => (remembered.advanced = open)}
       >
-      {#each advanced as door}<button
-          class="settings-link"
-          onclick={() => onnavigate(door.target)}
-          ><strong data-text-surface="emboss">{door.label}</strong><span
-            class="door-detail"
-            data-text-surface="flat">{door.detail}</span
-          ><span aria-hidden="true">›</span></button
-        >{/each}
-    </details>{/if}
+        <div class="advanced-doors">
+          {#each advanced as door}<button
+              class="settings-link"
+              onclick={() => onnavigate(door.target)}
+              ><strong data-text-surface="emboss">{door.label}</strong><span
+                class="door-detail"
+                data-text-surface="flat">{door.detail}</span
+              ><span class="door-chevron" aria-hidden="true"
+                ><Icon name="chevron-right" size={15} /></span
+              ></button
+            >{/each}
+        </div>
+      </Disclosure>
+    </section>{/if}
 {/if}
 {#if profiles.failure}<p class="field-help" role="alert">
     {profiles.failure.message}
   </p>
   <button
-    class="button"
+    class="button small"
     disabled={profiles.applyLocked}
     onclick={() => profiles.use("balanced", true)}
     >Retry recommended setup</button
@@ -318,57 +365,28 @@
     Recommended setup needs to finish preparing its models.
   </p>
   <button
-    class="button"
+    class="button small"
     disabled={profiles.applyLocked}
     onclick={() => profiles.use("balanced", true)}>Continue setup</button
   >{/if}
 {#if reset}<RecommendedSetup onclose={() => (reset = false)} />{/if}
 
 <style>
-  /* The fold reads like the door rows below it. */
-  .advanced summary {
-    display: grid;
-    grid-template-columns: 180px 1fr 12px;
-    align-items: baseline;
-    gap: 22px;
-    padding: 18px 0;
-    cursor: pointer;
-    list-style: none;
-  }
-  .advanced summary::-webkit-details-marker {
-    display: none;
-  }
-  .advanced summary::after {
-    content: "›";
-    color: var(--soft-ink);
-    transition: transform var(--motion-control) var(--ease-settle);
-  }
-  .advanced[open] summary::after {
-    transform: rotate(90deg);
-  }
-  .advanced summary strong {
-    font-weight: 600;
-    font-size: 19px;
-  }
-  .advanced summary .door-detail {
-    color: var(--soft-ink);
-    font-size: 15px;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .advanced summary::after {
-      transition: none;
-    }
-  }
   .setup-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 18px;
-    padding: 18px 22px;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+    padding: 16px 22px;
   }
   .setup-bar > div {
     display: grid;
-    gap: 5px;
+    gap: 3px;
+  }
+  .setup-bar strong {
+    font-size: 17px;
+    font-weight: 600;
   }
   .setup-bar span {
     font-size: 14px;
@@ -377,15 +395,33 @@
   .door-detail {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
-    gap: 8px;
+    align-items: center;
+    gap: 6px 8px;
   }
   .stage-diff {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     width: 100%;
     font-size: 13px;
   }
-  .stage-diff .stamp {
-    margin-right: 8px;
+  .advanced-doors {
+    margin-top: -14px;
+  }
+  :global(.advanced > .disclosure-summary) {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr) 16px;
+    gap: 16px;
+  }
+  @media (max-width: 760px) {
+    :global(.advanced > .disclosure-summary) {
+      grid-template-columns: minmax(0, 1fr) 16px;
+      gap: 4px 12px;
+    }
+    :global(.advanced > .disclosure-summary .disclosure-chevron) {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+    }
   }
 </style>

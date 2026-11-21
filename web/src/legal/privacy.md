@@ -27,7 +27,7 @@ SonoJot stores the following in its data folder: `%LOCALAPPDATA%\SonoJot` on Win
 - **Dictation history.** The text of each dictation, including the raw recognized text and the cleaned text. SonoJot does not keep dictation audio. Each saved dictation also records the identifier of the app it was meant for, such as `com.apple.mail` or `outlook.exe` (never a window title or document name), and, if online proofreading changed it, the text from before proofreading. History is saved by default. Turn on "do not save dictations" to stop saving it, or delete single entries or all of them.
 - **Meeting recordings.** Audio files of your microphone, your computer's audio output, and a mixed track, plus any recordings you import. Meetings record both your microphone and your computer's audio by default, so recordings contain other people's voices.
 - **Meeting transcripts, notes, titles, and speaker labels.**
-- **Vocabulary and learned corrections.** Words you add, and corrections SonoJot learns from your edits if you turn on learning (off by default). Learned entries are removed when the dictations they came from are deleted.
+- **Vocabulary and learned corrections.** Words you add, and local suggestions or corrections SonoJot learns from your dictations, edits, and (if turned on) saved meetings. Learned entries stay on this computer and are removed when the dictations or meetings they came from are deleted. Items you ignore are stored only as one-way local hashes so they are not suggested again without keeping deleted text.
 - **Settings**, including your model choices and your OpenRouter model choices.
 - **Your OpenRouter key**, if you connect OpenRouter. On Windows it is encrypted with Windows Data Protection for your user account. On macOS it is stored in your login keychain. On Linux it is stored in your desktop keyring through the Secret Service (for example GNOME Keyring), and the data folder keeps only a reference to it. Disconnecting removes it.
 - **Downloaded models, runtimes, and license files.**
@@ -38,7 +38,7 @@ SonoJot itself does not encrypt these files, except your OpenRouter key. Anyone 
 
 When SonoJot pastes dictated text, it uses your system clipboard. If you use clipboard history or clipboard sync, your operating system may store or sync that text.
 
-After it pastes, SonoJot reads back the text it just pasted, and where it is on screen, to mark doubtful words. It reads nothing else from that app, holds the last dictation's audio in memory only until its marks are gone, and nothing leaves your computer.
+After it pastes, SonoJot reads back the text it just pasted, and where it is on screen, to mark doubtful words. While a mark is still open right after a paste, if you type over that marked word in place, SonoJot may note the replacement word between its immediate neighbours to help learn that spelling on your computer when local learning is on. It reads nothing else from that app, holds the last dictation's audio in memory only until its marks are gone, and nothing leaves your computer.
 
 ## 3. What leaves your computer, and when
 

@@ -57,6 +57,35 @@ pub fn cli_beside(executable: &Path) -> PathBuf {
     } else if cfg!(windows) { "sonojot-cli.exe" } else { "sonojot-cli" })
 }
 
+/// A CLI path that can be saved by coding tools after this process exits.
+/// The AppImage keeps its CLI inside the image; a small launcher mounts it on
+/// demand and always uses the updated image at the same installation path.
+pub fn cli_path(data_dir: &Path) -> Result<PathBuf, String> {
+    #[cfg(target_os = "linux")]
+    if let Some(appimage) = crate::executable::appimage() {
+        return appimage_cli(&appimage, data_dir);
+    }
+    let _ = data_dir;
+    std::env::current_exe().map(|exe| cli_beside(&exe)).map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn appimage_cli(appimage: &Path, data_dir: &Path) -> Result<PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = appimage.to_str().ok_or("The AppImage path is not valid Unicode.")?;
+    // POSIX single quotes preserve spaces, dollars, backticks and newlines.
+    let quoted = format!("'{}'", path.replace('\'', "'\"'\"'"));
+    let contents = format!("#!/bin/sh\n# SonoJot AppImage CLI launcher.\nexec {quoted} --cli \"$@\"\n");
+    let directory = data_dir.join("bin");
+    let cli = directory.join("sonojot-cli");
+    if fs::read_to_string(&cli).ok().as_deref() != Some(&contents) {
+        fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        crate::store::atomic_write(&cli, contents.as_bytes())?;
+    }
+    fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+    Ok(cli)
+}
+
 /// Development builds run from Cargo's target folder and are never registered.
 pub fn is_development_build(path: &Path) -> bool {
     let parts: Vec<String> = path.components().map(|c| c.as_os_str().to_string_lossy().to_ascii_lowercase()).collect();
@@ -73,8 +102,8 @@ pub fn ensure_once(data_dir: &Path) {
         crate::recognition_diagnostics::event("agent-integration", "skipped-isolated-data", std::process::id(), 0, 0, 0);
         return;
     }
-    let Ok(executable) = std::env::current_exe() else { return };
-    if let Some(items) = ensure(&cli_beside(&executable), data_dir) {
+    let Ok(cli) = cli_path(data_dir) else { return };
+    if let Some(items) = ensure(&cli, data_dir) {
         let summary = items.iter().map(|i| format!("{}={}", i.target, i.state)).collect::<Vec<_>>().join(" ");
         crate::recognition_diagnostics::event("agent-integration", &summary, std::process::id(), 0, 0, 0);
     }
@@ -581,7 +610,8 @@ mod tests {
         let crlf = json_edit("{\r\n  \"theme\": \"Dark\"\r\n}", "mcpServers", &json!({ "command": CLI }), Mode::Install).unwrap().0.unwrap();
         assert!(!crlf.replace("\r\n", "").contains('\n'));
         let text = "{\n  \"theme\": \"Dark\",\n  \"hooks\": { \"a\": [1,   2] }\n}\n";
-        let entry = json!({ "command": CLI, "args": ["mcp"] });
+        let cli = if cfg!(windows) { CLI } else { "/opt/SonoJot/sonojot-cli" };
+        let entry = json!({ "command": cli, "args": ["mcp"] });
         let (added, state) = json_edit(text, "mcpServers", &entry, Mode::Install).unwrap();
         let added = added.unwrap();
         assert_eq!(state, "added");
@@ -630,9 +660,32 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn appimage_cli_survives_mounts_and_quotes_paths_and_arguments() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("sonojot-cli-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("SonoJot's $nightly `build`.AppImage");
+        fs::write(&image, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n").unwrap();
+        fs::set_permissions(&image, fs::Permissions::from_mode(0o700)).unwrap();
+        let data = dir.join("data");
+        let cli = appimage_cli(&image, &data).unwrap();
+        let output = Command::new(&cli).args(["version", "two words", "$literal"]).output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "--cli\nversion\ntwo words\n$literal\n");
+        assert!(!fs::read_to_string(&cli).unwrap().contains(".mount_"));
+        // An update replaces the image, and this same launcher sees the new bytes.
+        fs::write(&image, "#!/bin/sh\nprintf 'new version\\n'\n").unwrap();
+        let output = Command::new(&cli).arg("version").output().unwrap();
+        assert_eq!(output.stdout, b"new version\n");
+        assert_eq!(appimage_cli(&image, &data).unwrap(), cli);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn development_builds_are_recognized() {
-        assert!(is_development_build(Path::new(r"C:\src\rewrite\src-tauri\target\release\SonoJot.exe")));
+        assert!(is_development_build(Path::new("/src/rewrite/src-tauri/target/release/SonoJot")));
         assert!(!is_development_build(Path::new(r"C:\Users\me\AppData\Local\Programs\SonoJot\SonoJot.exe")));
     }
 }

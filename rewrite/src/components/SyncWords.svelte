@@ -45,27 +45,14 @@
   }
 </script>
 
-{#if sync.status?.signedIn}<div class="sync-words" aria-live="polite">
-    <span data-text-surface="flat"
-      >{!sync.status.unlocked
-        ? "Getting your key from your other computer"
-        : sync.status.lastSync
-          ? `Synced ${new Date(sync.status.lastSync * 1000).toLocaleTimeString()}`
-          : "Vocabulary ready to sync"}</span
-    ><button
-      class="button"
-      disabled={sync.busy || !sync.status.unlocked}
-      onclick={now}>Sync now</button
-    >
-  </div>{/if}
 <MeetingSyncNotice />
 {#if sync.error && sync.status?.signedIn}<p role="alert">{sync.error}</p>{/if}
-{#each conflicts as conflict}<div class="stock paper-card sync-conflict">
+{#each conflicts as conflict}<div class="stock paper-card ui-card sync-conflict">
     <p>
       Edited on two devices: {conflict.heard}. Your version: {conflict.written}
     </p>
     <button
-      class="button"
+      class="button small"
       disabled={sync.busy}
       onclick={async () => {
         await runSync("use_local", { id: conflict.id, confirmed: true });
@@ -73,17 +60,27 @@
       }}>Use this device’s version</button
     >
   </div>{/each}
+{#if sync.status?.signedIn}<div
+    class="list-footer sync-words"
+    aria-live="polite"
+  >
+    <span data-text-surface="flat"
+      >{!sync.status.unlocked
+        ? "Getting your key from your other computer"
+        : sync.status.lastSync
+          ? `Synced ${new Date(sync.status.lastSync * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+          : "Vocabulary ready to sync"}</span
+    ><button
+      type="button"
+      class="text-action"
+      disabled={sync.busy || !sync.status.unlocked}
+      onclick={now}>Sync now</button
+    >
+  </div>{/if}
 
 <style>
-  .sync-words {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    margin-bottom: 18px;
-  }
   .sync-conflict {
     padding: 18px;
-    margin-bottom: 18px;
+    margin: 14px 0;
   }
 </style>

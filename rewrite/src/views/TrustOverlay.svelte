@@ -1,25 +1,19 @@
 <script lang="ts">
-  // Draws doubtful-word marks over another app's text field, the popover
-  // (card or strip), the fallback chip and panel. Everything it draws is
-  // reported as the native window's hit region; the rest of the screen stays
-  // click-through. It never takes focus unless the keyboard flow asks.
+  // Draws doubtful-word marks over another app's text field and the inline
+  // popover (card or strip). Everything it draws is reported as the native
+  // window's hit region; the rest of the screen stays click-through. It never
+  // takes focus unless the keyboard flow asks.
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import paper from "../brand/material/paper-stock-seamless.png";
-  import symbol from "../brand/marks/sonojot-symbol-compact-pine.svg";
-  import symbolLight from "../brand/marks/sonojot-symbol-compact-white.svg";
   import {
     autoplays,
     decodePcm,
     describe,
     heading,
     optionsFor,
-    placeChip,
-    placePanel,
     placePopover,
-    segments,
-    showsFullText,
     voiceHint,
     type RectF,
     type TrustMark,
@@ -31,17 +25,12 @@
   let openId = $state<number | null>(null);
   let via = $state<"hover" | "click" | "key" | null>(null);
   let hoverId = $state<number | null>(null);
-  let panelOpen = $state(false);
   let selected = $state(0);
   let live = $state("");
   let playing = $state<number | null>(null);
   let progress = $state(0);
   let popEl = $state<HTMLElement | null>(null);
-  let chipEl = $state<HTMLElement | null>(null);
-  let panelEl = $state<HTMLElement | null>(null);
   let popPos = $state({ x: -9999, y: -9999, above: false, notch: 20 });
-  let chipPos = $state({ x: -9999, y: -9999 });
-  let panelPos = $state({ x: -9999, y: -9999 });
   let lastFocus = 0;
   let lastAnnounce = 0;
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
@@ -49,9 +38,6 @@
 
   const open = $derived(view?.marks.find((m) => m.id === openId) ?? null);
   const options = $derived(open ? optionsFor(open) : []);
-  const openIndex = $derived(
-    view && open ? view.marks.findIndex((m) => m.id === open.id) : -1,
-  );
   const listening = $derived(view?.voice != null && view.voice === openId);
 
   function send(event: Record<string, unknown>) {
@@ -78,18 +64,20 @@
   function apply(next: TrustView) {
     if (view && next.session !== view.session) {
       close(false, true);
-      panelOpen = false;
       clips.clear();
     }
     view = next;
-    if (openId !== null && !next.marks.some((m) => m.id === openId)) {
-      close(false, true);
+    if (openId !== null) {
+      const current = next.marks.find((m) => m.id === openId);
+      // Close the popover quietly when its mark resolves or scrolls out of view.
+      if (!current || current.rects.length === 0) {
+        close(false, true);
+      }
     }
     if (next.focus && next.focus.seq !== lastFocus) {
       lastFocus = next.focus.seq;
       const id = Number(next.focus.text);
-      if (next.mode === "chip") openPanel(id, true);
-      else void openPopover(id, "key");
+      void openPopover(id, "key");
     }
     if (next.announce && next.announce.seq !== lastAnnounce) {
       lastAnnounce = next.announce.seq;
@@ -98,12 +86,11 @@
     void tick().then(layout);
   }
 
-  // Popover and panel grow when their audio loads: place them again.
+  // The popover can grow when its audio loads: place it again.
   $effect(() => {
-    const els = [popEl, panelEl, chipEl].filter((e): e is HTMLElement => !!e);
-    if (!els.length) return;
+    if (!popEl) return;
     const observer = new ResizeObserver(() => layout());
-    for (const el of els) observer.observe(el);
+    observer.observe(popEl);
     return () => observer.disconnect();
   });
 
@@ -111,29 +98,14 @@
   function layout() {
     if (!view) return;
     const area = view.area;
-    if (open && popEl && view.mode === "inline") {
+    if (open && popEl) {
       const a = anchorOf(open);
       if (a) {
-        const p = placePopover(
+        popPos = placePopover(
           a,
           { w: popEl.offsetWidth, h: popEl.offsetHeight },
           area,
           view.popoverStyle,
-        );
-        popPos = p;
-      }
-    }
-    if (view.mode === "chip" && view.chip && chipEl) {
-      chipPos = placeChip(
-        view.chip,
-        { w: chipEl.offsetWidth, h: chipEl.offsetHeight },
-        area,
-      );
-      if (panelEl) {
-        panelPos = placePanel(
-          { ...chipPos, w: chipEl.offsetWidth, h: chipEl.offsetHeight },
-          { w: panelEl.offsetWidth, h: panelEl.offsetHeight },
-          area,
         );
       }
     }
@@ -157,16 +129,18 @@
         });
     }
     // Bridge the gap between a word and its popover so the pointer can cross.
-    if (open && popEl && view?.mode === "inline") {
+    if (open && popEl) {
       const a = anchorOf(open);
       const p = popEl.getBoundingClientRect();
       if (a) {
         const top = Math.min(a.y + a.h, p.bottom);
         const bottom = Math.max(a.y, p.top);
+        const left = Math.min(a.x, p.left + popPos.notch - 8);
+        const right = Math.max(a.x + a.w, p.left + popPos.notch + 22);
         rects.push({
-          x: Math.min(a.x, p.left + popPos.notch - 4),
+          x: left,
           y: Math.min(top, bottom),
-          w: Math.max(a.w, 30),
+          w: Math.max(right - left, 30),
           h: Math.abs(bottom - top) + 2,
         });
       }
@@ -177,6 +151,8 @@
   // ----- popover -----
   async function openPopover(id: number, how: "hover" | "click" | "key") {
     if (!view) return;
+    const mark = view.marks.find((m) => m.id === id);
+    if (!mark || mark.rects.length === 0) return;
     clearTimeout(leaveTimer);
     if (openId !== id) stop();
     openId = id;
@@ -185,13 +161,11 @@
     send({ type: "opened", mark: id, via: how });
     await tick();
     layout();
-    const mark = view.marks.find((m) => m.id === id);
-    if (!mark) return;
     if (how === "key") {
       popEl?.querySelector<HTMLElement>(".opt")?.focus();
       say(describe(mark, view.marks.indexOf(mark), view.marks.length));
     }
-    if (how === "hover" && autoplays(view, mark)) void play(mark.id);
+    if (autoplays(view, mark) && playing !== mark.id) void play(mark.id);
   }
 
   function close(refocus: boolean, quiet = false) {
@@ -227,23 +201,22 @@
     stop();
     if (option.keep) send({ type: "keep", mark: mark.id });
     else send({ type: "choose", mark: mark.id, text: option.text });
-    if (view?.mode === "chip") {
-      // The last spot: the panel and chip go now, without waiting for the
-      // native side to drop the overlay. With more left, it moves on.
-      if (view.marks.length <= 1) {
-        panelOpen = false;
-        close(false, true);
-        panelPos = { x: -9999, y: -9999 };
-        view = { ...view, marks: [] };
-      }
-      return;
-    }
     openId = null;
     via = via === "key" ? "key" : null;
     if (via !== "key") {
       popPos = { x: -9999, y: -9999, above: false, notch: 20 };
       void tick().then(() => requestAnimationFrame(reportRegions));
     }
+  }
+
+  function keepAll() {
+    stop();
+    send({ type: "keepAll" });
+    openId = null;
+    via = null;
+    popPos = { x: -9999, y: -9999, above: false, notch: 20 };
+    say("Kept all words.");
+    void tick().then(() => requestAnimationFrame(reportRegions));
   }
 
   function next(back = false) {
@@ -285,13 +258,8 @@
         return;
       case "Escape":
         event.preventDefault();
-        if (view?.mode === "chip") {
-          closePanel(true);
-          say("Closed.");
-        } else {
-          close(true);
-          say("Closed. The mark stays.");
-        }
+        close(true);
+        say("Closed. The mark stays.");
         return;
       case "Enter": {
         event.preventDefault();
@@ -315,51 +283,6 @@
       void play(mark.id);
     }
   }
-
-  // ----- fallback chip and panel -----
-  async function openPanel(id: number | null, fromKeyboard = false) {
-    if (!view) return;
-    panelOpen = true;
-    const mark = view.marks.find((m) => m.id === id) ?? view.marks[0];
-    if (!mark) return;
-    openId = mark.id;
-    via = fromKeyboard ? "key" : "click";
-    send({ type: "opened", mark: mark.id, via });
-    await tick();
-    layout();
-    // The panel holds the keyboard either way, so K, 1-3 and Escape work.
-    panelEl?.querySelector<HTMLElement>(".opt")?.focus();
-    if (fromKeyboard) {
-      say(
-        `Your last dictation. ${describe(mark, view.marks.indexOf(mark), view.marks.length)}`,
-      );
-    }
-    if (autoplays(view, mark) && playing !== mark.id) void play(mark.id);
-  }
-
-  // Closing the panel also clears the chip: the native side hides it and the
-  // tray item "Check doubtful words" brings it back.
-  function closePanel(refocus: boolean) {
-    const wasOpen = openId !== null;
-    panelOpen = false;
-    close(refocus);
-    panelPos = { x: -9999, y: -9999 };
-    if (wasOpen && view) view = { ...view, marks: [] };
-  }
-
-  $effect(() => {
-    // Keep the panel on an open mark as marks resolve.
-    if (
-      panelOpen &&
-      view &&
-      openId !== null &&
-      !view.marks.some((m) => m.id === openId)
-    ) {
-      const first = view.marks[0];
-      if (first) void openPanel(first.id, via === "key");
-      else closePanel(false);
-    }
-  });
 
   // ----- audio -----
   type Clip = {
@@ -502,7 +425,7 @@
   class:reduce={reduceMotion}
   style={`--paper: url(${paper})`}
 >
-  {#if view?.mode === "inline"}
+  {#if view}
     {#each view.marks as mark (mark.id)}
       {#if mark.kind === "word"}
         {#each mark.rects as r, i (i)}
@@ -555,7 +478,7 @@
     {/each}
   {/if}
 
-  {#if view?.mode === "inline" && open}
+  {#if view && open && open.rects.length > 0}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       bind:this={popEl}
@@ -578,17 +501,20 @@
         <div class="head sj-flat">
           <span
             >{heading(open).lead}
-            <b class="sj-raised">{heading(open).word}</b></span
+            {#if heading(open).word}<b class="sj-raised">{heading(open).word}</b
+              >{/if}</span
           >
           <span class="corner">
             {#if view.marks.length > 1}<button
                 class="icon"
+                type="button"
                 aria-label="Next doubtful word"
                 title="Next doubtful word"
                 onclick={() => next(false)}>›</button
               >{/if}
             <button
               class="icon"
+              type="button"
               aria-label="Close"
               title="Close"
               onclick={() => close(via === "key")}>×</button
@@ -604,6 +530,8 @@
           <div class="wave">
             <button
               class="play"
+              type="button"
+              title={playing === open.id ? "Stop" : "Play what you said"}
               aria-label={playing === open.id
                 ? "Stop"
                 : "Play the audio around this word"}
@@ -625,12 +553,22 @@
                   ><path d="M3 1.8v10.4L12 7z" fill="currentColor" /></svg
                 >{/if}
             </button>
-            <canvas
-              width="440"
-              height="80"
-              aria-hidden="true"
-              bind:this={waveEl}
-            ></canvas>
+            <button
+              class="wave-btn"
+              type="button"
+              title={playing === open.id ? "Stop" : "Play what you said"}
+              aria-label={playing === open.id
+                ? "Stop audio"
+                : "Play audio waveform"}
+              onclick={() => void play(open.id)}
+            >
+              <canvas
+                width="440"
+                height="80"
+                aria-hidden="true"
+                bind:this={waveEl}
+              ></canvas>
+            </button>
             <span class="t sj-flat"
               >{seconds[open.id] ? `${seconds[open.id].toFixed(1)}s` : ""}</span
             >
@@ -638,19 +576,23 @@
         {/if}
         <div class="opts" role="listbox" aria-label="Choices">
           {#each options as option, i (i)}
-            {#if option.keep}<div class="sep"></div>{/if}
+            {#if option.keep && i > 0}<div class="sep"></div>{/if}
             <button
               class="opt"
               class:keep={option.keep}
+              type="button"
               role="option"
               aria-selected={selected === i}
               aria-label={option.keep
                 ? option.label
                 : `${option.label}, ${option.source}`}
               onclick={() => choose(open, option)}
-              ><span class="n">{option.keep ? "K" : i + 1}</span><span
-                >{option.label}</span
-              ><span class="src">{option.keep ? "" : option.source}</span
+              ><span class="n" aria-hidden="true"
+                >{#if via === "key"}{option.keep
+                    ? "K"
+                    : i + 1}{:else if option.keep}✓{:else}→{/if}</span
+              ><span>{option.label}</span><span class="src"
+                >{option.keep ? "" : option.source}</span
               ></button
             >
           {/each}
@@ -659,12 +601,25 @@
             {view.message.text}
           </p>{/if}
         <div class="foot sj-flat">
-          <span>{voiceHint(view.dictationKey, view.hold)}</span>
+          <span
+            >{voiceHint(
+              view.dictationKey,
+              view.hold,
+              open.alternatives.length > 0,
+            )}</span
+          >
+          {#if view.marks.length > 1}<button
+              class="keep-all"
+              type="button"
+              onclick={keepAll}>Keep all</button
+            >{/if}
         </div>
       {:else}
         <span class="ring">
           <button
             class="play"
+            type="button"
+            title={playing === open.id ? "Stop" : "Play what you said"}
             aria-label={playing === open.id
               ? "Stop"
               : "Play the audio around this word"}
@@ -700,10 +655,11 @@
             ><i></i><i></i><i></i></span
           >{/if}
         {#each options as option, i (i)}
-          {#if option.keep}<span class="vsep"></span>{/if}
+          {#if option.keep && i > 0}<span class="vsep"></span>{/if}
           <button
             class="opt"
             class:keep={option.keep}
+            type="button"
             role="option"
             aria-selected={selected === i}
             aria-label={option.keep
@@ -717,158 +673,23 @@
         {/each}
         {#if view.marks.length > 1}<span class="vsep"></span><button
             class="icon"
+            type="button"
             aria-label="Next doubtful word"
             title="Next doubtful word"
             onclick={() => next(false)}>›</button
           >{/if}
+        <button
+          class="icon"
+          type="button"
+          aria-label="Close"
+          title="Close"
+          onclick={() => close(via === "key")}>×</button
+        >
         {#if view.message}<span class="msg" role="alert"
             >{view.message.text}</span
           >{/if}
       {/if}
     </div>
-  {/if}
-
-  {#if view?.mode === "chip" && view.chip && view.marks.length}
-    <button
-      bind:this={chipEl}
-      data-region
-      class="chip sj"
-      aria-label="Words to check in your last dictation"
-      style={`left:${chipPos.x}px;top:${chipPos.y}px`}
-      onmouseenter={() => send({ type: "chipHover" })}
-      onclick={() => (panelOpen ? closePanel(true) : void openPanel(null))}
-    >
-      <img class="sym" src={view.hostDark ? symbolLight : symbol} alt="" />{view
-        .marks.length} to check
-    </button>
-    {#if panelOpen && open}
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <div
-        bind:this={panelEl}
-        data-region
-        class="fbp sj"
-        class:listening
-        role="dialog"
-        tabindex="-1"
-        aria-label="Words to check"
-        style={`left:${panelPos.x}px;top:${panelPos.y}px`}
-        onkeydown={(e) => keys(e, open)}
-      >
-        <div class="head sj-flat">
-          <span>Your last dictation · {view.marks.length} to check</span>
-          <span class="corner"
-            >{#if view.marks.length > 1}<button
-                class="icon"
-                aria-label="Next doubtful word"
-                title="Next doubtful word"
-                onclick={() => next(false)}>›</button
-              >{/if}<button
-              class="icon"
-              aria-label="Close"
-              title="Close"
-              onclick={() => closePanel(true)}>×</button
-            ></span
-          >
-        </div>
-        {#if showsFullText(view)}
-          <div class="fbtext">
-            {#each segments(view.text, view.marks) as part, i (i)}
-              {#if part.mark}
-                {@const m = part.mark}
-                {#if m.kind === "gap"}<button
-                    class="g-on"
-                    class:g-sel={m.id === openId}
-                    aria-label={`Possible missing word after ${m.heard}`}
-                    onclick={() => void openPanel(m.id)}
-                    ><span class="g-caret" aria-hidden="true"></span></button
-                  >{:else}<button
-                    class="w-on"
-                    class:w-sel={m.id === openId}
-                    aria-label={m.heard}
-                    onclick={() => void openPanel(m.id)}>{part.text}</button
-                  >{/if}
-              {:else}{part.text}{/if}
-            {/each}
-          </div>
-        {/if}
-        <div class="head sj-flat sub">
-          <span
-            >{heading(open).lead}
-            <b class="sj-raised">{heading(open).word}</b></span
-          >
-        </div>
-        <div class="listen" aria-hidden={!listening}>
-          <i></i><i></i><i></i><span
-            >Listening. Say the word, or say “keep”.</span
-          >
-        </div>
-        {#if open.hasAudio}
-          <div class="wave">
-            <button
-              class="play"
-              aria-label={playing === open.id
-                ? "Stop"
-                : "Play the audio around this word"}
-              onclick={() => void play(open.id)}
-            >
-              {#if playing === open.id}<svg
-                  viewBox="0 0 14 14"
-                  aria-hidden="true"
-                  ><rect
-                    x="2.5"
-                    y="2.5"
-                    width="9"
-                    height="9"
-                    rx="1.5"
-                    fill="currentColor"
-                  /></svg
-                >
-              {:else}<svg viewBox="0 0 14 14" aria-hidden="true"
-                  ><path d="M3 1.8v10.4L12 7z" fill="currentColor" /></svg
-                >{/if}
-            </button>
-            <canvas
-              width="440"
-              height="80"
-              aria-hidden="true"
-              bind:this={waveEl}
-            ></canvas>
-          </div>
-        {/if}
-        <div class="opts" role="listbox" aria-label="Choices">
-          {#each options as option, i (i)}
-            {#if option.keep}<div class="sep"></div>{/if}
-            <button
-              class="opt"
-              class:keep={option.keep}
-              role="option"
-              aria-selected={selected === i}
-              aria-label={option.keep
-                ? option.label
-                : `${option.label}, ${option.source}`}
-              onclick={() => choose(open, option)}
-              ><span class="n">{option.keep ? "K" : i + 1}</span><span
-                >{option.label}</span
-              ><span class="src">{option.keep ? "" : option.source}</span
-              ></button
-            >
-          {/each}
-        </div>
-        {#if view.message}<p class="msg" role="alert">
-            {view.message.text}
-          </p>{/if}
-        <p class="how sj-flat">
-          {view.retype
-            ? "This app hides where its text is. A fix is typed in for you while the cursor is still at the end of the dictation."
-            : view.canReplace
-              ? "This app hides where its text is. A fix is typed into the app for you."
-              : "This app can't be changed from here. A choice is copied for you to paste."}
-        </p>
-        <div class="foot sj-flat">
-          <span>{voiceHint(view.dictationKey, view.hold)}</span>
-        </div>
-      </div>
-    {/if}
   {/if}
   <div class="sr-only" aria-live="polite">{live}</div>
 </div>
@@ -1060,12 +881,10 @@
     font-size: 15px;
     color: var(--sj-ink);
   }
-  .head.sub {
-    margin-top: 2px;
-  }
   .corner {
     display: flex;
     gap: 2px;
+    flex: none;
   }
   .icon {
     width: 24px;
@@ -1103,6 +922,10 @@
     display: grid;
     place-items: center;
   }
+  .play:focus-visible {
+    outline: 2px solid var(--sj-focus);
+    outline-offset: 2px;
+  }
   .play:disabled {
     opacity: 0.4;
     cursor: default;
@@ -1120,9 +943,22 @@
     gap: 8px;
     margin-bottom: 8px;
   }
-  .wave canvas {
+  .wave-btn {
     flex: 1;
     min-width: 0;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    border-radius: 6px;
+  }
+  .wave-btn:focus-visible {
+    outline: 2px solid var(--sj-focus);
+    outline-offset: 2px;
+  }
+  .wave canvas {
+    width: 100%;
     height: 40px;
     border-radius: 6px;
     background: var(--sj-well);
@@ -1186,8 +1022,31 @@
     margin: 4px 6px;
   }
   .foot {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
     font-size: 12px;
     margin: 6px 4px 0;
+  }
+  .keep-all {
+    flex: none;
+    border: 0;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--sj-soft);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .keep-all:hover {
+    color: var(--sj-ink);
+    text-decoration: underline;
+  }
+  .keep-all:focus-visible {
+    outline: 2px solid var(--sj-focus);
+    outline-offset: 1px;
+    color: var(--sj-ink);
   }
   .msg {
     font-size: 13px;
@@ -1278,108 +1137,6 @@
     width: 1px;
     height: 18px;
     background: var(--sj-line);
-  }
-  .chip {
-    position: absolute;
-    border-radius: 99px;
-    padding: 4px 11px 4px 6px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border: 0;
-    cursor: pointer;
-    font-size: 13.5px;
-    white-space: nowrap;
-  }
-  .chip .sym {
-    width: 18px;
-    height: 18px;
-  }
-  .chip:focus-visible {
-    outline: 2px solid var(--sj-focus);
-    outline-offset: 2px;
-  }
-  .fbp {
-    position: absolute;
-    width: 360px;
-    border-radius: 12px;
-    padding: 12px;
-  }
-  .fbtext {
-    font-size: 15px;
-    line-height: 1.6;
-    padding: 8px 10px;
-    border-radius: 8px;
-    background: var(--sj-well);
-    box-shadow: inset 0 2px 2px
-      color-mix(in srgb, var(--sj-contact) 50%, transparent);
-    margin: 6px 0 10px;
-    max-height: 140px;
-    overflow: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--sj-soft) transparent;
-    white-space: pre-wrap;
-  }
-  .fbtext button {
-    border: 0;
-    padding: 0;
-    background: none;
-    cursor: pointer;
-    font: inherit;
-    color: inherit;
-  }
-  .w-on {
-    background: linear-gradient(to top, var(--mk-fill) 0 52%, transparent 52%);
-    border-bottom: 2px solid var(--mk-edge) !important;
-  }
-  .w-sel {
-    outline: 2px solid var(--sj-focus);
-    outline-offset: 1px;
-    border-radius: 2px;
-  }
-  /* A missing-word spot in the panel text: the same ochre insertion caret as
-     on the host's words, a thin upright with a small wedge at the baseline,
-     narrow enough to sit between a word and its comma without touching.
-     The selected spot gets the mark fill, never an empty outlined box. */
-  .fbtext .g-on {
-    display: inline-block;
-    position: relative;
-    width: 9px;
-    height: 1.15em;
-    margin: 0 1px;
-    vertical-align: -0.22em;
-    border-radius: 2px;
-  }
-  .g-caret {
-    position: absolute;
-    left: 50%;
-    top: 0.08em;
-    bottom: 0.2em;
-    width: 2px;
-    margin-left: -1px;
-    background: var(--mk-edge);
-    border-radius: 1px;
-  }
-  .g-caret::after {
-    content: "";
-    position: absolute;
-    left: -3px;
-    bottom: -0.22em;
-    border: 4px solid transparent;
-    border-top-width: 0;
-    border-bottom-color: var(--mk-edge);
-  }
-  .fbtext .g-on.g-sel,
-  .fbtext .g-on:hover {
-    background: var(--mk-fill);
-  }
-  .fbtext .g-on:focus-visible {
-    outline: 2px solid var(--sj-focus);
-    outline-offset: 1px;
-  }
-  .how {
-    font-size: 12px;
-    margin: 6px 0 0;
   }
   @media (prefers-reduced-motion: reduce) {
     .trust *,

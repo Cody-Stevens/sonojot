@@ -3,6 +3,31 @@ use super::{
     check_budget, edit_with_revision, protected_lexeme, tokens_with_budget, AppliedEdit,
     Checkpoint, Vocabulary,
 };
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
+
+fn cached_alias_regex(pattern: &str) -> Option<regex::Regex> {
+    static CACHE: OnceLock<Mutex<HashMap<String, regex::Regex>>> = OnceLock::new();
+    let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(guard) = map.lock() {
+        if let Some(re) = guard.get(pattern) {
+            return Some(re.clone());
+        }
+    }
+    let compiled = regex::RegexBuilder::new(&format!(r"\b{pattern}\b"))
+        .case_insensitive(true)
+        .build()
+        .ok()?;
+    if let Ok(mut guard) = map.lock() {
+        if guard.len() >= 512 {
+            guard.clear();
+        }
+        guard.insert(pattern.to_owned(), compiled.clone());
+    }
+    Some(compiled)
+}
 
 /// The alias spelling is explicit user confirmation, never a fuzzy guess.
 pub(crate) fn valid_alias(alias: &str) -> bool {
@@ -67,10 +92,7 @@ pub(super) fn confirmed_alias_edits(
                 })
                 .collect::<Vec<_>>()
                 .join(r"(?:\s+dot\s+|\.)");
-            let Ok(matcher) = regex::RegexBuilder::new(&format!(r"\b{pattern}\b"))
-                .case_insensitive(true)
-                .build()
-            else {
+            let Some(matcher) = cached_alias_regex(&pattern) else {
                 continue;
             };
             for found in matcher.find_iter(source) {

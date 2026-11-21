@@ -360,6 +360,7 @@ struct Job {
     audio: Option<AudioBacklog>,
     /// Display-only helper; dropped with the job (see `live_preview`).
     preview: Option<crate::live_preview::Preview>,
+    primary_preview: Option<Arc<crate::parakeet_preview::Display>>,
     _punctuation_prewarm: Option<crate::punctuation::Prewarm>,
     // Drop last, after the capture and audio drain owners.
     _update_activity: resource_manager::UpdateActivityLease,
@@ -698,14 +699,19 @@ impl Engine {
         let meter = capture.level_handle();
         let meter_stop = control.capture_stop.clone();
         let meter_callback = self.inner.callback.clone();
+        let primary_preview = (options.live_preview && crate::parakeet_preview::supported(&options.asr_model))
+            .then(|| Arc::new(crate::parakeet_preview::Display::new(id, self.inner.callback.clone())));
+        let preview_clock = primary_preview.clone();
         thread::spawn(move || {
             while !meter_stop.load(Ordering::Acquire) {
+                if let Some(display) = &preview_clock { display.expire(); }
                 meter_callback(Event::Level {
                     session_id: id,
                     rms: f32::from_bits(meter.load(Ordering::Relaxed)),
                 });
                 thread::sleep(Duration::from_millis(100));
             }
+            if let Some(display) = &preview_clock { display.clear(); }
             meter_callback(Event::Level {
                 session_id: id,
                 rms: 0.0,
@@ -721,6 +727,7 @@ impl Engine {
                 capture,
                 audio: Some(audio),
                 preview,
+                primary_preview,
                 _punctuation_prewarm: punctuation_prewarm,
             }))
             .is_err()
@@ -938,12 +945,30 @@ fn proofread_dictation(
             model: options.proofreader.model.clone(),
         }
     } else if let Some(store) = options.store.as_ref() {
-        // Send explicit written forms only. Learned history, aliases, app
-        // identities and local scope evidence stay on this computer.
-        let mut vocabulary: Vec<String> = options.vocabulary.iter()
+        let is_local_proofreader = options.proofreader.model == crate::optional_llm::PROOFREADER_ID;
+        // Confirmed written forms from options.vocabulary; local proofreader also gets
+        // active local hints from the lexicon (never sent to online proofreaders).
+        let mut pool: Vec<String> = options
+            .vocabulary
+            .iter()
             .filter(|entry| entry.enabled && !entry.written.trim().is_empty())
             .map(|entry| entry.written.clone())
             .collect();
+        if is_local_proofreader {
+            if let Ok(plan) = store.lexicon_plan(
+                &cleaned.text,
+                crate::domain::CleanupMode::Clean,
+                None,
+            ) {
+                pool.extend(plan.local_proofreader_hints);
+            }
+        }
+        let cap = if is_local_proofreader {
+            crate::lexicon::MAX_LOCAL_PROOFREADER_HINTS
+        } else {
+            crate::lexicon::MAX_ONLINE_PROOFREADER_HINTS
+        };
+        let mut vocabulary = crate::lexicon::relevance_filter_hints(&pool, &cleaned.text, cap);
         vocabulary.sort();
         vocabulary.dedup();
         on_cleaning();
@@ -1200,6 +1225,8 @@ fn run_job(
     let active = recognizer.as_mut().unwrap();
     let model_id = active.model_id.clone();
     let mut stream = active.stream_interruptible(&control.cancel)?;
+    let primary_preview = job.primary_preview.is_some();
+    let mut last_commit = None;
     *failure = FailureKind::StreamFailed;
     let mut last_update = Instant::now();
     let mut silence_start = Duration::ZERO;
@@ -1233,6 +1260,11 @@ fn run_job(
                 // The backlog and any saved source retain captured audio.
                 // Only the owned ASR input is changed, on the capture timeline.
                 job.capture.filter_asr(&mut samples);
+                let preview_current = || primary_preview
+                    && !control.stop.load(Ordering::Acquire)
+                    && control.started.elapsed().saturating_sub(captured_at)
+                        < crate::parakeet_preview::MAX_CAPTURE_LAG;
+                stream.allow_preview(preview_current());
                 if kept_audio.is_some() || trust_audio.is_some() {
                     // Keep the same post-filter, pre-VAD 16 kHz mono input fed to ASR,
                     // so word times line up with the held audio.
@@ -1262,12 +1294,19 @@ fn run_job(
                 if rms >= 0.008 {
                     silence_start = captured_at;
                 }
-                if last_update.elapsed() >= Duration::from_millis(650)
+                // A primary decode or worker recovery can take time. Reject
+                // a draft if capture moved on while this request was running.
+                stream.allow_preview(preview_current());
+                if (primary_preview || last_update.elapsed() >= Duration::from_millis(650))
                     && !control.stop.load(Ordering::Acquire)
                 {
                     let text = stream.update()?;
                     if control.cancel.load(Ordering::Acquire) {
                         return Err("Dictation cancelled.".into());
+                    }
+                    if primary_preview && last_commit != stream.committed_seconds() {
+                        last_commit = stream.committed_seconds();
+                        if let Some(display) = &job.primary_preview { display.clear(); }
                     }
                     if text != last_interim {
                         if !first_result && !text.is_empty() {
@@ -1293,6 +1332,10 @@ fn run_job(
                             None => publish(),
                         }
                         last_interim = text;
+                    }
+                    if let Some(display) = &job.primary_preview {
+                        display.publish(stream.preview_text(), control.started + captured_at
+                            + crate::parakeet_preview::MAX_CAPTURE_LAG);
                     }
                     last_update = Instant::now();
                 }
@@ -1321,6 +1364,8 @@ fn run_job(
         }
     }
     // Final recognition replaces the draft; stop decoding it now.
+    stream.allow_preview(false);
+    if let Some(display) = &job.primary_preview { display.clear(); }
     if let Some(preview) = &job.preview {
         preview.stop();
     }
@@ -1463,12 +1508,24 @@ fn run_job(
             original_text: guarded_text.clone(),
         });
     }
-    // Learned cleanup vocabulary: full raw utterance + mapped mode, ≤1536
-    // budget, explicit + confirmed-scoped only. Never at capture start, never
-    // per-chunk, never to cloud. Merged with explicit vocabulary for this
-    // cleanup request only.
+    // Typed lexicon plan: full raw utterance + mapped mode. Scoped confirmed
+    // entries stay in confirmed_structured; local active hints/aliases apply
+    // only according to mode and risk tier.
+    let domain_mode = match effective_mode {
+        cleanup::Mode::Clean => crate::domain::CleanupMode::Clean,
+        cleanup::Mode::Original => crate::domain::CleanupMode::Original,
+        cleanup::Mode::Format => crate::domain::CleanupMode::Format,
+    };
+    let (mut request_vocabulary, request_confirmed) = if let Some(store) = job.options.store.as_ref() {
+        match store.lexicon_plan(guarded_text, domain_mode, None) {
+            Ok(plan) => (plan.cleanup_vocabulary, plan.confirmed_structured),
+            Err(_) => (job.options.vocabulary.clone(), job.options.confirmed_vocabulary.clone()),
+        }
+    } else {
+        (job.options.vocabulary.clone(), job.options.confirmed_vocabulary.clone())
+    };
+    // Preserve legacy scoped learning.json support when present.
     let learned = learned_cleanup_for_job(&job.options.store, guarded_text, effective_mode);
-    let mut request_vocabulary = job.options.vocabulary.clone();
     request_vocabulary.extend(learned);
     // Stopping the optional model still keeps the deterministic first stage.
     // Cancellation remains live and wins before any publication.
@@ -1479,7 +1536,7 @@ fn run_job(
         text,
         effective_mode,
         &request_vocabulary,
-        &job.options.confirmed_vocabulary,
+        &request_confirmed,
         effective_model,
         job.options.policy,
         &control.cancel,
@@ -1487,6 +1544,17 @@ fn run_job(
         job.options.written_form,
         job.options.punctuation_model,
     ));
+    if let Some(store) = job.options.store.as_ref() {
+        let applied: Vec<(String, String)> = cleaned
+            .edits
+            .iter()
+            .filter(|e| e.origin == "confirmed_vocabulary_occurrence")
+            .map(|e| (e.source.clone(), e.replacement.clone()))
+            .collect();
+        if !applied.is_empty() {
+            store.note_applied_pairs(&applied);
+        }
+    }
     if smart_unavailable {
         cleaned.pre_model_text = Some(cleaned.text.clone());
         if cleaned.publication_stage.is_none() {

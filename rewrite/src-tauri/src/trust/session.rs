@@ -13,7 +13,7 @@ pub enum Status {
     Open,
     Kept,
     Replaced,
-    /// The user changed the word themselves.
+    /// The user changed or deleted the word themselves.
     Edited,
 }
 
@@ -23,7 +23,7 @@ pub enum Visibility {
     Shown,
     /// The user moved to another field or window; marks come back with them.
     Away,
-    /// Hidden on request or after the idle limit; "bring back" restores them.
+    /// Hidden on request; "Check doubtful words" restores them.
     Dismissed,
 }
 
@@ -60,20 +60,11 @@ impl End {
     }
 }
 
-/// How long marks stay without the user coming back to the field.
-pub const AWAY_LIMIT: Duration = Duration::from_secs(10 * 60);
-/// Dismissed marks can be brought back for this long.
+/// Dismissed marks can be brought back for this long. Marks hidden merely
+/// because the user left the field (`Visibility::Away`) never expire on a
+/// timer: they come back whenever the user returns to the field until
+/// resolved or their word no longer exists.
 pub const DISMISSED_LIMIT: Duration = Duration::from_secs(30 * 60);
-/// The fallback chip hides itself after this long untouched. Marks drawn on
-/// the words follow the field instead; a chip floats over the host app, so
-/// it must not stay. "Check doubtful words" brings it back.
-pub const CHIP_LIMIT: Duration = Duration::from_secs(12);
-
-/// True when an untouched chip shown (or last hovered) at `since` should go.
-/// An open panel, a voice fix or the keyboard flow holds it.
-pub fn chip_due(since: Instant, now: Instant, held: bool) -> bool {
-    !held && now.saturating_duration_since(since) >= CHIP_LIMIT
-}
 
 pub struct Session {
     pub id: u64,
@@ -124,6 +115,20 @@ impl Session {
 
     pub fn keep(&mut self, id: u32) -> bool {
         self.resolve(id, Status::Kept)
+    }
+
+    pub fn keep_all(&mut self) -> usize {
+        let mut count = 0;
+        for m in &mut self.marks {
+            if m.status == Status::Open {
+                m.status = Status::Kept;
+                count += 1;
+            }
+        }
+        if count > 0 {
+            self.audio = None;
+        }
+        count
     }
 
     pub fn edited(&mut self, id: u32) -> bool {
@@ -200,8 +205,7 @@ impl Session {
 
     pub fn expired(&self, now: Instant) -> bool {
         match self.visibility {
-            Visibility::Shown => false,
-            Visibility::Away => now.duration_since(self.since) >= AWAY_LIMIT,
+            Visibility::Shown | Visibility::Away => false,
             Visibility::Dismissed => now.duration_since(self.since) >= DISMISSED_LIMIT,
         }
     }
@@ -300,6 +304,15 @@ mod tests {
     }
 
     #[test]
+    fn keep_all_resolves_every_open_mark_and_drops_audio() {
+        let mut s = session();
+        assert_eq!(s.keep_all(), 3);
+        assert!(s.finished());
+        assert!(!s.has_audio());
+        assert_eq!(s.keep_all(), 0);
+    }
+
+    #[test]
     fn replacing_a_word_moves_the_marks_after_it() {
         let mut s = session();
         assert!(s.replaced(1, "Kestrel"));
@@ -309,32 +322,22 @@ mod tests {
     }
 
     #[test]
-    fn leaving_and_returning_and_bringing_back() {
+    fn leaving_and_returning_never_expires_marks() {
         let mut s = session();
         let t0 = Instant::now();
         s.left_at(t0);
         assert_eq!(s.visibility, Visibility::Away);
+        assert!(!s.expired(t0 + Duration::from_secs(3600)), "away marks wait for the user to return");
         assert!(s.returned());
         assert_eq!(s.visibility, Visibility::Shown);
         s.dismiss(t0);
         assert!(!s.returned(), "dismissed marks stay hidden when the user comes back");
+        assert!(s.expired(t0 + DISMISSED_LIMIT));
         assert!(s.restore());
         assert_eq!(s.visibility, Visibility::Shown);
         assert!(!s.expired(t0 + Duration::from_secs(3600)), "shown marks never expire");
-        s.left_at(t0);
-        assert!(!s.expired(t0 + Duration::from_secs(60)));
-        assert!(s.expired(t0 + AWAY_LIMIT));
         s.edited(1);
         assert_eq!(s.get(1).unwrap().status, Status::Edited);
-    }
-
-    #[test]
-    fn the_chip_goes_after_a_short_while_unless_held() {
-        let t0 = Instant::now();
-        assert!(!chip_due(t0, t0 + Duration::from_secs(5), false));
-        assert!(chip_due(t0, t0 + CHIP_LIMIT, false));
-        assert!(!chip_due(t0, t0 + Duration::from_secs(600), true), "an open panel keeps it");
-        assert!(CHIP_LIMIT <= Duration::from_secs(20), "never lingers");
     }
 
     #[test]

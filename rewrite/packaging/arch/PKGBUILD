@@ -2,10 +2,17 @@
 # Run `makepkg -si` in this directory, or use rewrite/scripts/linux/install.sh.
 # Tauri builds its Debian package, and this repackages that file tree for
 # pacman, so the layout matches the tested bundle.
+#
+# Releases: `release.py build-linux` sets SONOJOT_DEB to the .deb it built in
+# the Ubuntu 22.04 container, which skips build(), and runs makepkg on the host.
 
 _repo="$(realpath "$startdir/../../..")"
 pkgname=sonojot
-pkgver=$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' "$_repo/rewrite/package.json" | head -1)
+# The app version, e.g. 0.28.10 or 0.28.10-nightly.202611170800. pacman forbids
+# '-' in pkgver; dropping it keeps a nightly below its stable release
+# (vercmp 0.28.10nightly.202611170800 0.28.10 = -1) and above the previous one.
+_appver=$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' "$_repo/rewrite/package.json" | head -1)
+pkgver=${_appver//-/}
 pkgrel=1
 pkgdesc="Private local dictation and meeting notes"
 arch=('x86_64')
@@ -21,23 +28,33 @@ optdepends=(
   'hyprland: global dictation shortcut and automatic paste'
 )
 makedepends=('cargo' 'nodejs' 'npm' 'libarchive')
-options=('!lto' '!debug')
+# The Tauri binary is already stripped; keep it byte for byte as in the .deb.
+options=('!lto' '!debug' '!strip')
 install=sonojot.install
 
 build() {
+  [ -n "${SONOJOT_DEB:-}" ] && return 0
   cd "$_repo/rewrite"
   npm ci --no-audit --no-fund
   npx tauri build --bundles deb
 }
 
 package() {
-  local deb
-  deb=$(ls -t "$_repo"/rewrite/src-tauri/target/release/bundle/deb/SonoJot_"${pkgver}"_amd64.deb | head -1)
-  [ -f "$deb" ] || { echo "Tauri did not produce a .deb for $pkgver" >&2; return 1; }
+  local deb="${SONOJOT_DEB:-}"
+  if [ -z "$deb" ]; then
+    deb=$(ls -t "$_repo"/rewrite/src-tauri/target/release/bundle/deb/SonoJot_"${_appver}"_amd64.deb | head -1)
+  fi
+  [ -f "$deb" ] || { echo "Tauri did not produce a .deb for $_appver" >&2; return 1; }
   mkdir -p "$srcdir/deb"
   bsdtar -xf "$deb" -C "$srcdir/deb" data.tar.gz
   bsdtar -xf "$srcdir/deb/data.tar.gz" -C "$pkgdir"
   # A lowercase name for terminals and compositor binds.
   ln -s SonoJot "$pkgdir/usr/bin/sonojot"
   install -Dm644 "$_repo/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  # Tells SonoJot that pacman owns this install, so its Update button installs
+  # updates with pacman. The binary is Tauri's Deb bundle, so without this it
+  # would look like a dpkg install.
+  install -dm755 "$pkgdir/usr/share/sonojot"
+  printf 'pacman\n' > "$pkgdir/usr/share/sonojot/install-source"
+  chmod 644 "$pkgdir/usr/share/sonojot/install-source"
 }

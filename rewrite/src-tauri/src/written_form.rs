@@ -1,6 +1,9 @@
 //! Conservative spoken-to-written rendering. Span offsets are word indices
 //! (end-exclusive); `apply` retains the original bytes outside replacements.
 //! BIO input uses the same `split_whitespace` word boundaries as `spans`.
+//!
+//! crates/sonojot-mobile compiles this module and its submodules too: keep them free of
+//! `crate::` paths and desktop-only dependencies.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;

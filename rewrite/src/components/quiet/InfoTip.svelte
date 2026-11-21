@@ -102,9 +102,9 @@
     align-items: center;
     justify-content: center;
     flex: none;
-    width: 22px;
-    height: 22px;
-    margin: 0 2px;
+    width: 19px;
+    height: 19px;
+    margin: 0 2px 0 5px;
     padding: 0;
     vertical-align: middle;
     border: 1px solid var(--line);
@@ -113,11 +113,12 @@
     box-shadow: none;
     color: var(--soft-ink);
     font-family: inherit;
-    font-size: 13px;
+    font-size: 12px;
     font-style: italic;
     font-weight: 600;
     line-height: 1;
     cursor: pointer;
+    position: relative;
   }
   .info-button:hover,
   .info-button[aria-expanded="true"] {
@@ -133,9 +134,6 @@
     content: "";
     position: absolute;
     inset: -10px;
-  }
-  .info-button {
-    position: relative;
   }
   .info-note {
     position: fixed;

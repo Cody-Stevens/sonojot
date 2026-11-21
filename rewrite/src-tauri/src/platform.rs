@@ -134,7 +134,13 @@ pub(crate) fn trust_target(target: &PasteTarget) -> crate::trust::locator::Targe
     }
     #[cfg(target_os = "linux")]
     {
-        crate::trust::locator::Target { focused: 0, window: 0, process: target.pid as u32 }
+        // The Hyprland window address, so focus can be handed back to it.
+        let window = target
+            .address
+            .strip_prefix("0x")
+            .and_then(|hex| usize::from_str_radix(hex, 16).ok())
+            .unwrap_or(0);
+        crate::trust::locator::Target { focused: 0, window, process: target.pid as u32 }
     }
 }
 
@@ -1573,6 +1579,7 @@ mod native {
         let window = hyprland::Window {
             address: target.address.clone(),
             pid: target.pid,
+            title: String::new(),
             class: String::new(),
             tags: if target.terminal { vec!["terminal".into()] } else { Vec::new() },
         };
@@ -1819,6 +1826,14 @@ mod native {
         }
     }
 
+    #[cfg(all(test, target_os = "linux"))]
+    #[test]
+    fn appimage_login_entry_keeps_the_outer_path() {
+        let desktop = registration_contents(Path::new("/home/user/Applications/SonoJot nightly.AppImage"));
+        assert!(desktop.contains("Exec=\"/home/user/Applications/SonoJot nightly.AppImage\" --startup"));
+        assert!(!desktop.contains(".mount_"));
+    }
+
     #[cfg(all(test, target_os = "macos"))]
     #[test]
     fn login_agent_starts_in_the_menu_bar() {
@@ -1955,10 +1970,15 @@ mod tests {
     }
 
     #[test]
-    fn auto_paste_is_offered_on_windows_and_macos() {
+    fn auto_paste_is_offered_on_supported_desktops() {
         assert_eq!(
             auto_paste_available(),
-            cfg!(windows) || cfg!(target_os = "macos")
+            cfg!(windows) || cfg!(target_os = "macos") || {
+                #[cfg(target_os = "linux")]
+                { crate::hyprland::active() }
+                #[cfg(not(target_os = "linux"))]
+                { false }
+            }
         );
         if cfg!(windows) {
             assert!(paste_permission_granted());

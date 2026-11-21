@@ -143,11 +143,12 @@ export async function showRecentDictations(page) {
 export async function openVocabularyView(page, name) {
   await page
     .getByRole("button", {
-      name: name.startsWith("Learning") ? "Learned" : "Suggested",
-      exact: true,
+      name: /^Review\b/,
     })
     .click();
-  const card = page.getByRole("region", { name });
+  const card = page.getByRole("region", {
+    name: name.startsWith("Learning") ? "Learning settings" : "Words to review",
+  });
   await expect(card).toBeVisible();
   return card;
 }

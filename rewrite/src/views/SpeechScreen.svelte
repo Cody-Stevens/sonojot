@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import SettingRow from "../components/SettingRow.svelte";
+  import SegmentedControl from "../components/quiet/SegmentedControl.svelte";
   import RecommendedSetup from "../components/quiet/RecommendedSetup.svelte";
   import CompareModels from "../components/quiet/CompareModels.svelte";
   import InfoTip from "../components/quiet/InfoTip.svelte";
@@ -44,6 +46,8 @@
   import {
     LIVE_PREVIEW_MODEL,
     LIVE_PREVIEW_SUMMARY,
+    PARAKEET_PREVIEW_MODEL,
+    previewBuiltIn,
   } from "../lib/live-preview";
   import {
     systemAudioState,
@@ -61,7 +65,6 @@
   const models = $derived(library.data?.models ?? []);
   const hardware = $derived(profiles.hardware);
   const mac = $derived(hardware?.hardware.appleSilicon ?? false);
-  // Shown in Compare models, where it explains which models can run here.
   const hardwareText = $derived(
     hardware
       ? [
@@ -112,7 +115,6 @@
   const dictation = $derived(
     models.find((model) => model.id === settings.asrModel),
   );
-  // Every speech model this computer can run, for Compare models.
   const runnable = $derived(
     models.filter(
       (model) =>
@@ -126,6 +128,16 @@
     models.find(
       (model) =>
         model.id === (meeting ? "nemotron-3-diarization" : LIVE_PREVIEW_MODEL),
+    ),
+  );
+  // SonoJot Parakeet drafts live text itself, so the switch needs no helper.
+  const builtInPreview = $derived(!meeting && previewBuiltIn(settings.asrModel));
+  const parakeetHere = $derived(
+    models.some(
+      (model) =>
+        model.id === PARAKEET_PREVIEW_MODEL &&
+        model.supported &&
+        !modelUnavailableReason(model),
     ),
   );
   const locked = $derived(speechChoice.locked);
@@ -159,6 +171,11 @@
       ? speechChoice.failure
       : null,
   );
+  const sourceOptions = [
+    { value: "both" as const, label: "Both" },
+    { value: "microphone" as const, label: "You" },
+    { value: "system" as const, label: "Others" },
+  ];
   onMount(() => {
     const release = library.acquire();
     void profiles.check();
@@ -195,8 +212,8 @@
         ? "Downloading"
         : installed(model)
           ? model.id === current
-            ? "✓ In use"
-            : "Use"
+            ? ""
+            : "Installed"
           : model.installable
             ? `↓ ${formatBytes(model.diskBytes)}`
             : "Unavailable";
@@ -264,27 +281,31 @@
 {/snippet}
 
 <div class="speech-screen">
-  {#if !hardware}<p>{profiles.hardwareError || "Reading this computer…"}</p>
+  {#if !hardware}<p class="field-help">
+      {profiles.hardwareError || "Reading this computer…"}
+    </p>
     <button
       class="button small"
       disabled={profiles.checking}
       onclick={() => profiles.check()}>Try again</button
     >{/if}
-  {#if meeting}<div class="stock paper-card source-row">
-      <span>Records</span>
-      <div class="segments" role="group" aria-label="Meeting sources">
-        {#each [{ id: "both", label: "Both" }, { id: "microphone", label: "You" }, { id: "system", label: "Others" }] as item}<button
-            aria-pressed={settings.meetingSource === item.id}
-            disabled={locked}
-            onclick={() => source(item.id as "both" | "microphone" | "system")}
-            >{item.label}</button
-          >{/each}
-      </div>
-      <small
-        >{meetingSourceWarning(settings.meetingSource) ||
-          "You and the people you hear"}</small
+  {#if meeting}
+    <section class="stock paper-card ui-card row-card">
+      <SettingRow
+        label="Records"
+        layout="choice"
+        help={meetingSourceWarning(settings.meetingSource) ||
+          "You and the people you hear"}
       >
-    </div>
+        <SegmentedControl
+          label="Meeting sources"
+          options={sourceOptions}
+          value={settings.meetingSource}
+          disabled={locked}
+          onchange={(value) => void source(value)}
+        />
+      </SettingRow>
+    </section>
     {#if settings.meetingSource !== "microphone" && system && app.snapshot.capabilities.systemAudioStatus !== "ready"}<p
         class="permission"
       >
@@ -296,22 +317,27 @@
           >{/if}
       </p>{/if}
   {/if}
-  <div class="model-list" role="group" aria-label="Speech models">
+  <section
+    class="stock paper-card ui-card option-card option-list model-list"
+    role="group"
+    aria-label="Speech models"
+  >
     {#if meeting}
       {@const same =
         current === settings.asrModel && !settings.meetingAsrModel}
-      <div class="stock paper-card model-card" class:chosen={same}>
+      <div class="option-row model-card" class:chosen={same}>
         <button
           class="card-choose"
           aria-pressed={same}
           disabled={locked}
           onclick={() => speechChoice.sameAsDictation()}
-          ><span class="choice-dot"></span><span class="model-copy"
+          ><span class="choice-dot" aria-hidden="true"></span><span
+            class="model-copy"
             ><span class="title-line"
               ><strong data-text-surface="emboss">Same as dictation</strong
               ><small class="stamp">Recommended</small></span
             ><small>{dictation?.name ?? settings.asrModel}</small></span
-          ><span class="cost">{same ? "✓ In use" : "Use"}</span></button
+          ></button
         >{#if dictation}<InfoTip label="About Same as dictation"
             ><p>
               Meetings use your dictation model, so there is nothing extra to
@@ -321,7 +347,7 @@
           >{/if}
       </div>
       <div
-        class="stock paper-card model-card"
+        class="option-row model-card"
         class:chosen={current === GRANITE_SPEECH_MODEL}
         data-model-id={GRANITE_SPEECH_MODEL}
       >
@@ -333,7 +359,8 @@
             !!modelUnavailableReason(granite) ||
             checking(granite)}
           onclick={() => granite && choose(granite)}
-          ><span class="choice-dot"></span><span class="model-copy"
+          ><span class="choice-dot" aria-hidden="true"></span><span
+            class="model-copy"
             ><span class="title-line"
               ><strong data-text-surface="emboss">Granite Speech 4.1</strong
               ><small class="stamp">Meetings only</small></span
@@ -343,11 +370,9 @@
                 : modelUnavailableReason(granite) ||
                   "Fewer errors on meeting room microphones."}</small
             ></span
-          ><span class="cost"
-            >{granite && !modelUnavailableReason(granite)
-              ? status(granite)
-              : "Unavailable"}</span
-          ></button
+          >{#if granite && !modelUnavailableReason(granite)}{@const meta =
+              status(granite)}{#if meta}<span class="option-meta">{meta}</span
+              >{/if}{:else}<span class="option-meta">Unavailable</span>{/if}</button
         >{#if granite}<InfoTip label="About Granite Speech 4.1"
             ><p>
               Measured on AMI meeting room recordings. Your own voice may still
@@ -357,7 +382,7 @@
           >{/if}
       </div>
       <div
-        class="stock paper-card model-card"
+        class="option-row model-card"
         class:chosen={current === "openrouter"}
       >
         <button
@@ -365,11 +390,14 @@
           aria-pressed={current === "openrouter"}
           disabled={locked}
           onclick={() => openRouter.open("meeting")}
-          ><span class="choice-dot"></span><span class="model-copy"
-            ><strong data-text-surface="emboss">Online · OpenRouter</strong
+          ><span class="choice-dot" aria-hidden="true"></span><span
+            class="model-copy"
+            ><span class="title-line"
+              ><strong data-text-surface="emboss">Online · OpenRouter</strong
+              ></span
             ><small>{ai.data?.speechModel || "Audio leaves this computer."}</small
             ></span
-          ><span class="cost" aria-hidden="true">›</span></button
+          ><span class="option-meta" aria-hidden="true">›</span></button
         ><InfoTip label="About online speech"
           ><p>
             Sends meeting audio to the online model you choose through
@@ -380,9 +408,10 @@
     {:else}
       {#each rows as model (model.id)}{@const edge =
           frontier.includes(model.id) ||
-          model.id === hardware?.frontier.otherLanguages}
+          model.id === hardware?.frontier.otherLanguages}{@const meta =
+          status(model)}
         <div
-          class="stock paper-card model-card"
+          class="option-row model-card"
           class:chosen={model.id === current}
           class:dimmed={!edge}
           data-model-id={model.id}
@@ -395,21 +424,20 @@
               checking(model)}
             onclick={() => choose(model)}
           >
-            <span class="choice-dot"></span><span class="model-copy"
+            <span class="choice-dot" aria-hidden="true"></span><span
+              class="model-copy"
               ><span class="title-line"
                 ><strong data-text-surface="emboss">{model.name}</strong
                 >{#if model.id === recommended}<small class="stamp"
                     >Recommended</small
                   >{/if}{#if current === model.id && current !== recommended}<small
-                    class="stamp custom">Custom</small
-                  >{/if}{#if !edge}<small class="stamp custom"
-                    >Not recommended here</small
+                    class="stamp">Custom</small
                   >{/if}</span
               ><small
                 >{modelUnavailableReason(model) ||
                   speechLine(model, { mac })}</small
               ></span
-            ><span class="cost">{status(model)}</span>
+            >{#if meta}<span class="option-meta">{meta}</span>{/if}
           </button>
           <InfoTip label="About {model.name}"
             >{@render details(model, false)}</InfoTip
@@ -417,7 +445,7 @@
         </div>
       {/each}
     {/if}
-  </div>
+  </section>
   {#if !meeting}<div class="list-actions">
       <button class="button small" onclick={() => (compare = true)}
         >Compare models</button
@@ -465,35 +493,40 @@
           void speechChoice.use(m, speechChoice.failure.role);
       }}>Retry</button
     >{/if}
-  <div class="stock paper-card helper-row">
-    <span class="helper-label"
-      >{meeting ? "Speaker names" : "Live preview"}<InfoTip
-        label={meeting ? "About Speaker names" : "About Live preview"}
-        ><p>
+  <section class="stock paper-card ui-card row-card helper-card">
+    <SettingRow label={meeting ? "Speaker names" : "Live preview"} layout="action">
+      {#snippet info()}
+        <p>
           {meeting ? "Labels voices in the transcript." : LIVE_PREVIEW_SUMMARY}
         </p>
-        {#if helper}<p>
+        {#if builtInPreview}<p>
+            Uses SonoJot Parakeet, with no extra download.
+          </p>{:else if helper}<p>
             Uses {helper.name}, a {formatBytes(helper.diskBytes)} download.
-          </p>{/if}</InfoTip
-      ></span
-    >{#if helper && installed(helper)}<Toggle
-        label={meeting ? "Speaker names" : "Live preview"}
-        checked={meeting ? settings.meetingSpeakerLabels : settings.livePreview}
-        disabled={locked}
-        onchange={(value) =>
-          app.saveSettings(
-            meeting ? { meetingSpeakerLabels: value } : { livePreview: value },
-          )}
-      />{:else if helper && !modelUnavailableReason(helper)}<button
-        class="button small"
-        disabled={locked || checking(helper)}
-        onclick={() => speechChoice.use(helper, "helper")}
-        >{checking(helper)
-          ? "Checking…"
-          : `Install · ${formatBytes(helper.diskBytes)}`}</button
-      >{:else}<small>Not available on this computer</small>{/if}
-  </div>
-  {#if changes.length}<div class="reset-row">
+          </p>{/if}
+      {/snippet}
+      {#if builtInPreview || (helper && installed(helper))}<Toggle
+          label={meeting ? "Speaker names" : "Live preview"}
+          checked={meeting ? settings.meetingSpeakerLabels : settings.livePreview}
+          disabled={locked}
+          onchange={(value) =>
+            app.saveSettings(
+              meeting ? { meetingSpeakerLabels: value } : { livePreview: value },
+            )}
+        />{:else if helper && !modelUnavailableReason(helper)}<button
+          class="button small"
+          disabled={locked || checking(helper)}
+          onclick={() => speechChoice.use(helper, "helper")}
+          >{checking(helper)
+            ? "Checking…"
+            : `Install · ${formatBytes(helper.diskBytes)}`}</button
+        >{:else if !meeting && parakeetHere}<small class="field-help"
+          >Choose SonoJot Parakeet to use it</small
+        >{:else}<small class="field-help">Not available on this computer</small
+        >{/if}
+    </SettingRow>
+  </section>
+  {#if changes.length}<div class="list-footer reset-row">
       <span
         >Custom choices in {changes
           .map(
@@ -573,162 +606,24 @@
 
 <style>
   .speech-screen {
-    max-width: 760px;
-    margin: 0 auto;
-  }
-  .model-list {
-    display: grid;
-    gap: 12px;
-  }
-  .model-card {
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 16px 0 0;
-    border: 1px solid transparent;
-    border-radius: 14px;
-    background-color: var(--card);
-    color: var(--ink);
-    box-shadow: var(--raise-sm);
-  }
-  .model-card.chosen {
-    border-color: var(--dye);
-    outline: 1px solid var(--dye);
-  }
-  .model-card.chosen .choice-dot {
-    background: var(--dye);
-  }
-  .model-card.dimmed {
-    opacity: 0.65;
-  }
-  .card-choose {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 13px;
-    min-height: 76px;
-    margin: 0;
-    padding: 14px 6px 14px 16px;
-    border: 0;
-    border-radius: 14px;
-    background: transparent;
-    box-shadow: none;
-    color: inherit;
-    text-align: left;
-    font: inherit;
-  }
-  /* The focus ring goes round the whole card, info button included. */
-  .card-choose:focus-visible {
-    outline: none;
-  }
-  .model-card:has(.card-choose:focus-visible) {
-    outline: 2px solid var(--focus);
-    outline-offset: 3px;
-  }
-  .model-copy {
-    display: grid;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-  }
-  .title-line {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 10px;
-  }
-  .model-copy strong {
-    font-size: 16px;
-    font-weight: 600;
-  }
-  .model-copy small {
-    font-size: 14px;
-    line-height: 1.4;
-    color: var(--soft-ink);
-  }
-  .model-copy .stamp {
-    display: inline-block;
-    border: 1px solid var(--line);
-    padding: 0 4px;
-    font-size: 10px;
-    line-height: 1.5;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--dye);
-  }
-  .model-copy .stamp.custom {
-    color: var(--soft-ink);
-  }
-  .cost {
-    font-size: 13px;
-    flex-shrink: 0;
-    text-align: right;
-    white-space: nowrap;
+    width: 100%;
   }
   .list-actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px 22px;
-    margin: 16px 0 0;
+    gap: 10px 20px;
+    margin: -4px 4px 18px;
   }
   .list-actions .text-action {
     font-size: 14px;
   }
-  .helper-row {
-    border-radius: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px;
-    margin-top: 22px;
-    gap: 18px;
-  }
-  .helper-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .helper-row > small {
-    color: var(--soft-ink);
-    font-size: 13px;
-  }
-  .source-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px 20px;
-    align-items: center;
-    padding: 14px 20px;
-    margin: 0 0 12px;
-  }
-  .source-row .segments {
-    margin: 0;
-    padding: 3px;
-    gap: 3px;
-  }
-  .source-row .segments button {
-    padding: 8px 15px;
-  }
-  .source-row small {
-    color: var(--soft-ink);
-    font-size: 13px;
-  }
   .permission {
     font-size: 14px;
+    margin: 0 0 14px;
   }
   .permission button {
     margin-left: 12px;
-  }
-  .reset-row {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 8px 16px;
-    margin-top: 18px;
-    color: var(--soft-ink);
-    font-size: 12px;
   }
   .sheet-actions {
     display: flex;

@@ -56,7 +56,7 @@ test("changing meeting while the native save dialog waits keeps the original exp
     )
     .toBeGreaterThan(0);
   await page.getByRole("button", { name: "Close sheet" }).click();
-  await page.getByRole("button", { name: "All meetings" }).click();
+  await page.getByRole("button", { name: "Back to Meetings" }).click();
   await openMeeting(page, /Client call/);
   await page.evaluate(() => window.__testReleaseDialogSave("C:/held-copy.wav"));
   await expect
